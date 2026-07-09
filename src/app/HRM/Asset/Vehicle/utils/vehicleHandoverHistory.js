@@ -158,6 +158,18 @@ function resolveFleetHandoverLifecycle(entry, vehicle) {
     const flow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
     const isLinked =
         flow?.historyId && entry?._id && String(flow.historyId) === String(entry._id);
+    const vehicleStatus = String(vehicle?.acceptanceStatus || '').trim();
+
+    if (
+        vehicleStatus === 'Accepted' &&
+        !isLinked &&
+        (action === 'Assigned' || action === 'Accepted') &&
+        (lifecycle === 'accepted' ||
+            lifecycle === 'approved' ||
+            Boolean(entry?.details?.vehicleHandoverWorkflow?.stages?.target?.date))
+    ) {
+        return 'approved';
+    }
 
     if (isLinked && lifecycle !== 'rejected') {
         if (lifecycle === 'approved') return 'approved';

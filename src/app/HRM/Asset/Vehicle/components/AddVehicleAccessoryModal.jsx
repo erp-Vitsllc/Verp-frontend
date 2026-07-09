@@ -22,6 +22,7 @@ export default function AddVehicleAccessoryModal({
     onClose,
     onSubmit,
     saving = false,
+    asset = null,
     displaySets = [],
 }) {
     const fileInputRef = useRef(null);
@@ -44,8 +45,8 @@ export default function AddVehicleAccessoryModal({
     );
 
     const currentLiveRow = useMemo(
-        () => (accessoryKey ? resolveCurrentLiveAccessoryRow(displaySets, accessoryKey) : null),
-        [accessoryKey, displaySets],
+        () => (accessoryKey ? resolveCurrentLiveAccessoryRow(displaySets, accessoryKey, asset) : null),
+        [accessoryKey, asset, displaySets],
     );
 
     const currentLivePhotoUrl = resolveAssessmentMediaUrl(
@@ -123,7 +124,7 @@ export default function AddVehicleAccessoryModal({
                     {isReplacing ? (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
                             A live <strong>{selectedItem?.label}</strong> already exists. The current
-                            one will move to <strong>Lost Accessories</strong> and this new image will
+                            one will move to <strong>Old Accessories</strong> and this new image will
                             become live.
                         </div>
                     ) : null}

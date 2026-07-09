@@ -531,166 +531,166 @@ function VehicleDetailsPageContent() {
         if (!asset?._id) return;
 
         const fetchUserDataAndCheckController = async () => {
-                try {
-                    const [userRes, companyRes, flowRes] = await Promise.all([
-                        axiosInstance.get('/Employee/me'),
-                        axiosInstance.get('/Company', { params: { scope: 'responsibilities' } }),
-                        axiosInstance.get('/Flowchart').catch((e) => {
-                            return { data: [] };
-                        }),
-                    ]);
+            try {
+                const [userRes, companyRes, flowRes] = await Promise.all([
+                    axiosInstance.get('/Employee/me'),
+                    axiosInstance.get('/Company', { params: { scope: 'responsibilities' } }),
+                    axiosInstance.get('/Flowchart').catch((e) => {
+                        return { data: [] };
+                    }),
+                ]);
 
-                    if (userRes && userRes.data) {
-                        const stored = parseStoredSessionUser();
-                        setCurrentUser({
-                            ...userRes.data,
-                            isSystemSuperUser:
-                                userRes.data.isSystemSuperUser ?? stored?.isSystemSuperUser ?? false,
-                            isAdministrator:
-                                userRes.data.isAdministrator ?? stored?.isAdministrator ?? false,
-                            isAdmin: userRes.data.isAdmin ?? stored?.isAdmin ?? false,
-                            name: userRes.data.name || stored?.name,
-                            username: userRes.data.username || stored?.username,
-                        });
-                        const actualId =
-                            userRes.data.employeeObjectId || userRes.data._id || userRes.data.id;
-                        if (actualId) setCurrentUserEmployeeId(actualId);
+                if (userRes && userRes.data) {
+                    const stored = parseStoredSessionUser();
+                    setCurrentUser({
+                        ...userRes.data,
+                        isSystemSuperUser:
+                            userRes.data.isSystemSuperUser ?? stored?.isSystemSuperUser ?? false,
+                        isAdministrator:
+                            userRes.data.isAdministrator ?? stored?.isAdministrator ?? false,
+                        isAdmin: userRes.data.isAdmin ?? stored?.isAdmin ?? false,
+                        name: userRes.data.name || stored?.name,
+                        username: userRes.data.username || stored?.username,
+                    });
+                    const actualId =
+                        userRes.data.employeeObjectId || userRes.data._id || userRes.data.id;
+                    if (actualId) setCurrentUserEmployeeId(actualId);
 
-                        const companies = companyRes.data.companies || [];
-                        setCompanyResponsibilities(companies);
+                    const companies = companyRes.data.companies || [];
+                    setCompanyResponsibilities(companies);
 
-                        const respCatKey = (c) => (c || '').toLowerCase().replace(/\s+/g, '');
-                        const isActiveResp = (r) =>
-                            String(r?.status || '')
-                                .trim()
-                                .toLowerCase() === 'active';
+                    const respCatKey = (c) => (c || '').toLowerCase().replace(/\s+/g, '');
+                    const isActiveResp = (r) =>
+                        String(r?.status || '')
+                            .trim()
+                            .toLowerCase() === 'active';
 
-                        const allResponsibilities = companies.flatMap((c) =>
-                            Array.isArray(c?.responsibilities) ? c.responsibilities : [],
-                        );
+                    const allResponsibilities = companies.flatMap((c) =>
+                        Array.isArray(c?.responsibilities) ? c.responsibilities : [],
+                    );
 
-                        const controllerFound = allResponsibilities.some(
-                            (r) => respCatKey(r.category) === 'assetcontroller' && isActiveResp(r),
-                        );
-                        setHasAssetController(!!controllerFound);
+                    const controllerFound = allResponsibilities.some(
+                        (r) => respCatKey(r.category) === 'assetcontroller' && isActiveResp(r),
+                    );
+                    setHasAssetController(!!controllerFound);
 
-                        const isVehicleProfileFlowchartAdminRow = (r) => {
-                            if (!r || !isActiveResp(r)) return false;
-                            const k = respCatKey(r.category);
-                            if (k === 'admincontroller' || k === 'admin' || k === 'administrator') return true;
-                            if (k.includes('admin') && k.includes('controller')) return true;
-                            return false;
-                        };
-                        const isFlowchartHrRow = (r) => respCatKey(r.category) === 'hr' && isActiveResp(r);
-                        const isFlowchartAccountsRow = (r) => respCatKey(r.category) === 'accounts' && isActiveResp(r);
-                        const isFlowchartManagementRow = (r) => respCatKey(r.category) === 'management' && isActiveResp(r);
-                        const responsibilityAssigneeMatchesUser = (r, userData) => {
-                            const empRef = r.empObjectId;
-                            const empMongo = typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
-                            const myEmpObj = userData.employeeObjectId;
-                            const myEmployeeDocId = userData._id || userData.id;
-                            if (empMongo) {
-                                const em = String(empMongo);
-                                if (myEmpObj && em === String(myEmpObj)) return true;
-                                if (myEmployeeDocId && em === String(myEmployeeDocId)) return true;
-                            }
-                            const rowCode = normEmpId(
-                                r.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '',
-                            );
-                            const myCode = normEmpId(userData.employeeId || '');
-                            if (rowCode && myCode && rowCode === myCode) return true;
-                            return false;
-                        };
-
-                        let assetControllerFound = allResponsibilities.some(
-                            (r) =>
-                                respCatKey(r.category) === 'assetcontroller' &&
-                                isActiveResp(r) &&
-                                responsibilityAssigneeMatchesUser(r, userRes.data),
-                        );
-                        if (userRes.data?.employeeId) {
-                            try {
-                                const ctrlRes = await axiosInstance.get(
-                                    `/AssetItem/unassigned/controller/${encodeURIComponent(userRes.data.employeeId)}?checkOnly=true`,
-                                    { skipToast: true },
-                                ).catch(() => null);
-                                if (ctrlRes?.status === 200 && ctrlRes.data?.isAuthorized === true) {
-                                    assetControllerFound = true;
-                                }
-                            } catch {
-                                /* non-controller returns 403 — expected */
-                            }
+                    const isVehicleProfileFlowchartAdminRow = (r) => {
+                        if (!r || !isActiveResp(r)) return false;
+                        const k = respCatKey(r.category);
+                        if (k === 'admincontroller' || k === 'admin' || k === 'administrator') return true;
+                        if (k.includes('admin') && k.includes('controller')) return true;
+                        return false;
+                    };
+                    const isFlowchartHrRow = (r) => respCatKey(r.category) === 'hr' && isActiveResp(r);
+                    const isFlowchartAccountsRow = (r) => respCatKey(r.category) === 'accounts' && isActiveResp(r);
+                    const isFlowchartManagementRow = (r) => respCatKey(r.category) === 'management' && isActiveResp(r);
+                    const responsibilityAssigneeMatchesUser = (r, userData) => {
+                        const empRef = r.empObjectId;
+                        const empMongo = typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
+                        const myEmpObj = userData.employeeObjectId;
+                        const myEmployeeDocId = userData._id || userData.id;
+                        if (empMongo) {
+                            const em = String(empMongo);
+                            if (myEmpObj && em === String(myEmpObj)) return true;
+                            if (myEmployeeDocId && em === String(myEmployeeDocId)) return true;
                         }
-                        setIsAssetController(!!assetControllerFound);
+                        const rowCode = normEmpId(
+                            r.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '',
+                        );
+                        const myCode = normEmpId(userData.employeeId || '');
+                        if (rowCode && myCode && rowCode === myCode) return true;
+                        return false;
+                    };
 
-                        const amFlowchartAdminFromCompany = !!allResponsibilities.some(
-                            (r) =>
-                                isVehicleProfileFlowchartAdminRow(r) &&
-                                responsibilityAssigneeMatchesUser(r, userRes.data),
-                        );
-
-                        const flowchartRows = Array.isArray(flowRes?.data) ? flowRes.data : [];
-                        const adminFlowchartRow = pickVehicleProfileAdminFlowchartRow(flowchartRows);
-                        const adminLabelFromFlowchart = displayNameFromVehicleAdminFlowchartRow(adminFlowchartRow);
-                        const amFlowchartAdminFromFlowchart =
-                            !!adminFlowchartRow && flowchartAdminRowMatchesUser(adminFlowchartRow, userRes.data);
-
-                        setIsFlowchartAdminController(
-                            amFlowchartAdminFromFlowchart || (!adminFlowchartRow && amFlowchartAdminFromCompany),
-                        );
-                        setIsFlowchartAssignedAdminOfficer(amFlowchartAdminFromFlowchart);
-
-                        const hrFlowchartRow = pickVehicleProfileHrFlowchartRow(flowchartRows);
-                        const amFlowchartHrFromFlowchart =
-                            !!hrFlowchartRow && flowchartAdminRowMatchesUser(hrFlowchartRow, userRes.data);
-                        const amFlowchartHrFromCompany = !!allResponsibilities.some(
-                            (r) => isFlowchartHrRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
-                        );
-                        setIsFlowchartHr(amFlowchartHrFromFlowchart || (!hrFlowchartRow && amFlowchartHrFromCompany));
-                        const accountsFcRow = pickAccountsFlowchartRow(flowchartRows);
-                        const managementFcRow = pickManagementFlowchartRow(flowchartRows);
-                        const amFlowchartAccountsFromFlowchart =
-                            !!accountsFcRow && flowchartAdminRowMatchesUser(accountsFcRow, userRes.data);
-                        const amFlowchartManagementFromFlowchart =
-                            !!managementFcRow && flowchartAdminRowMatchesUser(managementFcRow, userRes.data);
-                        const amFlowchartAccountsFromCompany = !!allResponsibilities.some(
-                            (r) => isFlowchartAccountsRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
-                        );
-                        const amFlowchartManagementFromCompany = !!allResponsibilities.some(
-                            (r) => isFlowchartManagementRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
-                        );
-                        setIsFlowchartAccounts(
-                            amFlowchartAccountsFromFlowchart || (!accountsFcRow && amFlowchartAccountsFromCompany),
-                        );
-                        setIsFlowchartManagement(
-                            amFlowchartManagementFromFlowchart ||
-                                (!managementFcRow && amFlowchartManagementFromCompany),
-                        );
-
-                        const hrFlowRow = allResponsibilities.find((r) => isFlowchartHrRow(r));
-                        const hrLabelFromCompany =
-                            String(hrFlowRow?.employeeName || '').trim() ||
-                            String(hrFlowRow?.employeeId || '').trim() ||
-                            '';
-                        const hrLabelFromFlowchart = displayNameFromVehicleAdminFlowchartRow(hrFlowchartRow);
-                        setVehicleProfileActivationHrName(hrLabelFromFlowchart || hrLabelFromCompany);
-
-                        const adminFlowRow = allResponsibilities.find((r) => isVehicleProfileFlowchartAdminRow(r));
-                        const adminLabelFromCompany =
-                            String(adminFlowRow?.employeeName || '').trim() ||
-                            String(adminFlowRow?.employeeId || '').trim() ||
-                            '';
-                        setVehicleProfileActivationFlowchartAdminName(
-                            adminLabelFromFlowchart || adminLabelFromCompany,
-                        );
+                    let assetControllerFound = allResponsibilities.some(
+                        (r) =>
+                            respCatKey(r.category) === 'assetcontroller' &&
+                            isActiveResp(r) &&
+                            responsibilityAssigneeMatchesUser(r, userRes.data),
+                    );
+                    if (userRes.data?.employeeId) {
+                        try {
+                            const ctrlRes = await axiosInstance.get(
+                                `/AssetItem/unassigned/controller/${encodeURIComponent(userRes.data.employeeId)}?checkOnly=true`,
+                                { skipToast: true },
+                            ).catch(() => null);
+                            if (ctrlRes?.status === 200 && ctrlRes.data?.isAuthorized === true) {
+                                assetControllerFound = true;
+                            }
+                        } catch {
+                            /* non-controller returns 403 — expected */
+                        }
                     }
-                } catch (err) {
-                    setHasAssetController(false);
-                    setIsFlowchartAdminController(false);
-                    setIsFlowchartAssignedAdminOfficer(false);
-                    setVehicleProfileActivationFlowchartAdminName('');
+                    setIsAssetController(!!assetControllerFound);
+
+                    const amFlowchartAdminFromCompany = !!allResponsibilities.some(
+                        (r) =>
+                            isVehicleProfileFlowchartAdminRow(r) &&
+                            responsibilityAssigneeMatchesUser(r, userRes.data),
+                    );
+
+                    const flowchartRows = Array.isArray(flowRes?.data) ? flowRes.data : [];
+                    const adminFlowchartRow = pickVehicleProfileAdminFlowchartRow(flowchartRows);
+                    const adminLabelFromFlowchart = displayNameFromVehicleAdminFlowchartRow(adminFlowchartRow);
+                    const amFlowchartAdminFromFlowchart =
+                        !!adminFlowchartRow && flowchartAdminRowMatchesUser(adminFlowchartRow, userRes.data);
+
+                    setIsFlowchartAdminController(
+                        amFlowchartAdminFromFlowchart || (!adminFlowchartRow && amFlowchartAdminFromCompany),
+                    );
+                    setIsFlowchartAssignedAdminOfficer(amFlowchartAdminFromFlowchart);
+
+                    const hrFlowchartRow = pickVehicleProfileHrFlowchartRow(flowchartRows);
+                    const amFlowchartHrFromFlowchart =
+                        !!hrFlowchartRow && flowchartAdminRowMatchesUser(hrFlowchartRow, userRes.data);
+                    const amFlowchartHrFromCompany = !!allResponsibilities.some(
+                        (r) => isFlowchartHrRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
+                    );
+                    setIsFlowchartHr(amFlowchartHrFromFlowchart || (!hrFlowchartRow && amFlowchartHrFromCompany));
+                    const accountsFcRow = pickAccountsFlowchartRow(flowchartRows);
+                    const managementFcRow = pickManagementFlowchartRow(flowchartRows);
+                    const amFlowchartAccountsFromFlowchart =
+                        !!accountsFcRow && flowchartAdminRowMatchesUser(accountsFcRow, userRes.data);
+                    const amFlowchartManagementFromFlowchart =
+                        !!managementFcRow && flowchartAdminRowMatchesUser(managementFcRow, userRes.data);
+                    const amFlowchartAccountsFromCompany = !!allResponsibilities.some(
+                        (r) => isFlowchartAccountsRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
+                    );
+                    const amFlowchartManagementFromCompany = !!allResponsibilities.some(
+                        (r) => isFlowchartManagementRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
+                    );
+                    setIsFlowchartAccounts(
+                        amFlowchartAccountsFromFlowchart || (!accountsFcRow && amFlowchartAccountsFromCompany),
+                    );
+                    setIsFlowchartManagement(
+                        amFlowchartManagementFromFlowchart ||
+                        (!managementFcRow && amFlowchartManagementFromCompany),
+                    );
+
+                    const hrFlowRow = allResponsibilities.find((r) => isFlowchartHrRow(r));
+                    const hrLabelFromCompany =
+                        String(hrFlowRow?.employeeName || '').trim() ||
+                        String(hrFlowRow?.employeeId || '').trim() ||
+                        '';
+                    const hrLabelFromFlowchart = displayNameFromVehicleAdminFlowchartRow(hrFlowchartRow);
+                    setVehicleProfileActivationHrName(hrLabelFromFlowchart || hrLabelFromCompany);
+
+                    const adminFlowRow = allResponsibilities.find((r) => isVehicleProfileFlowchartAdminRow(r));
+                    const adminLabelFromCompany =
+                        String(adminFlowRow?.employeeName || '').trim() ||
+                        String(adminFlowRow?.employeeId || '').trim() ||
+                        '';
+                    setVehicleProfileActivationFlowchartAdminName(
+                        adminLabelFromFlowchart || adminLabelFromCompany,
+                    );
                 }
-            };
+            } catch (err) {
+                setHasAssetController(false);
+                setIsFlowchartAdminController(false);
+                setIsFlowchartAssignedAdminOfficer(false);
+                setVehicleProfileActivationFlowchartAdminName('');
+            }
+        };
         fetchUserDataAndCheckController();
     }, [asset?._id]);
 
@@ -793,8 +793,8 @@ function VehicleDetailsPageContent() {
                             ? 'Could not load this Locator GPS vehicle. Check GPS connection and try again.'
                             : 'This vehicle may be in draft and only visible to its creator.'
                         : isTimeout
-                          ? 'The server took too long. Try again or open another tab first.'
-                          : error?.response?.data?.message ||
+                            ? 'The server took too long. Try again or open another tab first.'
+                            : error?.response?.data?.message ||
                             error?.message ||
                             'Failed to fetch vehicle details',
                 });
@@ -1322,12 +1322,12 @@ function VehicleDetailsPageContent() {
         vehicleActStatus === 'active'
             ? 'active'
             : vehicleActStatus === 'rejected'
-              ? 'rejected'
-              : vehicleActStatus === 'submitted'
-                ? heldSections.length > 0
-                    ? 'on_hold'
-                    : 'pending_review'
-                : 'inactive';
+                ? 'rejected'
+                : vehicleActStatus === 'submitted'
+                    ? heldSections.length > 0
+                        ? 'on_hold'
+                        : 'pending_review'
+                    : 'inactive';
 
     const isVehicleProfileActive = vehicleActPhase === 'active';
     const canAdminDeleteVehicleRecords = permissionsMounted && checkIsAdmin();
@@ -1418,11 +1418,11 @@ function VehicleDetailsPageContent() {
         () =>
             carWashModalService
                 ? canUserValidateCarWashAccounts(
-                      carWashModalService,
-                      asset,
-                      isFlowchartAccounts,
-                      currentUser,
-                  )
+                    carWashModalService,
+                    asset,
+                    isFlowchartAccounts,
+                    currentUser,
+                )
                 : false,
         [carWashModalService, asset, isFlowchartAccounts, currentUser],
     );
@@ -1762,18 +1762,18 @@ function VehicleDetailsPageContent() {
                     </h3>
                     <div className="flex items-center gap-2 shrink-0">
                         {vehicleCardActionFlags('warranty').showEdit && (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setDocTabWarrantyDoc(doc);
-                                setIsWarrantyRenew(false);
-                                setShowWarrantyModal(true);
-                            }}
-                            className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                            title="Edit"
-                        >
-                            <PencilLine size={18} />
-                        </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDocTabWarrantyDoc(doc);
+                                    setIsWarrantyRenew(false);
+                                    setShowWarrantyModal(true);
+                                }}
+                                className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                title="Edit"
+                            >
+                                <PencilLine size={18} />
+                            </button>
                         )}
                         {vehicleCardActionFlags('warranty').showRenew && (
                             <button
@@ -1821,14 +1821,14 @@ function VehicleDetailsPageContent() {
                                 : '-',
                         },
                     ].map((row, idx, arr) => (
-                            <div
-                                key={row.label}
-                                className={`flex items-center justify-between gap-3 py-3 ${idx !== arr.length - 1 || doc?.attachment || cardAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
-                            >
-                                <span className="text-[13px] text-slate-500 shrink-0">{row.label}</span>
-                                <span className="text-[13px] font-semibold text-slate-700 text-right break-words ml-auto">{row.value}</span>
-                            </div>
-                        ))}
+                        <div
+                            key={row.label}
+                            className={`flex items-center justify-between gap-3 py-3 ${idx !== arr.length - 1 || doc?.attachment || cardAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                        >
+                            <span className="text-[13px] text-slate-500 shrink-0">{row.label}</span>
+                            <span className="text-[13px] font-semibold text-slate-700 text-right break-words ml-auto">{row.value}</span>
+                        </div>
+                    ))}
 
                     {(doc?.attachment || cardAttachments.length > 0) && (
                         <div className="mt-4 pt-4 border-t border-slate-50">
@@ -3071,10 +3071,10 @@ function VehicleDetailsPageContent() {
                                         {canReviewDispositionHr
                                             ? 'HR review required (Accept / Reject).'
                                             : dispositionWorkflowStage === 'pending_finance'
-                                              ? 'Either Accounts or Management may submit once — vehicle becomes Sold / Total loss and both tasks are cleared.'
-                                              : canSubmitDispositionAccounts
-                                                ? 'Accounts: open Review to submit.'
-                                                : 'Management: open Review to submit.'}
+                                                ? 'Either Accounts or Management may submit once — vehicle becomes Sold / Total loss and both tasks are cleared.'
+                                                : canSubmitDispositionAccounts
+                                                    ? 'Accounts: open Review to submit.'
+                                                    : 'Management: open Review to submit.'}
                                     </p>
                                 </div>
                                 <button
@@ -3336,720 +3336,720 @@ function VehicleDetailsPageContent() {
                         {/* Tab Content */}
                         <div className="min-h-[600px]">
                             {activeTab === 'basic' && (
-                                 <div className="w-full max-w-none">
-                                      <div className="flex flex-col lg:flex-row gap-3 items-start">
-                                          {/* Left Column */}
-                                          <div className="flex-1 space-y-3 w-full">
-                                              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                   <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                       <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
-                                                       <div className="flex items-center gap-2 flex-wrap justify-end">
-                                                           {showDispositionReviewControl && (
-                                                               <button
-                                                                   type="button"
-                                                                   onClick={() => {
-                                                                       if (canReviewDispositionHr) {
-                                                                           setDispositionReviewMode('hr');
-                                                                       } else if (canSubmitDispositionAccounts) {
-                                                                           setDispositionReviewMode('accounts');
-                                                                       } else {
-                                                                           setDispositionReviewMode('management');
-                                                                       }
-                                                                       setShowDispositionReviewModal(true);
-                                                                   }}
-                                                                   className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black uppercase tracking-widest shadow-sm"
-                                                               >
-                                                                   Review disposition
-                                                               </button>
-                                                           )}
-                                                           {vehicleCardActionFlags('vehicle').showEdit && (
-                                                           <button
-                                                               type="button"
-                                                               className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
-                                                               title="Edit"
-                                                               onClick={() => {
-                                                                   setEditBasicDetailsModalOpen(true);
-                                                               }}
-                                                           >
-                                                               <PencilLine size={18} />
-                                                           </button>
-                                                           )}
-                                                           {canDeleteVehicleServiceRecords && (
-                                                               <button
-                                                                   type="button"
-                                                                   onClick={handleDeleteVehicle}
-                                                                   className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                   title="Delete vehicle (admin, profile active)"
-                                                               >
-                                                                   <Trash2 size={18} />
-                                                               </button>
-                                                           )}
-                                                       </div>
-                                                   </div>
+                                <div className="w-full max-w-none">
+                                    <div className="flex flex-col lg:flex-row gap-3 items-start">
+                                        {/* Left Column */}
+                                        <div className="flex-1 space-y-3 w-full">
+                                            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                    <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
+                                                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                                                        {showDispositionReviewControl && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (canReviewDispositionHr) {
+                                                                        setDispositionReviewMode('hr');
+                                                                    } else if (canSubmitDispositionAccounts) {
+                                                                        setDispositionReviewMode('accounts');
+                                                                    } else {
+                                                                        setDispositionReviewMode('management');
+                                                                    }
+                                                                    setShowDispositionReviewModal(true);
+                                                                }}
+                                                                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black uppercase tracking-widest shadow-sm"
+                                                            >
+                                                                Review disposition
+                                                            </button>
+                                                        )}
+                                                        {vehicleCardActionFlags('vehicle').showEdit && (
+                                                            <button
+                                                                type="button"
+                                                                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                                                                title="Edit"
+                                                                onClick={() => {
+                                                                    setEditBasicDetailsModalOpen(true);
+                                                                }}
+                                                            >
+                                                                <PencilLine size={18} />
+                                                            </button>
+                                                        )}
+                                                        {canDeleteVehicleServiceRecords && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleDeleteVehicle}
+                                                                className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                title="Delete vehicle (admin, profile active)"
+                                                            >
+                                                                <Trash2 size={18} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
 
-                                                   <div className="px-5 pb-4">
-                                                       {buildVehicleBasicDetailsRows(asset)
-                                                           .map((row, idx, arr) => (
-                                                               <div
-                                                                   key={`${row.label}-${idx}`}
-                                                                   className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
-                                                               >
-                                                                   <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                   <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words flex items-center justify-end gap-2">
-                                                                       {row.value != null && row.value !== '' ? (
-                                                                           row.value
-                                                                       ) : (
-                                                                           <span className="text-slate-300 font-semibold">—</span>
-                                                                       )}
-                                                                   </span>
-                                                               </div>
-                                                           ))}
-                                                   </div>
-                                              </div>
+                                                <div className="px-5 pb-4">
+                                                    {buildVehicleBasicDetailsRows(asset)
+                                                        .map((row, idx, arr) => (
+                                                            <div
+                                                                key={`${row.label}-${idx}`}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
+                                                            >
+                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words flex items-center justify-end gap-2">
+                                                                    {row.value != null && row.value !== '' ? (
+                                                                        row.value
+                                                                    ) : (
+                                                                        <span className="text-slate-300 font-semibold">—</span>
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </div>
 
-                                              {hasInsuranceCardData && (
-                                                  <div id="asset-focus-vehicleInsurance" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Insurance Details</h3>
-                                                          <div className="flex items-center gap-2">
-                                                              {vehicleCardActionFlags('insurance').showRenew && (
-                                                                  <button
-                                                                      type="button"
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
-                                                                      title="Renew"
-                                                                      onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
-                                                                  >
-                                                                      <RefreshCw size={18} />
-                                                                  </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('insurance').showNotRenew && insuranceDoc && (
-                                                                  <button
-                                                                      type="button"
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
-                                                                      title="Not Renew"
-                                                                      onClick={() => setDocToNotRenew(insuranceDoc)}
-                                                                  >
-                                                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                          <circle cx="12" cy="12" r="10" />
-                                                                          <path d="M4.9 4.9l14.2 14.2" />
-                                                                      </svg>
-                                                                  </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('insurance').showEdit && (
-                                                              <button
-                                                                  type="button"
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                                                  title="Edit"
-                                                                  onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
-                                                              >
-                                                                  <PencilLine size={18} />
-                                                              </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('insurance').showDelete && (
-                                                                  <button
-                                                                      type="button"
-                                                                      onClick={() => { setDocToDelete(insuranceDoc); }}
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                      title="Delete"
-                                                                  >
-                                                                      <Trash2 size={18} />
-                                                                  </button>
-                                                              )}
-                                                          </div>
-                                                      </div>
+                                            {hasInsuranceCardData && (
+                                                <div id="asset-focus-vehicleInsurance" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                        <h3 className="text-base font-bold text-slate-800">Insurance Details</h3>
+                                                        <div className="flex items-center gap-2">
+                                                            {vehicleCardActionFlags('insurance').showRenew && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                    title="Renew"
+                                                                    onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
+                                                                >
+                                                                    <RefreshCw size={18} />
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('insurance').showNotRenew && insuranceDoc && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+                                                                    title="Not Renew"
+                                                                    onClick={() => setDocToNotRenew(insuranceDoc)}
+                                                                >
+                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <circle cx="12" cy="12" r="10" />
+                                                                        <path d="M4.9 4.9l14.2 14.2" />
+                                                                    </svg>
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('insurance').showEdit && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                    title="Edit"
+                                                                    onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                                >
+                                                                    <PencilLine size={18} />
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('insurance').showDelete && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setDocToDelete(insuranceDoc); }}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                    title="Delete"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
 
-                                                      <div className="px-5 pb-4">
-                                                          {[
-                                                              { label: 'Insurance Company', value: insuranceMeta.company },
-                                                              { label: 'Policy Number', value: insuranceMeta.policy },
-                                                              { label: 'Start Date', value: insuranceDoc?.issueDate ? formatDate(insuranceDoc.issueDate) : null },
-                                                              { label: 'End Date', value: insuranceDoc?.expiryDate ? formatDate(insuranceDoc.expiryDate) : null },
-                                                              { label: 'Premium Amount', value: insuranceMeta.premiumAmount ? `AED ${Number(insuranceMeta.premiumAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : null },
-                                                              { label: 'Excess Charge', value: insuranceMeta.excessCharge ? `AED ${Number(insuranceMeta.excessCharge).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : null },
-                                                          ].filter(r => r.value).map((row, idx, arr) => (
-                                                              <div
-                                                                  key={row.label}
-                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || insuranceAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
-                                                              >
-                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
-                                                              </div>
-                                                          ))}
+                                                    <div className="px-5 pb-4">
+                                                        {[
+                                                            { label: 'Insurance Company', value: insuranceMeta.company },
+                                                            { label: 'Policy Number', value: insuranceMeta.policy },
+                                                            { label: 'Start Date', value: insuranceDoc?.issueDate ? formatDate(insuranceDoc.issueDate) : null },
+                                                            { label: 'End Date', value: insuranceDoc?.expiryDate ? formatDate(insuranceDoc.expiryDate) : null },
+                                                            { label: 'Premium Amount', value: insuranceMeta.premiumAmount ? `AED ${Number(insuranceMeta.premiumAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : null },
+                                                            { label: 'Excess Charge', value: insuranceMeta.excessCharge ? `AED ${Number(insuranceMeta.excessCharge).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : null },
+                                                        ].filter(r => r.value).map((row, idx, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || insuranceAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                            >
+                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                            </div>
+                                                        ))}
 
-                                                          {insuranceAttachments.length > 0 && (
-                                                              <div className="mt-4 pt-4 border-t border-slate-50">
-                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Insurance Documents</h4>
-                                                                  <div className="space-y-2">
-{insuranceAttachments.map((att, idx) => (
-                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                                                                      <FileText size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Document'}</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      ))}
-                                                                  </div>
-                                                              </div>
-                                                          )}
-                                                      </div>
-                                                  </div>
-                                              )}
+                                                        {insuranceAttachments.length > 0 && (
+                                                            <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Insurance Documents</h4>
+                                                                <div className="space-y-2">
+                                                                    {insuranceAttachments.map((att, idx) => (
+                                                                        <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                    <FileText size={16} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Document'}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
+                                                                                className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                            >
+                                                                                <Eye size={12} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                              {hasPetrolCardData && (
-                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Petrol tag</h3>
-                                                          <div className="flex items-center gap-2">
-                                                              {vehicleCardActionFlags('petrol').showEdit && (
-                                                              <button
-                                                                  type="button"
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                                                  title="Edit"
-                                                                  onClick={() => { setShowPetrolModal(true); }}
-                                                              >
-                                                                  <PencilLine size={18} />
-                                                              </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('petrol').showDelete && (
-                                                                  <button
-                                                                      type="button"
-                                                                      onClick={() => { setDocToDelete(petrolDoc); }}
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                      title="Delete"
-                                                                  >
-                                                                      <Trash2 size={18} />
-                                                                  </button>
-                                                              )}
-                                                          </div>
-                                                      </div>
+                                            {hasPetrolCardData && (
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                        <h3 className="text-base font-bold text-slate-800">Petrol tag</h3>
+                                                        <div className="flex items-center gap-2">
+                                                            {vehicleCardActionFlags('petrol').showEdit && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                    title="Edit"
+                                                                    onClick={() => { setShowPetrolModal(true); }}
+                                                                >
+                                                                    <PencilLine size={18} />
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('petrol').showDelete && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setDocToDelete(petrolDoc); }}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                    title="Delete"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
 
-                                                      <div className="px-5 pb-4">
-                                                          {[
-                                                              { label: 'Petrol company', value: petrolMeta.vendor },
-                                                              { label: 'Tag name', value: petrolMeta.tagNo },
-                                                              { label: 'Monthly limit', value: petrolMeta.limit },
-                                                              { label: 'Installation date', value: formatDate(petrolDoc?.issueDate) },
-                                                          ].filter(r => r.value).map((row, idx, arr) => (
-                                                              <div
-                                                                  key={row.label}
-                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || petrolDoc?.attachment || petrolAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
-                                                              >
-                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
-                                                              </div>
-                                                          ))}
+                                                    <div className="px-5 pb-4">
+                                                        {[
+                                                            { label: 'Petrol company', value: petrolMeta.vendor },
+                                                            { label: 'Tag name', value: petrolMeta.tagNo },
+                                                            { label: 'Monthly limit', value: petrolMeta.limit },
+                                                            { label: 'Installation date', value: formatDate(petrolDoc?.issueDate) },
+                                                        ].filter(r => r.value).map((row, idx, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || petrolDoc?.attachment || petrolAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                            >
+                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                            </div>
+                                                        ))}
 
-                                                          {/* Petrol Documents */}
-                                                          {(petrolDoc?.attachment || petrolAttachments.length > 0) && (
-                                                              <div className="mt-4 pt-4 border-t border-slate-50">
-                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Petrol Documents</h4>
-                                                                  <div className="space-y-2">
-                                                                      {petrolDoc?.attachment && (
-                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
-                                                                                      <Fuel size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Petrol Card</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => openFilePreview(petrolDoc.attachment, 'Petrol document')}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      )}
-                                                                      {petrolAttachments.map((att, idx) => (
-                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
-                                                                                      <Fuel size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Petrol Attachment'}</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      ))}
-                                                                  </div>
-                                                              </div>
-                                                          )}
-                                                      </div>
-                                                  </div>
-                                              )}
+                                                        {/* Petrol Documents */}
+                                                        {(petrolDoc?.attachment || petrolAttachments.length > 0) && (
+                                                            <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Petrol Documents</h4>
+                                                                <div className="space-y-2">
+                                                                    {petrolDoc?.attachment && (
+                                                                        <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
+                                                                                    <Fuel size={16} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">Petrol Card</p>
+                                                                                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => openFilePreview(petrolDoc.attachment, 'Petrol document')}
+                                                                                className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                            >
+                                                                                <Eye size={12} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                    {petrolAttachments.map((att, idx) => (
+                                                                        <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
+                                                                                    <Fuel size={16} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Petrol Attachment'}</p>
+                                                                                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
+                                                                                className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                            >
+                                                                                <Eye size={12} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                              {warrantyCards.map(({ doc, meta }, cardIdx) =>
-                                                  cardIdx % 2 === 0 ? renderWarrantyDetailCard(doc, meta, cardIdx) : null,
-                                              )}
-                                          </div>
+                                            {warrantyCards.map(({ doc, meta }, cardIdx) =>
+                                                cardIdx % 2 === 0 ? renderWarrantyDetailCard(doc, meta, cardIdx) : null,
+                                            )}
+                                        </div>
 
-                                          {/* Right Column */}
-                                          <div className="flex-1 space-y-3 w-full">
-                                              {hasLocatorGpsInfo && (
-                                                  <div className="bg-white rounded-2xl border border-teal-100 shadow-sm overflow-hidden px-2 py-0">
-                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-teal-50">
-                                                          <h3 className="text-base font-bold text-slate-800">GPS Info</h3>
-                                                          <span className="text-[10px] font-bold uppercase tracking-widest text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full ring-1 ring-teal-100">
-                                                              Locator
-                                                          </span>
-                                                      </div>
+                                        {/* Right Column */}
+                                        <div className="flex-1 space-y-3 w-full">
+                                            {hasLocatorGpsInfo && (
+                                                <div className="bg-white rounded-2xl border border-teal-100 shadow-sm overflow-hidden px-2 py-0">
+                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-teal-50">
+                                                        <h3 className="text-base font-bold text-slate-800">GPS Info</h3>
+                                                        <span className="text-[10px] font-bold uppercase tracking-widest text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full ring-1 ring-teal-100">
+                                                            Locator
+                                                        </span>
+                                                    </div>
 
-                                                      <div className="px-5 pb-4">
-                                                          {vehicleGpsInfoRows.length > 0 ? (
-                                                              vehicleGpsInfoRows.map((row, idx, arr) => (
-                                                                  <div
-                                                                      key={row.label}
-                                                                      className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
-                                                                  >
-                                                                      <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                      <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
-                                                                          {row.value}
-                                                                      </span>
-                                                                  </div>
-                                                              ))
-                                                          ) : (
-                                                              <div className="py-4 text-[13px] text-slate-500">
-                                                                  GPS device is linked to this vehicle. Live Locator data is not available right now.
-                                                              </div>
-                                                          )}
-                                                      </div>
-                                                  </div>
-                                              )}
+                                                    <div className="px-5 pb-4">
+                                                        {vehicleGpsInfoRows.length > 0 ? (
+                                                            vehicleGpsInfoRows.map((row, idx, arr) => (
+                                                                <div
+                                                                    key={row.label}
+                                                                    className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
+                                                                >
+                                                                    <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                        {row.value}
+                                                                    </span>
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <div className="py-4 text-[13px] text-slate-500">
+                                                                GPS device is linked to this vehicle. Live Locator data is not available right now.
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                              {hasRegistrationCardData && (
-                                                  <div id="asset-focus-vehicleRegistration" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Mulkia (Registration)</h3>
-                                                          <div className="flex items-center gap-2">
-                                                              {vehicleCardActionFlags('mulkia').showRenew && (
-                                                                  <button
-                                                                      type="button"
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
-                                                                      title="Renew"
-                                                                      onClick={() => {
-                                                                          setShowRegistrationModal(true);
-                                                                          setIsRegistrationRenew(true);
-                                                                          clearDocTabModalContext();
-                                                                      }}
-                                                                  >
-                                                                      <RefreshCw size={18} />
-                                                                  </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('mulkia').showNotRenew && registrationDoc && (
-                                                                  <button
-                                                                      type="button"
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
-                                                                      title="Not Renew"
-                                                                      onClick={() => setDocToNotRenew(registrationDoc)}
-                                                                  >
-                                                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                          <circle cx="12" cy="12" r="10" />
-                                                                          <path d="M4.9 4.9l14.2 14.2" />
-                                                                      </svg>
-                                                                  </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('mulkia').showEdit && (
-                                                              <button
-                                                                  type="button"
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                                                  title="Edit"
-                                                                  onClick={() => {
-                                                                      setShowRegistrationModal(true);
-                                                                      setIsRegistrationRenew(false);
-                                                                      clearDocTabModalContext();
-                                                                  }}
-                                                              >
-                                                                  <PencilLine size={18} />
-                                                              </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('mulkia').showDelete && (
-                                                                  <button
-                                                                      type="button"
-                                                                      onClick={() => { setDocToDelete(registrationDoc); }}
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                      title="Delete"
-                                                                  >
-                                                                      <Trash2 size={18} />
-                                                                  </button>
-                                                              )}
-                                                          </div>
-                                                      </div>
+                                            {hasRegistrationCardData && (
+                                                <div id="asset-focus-vehicleRegistration" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                        <h3 className="text-base font-bold text-slate-800">Mulkia (Registration)</h3>
+                                                        <div className="flex items-center gap-2">
+                                                            {vehicleCardActionFlags('mulkia').showRenew && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                    title="Renew"
+                                                                    onClick={() => {
+                                                                        setShowRegistrationModal(true);
+                                                                        setIsRegistrationRenew(true);
+                                                                        clearDocTabModalContext();
+                                                                    }}
+                                                                >
+                                                                    <RefreshCw size={18} />
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('mulkia').showNotRenew && registrationDoc && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+                                                                    title="Not Renew"
+                                                                    onClick={() => setDocToNotRenew(registrationDoc)}
+                                                                >
+                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <circle cx="12" cy="12" r="10" />
+                                                                        <path d="M4.9 4.9l14.2 14.2" />
+                                                                    </svg>
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('mulkia').showEdit && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                    title="Edit"
+                                                                    onClick={() => {
+                                                                        setShowRegistrationModal(true);
+                                                                        setIsRegistrationRenew(false);
+                                                                        clearDocTabModalContext();
+                                                                    }}
+                                                                >
+                                                                    <PencilLine size={18} />
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('mulkia').showDelete && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setDocToDelete(registrationDoc); }}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                    title="Delete"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
 
-                                                      <div className="px-5 pb-4">
-                                                          {[
-                                                              { label: 'Registration Date', value: formatDate(registrationDoc?.issueDate) },
-                                                              { label: 'Expiry Date', value: formatDate(registrationDoc?.expiryDate) },
-                                                              { label: 'Registration Value', value: registrationMeta.fee ? `AED ${Number(registrationMeta.fee).toLocaleString()}` : null },
-                                                          ].map((row, idx, arr) => (
-                                                              <div
-                                                                  key={row.label}
-                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || registrationDoc?.attachment || registrationAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
-                                                              >
-                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
-                                                                      {row.value || <span className="text-slate-300 font-semibold">—</span>}
-                                                                  </span>
-                                                              </div>
-                                                          ))}
+                                                    <div className="px-5 pb-4">
+                                                        {[
+                                                            { label: 'Registration Date', value: formatDate(registrationDoc?.issueDate) },
+                                                            { label: 'Expiry Date', value: formatDate(registrationDoc?.expiryDate) },
+                                                            { label: 'Registration Value', value: registrationMeta.fee ? `AED ${Number(registrationMeta.fee).toLocaleString()}` : null },
+                                                        ].map((row, idx, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || registrationDoc?.attachment || registrationAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                            >
+                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                    {row.value || <span className="text-slate-300 font-semibold">—</span>}
+                                                                </span>
+                                                            </div>
+                                                        ))}
 
-                                                          {(registrationDoc?.attachment || registrationAttachments.length > 0) && (
-                                                              <div className="mt-4 pt-4 border-t border-slate-50">
-                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Registration Documents</h4>
-                                                                  <div className="space-y-2">
-                                                                      {registrationDoc?.attachment && (
-                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                                                                      <FileText size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Registration Card</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => openFilePreview(registrationDoc.attachment, 'Registration document')}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      )}
-                                                                      {registrationAttachments.map((att, idx) => (
-                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                                                                      <FileText size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Registration Attachment'}</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      ))}
-                                                                  </div>
-                                                              </div>
-                                                          )}
-                                                      </div>
-                                                  </div>
-                                              )}
+                                                        {(registrationDoc?.attachment || registrationAttachments.length > 0) && (
+                                                            <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Registration Documents</h4>
+                                                                <div className="space-y-2">
+                                                                    {registrationDoc?.attachment && (
+                                                                        <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                    <FileText size={16} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">Registration Card</p>
+                                                                                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => openFilePreview(registrationDoc.attachment, 'Registration document')}
+                                                                                className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                            >
+                                                                                <Eye size={12} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                    {registrationAttachments.map((att, idx) => (
+                                                                        <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                    <FileText size={16} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Registration Attachment'}</p>
+                                                                                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
+                                                                                className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                            >
+                                                                                <Eye size={12} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                              {hasTollCardData && (
-                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Toll tag (Salik / Darb)</h3>
-                                                          <div className="flex items-center gap-2">
-                                                              {vehicleCardActionFlags('toll').showEdit && (
-                                                              <button
-                                                                  type="button"
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                                                  title="Edit"
-                                                                  onClick={() => { setShowTollModal(true); }}
-                                                              >
-                                                                  <PencilLine size={18} />
-                                                              </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('toll').showDelete && (
-                                                                  <button
-                                                                      type="button"
-                                                                      onClick={() => { setDocToDelete(tollDoc); }}
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                      title="Delete"
-                                                                  >
-                                                                      <Trash2 size={18} />
-                                                                  </button>
-                                                              )}
-                                                          </div>
-                                                      </div>
+                                            {hasTollCardData && (
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                        <h3 className="text-base font-bold text-slate-800">Toll tag (Salik / Darb)</h3>
+                                                        <div className="flex items-center gap-2">
+                                                            {vehicleCardActionFlags('toll').showEdit && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                    title="Edit"
+                                                                    onClick={() => { setShowTollModal(true); }}
+                                                                >
+                                                                    <PencilLine size={18} />
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('toll').showDelete && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setDocToDelete(tollDoc); }}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                    title="Delete"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
 
-                                                      <div className="px-5 pb-4">
-                                                          {[
-                                                              { label: 'Toll company', value: tollMeta.vendor },
-                                                              { label: 'Tag details', value: tollMeta.tagDetails },
-                                                              { label: 'PIN number', value: tollMeta.pinNo },
-                                                              { label: 'Monthly limit', value: tollMeta.limit },
-                                                          ].filter(r => r.value).map((row, idx, arr) => (
-                                                              <div
-                                                                  key={row.label}
-                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || tollDoc?.attachment || tollAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
-                                                              >
-                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
-                                                              </div>
-                                                          ))}
+                                                    <div className="px-5 pb-4">
+                                                        {[
+                                                            { label: 'Toll company', value: tollMeta.vendor },
+                                                            { label: 'Tag details', value: tollMeta.tagDetails },
+                                                            { label: 'PIN number', value: tollMeta.pinNo },
+                                                            { label: 'Monthly limit', value: tollMeta.limit },
+                                                        ].filter(r => r.value).map((row, idx, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || tollDoc?.attachment || tollAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                            >
+                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                            </div>
+                                                        ))}
 
-                                                          {/* Toll Documents */}
-                                                          {(tollDoc?.attachment || tollAttachments.length > 0) && (
-                                                              <div className="mt-4 pt-4 border-t border-slate-50">
-                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Toll Documents</h4>
-                                                                  <div className="space-y-2">
-                                                                      {tollDoc?.attachment && (
-                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                                                                      <CreditCard size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Toll Card</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => openFilePreview(tollDoc.attachment, 'Toll document')}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      )}
-                                                                      {tollAttachments.map((att, idx) => (
-                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                                                                      <CreditCard size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Toll Attachment'}</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      ))}
-                                                                  </div>
-                                                              </div>
-                                                          )}
-                                                      </div>
-                                                  </div>
-                                              )}
+                                                        {/* Toll Documents */}
+                                                        {(tollDoc?.attachment || tollAttachments.length > 0) && (
+                                                            <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Toll Documents</h4>
+                                                                <div className="space-y-2">
+                                                                    {tollDoc?.attachment && (
+                                                                        <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                    <CreditCard size={16} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">Toll Card</p>
+                                                                                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => openFilePreview(tollDoc.attachment, 'Toll document')}
+                                                                                className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                            >
+                                                                                <Eye size={12} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                    {tollAttachments.map((att, idx) => (
+                                                                        <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                    <CreditCard size={16} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Toll Attachment'}</p>
+                                                                                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
+                                                                                className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                            >
+                                                                                <Eye size={12} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                              {hasMortgageData && (
-                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Mortgage Details</h3>
-                                                          <div className="flex items-center gap-2">
-                                                              {vehicleCardActionFlags('mortgage').showEdit && (
-                                                              <button
-                                                                  type="button"
-                                                                  onClick={() => setShowMortgageModal(true)}
-                                                                  disabled={vehicleMortgageCloseStatus === 'pending_hr'}
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                  title="Edit"
-                                                              >
-                                                                  <PencilLine size={18} />
-                                                              </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('mortgage').showEdit && (
-                                                              <button
-                                                                  type="button"
-                                                                  onClick={() => setShowMortgageCloseModal(true)}
-                                                                  disabled={
-                                                                      vehicleMortgageCloseStatus === 'pending_hr' ||
-                                                                      vehicleActPhase !== 'active'
-                                                                  }
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                  title={
-                                                                      vehicleMortgageCloseStatus === 'pending_hr'
-                                                                          ? 'Awaiting HR approval'
-                                                                          : 'Close mortgage'
-                                                                  }
-                                                              >
-                                                                  <XCircle size={18} />
-                                                              </button>
-                                                              )}
-                                                              {vehicleCardActionFlags('mortgage').showDelete && vehicleMortgageCloseStatus !== 'pending_hr' && (
-                                                                  <button
-                                                                      type="button"
-                                                                      onClick={handleAdminDeleteMortgage}
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                      title="Delete mortgage"
-                                                                  >
-                                                                      <Trash2 size={18} />
-                                                                  </button>
-                                                              )}
-                                                          </div>
-                                                      </div>
-                                                      <div className="px-5 pb-4">
-                                                          {[
-                                                              { label: 'Bank Name', value: asset?.mortgageBankName || null },
-                                                              { label: 'Vehicle Name', value: asset?.mortgageVehicleName || null },
-                                                              { label: 'Vehicle Amount', value: asset?.mortgageAmount != null ? `AED ${Number(asset.mortgageAmount || 0).toLocaleString()}` : null },
-                                                              {
-                                                                  label: 'Loan Amount',
-                                                                  value:
-                                                                      asset?.mortgageAmount != null ||
-                                                                      asset?.loanAmount != null
-                                                                          ? (() => {
-                                                                                const loan =
-                                                                                    asset?.loanAmount != null &&
+                                            {hasMortgageData && (
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                        <h3 className="text-base font-bold text-slate-800">Mortgage Details</h3>
+                                                        <div className="flex items-center gap-2">
+                                                            {vehicleCardActionFlags('mortgage').showEdit && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setShowMortgageModal(true)}
+                                                                    disabled={vehicleMortgageCloseStatus === 'pending_hr'}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                                    title="Edit"
+                                                                >
+                                                                    <PencilLine size={18} />
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('mortgage').showEdit && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setShowMortgageCloseModal(true)}
+                                                                    disabled={
+                                                                        vehicleMortgageCloseStatus === 'pending_hr' ||
+                                                                        vehicleActPhase !== 'active'
+                                                                    }
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                                    title={
+                                                                        vehicleMortgageCloseStatus === 'pending_hr'
+                                                                            ? 'Awaiting HR approval'
+                                                                            : 'Close mortgage'
+                                                                    }
+                                                                >
+                                                                    <XCircle size={18} />
+                                                                </button>
+                                                            )}
+                                                            {vehicleCardActionFlags('mortgage').showDelete && vehicleMortgageCloseStatus !== 'pending_hr' && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={handleAdminDeleteMortgage}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                    title="Delete mortgage"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="px-5 pb-4">
+                                                        {[
+                                                            { label: 'Bank Name', value: asset?.mortgageBankName || null },
+                                                            { label: 'Vehicle Name', value: asset?.mortgageVehicleName || null },
+                                                            { label: 'Vehicle Amount', value: asset?.mortgageAmount != null ? `AED ${Number(asset.mortgageAmount || 0).toLocaleString()}` : null },
+                                                            {
+                                                                label: 'Loan Amount',
+                                                                value:
+                                                                    asset?.mortgageAmount != null ||
+                                                                        asset?.loanAmount != null
+                                                                        ? (() => {
+                                                                            const loan =
+                                                                                asset?.loanAmount != null &&
                                                                                     asset.loanAmount !== ''
-                                                                                        ? Number(asset.loanAmount)
-                                                                                        : Math.max(
-                                                                                              0,
-                                                                                              Number(
-                                                                                                  asset?.mortgageAmount ||
-                                                                                                      0,
-                                                                                              ) -
-                                                                                                  Number(
-                                                                                                      asset?.downPayment ||
-                                                                                                          0,
-                                                                                                  ),
-                                                                                          );
-                                                                                return `AED ${loan.toLocaleString()}`;
-                                                                            })()
-                                                                          : null,
-                                                              },
-                                                              { label: 'Down Payment', value: asset?.downPayment != null ? `AED ${Number(asset.downPayment || 0).toLocaleString()}` : null },
-                                                              { label: 'Interest', value: asset?.interestRate != null ? `${Number(asset.interestRate || 0)}%` : null },
-                                                              { label: 'Loan Tenure', value: asset?.loanTenureMonths != null ? `${Number(asset.loanTenureMonths || 0)} months` : null },
-                                                              { label: 'Start Date', value: asset?.mortgageStartDate ? formatDate(asset.mortgageStartDate) : null },
-                                                              { label: 'End Date', value: asset?.mortgageEndDate ? formatDate(asset.mortgageEndDate) : null },
-                                                              { label: 'Monthly Payment', value: asset?.monthlyPayment != null ? `AED ${Number(asset.monthlyPayment || 0).toLocaleString()}` : null },
-                                                              { label: 'Balance Payment', value: asset?.balancePayment != null ? `AED ${Number(asset.balancePayment || 0).toLocaleString()}` : null },
-                                                              { label: 'Process Charge', value: asset?.processCharge != null ? `AED ${Number(asset.processCharge || 0).toLocaleString()}` : null },
-                                                          ].filter((row) => row.value).map((row, idx, arr) => (
-                                                              <div
-                                                                  key={row.label}
-                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || mortgageAttachmentRows.length > 0 ? 'border-b border-slate-100' : ''}`}
-                                                              >
-                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
-                                                              </div>
-                                                          ))}
+                                                                                    ? Number(asset.loanAmount)
+                                                                                    : Math.max(
+                                                                                        0,
+                                                                                        Number(
+                                                                                            asset?.mortgageAmount ||
+                                                                                            0,
+                                                                                        ) -
+                                                                                        Number(
+                                                                                            asset?.downPayment ||
+                                                                                            0,
+                                                                                        ),
+                                                                                    );
+                                                                            return `AED ${loan.toLocaleString()}`;
+                                                                        })()
+                                                                        : null,
+                                                            },
+                                                            { label: 'Down Payment', value: asset?.downPayment != null ? `AED ${Number(asset.downPayment || 0).toLocaleString()}` : null },
+                                                            { label: 'Interest', value: asset?.interestRate != null ? `${Number(asset.interestRate || 0)}%` : null },
+                                                            { label: 'Loan Tenure', value: asset?.loanTenureMonths != null ? `${Number(asset.loanTenureMonths || 0)} months` : null },
+                                                            { label: 'Start Date', value: asset?.mortgageStartDate ? formatDate(asset.mortgageStartDate) : null },
+                                                            { label: 'End Date', value: asset?.mortgageEndDate ? formatDate(asset.mortgageEndDate) : null },
+                                                            { label: 'Monthly Payment', value: asset?.monthlyPayment != null ? `AED ${Number(asset.monthlyPayment || 0).toLocaleString()}` : null },
+                                                            { label: 'Balance Payment', value: asset?.balancePayment != null ? `AED ${Number(asset.balancePayment || 0).toLocaleString()}` : null },
+                                                            { label: 'Process Charge', value: asset?.processCharge != null ? `AED ${Number(asset.processCharge || 0).toLocaleString()}` : null },
+                                                        ].filter((row) => row.value).map((row, idx, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || mortgageAttachmentRows.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                            >
+                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                            </div>
+                                                        ))}
 
-                                                          {mortgageAttachmentRows.length > 0 && (
-                                                              <div className="mt-6 pt-6 border-t border-slate-50">
-                                                                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Mortgage Attachments</h4>
-                                                                  <div className="space-y-3">
-                                                                      {mortgageAttachmentRows.map((row, idx) => (
-                                                                          <div key={`${row.label}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100 transition-all hover:bg-slate-50">
-                                                                              <div className="flex items-center gap-4 min-w-0">
-                                                                                  <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-50 shrink-0">
-                                                                                      <FileText size={20} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[13px] font-bold text-slate-800 truncate">{row.docName || row.label}</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  type="button"
-                                                                                  onClick={() => openFilePreview(row.file, row.docName || row.label || 'Attachment')}
-                                                                                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
-                                                                              >
-                                                                                  <Eye size={16} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      ))}
-                                                                  </div>
-                                                              </div>
-                                                          )}
-                                                      </div>
-                                                  </div>
-                                              )}
+                                                        {mortgageAttachmentRows.length > 0 && (
+                                                            <div className="mt-6 pt-6 border-t border-slate-50">
+                                                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Mortgage Attachments</h4>
+                                                                <div className="space-y-3">
+                                                                    {mortgageAttachmentRows.map((row, idx) => (
+                                                                        <div key={`${row.label}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100 transition-all hover:bg-slate-50">
+                                                                            <div className="flex items-center gap-4 min-w-0">
+                                                                                <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-50 shrink-0">
+                                                                                    <FileText size={20} />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[13px] font-bold text-slate-800 truncate">{row.docName || row.label}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => openFilePreview(row.file, row.docName || row.label || 'Attachment')}
+                                                                                className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
+                                                                            >
+                                                                                <Eye size={16} /> View
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                              {warrantyCards.map(({ doc, meta }, cardIdx) =>
-                                                  cardIdx % 2 === 1 ? renderWarrantyDetailCard(doc, meta, cardIdx) : null,
-                                              )}
-                                          </div>
-                                      </div>
+                                            {warrantyCards.map(({ doc, meta }, cardIdx) =>
+                                                cardIdx % 2 === 1 ? renderWarrantyDetailCard(doc, meta, cardIdx) : null,
+                                            )}
+                                        </div>
+                                    </div>
 
-                                      <div className="mt-6">
-                                          <div className="flex flex-wrap gap-3">
-                                              {!hasRegistrationCardData && (
-                                                  <button
-                                                      type="button"
-                                                      onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
-                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                                  >
-                                                      Registration
-                                                  </button>
-                                              )}
-                                              {!hasInsuranceCardData && (
-                                                  <button
-                                                      type="button"
-                                                      onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
-                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                                  >
-                                                      Insurance
-                                                  </button>
-                                              )}
-                                              {(warrantyRequiredForCompletion || warrantyCards.length > 0) && (
-                                                  <button
-                                                      type="button"
-                                                      onClick={() => {
-                                                          clearDocTabModalContext();
-                                                          setDocTabWarrantyDoc(null);
-                                                          setIsWarrantyRenew(false);
-                                                          setShowWarrantyModal(true);
-                                                      }}
-                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                                  >
-                                                      {warrantyCards.length === 0 ? 'Warranty' : 'Add Warranty'}
-                                                  </button>
-                                              )}
-                                              {!hasPetrolCardData && (
-                                                  <button
-                                                      type="button"
-                                                      onClick={() => setShowPetrolModal(true)}
-                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                                  >
-                                                      Petrol
-                                                  </button>
-                                              )}
-                                              {!hasTollCardData && (
-                                                  <button
-                                                      type="button"
-                                                      onClick={() => setShowTollModal(true)}
-                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                                  >
-                                                      Toll
-                                                  </button>
-                                              )}
-                                              {!hasMortgageData && (
-                                                  <button
-                                                      type="button"
-                                                      onClick={() => setShowMortgageModal(true)}
-                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                                  >
-                                                      Mortgage
-                                                  </button>
-                                              )}
-                                          </div>
-                                      </div>
-                                 </div>
+                                    <div className="mt-6">
+                                        <div className="flex flex-wrap gap-3">
+                                            {!hasRegistrationCardData && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
+                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                >
+                                                    Registration
+                                                </button>
+                                            )}
+                                            {!hasInsuranceCardData && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                >
+                                                    Insurance
+                                                </button>
+                                            )}
+                                            {(warrantyRequiredForCompletion || warrantyCards.length > 0) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        clearDocTabModalContext();
+                                                        setDocTabWarrantyDoc(null);
+                                                        setIsWarrantyRenew(false);
+                                                        setShowWarrantyModal(true);
+                                                    }}
+                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                >
+                                                    {warrantyCards.length === 0 ? 'Warranty' : 'Add Warranty'}
+                                                </button>
+                                            )}
+                                            {!hasPetrolCardData && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPetrolModal(true)}
+                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                >
+                                                    Petrol
+                                                </button>
+                                            )}
+                                            {!hasTollCardData && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowTollModal(true)}
+                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                >
+                                                    Toll
+                                                </button>
+                                            )}
+                                            {!hasMortgageData && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowMortgageModal(true)}
+                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                >
+                                                    Mortgage
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
                             )}
 
                             {activeTab === 'permit' && (
@@ -4057,17 +4057,17 @@ function VehicleDetailsPageContent() {
                                     <div className="flex items-center justify-between">
                                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Permit</h3>
                                         {permitTabAccess.create && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setSelectedPermitDoc(null);
-                                                setIsPermitRenew(false);
-                                                setShowPermitModal(true);
-                                            }}
-                                            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
-                                        >
-                                            <PlusCircle size={14} /> Add Permit
-                                        </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedPermitDoc(null);
+                                                    setIsPermitRenew(false);
+                                                    setShowPermitModal(true);
+                                                }}
+                                                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
+                                            >
+                                                <PlusCircle size={14} /> Add Permit
+                                            </button>
                                         )}
                                     </div>
 
@@ -4101,18 +4101,18 @@ function VehicleDetailsPageContent() {
                                                                 </button>
                                                             )}
                                                             {permitTabAccess.edit && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setSelectedPermitDoc(doc);
-                                                                    setIsPermitRenew(false);
-                                                                    setShowPermitModal(true);
-                                                                }}
-                                                                className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                                                title="Edit"
-                                                            >
-                                                                <PencilLine size={18} />
-                                                            </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setSelectedPermitDoc(doc);
+                                                                        setIsPermitRenew(false);
+                                                                        setShowPermitModal(true);
+                                                                    }}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                    title="Edit"
+                                                                >
+                                                                    <PencilLine size={18} />
+                                                                </button>
                                                             )}
                                                             {showVehicleCardDelete && permitTabAccess.delete && (
                                                                 <button
@@ -4199,20 +4199,20 @@ function VehicleDetailsPageContent() {
                                         </div>
                                     )}
                                 </div>
-                             )}
+                            )}
 
                             {activeTab === 'fine' && (
                                 <div className="w-full px-2">
                                     <div className="flex justify-end mb-4">
                                         {fineTabAccess.create && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowVehicleFineModal(true)}
-                                            className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
-                                        >
-                                            <Plus size={14} />
-                                            Add Fine
-                                        </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowVehicleFineModal(true)}
+                                                className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
+                                            >
+                                                <Plus size={14} />
+                                                Add Fine
+                                            </button>
                                         )}
                                     </div>
                                     {loadingFines ? (
@@ -4363,140 +4363,139 @@ function VehicleDetailsPageContent() {
                                     });
                                 };
                                 return (
-                                <div className="w-full max-w-none space-y-5">
-                                    {asset?.nextServiceDate ? (
-                                        <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-950 w-full">
-                                            <span className="font-bold">Next service:</span>{' '}
-                                            {(() => {
-                                                try {
-                                                    return new Date(asset.nextServiceDate).toLocaleDateString();
-                                                } catch {
-                                                    return String(asset.nextServiceDate);
+                                    <div className="w-full max-w-none space-y-5">
+                                        {asset?.nextServiceDate ? (
+                                            <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-950 w-full">
+                                                <span className="font-bold">Next service:</span>{' '}
+                                                {(() => {
+                                                    try {
+                                                        return new Date(asset.nextServiceDate).toLocaleDateString();
+                                                    } catch {
+                                                        return String(asset.nextServiceDate);
+                                                    }
+                                                })()}
+                                            </div>
+                                        ) : null}
+
+                                        <div className="flex flex-wrap items-center gap-2 p-2 bg-slate-100/60 rounded-2xl border border-slate-100">
+                                            <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+                                                {VEHICLE_SERVICE_TYPES.map((type) => {
+                                                    const count = serviceCounts[type] || 0;
+                                                    return (
+                                                        <button
+                                                            key={type}
+                                                            type="button"
+                                                            onClick={() => setServiceInnerTab(type)}
+                                                            className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${serviceInnerTab === type
+                                                                    ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
+                                                                    : 'text-slate-500 hover:text-slate-700'
+                                                                }`}
+                                                        >
+                                                            {type}
+                                                            {count > 0 ? (
+                                                                <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800 tabular-nums">
+                                                                    {count}
+                                                                </span>
+                                                            ) : null}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div
+                                                className="hidden sm:block w-px self-stretch min-h-[2.25rem] bg-slate-300/80 shrink-0 mx-1"
+                                                aria-hidden="true"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={openServiceTypeRequest}
+                                                disabled={
+                                                    (isOilServiceTab &&
+                                                        (creatingOilServiceRequest || !canManageOilService)) ||
+                                                    (isVehicleServiceTabRequest &&
+                                                        (creatingVehicleServiceTabRequest || !canManageServiceTabRequest)) ||
+                                                    (isCarWashTab && !canManageCarWash)
                                                 }
-                                            })()}
+                                                title={
+                                                    (isOilServiceTab || isVehicleServiceTabRequest) &&
+                                                        !canManageServiceTabRequest
+                                                        ? 'Only the Super User, Admin Officer, or assigned user can raise this service request'
+                                                        : isCarWashTab && !canManageCarWash
+                                                            ? 'Only the Super User, Admin Officer, or assigned user can raise a car wash request'
+                                                            : undefined
+                                                }
+                                                className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 sm:px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors shrink-0 w-full sm:w-auto disabled:opacity-60 disabled:cursor-not-allowed"
+                                            >
+                                                {isOilServiceTab && creatingOilServiceRequest ? (
+                                                    <Loader2 size={16} className="shrink-0 animate-spin" />
+                                                ) : isVehicleServiceTabRequest && creatingVehicleServiceTabRequest ? (
+                                                    <Loader2 size={16} className="shrink-0 animate-spin" />
+                                                ) : (
+                                                    <PlusCircle size={16} className="shrink-0" />
+                                                )}
+                                                Request {serviceInnerTab}
+                                            </button>
                                         </div>
-                                    ) : null}
 
-                                    <div className="flex flex-wrap items-center gap-2 p-2 bg-slate-100/60 rounded-2xl border border-slate-100">
-                                        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-                                            {VEHICLE_SERVICE_TYPES.map((type) => {
-                                                const count = serviceCounts[type] || 0;
-                                                return (
-                                                    <button
-                                                        key={type}
-                                                        type="button"
-                                                        onClick={() => setServiceInnerTab(type)}
-                                                        className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-                                                            serviceInnerTab === type
-                                                                ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
-                                                                : 'text-slate-500 hover:text-slate-700'
-                                                        }`}
-                                                    >
-                                                        {type}
-                                                        {count > 0 ? (
-                                                            <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800 tabular-nums">
-                                                                {count}
-                                                            </span>
-                                                        ) : null}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                        <div
-                                            className="hidden sm:block w-px self-stretch min-h-[2.25rem] bg-slate-300/80 shrink-0 mx-1"
-                                            aria-hidden="true"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={openServiceTypeRequest}
-                                            disabled={
-                                                (isOilServiceTab &&
-                                                    (creatingOilServiceRequest || !canManageOilService)) ||
-                                                (isVehicleServiceTabRequest &&
-                                                    (creatingVehicleServiceTabRequest || !canManageServiceTabRequest)) ||
-                                                (isCarWashTab && !canManageCarWash)
-                                            }
-                                            title={
-                                                (isOilServiceTab || isVehicleServiceTabRequest) &&
-                                                !canManageServiceTabRequest
-                                                    ? 'Only the Super User, Admin Officer, or assigned user can raise this service request'
-                                                    : isCarWashTab && !canManageCarWash
-                                                      ? 'Only the Super User, Admin Officer, or assigned user can raise a car wash request'
-                                                      : undefined
-                                            }
-                                            className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 sm:px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors shrink-0 w-full sm:w-auto disabled:opacity-60 disabled:cursor-not-allowed"
-                                        >
-                                            {isOilServiceTab && creatingOilServiceRequest ? (
-                                                <Loader2 size={16} className="shrink-0 animate-spin" />
-                                            ) : isVehicleServiceTabRequest && creatingVehicleServiceTabRequest ? (
-                                                <Loader2 size={16} className="shrink-0 animate-spin" />
-                                            ) : (
-                                                <PlusCircle size={16} className="shrink-0" />
-                                            )}
-                                            Request {serviceInnerTab}
-                                        </button>
-                                    </div>
-
-                                    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                                        <div className="px-5 py-4 border-b border-slate-100">
-                                            <h3 className="text-base font-bold text-slate-800">{serviceInnerTab}</h3>
-                                            <p className="text-xs text-slate-500 mt-0.5">
-                                                {isOilServiceTab
-                                                    ? oilServiceRequestRows.length
-                                                        ? `${oilServiceRequestRows.length} request${oilServiceRequestRows.length === 1 ? '' : 's'}`
-                                                        : 'No records for this service type yet'
-                                                    : isCarWashTab
-                                                      ? carWashRequestRows.length
-                                                          ? `${carWashRequestRows.length} request${carWashRequestRows.length === 1 ? '' : 's'}`
-                                                          : 'No records for this service type yet'
-                                                      : isVehicleServiceTabRequest
-                                                        ? vehicleServiceTabRequestRows.length
-                                                            ? `${vehicleServiceTabRequestRows.length} request${vehicleServiceTabRequestRows.length === 1 ? '' : 's'}`
+                                        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                            <div className="px-5 py-4 border-b border-slate-100">
+                                                <h3 className="text-base font-bold text-slate-800">{serviceInnerTab}</h3>
+                                                <p className="text-xs text-slate-500 mt-0.5">
+                                                    {isOilServiceTab
+                                                        ? oilServiceRequestRows.length
+                                                            ? `${oilServiceRequestRows.length} request${oilServiceRequestRows.length === 1 ? '' : 's'}`
                                                             : 'No records for this service type yet'
-                                                        : 'Coming soon'}
-                                            </p>
-                                        </div>
-
-                                        {isOilServiceTab ? (
-                                            <VehicleOilServiceRequestTable
-                                                rows={oilServiceRequestRows}
-                                                emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
-                                                onRowClick={openOilServiceDetail}
-                                                canDelete={canDeleteVehicleServiceRecords}
-                                                onDelete={requestDeleteVehicleService}
-                                                deletingServiceId={deletingServiceId}
-                                            />
-                                        ) : isCarWashTab ? (
-                                            <VehicleCarWashRequestTable
-                                                rows={carWashRequestRows}
-                                                emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
-                                                onRowClick={openCarWashRow}
-                                                canDelete={canDeleteVehicleServiceRecords}
-                                                onDelete={requestDeleteVehicleService}
-                                                deletingServiceId={deletingServiceId}
-                                            />
-                                        ) : isVehicleServiceTabRequest ? (
-                                            <VehicleServiceTabRequestTable
-                                                rows={vehicleServiceTabRequestRows}
-                                                emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
-                                                onRowClick={openVehicleServiceTabRow}
-                                                canDelete={canDeleteVehicleServiceRecords}
-                                                onDelete={requestDeleteVehicleService}
-                                                deletingServiceId={deletingServiceId}
-                                            />
-                                        ) : (
-                                            <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-                                                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-400">
-                                                    Coming soon
-                                                </p>
-                                                <p className="text-xs text-slate-400 mt-2 max-w-sm">
-                                                    {serviceInnerTab} requests and records will be available here in a
-                                                    future update.
+                                                        : isCarWashTab
+                                                            ? carWashRequestRows.length
+                                                                ? `${carWashRequestRows.length} request${carWashRequestRows.length === 1 ? '' : 's'}`
+                                                                : 'No records for this service type yet'
+                                                            : isVehicleServiceTabRequest
+                                                                ? vehicleServiceTabRequestRows.length
+                                                                    ? `${vehicleServiceTabRequestRows.length} request${vehicleServiceTabRequestRows.length === 1 ? '' : 's'}`
+                                                                    : 'No records for this service type yet'
+                                                                : 'Coming soon'}
                                                 </p>
                                             </div>
-                                        )}
+
+                                            {isOilServiceTab ? (
+                                                <VehicleOilServiceRequestTable
+                                                    rows={oilServiceRequestRows}
+                                                    emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
+                                                    onRowClick={openOilServiceDetail}
+                                                    canDelete={canDeleteVehicleServiceRecords}
+                                                    onDelete={requestDeleteVehicleService}
+                                                    deletingServiceId={deletingServiceId}
+                                                />
+                                            ) : isCarWashTab ? (
+                                                <VehicleCarWashRequestTable
+                                                    rows={carWashRequestRows}
+                                                    emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
+                                                    onRowClick={openCarWashRow}
+                                                    canDelete={canDeleteVehicleServiceRecords}
+                                                    onDelete={requestDeleteVehicleService}
+                                                    deletingServiceId={deletingServiceId}
+                                                />
+                                            ) : isVehicleServiceTabRequest ? (
+                                                <VehicleServiceTabRequestTable
+                                                    rows={vehicleServiceTabRequestRows}
+                                                    emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
+                                                    onRowClick={openVehicleServiceTabRow}
+                                                    canDelete={canDeleteVehicleServiceRecords}
+                                                    onDelete={requestDeleteVehicleService}
+                                                    deletingServiceId={deletingServiceId}
+                                                />
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+                                                    <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-400">
+                                                        Coming soon
+                                                    </p>
+                                                    <p className="text-xs text-slate-400 mt-2 max-w-sm">
+                                                        {serviceInnerTab} requests and records will be available here in a
+                                                        future update.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
                                 );
                             })()}
 
@@ -4547,9 +4546,9 @@ function VehicleDetailsPageContent() {
                                                     const isPendingAssigned =
                                                         entry &&
                                                         String(entry?.action || '').trim() ===
-                                                            'Assigned' &&
+                                                        'Assigned' &&
                                                         String(prev.acceptanceStatus || '') ===
-                                                            'Pending' &&
+                                                        'Pending' &&
                                                         isSameHandoverAssignee(prev, entry);
 
                                                     if (
@@ -4637,31 +4636,31 @@ function VehicleDetailsPageContent() {
 
                                             <div className="flex items-center gap-6 border-b border-gray-100">
                                                 {vehicleDocumentInnerTabVisible('live') && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setDocumentInnerTab('live')}
-                                                    className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${documentInnerTab === 'live'
-                                                        ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
-                                                        : 'text-gray-400 hover:text-gray-600'
-                                                        }`}
-                                                >
-                                                    Live Documents
-                                                </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setDocumentInnerTab('live')}
+                                                        className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${documentInnerTab === 'live'
+                                                            ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+                                                            : 'text-gray-400 hover:text-gray-600'
+                                                            }`}
+                                                    >
+                                                        Live Documents
+                                                    </button>
                                                 )}
                                                 {vehicleDocumentInnerTabVisible('old') && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setDocumentInnerTab('old')}
-                                                    className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${documentInnerTab === 'old'
-                                                        ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
-                                                        : 'text-gray-400 hover:text-gray-600'
-                                                        }`}
-                                                >
-                                                    Old Documents
-                                                </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setDocumentInnerTab('old')}
+                                                        className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${documentInnerTab === 'old'
+                                                            ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+                                                            : 'text-gray-400 hover:text-gray-600'
+                                                            }`}
+                                                    >
+                                                        Old Documents
+                                                    </button>
                                                 )}
                                             </div>
-                                           
+
                                         </div>
 
                                         {vehicleDocumentInnerTabVisible(documentInnerTab) ? (() => {
@@ -4949,73 +4948,73 @@ function VehicleDetailsPageContent() {
                                                                         {registrationRows.map((row, idx) => {
                                                                             const doc = row.primary;
                                                                             return (
-                                                                            <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
-                                                                                <td className="px-6 py-4 text-sm font-semibold text-gray-700">
-                                                                                    Registration card
-                                                                                </td>
-                                                                                <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
-                                                                                <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
-                                                                                <td className="px-6 py-4 text-sm text-gray-600">{registrationProcessDate(doc)}</td>
-                                                                                <td className="px-6 py-4 text-sm">{attachmentCell(row.attachmentItems)}</td>
-                                                                                <td className="px-6 py-4">
-                                                                                    <div className="flex items-center gap-3">
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={() => { openRegistrationEdit(doc); }}
-                                                                                            className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                                                            title="Edit"
-                                                                                        >
-                                                                                            <PencilLine size={16} />
-                                                                                        </button>
-                                                                                        {showVehicleCardRenewActions && (
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={() => {
-                                                                                                if (normDocType(doc.type) === 'registration') {
-                                                                                                    setDocTabRegistrationOverride({
-                                                                                                        existingDoc: doc,
-                                                                                                        existingAttachmentRows: row.attachments,
-                                                                                                    });
-                                                                                                    setIsRegistrationRenew(true);
-                                                                                                    setShowRegistrationModal(true);
-                                                                                                } else {
-                                                                                                    setVehicleGeneralDoc(doc);
-                                                                                                    setVehicleGeneralDocRenew(true);
-                                                                                                    setShowVehicleGeneralDocModal(true);
-                                                                                                }
-                                                                                            }}
-                                                                                            className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                                            title="Renew"
-                                                                                        >
-                                                                                            <RefreshCw size={16} />
-                                                                                        </button>
-                                                                                        )}
-                                                                                        {showVehicleCardRenewActions && documentInnerTab === 'live' && (
+                                                                                <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                    <td className="px-6 py-4 text-sm font-semibold text-gray-700">
+                                                                                        Registration card
+                                                                                    </td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{registrationProcessDate(doc)}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentCell(row.attachmentItems)}</td>
+                                                                                    <td className="px-6 py-4">
+                                                                                        <div className="flex items-center gap-3">
                                                                                             <button
                                                                                                 type="button"
-                                                                                                onClick={() => setDocToNotRenew(doc)}
-                                                                                                className="text-slate-500 hover:text-slate-700 transition-colors"
-                                                                                                title="Not Renew"
+                                                                                                onClick={() => { openRegistrationEdit(doc); }}
+                                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                                title="Edit"
                                                                                             >
-                                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                    <circle cx="12" cy="12" r="10" />
-                                                                                                    <path d="M4.9 4.9l14.2 14.2" />
-                                                                                                </svg>
+                                                                                                <PencilLine size={16} />
                                                                                             </button>
-                                                                                        )}
-                                                                                        {showVehicleCardDelete && (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                title="Delete"
-                                                                                                onClick={() => setDocToDelete(doc)}
-                                                                                            >
-                                                                                                <XCircle size={16} />
-                                                                                            </button>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </td>
-                                                                            </tr>
+                                                                                            {showVehicleCardRenewActions && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => {
+                                                                                                        if (normDocType(doc.type) === 'registration') {
+                                                                                                            setDocTabRegistrationOverride({
+                                                                                                                existingDoc: doc,
+                                                                                                                existingAttachmentRows: row.attachments,
+                                                                                                            });
+                                                                                                            setIsRegistrationRenew(true);
+                                                                                                            setShowRegistrationModal(true);
+                                                                                                        } else {
+                                                                                                            setVehicleGeneralDoc(doc);
+                                                                                                            setVehicleGeneralDocRenew(true);
+                                                                                                            setShowVehicleGeneralDocModal(true);
+                                                                                                        }
+                                                                                                    }}
+                                                                                                    className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                    title="Renew"
+                                                                                                >
+                                                                                                    <RefreshCw size={16} />
+                                                                                                </button>
+                                                                                            )}
+                                                                                            {showVehicleCardRenewActions && documentInnerTab === 'live' && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => setDocToNotRenew(doc)}
+                                                                                                    className="text-slate-500 hover:text-slate-700 transition-colors"
+                                                                                                    title="Not Renew"
+                                                                                                >
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <circle cx="12" cy="12" r="10" />
+                                                                                                        <path d="M4.9 4.9l14.2 14.2" />
+                                                                                                    </svg>
+                                                                                                </button>
+                                                                                            )}
+                                                                                            {showVehicleCardDelete && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                    title="Delete"
+                                                                                                    onClick={() => setDocToDelete(doc)}
+                                                                                                >
+                                                                                                    <XCircle size={16} />
+                                                                                                </button>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
                                                                             );
                                                                         })}
                                                                     </tbody>
@@ -5067,18 +5066,18 @@ function VehicleDetailsPageContent() {
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
                                                                                             {showVehicleCardRenewActions && (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                onClick={() => {
-                                                                                                    setDocTabInsuranceDoc(doc);
-                                                                                                    setIsInsuranceRenew(true);
-                                                                                                    setShowInsuranceModal(true);
-                                                                                                }}
-                                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                                                title="Renew"
-                                                                                            >
-                                                                                                <RefreshCw size={16} />
-                                                                                            </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => {
+                                                                                                        setDocTabInsuranceDoc(doc);
+                                                                                                        setIsInsuranceRenew(true);
+                                                                                                        setShowInsuranceModal(true);
+                                                                                                    }}
+                                                                                                    className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                    title="Renew"
+                                                                                                >
+                                                                                                    <RefreshCw size={16} />
+                                                                                                </button>
                                                                                             )}
                                                                                             {showVehicleCardRenewActions && documentInnerTab === 'live' && (
                                                                                                 <button
@@ -5173,18 +5172,18 @@ function VehicleDetailsPageContent() {
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
                                                                                             {showVehicleCardRenewActions && (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                onClick={() => {
-                                                                                                    setDocTabWarrantyDoc(doc);
-                                                                                                    setIsWarrantyRenew(true);
-                                                                                                    setShowWarrantyModal(true);
-                                                                                                }}
-                                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                                                title="Renew"
-                                                                                            >
-                                                                                                <RefreshCw size={16} />
-                                                                                            </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => {
+                                                                                                        setDocTabWarrantyDoc(doc);
+                                                                                                        setIsWarrantyRenew(true);
+                                                                                                        setShowWarrantyModal(true);
+                                                                                                    }}
+                                                                                                    className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                    title="Renew"
+                                                                                                >
+                                                                                                    <RefreshCw size={16} />
+                                                                                                </button>
                                                                                             )}
                                                                                             {showVehicleCardRenewActions && documentInnerTab === 'live' && (
                                                                                                 <button
@@ -5261,18 +5260,18 @@ function VehicleDetailsPageContent() {
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
                                                                                             {showVehicleCardRenewActions && (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                onClick={() => {
-                                                                                                    setSelectedPermitDoc(doc);
-                                                                                                    setIsPermitRenew(true);
-                                                                                                    setShowPermitModal(true);
-                                                                                                }}
-                                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                                                title="Renew"
-                                                                                            >
-                                                                                                <RefreshCw size={16} />
-                                                                                            </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => {
+                                                                                                        setSelectedPermitDoc(doc);
+                                                                                                        setIsPermitRenew(true);
+                                                                                                        setShowPermitModal(true);
+                                                                                                    }}
+                                                                                                    className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                    title="Renew"
+                                                                                                >
+                                                                                                    <RefreshCw size={16} />
+                                                                                                </button>
                                                                                             )}
                                                                                             {showVehicleCardRenewActions && documentInnerTab === 'live' && (
                                                                                                 <button
@@ -5413,7 +5412,7 @@ function VehicleDetailsPageContent() {
                                                                                 descRaw.length > 72 ? `${descRaw.slice(0, 72)}…` : descRaw || '-';
                                                                             const kmDisp =
                                                                                 srv?.currentKm != null &&
-                                                                                String(srv.currentKm).trim() !== ''
+                                                                                    String(srv.currentKm).trim() !== ''
                                                                                     ? String(srv.currentKm)
                                                                                     : '-';
                                                                             const attRows = fleetServiceAttachmentRows(srv);

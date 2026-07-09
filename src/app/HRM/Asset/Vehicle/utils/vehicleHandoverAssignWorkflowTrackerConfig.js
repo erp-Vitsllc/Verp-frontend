@@ -6,8 +6,8 @@
 export const VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG = {
     /** Outer white card wrapper */
     card: {
-        stretchFullHeight: true,
-        paddingClass: 'p-7',
+        stretchFullHeight: false,
+        paddingClass: 'p-5',
         roundedClass: 'rounded-2xl',
         borderClass: 'border border-gray-100',
         backgroundClass: 'bg-white shadow-sm',
@@ -19,16 +19,17 @@ export const VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG = {
         subtitle: 'All status, stages, dates, and user who performed task',
         emptyMessage: 'No workflow history available yet.',
         size: 'large',
-        /** Compact steps with moderate gap (no full-height spread) */
+        /** Compact steps — do not stretch to fill sidebar height */
         verticalSpread: false,
+        accessoriesSideVerticalSpread: false,
     },
 
     /** Step row sizing */
     steps: {
-        minHeightPx: 76,
-        gapBottomClass: 'pb-15',
-        paddingLeftClass: 'pl-14',
-        spreadMinHeightPx: 96,
+        minHeightPx: 64,
+        gapBottomClass: 'pb-7',
+        paddingLeftClass: 'pl-12',
+        spreadMinHeightPx: 72,
     },
 
     /** Full-height spread mode */
@@ -38,13 +39,13 @@ export const VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG = {
     },
 
     header: {
-        paddingBottomClass: 'pb-3',
-        marginBottomClass: 'mb-4',
+        paddingBottomClass: 'pb-2',
+        marginBottomClass: 'mb-3',
     },
 
     list: {
         paddingYClass: 'py-2',
-        marginLeftClass: 'ml-3',
+        marginLeftClass: 'ml-2',
     },
 
     text: {
@@ -55,17 +56,17 @@ export const VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG = {
     },
 
     connector: {
-        topClass: 'top-9',
-        leftClass: 'left-[18px]',
+        topClass: 'top-8',
+        leftClass: 'left-[16px]',
         widthClass: 'w-1',
     },
 
-    /** Detail pages — main form ~2/3, workflow/history sidebar ~1/3 */
+    /** Detail pages — main form ~3/4, workflow/history sidebar ~1/4 */
     page: {
-        rowClassName: 'flex w-full flex-col gap-6 lg:flex-row lg:items-start',
-        mainColumnClassName: 'flex w-full min-w-0 flex-col gap-6 lg:w-2/3',
-        sideColumnClassName: 'flex w-full min-w-0 flex-col gap-6 lg:w-1/3 lg:self-stretch min-h-0',
-        columnClassName: 'flex w-full min-w-0 self-stretch lg:w-1/3',
-        panelClassName: 'h-full flex-1',
+        rowClassName: 'grid w-full grid-cols-1 items-start gap-6 lg:grid-cols-4',
+        mainColumnClassName: 'flex w-full min-w-0 flex-col gap-6 lg:col-span-3',
+        sideColumnClassName: 'w-full min-w-0 lg:col-span-1 lg:sticky lg:top-6 h-fit self-start',
+        columnClassName: 'w-full min-w-0 self-start lg:col-span-1 h-fit',
+        panelClassName: 'w-full h-fit',
     },
 };

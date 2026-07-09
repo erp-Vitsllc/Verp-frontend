@@ -18,7 +18,9 @@ import {
 import {
     getEffectiveHandoverStage,
     getHandoverReportsIncompleteMessage,
+    isHandoverHistoryFullyApproved,
     isHandoverReportsCompleteForEntry,
+    mergeHandoverHistoryAfterHrApproval,
 } from '../utils/vehicleHandoverAssignActions';
 import { hasHandoverApprovalFineItems } from '../utils/vehicleHandoverItemFineUtils';
 
@@ -35,6 +37,7 @@ export default function VehicleHandoverAssignActions({
     handoverItemFineWaivers = {},
     onVehicleUpdated,
     onHistoryUpdated,
+    onResponded,
     canApprove = false,
     isHrStage = false,
     onApproveWithFine,
@@ -95,19 +98,33 @@ export default function VehicleHandoverAssignActions({
                 HANDOVER_RESPONSE_CONFIG,
             );
             const detailRes = await axiosInstance.get(`/AssetItem/detail/${vehicle._id}`);
-            onVehicleUpdated?.(detailRes.data || res.data?.asset || res.data);
+            const nextVehicle = detailRes.data || res.data?.asset || res.data;
+            onVehicleUpdated?.(nextVehicle);
 
             const historyId = historyEntry?._id;
+            const wasHrApproval =
+                isHrStage ||
+                String(getEffectiveHandoverStage(vehicle, historyEntry) || '').toLowerCase() === 'hr';
+
             if (historyId && !String(historyId).startsWith('live-')) {
+                if (action === 'Accept' && wasHrApproval) {
+                    onHistoryUpdated?.(mergeHandoverHistoryAfterHrApproval(historyEntry));
+                }
                 try {
-                    const historyRes = await axiosInstance.get(
-                        `/AssetItem/history-record/${historyId}`,
-                        { skipToast: true },
-                    );
-                    onHistoryUpdated?.(historyRes.data);
+                    if (onResponded) {
+                        await onResponded();
+                    } else {
+                        const historyRes = await axiosInstance.get(
+                            `/AssetItem/history-record/${historyId}`,
+                            { skipToast: true },
+                        );
+                        onHistoryUpdated?.(historyRes.data);
+                    }
                 } catch {
                     /* non-fatal */
                 }
+            } else if (onResponded) {
+                await onResponded();
             }
 
             toast({
@@ -172,6 +189,15 @@ export default function VehicleHandoverAssignActions({
     };
 
     if (!vehicle || !historyEntry) return null;
+
+    if (isHandoverHistoryFullyApproved(historyEntry)) {
+        return hideWhenInactive ? null : (
+            <div className={`grid grid-cols-2 gap-2 sm:gap-3 ${className}`}>
+                <div className={`${ACTION_BOX} border-transparent bg-transparent min-h-[44px]`} aria-hidden="true" />
+                <div className={`${ACTION_BOX} border-transparent bg-transparent min-h-[44px]`} aria-hidden="true" />
+            </div>
+        );
+    }
 
     if (hideWhenInactive && !canAct && !acceptBlockedReason) {
         return null;

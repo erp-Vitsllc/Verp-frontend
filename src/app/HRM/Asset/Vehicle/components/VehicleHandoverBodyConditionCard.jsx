@@ -284,6 +284,7 @@ export default function VehicleHandoverBodyConditionCard({
     onGoToApproval,
     onGoToAssessment,
     inspectionHandover = false,
+    accessoriesManagedSeparately = false,
     onVehicleUpdated,
     handoverItemFines = {},
     handoverFines = [],
@@ -592,7 +593,7 @@ export default function VehicleHandoverBodyConditionCard({
             return;
         }
 
-        if (!isReceiverAssessmentMarkedDone(displayEntry)) {
+        if (!accessoriesManagedSeparately && !isReceiverAssessmentMarkedDone(displayEntry)) {
             const assessmentForm = buildAssessmentFormState(displayEntry, vehicle, { assetHistory });
             if (!isAssessmentFormComplete(assessmentForm)) {
                 toast({

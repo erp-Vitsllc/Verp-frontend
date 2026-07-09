@@ -461,6 +461,32 @@ function buildLiveAccessoryFormRow(liveRow = {}) {
     return { present: null, photo: null };
 }
 
+/** Assign-page mirror: live image → Yes + photo; otherwise default No. */
+export function buildMirrorLiveAccessoriesAssessmentForm(asset, historyEntry = null, options = {}) {
+    const liveForm = buildAccessoriesLiveListForm(asset, historyEntry, options);
+    const form = {};
+
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const liveRow = liveForm[item.key] || {};
+        if (hasStoredAssessmentPhoto(liveRow.photo)) {
+            form[item.key] = { present: true, photo: liveRow.photo };
+        } else {
+            form[item.key] = { present: false, photo: null };
+        }
+    });
+
+    return form;
+}
+
+/** Baseline row for red/green compare when mirroring live accessories on assign. */
+export function buildMirrorLiveAccessoryBaselineRow(liveListForm, itemKey) {
+    const liveRow = liveListForm?.[itemKey] || {};
+    if (hasStoredAssessmentPhoto(liveRow.photo)) {
+        return { present: true, photo: liveRow.photo };
+    }
+    return { present: false, photo: null };
+}
+
 export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
     const { asset = vehicle, assetHistory = [] } = options || {};
     const liveListForm = buildAccessoriesLiveListForm(asset, historyEntry, { assetHistory });
@@ -485,6 +511,30 @@ export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
     });
 
     return form;
+}
+
+/** After inspection is saved or sent to HR, keep assessment rows from history — not a stale live overlay. */
+export function shouldLockInspectionAssessmentToHistory(vehicle, historyEntry = null) {
+    const inspStatus = String(vehicle?.vehicleInspectionStatus || '').toLowerCase();
+    return (
+        historyEntry?.details?.receiverAssessmentCompleted === true ||
+        hasCurrentReceiverAssessmentDataOnHistory(historyEntry) ||
+        inspStatus === 'pending_hr' ||
+        inspStatus === 'active'
+    );
+}
+
+/** Inspection accessories form: live mirror while drafting; locked to saved history after submit/HR. */
+export function buildInspectionHandoverAssessmentForm(asset, historyEntry = null, options = {}) {
+    const { assetHistory = [] } = options || {};
+    if (shouldLockInspectionAssessmentToHistory(asset, historyEntry)) {
+        return buildAssessmentFormState(historyEntry, asset, {
+            assetHistory,
+            asset,
+            currentEntry: historyEntry,
+        });
+    }
+    return buildMirrorLiveAccessoriesAssessmentForm(asset, historyEntry, { assetHistory });
 }
 
 /** Current Live Accessories tab rows — committed list merged with live_accessories overlay. */
@@ -896,7 +946,7 @@ export function classifyVehicleHandoverAccessoryKeys(
         // "Changed" vs accessories list is for handover fines only — not lost tab when still present.
         const isLost = missingNow || inFineFlow;
 
-        if (!isLost && present === true) {
+        if (!isLost && present === true && hasStoredAssessmentPhoto(row.photo)) {
             liveKeys.push(item.key);
         }
         if (isLost) {
@@ -1037,9 +1087,9 @@ export function enrichLostAccessoryDisplayRow(row, previousRow, asset = null) {
 /** Lost tab rows: handover items plus catalog detached accessories in one list. */
 export function buildLostAccessoriesTabView(displaySets, headerRows, lostKeys, asset = null) {
     const handoverView = buildLostAccessoriesListView(displaySets, headerRows, lostKeys, asset);
-    const replacedRows = buildReplacedLiveAccessoryRows(asset).map((row) => ({
+    const replacedRows = buildReplacedLiveAccessoryRows(asset).map((row, index) => ({
         ...row,
-        key: row.archiveId ? `replaced-${row.archiveId}` : `replaced-${row.key}`,
+        key: row.listKey || (row.archiveId ? `replaced-${row.archiveId}` : `replaced-${row.key}-${index}`),
     }));
     const detachedRows = buildLostDetachedAccessoryRows(asset).map((entry) => ({
         key: `detached-${entry.id}`,
@@ -1151,12 +1201,30 @@ export function findLatestLiveAccessoriesEntry(asset) {
     })[0];
 }
 
-export function resolveCurrentLiveAccessoryRow(displaySets, accessoryKey) {
+export function resolveCurrentLiveAccessoryRow(displaySets, accessoryKey, asset = null) {
     const latestSet = resolveAccessoriesListLatestRowSet(displaySets);
     const row = latestSet?.rows?.find((entry) => entry.key === accessoryKey);
-    if (!row) return null;
-    if (row.present === true || row.photoUrl || row.photo) return row;
-    return null;
+    if (row && (row.present === true || row.photoUrl || row.photo)) {
+        return row;
+    }
+
+    if (!asset || !accessoryKey) return null;
+
+    const liveForm = buildAccessoriesLiveListForm(asset);
+    const liveRow = liveForm[accessoryKey];
+    if (liveRow?.present !== true || !hasStoredAssessmentPhoto(liveRow.photo)) {
+        return null;
+    }
+
+    const item = RECEIVER_ASSESSMENT_ITEMS.find((entry) => entry.key === accessoryKey);
+    return {
+        key: accessoryKey,
+        label: item?.label || accessoryKey,
+        present: true,
+        photo: liveRow.photo,
+        photoUrl: resolveAssessmentMediaUrl(liveRow.photo),
+        amount: liveRow.amount ?? null,
+    };
 }
 
 export function serializeSingleAccessoryReplacedEntry(accessoryKey, row, options = {}) {
@@ -1201,6 +1269,91 @@ export function cloneVehicleAccessoriesListEntries(asset) {
         : [];
 }
 
+function liveAccessoryRowHasArchiveableState(row = {}) {
+    return (
+        row.present === true ||
+        row.present === false ||
+        hasStoredAssessmentPhoto(row.photo)
+    );
+}
+
+function shouldArchiveLiveAccessoryEdit(previousRow = {}, nextRow = {}) {
+    if (!liveAccessoryRowHasArchiveableState(previousRow)) return false;
+    if (nextRow.present === false && previousRow.present !== false) return true;
+    return accessoryAssessmentItemChanged(previousRow, nextRow);
+}
+
+/** Sync a single live-accessory edit: update live_accessories; prior value goes to replaced_live (Old). */
+export function buildLiveAccessoryEditSyncPlan({
+    asset,
+    historyEntry = null,
+    accessoryKey,
+    nextRow = {},
+}) {
+    const liveForm = buildAccessoriesLiveListForm(asset, historyEntry);
+    const currentRow = liveForm[accessoryKey] || { present: null, photo: null };
+    const normalizedNext = {
+        present: nextRow.present === true ? true : nextRow.present === false ? false : null,
+        photo:
+            nextRow.present === false
+                ? null
+                : nextRow.photo ?? (nextRow.present === true ? currentRow.photo ?? null : null),
+    };
+    if (normalizedNext.present == null && hasStoredAssessmentPhoto(normalizedNext.photo)) {
+        normalizedNext.present = true;
+    }
+
+    const mergedForm = cloneAssessmentForm(liveForm);
+    mergedForm[accessoryKey] = { ...normalizedNext };
+
+    let nextEntries = cloneVehicleAccessoriesListEntries(asset).filter(
+        (entry) => String(entry?.kind || '') !== 'live_accessories',
+    );
+
+    const archivePrevious = shouldArchiveLiveAccessoryEdit(currentRow, normalizedNext);
+    if (archivePrevious) {
+        nextEntries.push(
+            serializeSingleAccessoryReplacedEntry(
+                accessoryKey,
+                {
+                    present: currentRow.present === false ? false : true,
+                    photo: currentRow.photo ?? null,
+                    amount: currentRow.amount ?? null,
+                },
+                { sourceHistoryId: historyEntry?._id || null },
+            ),
+        );
+    }
+
+    nextEntries.push(
+        serializeVehicleAccessoriesListEntry(mergedForm, {
+            kind: 'live_accessories',
+            sourceHistoryId: historyEntry?._id || null,
+        }),
+    );
+
+    return {
+        nextEntries,
+        mergedForm,
+        assessmentPayload: buildAssessmentPayload(mergedForm),
+        archivedPrevious: archivePrevious,
+        accessoryKey,
+    };
+}
+
+/** Previous (Old) accessories from replaced_live entries — mirrors Accessories List Lost/Old rows. */
+export function buildPreviousAccessoriesFromReplacedLive(asset) {
+    const form = cloneAssessmentForm({});
+    buildReplacedLiveAccessoryRows(asset).forEach((row) => {
+        if (!row?.key) return;
+        form[row.key] = {
+            present: row.present === false ? false : true,
+            photo: row.photo ?? null,
+        };
+    });
+    return form;
+}
+
 export function buildAccessoryReplacementSavePlan({
     asset,
     historyEntry,
@@ -1209,11 +1362,13 @@ export function buildAccessoryReplacementSavePlan({
     photo,
     amount = '',
 }) {
-    const currentRow = resolveCurrentLiveAccessoryRow(displaySets, accessoryKey);
+    const currentRow = resolveCurrentLiveAccessoryRow(displaySets, accessoryKey, asset);
     const isReplacing = Boolean(currentRow);
     const latestSet = resolveAccessoriesListLatestRowSet(displaySets);
     const baseRows = latestSet?.rows?.length ? latestSet.rows : [];
-    const mergedForm = buildAccessoriesListEditForm(baseRows);
+    const mergedForm = baseRows.length
+        ? buildAccessoriesListEditForm(baseRows)
+        : cloneAssessmentForm(buildAccessoriesLiveListForm(asset, historyEntry));
 
     mergedForm[accessoryKey] = {
         present: true,
@@ -1252,6 +1407,40 @@ export function buildAccessoryReplacementSavePlan({
     };
 }
 
+/** Flat live rows for Accessories List tab (Type / Image / Status). */
+export function buildFlatLiveAccessoryRows(asset, assetHistory = []) {
+    if (!asset) return [];
+
+    const historyEntry = resolveAccessoriesListPrimaryHandoverEntry(asset, assetHistory);
+    const form = buildAccessoriesLiveListForm(asset, historyEntry, { assetHistory });
+
+    return RECEIVER_ASSESSMENT_ITEMS.map((item) => {
+        const row = form[item.key] || {};
+        if (row.present !== true || !hasStoredAssessmentPhoto(row.photo)) return null;
+
+        const amount = resolveVehicleAccessoryItemPrice(asset, item.key, item.label, row);
+        return {
+            key: item.key,
+            listKey: `live-${item.key}`,
+            label: item.label,
+            present: true,
+            photo: row.photo,
+            amount,
+            photoUrl: resolveAssessmentMediaUrl(row.photo),
+            status: 'Live',
+        };
+    }).filter(Boolean);
+}
+
+/** Flat old rows from replaced_live archives (same type re-added moves prior here). */
+export function buildFlatOldAccessoryRows(asset) {
+    return buildReplacedLiveAccessoryRows(asset).map((row, index) => ({
+        ...row,
+        listKey: row.listKey || (row.archiveId ? `old-${row.archiveId}` : `old-${row.key}-${index}`),
+        status: 'Old',
+    }));
+}
+
 export function buildReplacedLiveAccessoryRows(asset) {
     const entries = Array.isArray(asset?.vehicleAccessoriesListEntries)
         ? asset.vehicleAccessoriesListEntries
@@ -1274,6 +1463,7 @@ export function buildReplacedLiveAccessoryRows(asset) {
             return enrichLostAccessoryDisplayRow(
                 {
                     key,
+                    listKey: entry._id ? String(entry._id) : `replaced-${key}-${index}`,
                     label: item?.label || key,
                     present: false,
                     photo: block.photo ?? null,
@@ -1299,9 +1489,13 @@ export function serializeVehicleAccessoriesListEntry(draft, options = {}) {
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const row = payload[item.key];
         if (!row) return;
+        const present = row.present;
+        const photo = photoForAccessoryStorage(row.photo);
+        if (present !== true && present !== false && !photo) return;
+        if (present === true && !photo) return;
         entry[item.key] = {
-            present: row.present,
-            photo: photoForAccessoryStorage(row.photo),
+            present,
+            photo: present === true ? photo : null,
             amount: row.amount != null ? row.amount : null,
         };
     });
@@ -1597,12 +1791,13 @@ export function isAssessmentFormComplete(form, options = {}) {
 }
 
 export function validateAssessmentForm(form, options = {}) {
-    const { liveListForm = null } = options || {};
+    const { liveListForm = null, requireAllItems = false } = options || {};
     const errors = {};
 
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const row = form?.[item.key];
-        const listHasImage = accessoryListItemHasImage(liveListForm, item.key);
+        const listHasImage =
+            requireAllItems || accessoryListItemHasImage(liveListForm, item.key);
 
         if (!listHasImage) {
             return;
@@ -1629,6 +1824,24 @@ export function buildAssessmentPayload(form) {
             photo: row?.present === true ? photoForAccessoryStorage(row.photo) : null,
         };
         if (row?.amount != null && row.amount !== '' && Number.isFinite(Number(row.amount))) {
+            entry.amount = Number(row.amount);
+        }
+        payload[item.key] = entry;
+    });
+    return payload;
+}
+
+/** Partial save — only keys the user has explicitly set Yes/No on (avoids backend 400 on unset items). */
+export function buildDraftAssessmentPayload(form) {
+    const payload = {};
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const row = form?.[item.key];
+        if (!row || (row.present !== true && row.present !== false)) return;
+        const entry = {
+            present: row.present,
+            photo: row.present === true ? photoForAccessoryStorage(row.photo) : null,
+        };
+        if (row.amount != null && row.amount !== '' && Number.isFinite(Number(row.amount))) {
             entry.amount = Number(row.amount);
         }
         payload[item.key] = entry;

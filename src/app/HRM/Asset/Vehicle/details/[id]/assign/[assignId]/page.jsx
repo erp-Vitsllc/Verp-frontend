@@ -20,8 +20,6 @@ import { buildLiveHandoverEntry, isVehicleInspectionHandoverEntry } from '../../
 import VehicleHandoverAssignHeaderCards from '../../../../components/VehicleHandoverAssignHeaderCards';
 import VehicleHandoverAttachmentPanel from '../../../../components/VehicleHandoverAttachmentPanel';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../../../../utils/vehicleHandoverAssignWorkflowTrackerConfig';
-import { shouldShowBodyConditionSection } from '../../../../utils/vehicleHandoverBodyCondition';
-import { hasCurrentReceiverAssessmentData } from '../../../../utils/vehicleHandoverPreviousReports';
 import { useHandoverAssignPermissions } from '../../../../hooks/useHandoverAssignPermissions';
 import {
     buildHandoverApprovalFineInitialData,
@@ -34,13 +32,6 @@ import {
 } from '../../../../utils/vehicleHandoverItemFineUtils';
 import { resolveVehicleAccessoryItemPrice, buildPreviousHandoverComparisonForm } from '../../../../utils/vehicleHandoverReceiverAssessment';
 
-function shouldShowHandoverReports(entry) {
-    if (shouldShowBodyConditionSection(entry)) return true;
-    if (entry?.details?.bodyConditionCompleted === true) return true;
-    if (hasCurrentReceiverAssessmentData(entry)) return true;
-    return false;
-}
-
 function mergeHistoryEntryIntoList(list, entry) {
     if (!entry?._id || !Array.isArray(list)) return list;
     const entryId = String(entry._id);
@@ -51,10 +42,10 @@ function mergeHistoryEntryIntoList(list, entry) {
     return next;
 }
 
-const { page: workflowPageLayout } = VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
+const { page: assignPageLayout } = VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
 
 const PAGE_SECTION_ANIMATION =
-    'animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both';
+    'animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-forwards';
 
 const ASSIGN_TABS = [
     { id: 'details', label: 'Details' },
@@ -116,11 +107,13 @@ function VehicleHandoverAssignPageContent() {
     const reportsReadOnly = !permissionsLoading && !canEditReports;
     const inspectionFormReadOnly = !permissionsLoading && !canEditInspectionForm;
     const isInspectionHandover = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
-    const [showBodyCondition, setShowBodyCondition] = useState(false);
 
     const isHrReviewStage = useMemo(
-        () => handoverAtHrStage || isHandoverHrStage(vehicle, historyEntry),
-        [handoverAtHrStage, vehicle, historyEntry],
+        () =>
+            handoverAtHrStage ||
+            isHandoverHrStage(vehicle, historyEntry) ||
+            canReviewInspection,
+        [canReviewInspection, handoverAtHrStage, vehicle, historyEntry],
     );
 
     const handoverFineVehicles = useMemo(
@@ -531,22 +524,21 @@ function VehicleHandoverAssignPageContent() {
     const handleHistorySaved = useCallback((entry, options = {}) => {
         startTransition(() => {
             setHistoryEntry(entry);
-            if (shouldShowHandoverReports(entry)) {
-                setShowBodyCondition(true);
-            }
             setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, entry));
         });
     }, []);
 
     const handleAssessmentDone = useCallback(() => {
-        startTransition(() => {
-            setShowBodyCondition(true);
-        });
-    }, []);
+        scrollToAssessmentSection();
+    }, [scrollToAssessmentSection]);
 
     const handleVehicleUpdated = useCallback((nextVehicle) => {
         setVehicle(nextVehicle);
     }, []);
+
+    const handleHandoverResponded = useCallback(async () => {
+        await refreshAll();
+    }, [refreshAll]);
 
     const handleBack = useListReturnBack(
         useCallback(() => {
@@ -599,7 +591,6 @@ function VehicleHandoverAssignPageContent() {
                 }
 
                 setHistoryEntry(entry);
-                setShowBodyCondition(shouldShowHandoverReports(entry));
                 setAssetHistory(entry ? mergeHistoryEntryIntoList(historyList, entry) : historyList);
                 if (entry) {
                     if (!isVehicleInspectionHandoverEntry(entry, vehicleData)) {
@@ -643,7 +634,6 @@ function VehicleHandoverAssignPageContent() {
                 });
                 if (cancelled || !data) return;
                 setHistoryEntry(data);
-                setShowBodyCondition(shouldShowHandoverReports(data));
                 setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, data));
             } catch {
                 /* keep existing entry */
@@ -712,13 +702,15 @@ function VehicleHandoverAssignPageContent() {
                         <ListReturnBackButton onNavigate={handleBack} />
                     </div>
 
-                    <div ref={approvalHeaderRef} className={`${PAGE_SECTION_ANIMATION} delay-75 scroll-mt-6`}>
+                    <div ref={approvalHeaderRef} className="scroll-mt-6 w-full">
                         <VehicleHandoverAssignHeaderCards
+                            key={`${vehicleId}-${assignId}`}
                             vehicle={vehicle}
                             historyEntry={historyEntry}
                             assetHistory={handoverAssetHistory}
                             onVehicleUpdated={handleVehicleUpdated}
                             onHistoryUpdated={setHistoryEntry}
+                            onResponded={handleHandoverResponded}
                             canApprove={canApprove}
                             isHrStage={isHrReviewStage}
                             onApproveWithFine={isInspectionHandover ? undefined : openApprovalHandoverFine}
@@ -726,7 +718,6 @@ function VehicleHandoverAssignPageContent() {
                             handoverItemFineWaivers={handoverItemFineWaiversForUi}
                             canReviewInspection={canReviewInspection}
                             canSubmitInspectionForHr={canSubmitInspectionForHr}
-                            onScrollToAssessment={scrollToAssessmentSection}
                         />
                     </div>
 
@@ -735,14 +726,18 @@ function VehicleHandoverAssignPageContent() {
                     {activeTab === 'details' ? (
                         <>
                             <div
-                                className={`${workflowPageLayout.rowClassName} ${PAGE_SECTION_ANIMATION} delay-150`}
+                                className={`${assignPageLayout.rowClassName} ${PAGE_SECTION_ANIMATION} delay-150`}
                             >
-                                <div className={workflowPageLayout.mainColumnClassName}>
+                                <div className={assignPageLayout.mainColumnClassName}>
                                     <VehicleHandoverAssignGrid
                                         historyEntry={historyEntry}
                                         vehicle={vehicle}
                                     />
-                                    <div ref={assessmentSectionRef} className="scroll-mt-6">
+
+                                    <div
+                                        ref={assessmentSectionRef}
+                                        className="w-full min-w-0 scroll-mt-6"
+                                    >
                                         <VehicleHandoverReceiverAssessmentCard
                                             historyEntry={historyEntry}
                                             vehicle={vehicle}
@@ -751,8 +746,11 @@ function VehicleHandoverAssignPageContent() {
                                             onDone={handleAssessmentDone}
                                             onVehicleUpdated={handleVehicleUpdated}
                                             inspectionHandover={isInspectionHandover}
+                                            mirrorLiveAccessories
                                             readOnly={
-                                                isInspectionHandover ? inspectionFormReadOnly : reportsReadOnly
+                                                isInspectionHandover
+                                                    ? inspectionFormReadOnly
+                                                    : reportsReadOnly
                                             }
                                             handoverItemFines={handoverItemFineIndexForUi}
                                             handoverFines={handoverFinesForUi}
@@ -765,14 +763,14 @@ function VehicleHandoverAssignPageContent() {
                                     </div>
                                 </div>
 
-                                <div className={`${workflowPageLayout.sideColumnClassName} flex min-h-0 flex-col`}>
+                                <div className={`${assignPageLayout.sideColumnClassName}`}>
                                     <VehicleHandoverAssignWorkflowPanel
                                         historyEntry={historyEntry}
                                         vehicle={vehicle}
                                         assetHistory={handoverAssetHistory}
                                         handoverItemFines={handoverItemFineIndexForUi}
                                         handoverItemFineWaivers={handoverItemFineWaiversForUi}
-                                        className={`${workflowPageLayout.panelClassName} min-h-full flex-1`}
+                                        className={assignPageLayout.panelClassName}
                                         canApprove={canApprove}
                                         isHrStage={isHrReviewStage}
                                         onApproveWithFine={
@@ -780,35 +778,34 @@ function VehicleHandoverAssignPageContent() {
                                         }
                                         onVehicleUpdated={handleVehicleUpdated}
                                         onHistoryUpdated={setHistoryEntry}
-                                        onScrollToAssessment={scrollToAssessmentSection}
+                                        onResponded={handleHandoverResponded}
+                                        accessoriesSidePanel
                                     />
                                 </div>
                             </div>
 
-                            {showBodyCondition ? (
-                                <div className={`mt-6 w-full min-w-0 ${PAGE_SECTION_ANIMATION} delay-300`}>
-                                    <VehicleHandoverBodyConditionCard
-                                        historyEntry={historyEntry}
-                                        vehicle={vehicle}
-                                        assetHistory={handoverAssetHistory}
-                                        onSaved={handleHistorySaved}
-                                        readOnly={
-                                            isInspectionHandover ? inspectionFormReadOnly : reportsReadOnly
-                                        }
-                                        inspectionHandover={isInspectionHandover}
-                                        onVehicleUpdated={handleVehicleUpdated}
-                                        onGoToApproval={scrollToApprovalHeader}
-                                        onGoToAssessment={scrollToAssessmentSection}
-                                        handoverItemFines={handoverItemFineIndexForUi}
-                                        handoverFines={handoverFinesForUi}
-                                        handoverItemFineWaivers={handoverItemFineWaiversForUi}
-                                        canManageItemFines={canManageItemFines}
-                                        isHrApprovalStage={isHrReviewStage}
-                                        onOpenItemFine={openHandoverItemFine}
-                                        onRemoveItemFine={removeHandoverItemFine}
-                                    />
-                                </div>
-                            ) : null}
+                            <div className={`mt-6 w-full min-w-0 ${PAGE_SECTION_ANIMATION} delay-300`}>
+                                <VehicleHandoverBodyConditionCard
+                                    historyEntry={historyEntry}
+                                    vehicle={vehicle}
+                                    assetHistory={handoverAssetHistory}
+                                    onSaved={handleHistorySaved}
+                                    readOnly={
+                                        isInspectionHandover ? inspectionFormReadOnly : reportsReadOnly
+                                    }
+                                    inspectionHandover={isInspectionHandover}
+                                    onVehicleUpdated={handleVehicleUpdated}
+                                    onGoToApproval={scrollToApprovalHeader}
+                                    onGoToAssessment={scrollToAssessmentSection}
+                                    handoverItemFines={handoverItemFineIndexForUi}
+                                    handoverFines={handoverFinesForUi}
+                                    handoverItemFineWaivers={handoverItemFineWaiversForUi}
+                                    canManageItemFines={canManageItemFines}
+                                    isHrApprovalStage={isHrReviewStage}
+                                    onOpenItemFine={openHandoverItemFine}
+                                    onRemoveItemFine={removeHandoverItemFine}
+                                />
+                            </div>
                         </>
                     ) : (
                         <div className={`w-full ${PAGE_SECTION_ANIMATION} delay-150`}>

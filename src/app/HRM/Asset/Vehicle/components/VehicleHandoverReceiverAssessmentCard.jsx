@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ClipboardCheck, History, Loader2, RotateCcw, Save, X } from 'lucide-react';
+import { Check, ClipboardCheck, Loader2, RotateCcw, Save, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -15,11 +15,18 @@ import {
     buildAccessoriesComparisonBaselineForm,
     buildAssessmentFormState,
     buildAssessmentPayload,
+    buildDraftAssessmentPayload,
     buildAccessoriesLiveListForm,
     buildAccessoryHandoverCardSourceForm,
+    buildInspectionHandoverAssessmentForm,
+    buildMirrorLiveAccessoriesAssessmentForm,
+    buildMirrorLiveAccessoryBaselineRow,
+    shouldLockInspectionAssessmentToHistory,
     buildHandoverReceiverAccessoryComparisonBaseline,
+    buildLiveAccessoryEditSyncPlan,
     buildPreviousHandoverAccessoryForm,
     buildReceiverAssessmentRemoteSyncKey,
+    buildSyncedAssetAccessories,
     cloneAssessmentForm,
     HANDOVER_ASSESSMENT_GRID_CLASS,
     hasAssessmentPhoto,
@@ -35,10 +42,12 @@ import {
 import { hasCurrentReceiverAssessmentData } from '../utils/vehicleHandoverPreviousReports';
 import { resolveHandoverDeleteHistoryId } from '../utils/vehicleHandoverHistory';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
+import VehicleHandoverPhotoCompareViewer from './VehicleHandoverPhotoCompareViewer';
 import VehicleHandoverLandscapePhotoBox, {
     VehicleHandoverLandscapePhotoPlaceholder,
 } from './VehicleHandoverLandscapePhotoBox';
 import AssessmentMediaImage from './AssessmentMediaImage';
+import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { buildAssessmentFormComparisonRows } from '../utils/vehicleHandoverPhotoComparison';
 import {
     handoverItemVisualClasses,
@@ -62,7 +71,7 @@ function accessoryYesNoLabel(value) {
     return '—';
 }
 
-function PreviousAccessoriesModal({ open, items = [], onClose }) {
+function LiveAccessoriesReferenceModal({ open, items = [], onClose }) {
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -94,16 +103,16 @@ function PreviousAccessoriesModal({ open, items = [], onClose }) {
             <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
                 <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
                     <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">
-                            Previous accessories
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700">
+                            Accessories list
                         </p>
-                        <h3 className="truncate text-lg font-bold text-gray-900">Previous vehicle accessories</h3>
+                        <h3 className="truncate text-lg font-bold text-gray-900">Live accessories</h3>
                     </div>
                     <button
                         type="button"
                         onClick={onClose}
                         className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
-                        aria-label="Close previous accessories"
+                        aria-label="Close live accessories"
                     >
                         <X size={20} />
                     </button>
@@ -113,27 +122,33 @@ function PreviousAccessoriesModal({ open, items = [], onClose }) {
                         <div className={HANDOVER_ASSESSMENT_GRID_CLASS}>
                             {items.map((item) => (
                                 <div
-                                    key={item.key}
-                                    className="flex flex-col rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 shadow-sm"
+                                    key={item.listKey || item.key}
+                                    className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/60 p-3 shadow-sm"
                                 >
                                     <div className="flex items-center justify-between gap-2">
                                         <h5 className="truncate text-sm font-bold text-gray-900">{item.label}</h5>
-                                        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-bold uppercase text-emerald-800">
+                                        <span
+                                            className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
+                                                item.present === true
+                                                    ? 'bg-emerald-100 text-emerald-800'
+                                                    : 'bg-slate-200 text-slate-700'
+                                            }`}
+                                        >
                                             {accessoryYesNoLabel(item.present)}
                                         </span>
                                     </div>
-                                    <div className="mt-2 h-[100px] min-h-[100px] overflow-hidden rounded-lg border-2 border-emerald-300 bg-white">
+                                    <div className="mt-2 h-[100px] min-h-[100px] overflow-hidden rounded-lg border-2 border-slate-200 bg-white">
                                         {item.photo ? (
                                             <AssessmentMediaImage
                                                 photo={item.photo}
-                                                alt={`Previous ${item.label}`}
+                                                alt={`Live ${item.label}`}
                                                 className="h-full w-full object-cover object-center"
                                             />
                                         ) : (
                                             <div className="flex h-full items-center justify-center text-[11px] text-gray-400">
                                                 {item.present === false
-                                                    ? 'No photo (marked No)'
-                                                    : 'No previous photo'}
+                                                    ? 'Not on live list (No)'
+                                                    : 'No photo on live list'}
                                             </div>
                                         )}
                                     </div>
@@ -142,7 +157,7 @@ function PreviousAccessoriesModal({ open, items = [], onClose }) {
                         </div>
                     ) : (
                         <p className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-                            No previous accessories were recorded for this vehicle.
+                            No live accessories on the vehicle profile yet. Add them from the Accessories List tab.
                         </p>
                     )}
                 </div>
@@ -161,6 +176,7 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
     saving,
     uploading,
     readOnly = false,
+    mirrorLiveList = false,
     visualStatus = 'neutral',
     hasFine = false,
     isWaived = false,
@@ -170,15 +186,27 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
     onRemoveFromFine,
     showFineHint = false,
     showMatchesPrevious = false,
+    canCompare = false,
+    onCompare,
     onPresentChange,
     onPhotoUpload,
     onPhotoPreview,
 }) {
-    const displayPhoto = photo || listPhoto;
+    const displayPhoto = mirrorLiveList
+        ? present === true
+            ? photo
+            : null
+        : photo || listPhoto;
     const photoUrl = resolveAssessmentMediaUrl(displayPhoto);
-    const showToggles = listHasImage && !readOnly;
-    const showPhoto = listHasImage && present === true;
-    const photoMissing = showPhoto && !hasAssessmentPhoto(displayPhoto);
+    const hasDisplayPhoto = hasAssessmentPhoto(displayPhoto);
+    const showToggles = mirrorLiveList
+        ? !readOnly
+        : listHasImage && !readOnly;
+    const showPhoto = mirrorLiveList
+        ? present === true
+        : hasDisplayPhoto ||
+          (!readOnly && listHasImage && present === true);
+    const photoMissing = showPhoto && !hasDisplayPhoto && !readOnly;
     const visuals = handoverItemVisualClasses(visualStatus);
 
     return (
@@ -204,13 +232,13 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
             </div>
 
             <div className="mt-2 min-h-[34px] shrink-0">
-                {showPhoto ? (
+                {showPhoto && !readOnly ? (
                     <>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                             Photo <span className="text-red-500">*</span>
                         </p>
                         <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
-                            From live accessories list
+                            {mirrorLiveList ? 'Live accessories' : 'From live accessories list'}
                         </p>
                     </>
                 ) : null}
@@ -231,11 +259,15 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
                     />
                 ) : (
                     <VehicleHandoverLandscapePhotoPlaceholder>
-                        {!listHasImage
+                        {!mirrorLiveList && !listHasImage
                             ? 'No image on accessories list'
                             : present === false
                               ? 'No photo required'
-                              : 'Select Yes or No above'}
+                              : mirrorLiveList
+                                ? readOnly
+                                    ? 'No photo'
+                                    : 'Upload accessory photo'
+                                : 'Select Yes or No above'}
                     </VehicleHandoverLandscapePhotoPlaceholder>
                 )}
             </div>
@@ -249,6 +281,17 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
                     <span className="text-emerald-700">Matches previous accessories.</span>
                 ) : null}
             </p>
+
+            {canCompare && onCompare ? (
+                <button
+                    type="button"
+                    onClick={onCompare}
+                    disabled={saving || uploading}
+                    className="mt-2 w-full rounded-lg border border-red-300 bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    Compare to Previous
+                </button>
+            ) : null}
 
             {showFineAction ? (
                 <VehicleHandoverItemFineButton
@@ -272,6 +315,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
     onDone,
     onVehicleUpdated,
     inspectionHandover = false,
+    mirrorLiveAccessories = false,
     readOnly: readOnlyProp = false,
     handoverItemFines = {},
     handoverFines = [],
@@ -280,6 +324,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
     isHrApprovalStage = false,
     onOpenItemFine,
     onRemoveItemFine,
+    sidePanel = null,
 }) {
     const { toast } = useToast();
     const [localEntry, setLocalEntry] = useState(null);
@@ -296,6 +341,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
     const [completing, setCompleting] = useState(false);
     const [viewerOpen, setViewerOpen] = useState(false);
     const [viewerStartIndex, setViewerStartIndex] = useState(0);
+    const [compareView, setCompareView] = useState(null);
     const [previousSectionOpen, setPreviousSectionOpen] = useState(false);
     const photoUploadInFlightRef = useRef(new Set());
     const skipRemoteSyncRef = useRef(false);
@@ -338,18 +384,37 @@ export default function VehicleHandoverReceiverAssessmentCard({
     }
 
     const liveAccessoriesListForm = useMemo(() => {
-        if (inspectionHandover) {
-            return buildAccessoriesComparisonBaselineForm(vehicle, historyEntry, { assetHistory });
-        }
         if (!vehicle?._id) {
             return cloneAssessmentForm({});
         }
         return buildAccessoriesLiveListForm(vehicle, historyEntry, { assetHistory });
-    }, [assetHistory, historyEntry, inspectionHandover, vehicle]);
+    }, [assetHistory, historyEntry, vehicle]);
+
+    const frozenHandoverLiveBaselineRef = useRef({ key: '', form: null });
+
+    const frozenHandoverLiveBaselineKey = useMemo(() => {
+        if (!(mirrorLiveAccessories || inspectionHandover) || !vehicle?._id) return '';
+        return `${vehicle._id}:${historyEntryId || 'new'}`;
+    }, [inspectionHandover, mirrorLiveAccessories, vehicle?._id, historyEntryId]);
+
+    const frozenHandoverLiveBaseline = useMemo(() => {
+        if (!frozenHandoverLiveBaselineKey) {
+            return cloneAssessmentForm({});
+        }
+        const cached = frozenHandoverLiveBaselineRef.current;
+        if (cached.key === frozenHandoverLiveBaselineKey && cached.form) {
+            return cached.form;
+        }
+        const form = cloneAssessmentForm(
+            buildMirrorLiveAccessoriesAssessmentForm(vehicle, historyEntry, { assetHistory }),
+        );
+        frozenHandoverLiveBaselineRef.current = { key: frozenHandoverLiveBaselineKey, form };
+        return form;
+    }, [assetHistory, frozenHandoverLiveBaselineKey, historyEntry, vehicle]);
 
     const accessoryComparisonBaselineForm = useMemo(() => {
-        if (inspectionHandover) {
-            return liveAccessoriesListForm;
+        if (mirrorLiveAccessories || inspectionHandover) {
+            return frozenHandoverLiveBaseline;
         }
         const frozen = comparisonBaselineRef.current;
         if (frozen.key === comparisonBaselineKey && frozen.form) {
@@ -364,24 +429,27 @@ export default function VehicleHandoverReceiverAssessmentCard({
         comparisonBaselineKey,
         historyEntry,
         inspectionHandover,
-        liveAccessoriesListForm,
+        frozenHandoverLiveBaseline,
+        mirrorLiveAccessories,
         vehicle,
     ]);
 
     const accessoryCardSourceForm = useMemo(() => {
-        if (inspectionHandover || !vehicle?._id) {
-            return liveAccessoriesListForm;
+        if (!vehicle?._id) {
+            return cloneAssessmentForm({});
+        }
+        if (mirrorLiveAccessories || inspectionHandover) {
+            return frozenHandoverLiveBaseline;
         }
         return buildAccessoryHandoverCardSourceForm(vehicle, historyEntry, { assetHistory });
-    }, [assetHistory, historyEntry, inspectionHandover, liveAccessoriesListForm, vehicle]);
+    }, [assetHistory, frozenHandoverLiveBaseline, historyEntry, inspectionHandover, mirrorLiveAccessories, vehicle]);
 
-    const previousHandoverForm = useMemo(
-        () =>
-            inspectionHandover
-                ? liveAccessoriesListForm
-                : buildPreviousHandoverAccessoryForm(historyEntry, { assetHistory }),
-        [assetHistory, historyEntry, inspectionHandover, liveAccessoriesListForm],
-    );
+    const previousHandoverForm = useMemo(() => {
+        if (mirrorLiveAccessories || inspectionHandover) {
+            return frozenHandoverLiveBaseline;
+        }
+        return buildPreviousHandoverAccessoryForm(historyEntry, { assetHistory });
+    }, [assetHistory, frozenHandoverLiveBaseline, historyEntry, inspectionHandover, mirrorLiveAccessories, vehicle]);
 
     useEffect(() => {
         if (skipRemoteSyncRef.current) {
@@ -396,21 +464,42 @@ export default function VehicleHandoverReceiverAssessmentCard({
         setLocalEntry(null);
 
         const nextForm = cloneAssessmentForm(
-            hasCurrentReceiverAssessmentData(historyEntry)
-                ? buildAssessmentFormState(historyEntry, vehicle, {
-                      assetHistory,
-                      currentEntry: historyEntry,
-                      asset: vehicle,
-                  })
-                : buildAccessoryHandoverCardSourceForm(vehicle, historyEntry, { assetHistory }),
+            inspectionHandover
+                ? buildInspectionHandoverAssessmentForm(vehicle, historyEntry, { assetHistory })
+                : mirrorLiveAccessories
+                  ? hasCurrentReceiverAssessmentData(historyEntry) ||
+                    isReceiverAssessmentMarkedDone(historyEntry)
+                      ? buildAssessmentFormState(historyEntry, vehicle, {
+                            assetHistory,
+                            currentEntry: historyEntry,
+                            asset: vehicle,
+                        })
+                      : cloneAssessmentForm(frozenHandoverLiveBaseline)
+                  : hasCurrentReceiverAssessmentData(historyEntry) ||
+                      isReceiverAssessmentMarkedDone(historyEntry)
+                    ? buildAssessmentFormState(historyEntry, vehicle, {
+                          assetHistory,
+                          currentEntry: historyEntry,
+                          asset: vehicle,
+                      })
+                    : buildAccessoryHandoverCardSourceForm(vehicle, historyEntry, { assetHistory }),
         );
         setSavedForm(nextForm);
         setForm(nextForm);
-    }, [assetHistory, historyEntry, historyEntryId, remoteAssessmentSyncKey, vehicle]);
+    }, [
+        assetHistory,
+        historyEntry,
+        historyEntryId,
+        inspectionHandover,
+        mirrorLiveAccessories,
+        remoteAssessmentSyncKey,
+        frozenHandoverLiveBaseline,
+        vehicle,
+    ]);
 
     useEffect(() => {
+        if (inspectionHandover || mirrorLiveAccessories) return;
         if (
-            inspectionHandover ||
             !vehicle?._id ||
             hasCurrentReceiverAssessmentData(historyEntry) ||
             isReceiverAssessmentMarkedDone(historyEntry)
@@ -428,15 +517,20 @@ export default function VehicleHandoverReceiverAssessmentCard({
 
         setSavedForm(liveForm);
         setForm(liveForm);
-    }, [assetHistory, historyEntry, inspectionHandover, vehicle]);
+    }, [assetHistory, historyEntry, vehicle]);
 
     const displayEntry = localEntry || historyEntry;
     const assessmentCompleted = isReceiverAssessmentMarkedDone(displayEntry);
+    const assessmentLocked =
+        inspectionHandover && shouldLockInspectionAssessmentToHistory(vehicle, displayEntry);
     const readOnly = readOnlyProp || assessmentCompleted || (
         inspectionHandover &&
         String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft'
     );
     const effectiveAssessmentForm = useMemo(() => {
+        if (inspectionHandover || assessmentCompleted || readOnly) {
+            return cloneAssessmentForm(form);
+        }
         const merged = cloneAssessmentForm(form);
         RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
             if (!accessoryListItemHasImage(accessoryCardSourceForm, item.key)) return;
@@ -448,7 +542,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             };
         });
         return merged;
-    }, [accessoryCardSourceForm, form]);
+    }, [accessoryCardSourceForm, assessmentCompleted, form, inspectionHandover, readOnly]);
 
     const comparisonCurrentForm = useMemo(() => {
         if (inspectionHandover) {
@@ -472,8 +566,11 @@ export default function VehicleHandoverReceiverAssessmentCard({
     ]);
 
     const assessmentFormOptions = useMemo(
-        () => ({ liveListForm: accessoryCardSourceForm }),
-        [accessoryCardSourceForm],
+        () => ({
+            liveListForm: accessoryCardSourceForm,
+            requireAllItems: inspectionHandover || mirrorLiveAccessories,
+        }),
+        [accessoryCardSourceForm, inspectionHandover, mirrorLiveAccessories],
     );
     const assessmentComplete = isAssessmentFormComplete(effectiveAssessmentForm, assessmentFormOptions);
     const formDirty = useMemo(() => assessmentFormChanged(savedForm, form), [form, savedForm]);
@@ -552,47 +649,104 @@ export default function VehicleHandoverReceiverAssessmentCard({
         [comparisonByKey],
     );
 
-    const previousAccessoriesItems = useMemo(
+    const liveReferenceAccessoriesItems = useMemo(
         () =>
             RECEIVER_ASSESSMENT_ITEMS.map((item) => {
-                const row = previousHandoverForm[item.key] || { present: null, photo: null };
+                const row = buildMirrorLiveAccessoryBaselineRow(liveAccessoriesListForm, item.key);
                 return {
                     key: item.key,
+                    listKey: item.key,
                     label: item.label,
-                    present: row.present ?? null,
-                    photo: row.photo ?? null,
+                    present: row.present,
+                    photo: row.present === true ? row.photo : null,
                     photoUrl: resolveAssessmentMediaUrl(row.photo),
                 };
-            }).filter(
-                (item) =>
-                    item.present === true ||
-                    item.present === false ||
-                    hasAssessmentPhoto(item.photo),
-            ),
-        [previousHandoverForm],
+            }),
+        [liveAccessoriesListForm],
     );
 
-    const showPreviousSectionButton =
+    const legacyPreviousAccessoriesItems = useMemo(() => {
+        return RECEIVER_ASSESSMENT_ITEMS.map((item) => {
+            const row = previousHandoverForm[item.key] || { present: null, photo: null };
+            return {
+                key: item.key,
+                label: item.label,
+                present: row.present ?? null,
+                photo: row.photo ?? null,
+                photoUrl: resolveAssessmentMediaUrl(row.photo),
+            };
+        }).filter(
+            (item) =>
+                item.present === true ||
+                item.present === false ||
+                hasAssessmentPhoto(item.photo),
+        );
+    }, [previousHandoverForm]);
+
+    const modalAccessoriesItems =
+        mirrorLiveAccessories || inspectionHandover
+            ? liveReferenceAccessoriesItems
+            : legacyPreviousAccessoriesItems;
+
+    const showLiveReferenceButton = mirrorLiveAccessories || inspectionHandover;
+    const showLegacyPreviousButton =
+        !mirrorLiveAccessories &&
         !inspectionHandover &&
         (hasChangedAccessories || formDirty) &&
-        previousAccessoriesItems.length > 0;
+        legacyPreviousAccessoriesItems.length > 0;
+    const showAccessoriesReferenceButton = showLiveReferenceButton || showLegacyPreviousButton;
 
     const galleryItems = useMemo(
         () =>
-            RECEIVER_ASSESSMENT_ITEMS.map((item) => ({
-                key: item.key,
-                label: item.label,
-                url: resolveAssessmentMediaUrl(form[item.key]?.photo),
-            })).filter((item) => item.url),
+            RECEIVER_ASSESSMENT_ITEMS.map((item) => {
+                const row = form[item.key] || {};
+                return {
+                    key: item.key,
+                    label: item.label,
+                    url: resolveAssessmentMediaUrl(row.photo),
+                };
+            }).filter((item) => item.url),
         [form],
+    );
+
+    const syncAccessoryEditToVehicle = useCallback(
+        async (accessoryKey, nextRow) => {
+            if (!vehicle?._id || readOnly) return null;
+
+            const plan = buildLiveAccessoryEditSyncPlan({
+                asset: vehicle,
+                historyEntry,
+                accessoryKey,
+                nextRow,
+            });
+
+            const syncedAccessories = buildSyncedAssetAccessories(vehicle, plan.mergedForm);
+            const assetPayload = { vehicleAccessoriesListEntries: plan.nextEntries };
+            if (syncedAccessories) {
+                assetPayload.accessories = syncedAccessories;
+            }
+
+            const { data: updatedVehicle } = await axiosInstance.put(
+                `/AssetType/${vehicle._id}`,
+                assetPayload,
+                ASSESSMENT_MUTATION_CONFIG,
+            );
+            onVehicleUpdated?.(updatedVehicle);
+
+            // Live list only during edit — history assessment + fines apply on Save Draft / Process Next.
+            return plan;
+        },
+        [onVehicleUpdated, readOnly, vehicle, historyEntry],
     );
 
     const persistAssessmentForm = useCallback(
         async (formToSave, { complete = false } = {}) => {
             if (readOnly || isReceiverAssessmentMarkedDone(displayEntry)) return null;
 
+            const formForPersist = complete ? effectiveAssessmentForm : formToSave;
+
             if (complete) {
-                const errors = validateAssessmentForm(formToSave, assessmentFormOptions);
+                const errors = validateAssessmentForm(formForPersist, assessmentFormOptions);
                 if (Object.keys(errors).length > 0) {
                     toast({
                         variant: 'destructive',
@@ -610,7 +764,17 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 return null;
             }
 
-            const payload = buildAssessmentPayload(formToSave);
+            const payload = complete
+                ? buildAssessmentPayload(formForPersist)
+                : buildDraftAssessmentPayload(formToSave);
+            if (!complete && Object.keys(payload).length === 0) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Nothing to save',
+                    description: 'Select Yes or No for at least one accessory before saving a draft.',
+                });
+                return null;
+            }
             let persistHistoryId = historyEntry?._id;
             if (String(persistHistoryId || '').startsWith('live-')) {
                 const resolved = resolveHandoverDeleteHistoryId(historyEntry, vehicle, assetHistory);
@@ -623,9 +787,9 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 const merged = complete
                     ? mergeAssessmentCompletedIntoEntry(withAssessment)
                     : withAssessment;
-                if (complete) {
+                if (complete && !inspectionHandover && !mirrorLiveAccessories) {
                     const changeEntry = buildAccessoriesListAssignmentChangeEntry(
-                        formToSave,
+                        formForPersist,
                         assetHistory,
                         historyEntry,
                         vehicle,
@@ -668,7 +832,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             if (complete) onDone?.(merged);
             return merged;
         },
-        [assetHistory, displayEntry, historyEntry, onDone, onSaved, onVehicleUpdated, readOnly, toast, vehicle],
+        [assessmentFormOptions, assetHistory, displayEntry, effectiveAssessmentForm, historyEntry, inspectionHandover, mirrorLiveAccessories, onDone, onSaved, onVehicleUpdated, readOnly, toast, vehicle],
     );
 
     const handleSaveDraft = async () => {
@@ -681,7 +845,9 @@ export default function VehicleHandoverReceiverAssessmentCard({
             setSavedForm(nextSaved);
             toast({
                 title: 'Draft saved',
-                description: 'Your accessory selections are saved. You can continue editing or process next when ready.',
+                description: mirrorLiveAccessories
+                    ? 'Accessory changes saved on this handover. They will update the Accessories List after HR approval.'
+                    : 'Your accessory selections are saved. You can continue editing or process next when ready.',
             });
         } catch (error) {
             toast({
@@ -704,8 +870,9 @@ export default function VehicleHandoverReceiverAssessmentCard({
             setSavedForm(nextSaved);
             toast({
                 title: 'Vehicle accessories saved',
-                description:
-                    'Body Condition Report is now available. Changed items are listed on the Accessories List tab.',
+                description: mirrorLiveAccessories
+                    ? 'Body Condition Report is now available. Accessory changes are pending until HR approval.'
+                    : 'Body Condition Report is now available. Changed items are listed on the Accessories List tab.',
             });
         } catch (error) {
             toast({
@@ -735,17 +902,49 @@ export default function VehicleHandoverReceiverAssessmentCard({
         });
     };
 
-    const handlePresentChange = (key, present) => {
+    const handlePresentChange = async (key, present) => {
         if (readOnly) return;
-        const listPhoto = accessoryCardSourceForm[key]?.photo ?? null;
+        const currentRow = form[key] || accessoryCardSourceForm[key] || { present: null, photo: null };
+        const nextRow = applyAssessmentPresentToggle(
+            currentRow,
+            present,
+            currentRow.photo ??
+                savedForm[key]?.photo ??
+                accessoryCardSourceForm[key]?.photo ??
+                null,
+        );
+        if (present === false) {
+            nextRow.photo = null;
+        }
+
         setForm((prev) => ({
             ...prev,
-            [key]: applyAssessmentPresentToggle(
-                prev[key],
-                present,
-                savedForm[key]?.photo ?? listPhoto ?? null,
-            ),
+            [key]: nextRow,
         }));
+
+        if (mirrorLiveAccessories) return;
+        if (!inspectionHandover) return;
+
+        try {
+            await syncAccessoryEditToVehicle(key, nextRow);
+            setSavedForm((prev) => ({
+                ...prev,
+                [key]: nextRow,
+            }));
+        } catch (error) {
+            setForm((prev) => ({
+                ...prev,
+                [key]: currentRow,
+            }));
+            toast({
+                variant: 'destructive',
+                title: 'Could not update accessory',
+                description:
+                    error.response?.data?.message ||
+                    error.message ||
+                    'Changes were not saved to the accessories list.',
+            });
+        }
     };
 
     const handlePhotoUpload = async (key, file) => {
@@ -761,6 +960,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             return;
         }
 
+        const previousRow = form[key] || accessoryCardSourceForm[key] || { present: null, photo: null };
         photoUploadInFlightRef.current.add(key);
         setUploadingKey(key);
         try {
@@ -768,14 +968,27 @@ export default function VehicleHandoverReceiverAssessmentCard({
             const storedPhoto = uploaded.url
                 ? { publicId: uploaded.publicId, url: uploaded.url }
                 : uploaded.publicId;
+            const nextRow = {
+                present: true,
+                photo: storedPhoto,
+            };
             setForm((prev) => ({
                 ...prev,
-                [key]: {
-                    present: true,
-                    photo: storedPhoto,
-                },
+                [key]: nextRow,
             }));
+
+            if (inspectionHandover && !mirrorLiveAccessories) {
+                await syncAccessoryEditToVehicle(key, nextRow);
+                setSavedForm((prev) => ({
+                    ...prev,
+                    [key]: nextRow,
+                }));
+            }
         } catch (error) {
+            setForm((prev) => ({
+                ...prev,
+                [key]: previousRow,
+            }));
             toast({
                 variant: 'destructive',
                 title: 'Upload failed',
@@ -794,60 +1007,130 @@ export default function VehicleHandoverReceiverAssessmentCard({
         setViewerOpen(true);
     };
 
-    return (
+    const mirrorLiveList =
+        (mirrorLiveAccessories || inspectionHandover) && !readOnly && !assessmentLocked;
+
+    const accessoriesSubtitle =
+        mirrorLiveAccessories || inspectionHandover
+            ? 'Mirrors Live Accessories — types with a list image show Yes + photo; others default No. Red = changed. Updates apply to Accessories List after HR approval.'
+            : 'By Receiver · Green = matches accessories list · Red = changed · Yellow = in fine';
+
+    const accessoriesReferenceHeaderAction = showAccessoriesReferenceButton ? (
+        <button
+            type="button"
+            onClick={() => setPreviousSectionOpen(true)}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-blue-800 transition-colors hover:bg-blue-100"
+        >
+            <ClipboardCheck size={14} />
+            {showLiveReferenceButton ? 'Live accessories' : 'Previous'}
+        </button>
+    ) : null;
+
+    const actionButtonsColumn = !readOnly ? (
+        <div className="flex shrink-0 flex-col items-stretch gap-2 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-3">
+            <button
+                type="button"
+                onClick={handleProcessNext}
+                disabled={actionBusy || !assessmentComplete}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                {completing ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                Process Next
+            </button>
+            <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={actionBusy || !hasDraftSelections || !canSaveDraft}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                {savingDraft ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                Save Draft
+            </button>
+            <button
+                type="button"
+                onClick={handleCancel}
+                disabled={actionBusy || !canCancel}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                <RotateCcw size={15} />
+                Cancel
+            </button>
+        </div>
+    ) : assessmentCompleted ? (
+        <div className="flex shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/80 p-3">
+            <span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-emerald-700">
+                <Check size={15} />
+                Vehicle accessories complete
+            </span>
+        </div>
+    ) : null;
+
+    const accessoryAlertBanners = (
         <>
-            <div className="w-full">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                        <div className="rounded-xl bg-slate-50 p-2 text-slate-700">
-                            <ClipboardCheck size={20} />
-                        </div>
-                        <div className="min-w-0">
-                            <h4 className="text-sm font-bold text-gray-800">Vehicle Accessories</h4>
-                            <p className="text-xs text-gray-500">
-                        {inspectionHandover
-                            ? historyEntry?.details?.reinspection === true
-                                ? 'Reinspection — only the flowchart Admin Officer can complete this report'
-                                : 'Inspection assessment — record current accessories and photos'
-                            : 'By Receiver · Green = matches accessories list · Red = changed · Yellow = in fine'}
-                            </p>
-                        </div>
-                    </div>
-                    {showPreviousSectionButton ? (
-                        <button
-                            type="button"
-                            onClick={() => setPreviousSectionOpen(true)}
-                            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 transition-colors hover:bg-emerald-100"
-                        >
-                            <History size={14} />
-                            Previous accessories
-                        </button>
-                    ) : null}
-                </div>
+            {readOnly && !assessmentCompleted ? (
+                <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    {inspectionHandover
+                        ? historyEntry?.details?.reinspection === true
+                            ? 'Only the flowchart Admin Officer can edit this reinspection report.'
+                            : 'Only the Admin Officer (or assigned driver with portal access) can edit this inspection report.'
+                        : 'Only the handover receiver or Admin Officer can edit this report at the current workflow stage.'}
+                </p>
+            ) : null}
+            {!readOnly && formDirty ? (
+                <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                    You have unsaved changes. Use Save Draft to keep them, Process Next when all items are complete, or Cancel to restore the last saved accessories.
+                </p>
+            ) : null}
+        </>
+    );
 
-                {readOnly && !assessmentCompleted ? (
-                    <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                        {inspectionHandover
-                            ? historyEntry?.details?.reinspection === true
-                                ? 'Only the flowchart Admin Officer can edit this reinspection report.'
-                                : 'Only the Admin Officer (or assigned driver with portal access) can edit this inspection report.'
-                            : 'Only the handover receiver or Admin Officer can edit this report at the current workflow stage.'}
-                    </p>
-                ) : null}
-
-                {!readOnly && formDirty ? (
-                    <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-                        You have unsaved changes. Use Save Draft to keep them, Process Next when all items are complete, or Cancel to restore the last saved accessories.
-                    </p>
-                ) : null}
-
-                <div className={HANDOVER_ASSESSMENT_GRID_CLASS}>
-                    {RECEIVER_ASSESSMENT_ITEMS.map((item) => {
-                        const row = form[item.key] || { present: null, photo: null };
+    const accessoryCardsGrid = (
+        <div className={HANDOVER_ASSESSMENT_GRID_CLASS}>
+            {RECEIVER_ASSESSMENT_ITEMS.map((item) => {
+                        const listRow = accessoryCardSourceForm[item.key] || {};
+                        const row = inspectionHandover
+                            ? form[item.key] || listRow || { present: null, photo: null }
+                            : form[item.key] || { present: null, photo: null };
                         const comparison = inspectionHandover ? null : comparisonByKey[item.key];
                         const isWaived = inspectionHandover
                             ? false
                             : isHandoverItemFineWaived(handoverItemFineWaivers, 'accessory', item.key);
+                        const listHasImage = accessoryListItemHasImage(accessoryCardSourceForm, item.key);
+                        const listPhoto = listRow.photo ?? null;
+                        const lockDisplayToSaved =
+                            assessmentCompleted ||
+                            readOnly ||
+                            (inspectionHandover &&
+                                shouldLockInspectionAssessmentToHistory(vehicle, displayEntry));
+                        const baselineRow = frozenHandoverLiveBaseline[item.key] || {
+                            present: false,
+                            photo: null,
+                        };
+                        const effectivePresent = mirrorLiveList || mirrorLiveAccessories
+                            ? row.present === true
+                                ? true
+                                : row.present === false
+                                  ? false
+                                  : baselineRow.present === true
+                                    ? true
+                                    : false
+                            : lockDisplayToSaved || !listHasImage
+                              ? row.present
+                              : row.present === false
+                                ? false
+                                : true;
+                        const effectivePhoto =
+                            effectivePresent === true
+                                ? row.photo ?? baselineRow.photo ?? null
+                                : null;
+                        const mirrorBaseline = buildMirrorLiveAccessoryBaselineRow(
+                            frozenHandoverLiveBaseline,
+                            item.key,
+                        );
+                        const mirrorChanged = accessoryAssessmentItemChanged(mirrorBaseline, {
+                            present: effectivePresent,
+                            photo: effectivePhoto,
+                        });
                         const existingFine = inspectionHandover
                             ? null
                             : resolveHandoverItemFineForCard({
@@ -856,42 +1139,51 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                   historyId: displayEntry?._id,
                                   itemType: 'accessory',
                                   itemKey: item.key,
-                                  changed: comparison?.changed,
+                                  changed: mirrorLiveAccessories ? mirrorChanged : comparison?.changed,
                                   isWaived,
                               });
-                        const listRow = accessoryCardSourceForm[item.key] || {};
-                        const listHasImage = accessoryListItemHasImage(accessoryCardSourceForm, item.key);
-                        const listPhoto = listRow.photo ?? null;
-                        const effectivePresent = listHasImage
-                            ? row.present === false
-                                ? false
-                                : true
-                            : row.present;
-                        const effectivePhoto = row.photo || listPhoto;
-                        const isUserSelected = listHasImage
+                        const isUserSelected = mirrorLiveList
                             ? effectivePresent === true || effectivePresent === false
-                            : row.present === true || row.present === false;
-                        const visualStatus = inspectionHandover
-                            ? 'neutral'
-                            : !isUserSelected
-                              ? 'neutral'
-                              : resolveHandoverItemVisualStatus({
-                                    changed: comparison?.changed,
-                                    hasFine: Boolean(existingFine),
-                                    isWaived,
-                                    hasBaseline: comparison?.hasBaseline,
-                                    acceptedWithoutFine: comparison?.acceptedWithoutFine,
-                                });
+                            : listHasImage
+                              ? effectivePresent === true || effectivePresent === false
+                              : row.present === true || row.present === false;
+                        const visualStatus =
+                            mirrorLiveAccessories && !inspectionHandover
+                                ? resolveHandoverItemVisualStatus({
+                                      changed: mirrorChanged,
+                                      hasFine: Boolean(existingFine),
+                                      isWaived,
+                                      hasBaseline: true,
+                                      acceptedWithoutFine: comparison?.acceptedWithoutFine,
+                                  })
+                                : mirrorLiveList || (mirrorLiveAccessories && readOnly)
+                                  ? mirrorChanged
+                                      ? 'changed'
+                                      : 'unchanged'
+                                  : inspectionHandover && !mirrorLiveAccessories
+                                    ? 'neutral'
+                                    : !isUserSelected
+                                      ? 'neutral'
+                                      : resolveHandoverItemVisualStatus({
+                                            changed: comparison?.changed,
+                                            hasFine: Boolean(existingFine),
+                                            isWaived,
+                                            hasBaseline: comparison?.hasBaseline,
+                                            acceptedWithoutFine: comparison?.acceptedWithoutFine,
+                                        });
+                        const itemChanged = mirrorLiveAccessories ? mirrorChanged : comparison?.changed;
                         const showFineAction = inspectionHandover
                             ? false
                             : shouldShowHandoverItemFineActions({
                                   canManageItemFines,
-                                  changed: comparison?.changed,
+                                  changed: itemChanged,
                                   hasFine: Boolean(existingFine),
                                   isWaived,
                               });
                         const showRemoveFromFine =
-                            showFineAction && !isWaived && (Boolean(existingFine) || comparison?.changed);
+                            showFineAction &&
+                            !isWaived &&
+                            (Boolean(existingFine) || itemChanged);
 
                         const showFineHint =
                             !inspectionHandover &&
@@ -901,7 +1193,12 @@ export default function VehicleHandoverReceiverAssessmentCard({
                         const showMatchesPrevious =
                             !inspectionHandover &&
                             visualStatus === 'unchanged' &&
-                            Boolean(comparison?.usesPreviousHandover);
+                            (mirrorLiveAccessories || Boolean(comparison?.usesPreviousHandover));
+                        const canCompareItem = mirrorLiveAccessories
+                            ? !comparison?.acceptedWithoutFine &&
+                              mirrorBaseline.present === true &&
+                              hasAssessmentPhoto(mirrorBaseline.photo)
+                            : Boolean(comparison?.canCompare);
 
                         return (
                             <AssessmentItemCard
@@ -914,6 +1211,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                 saving={actionBusy}
                                 uploading={uploadingKey === item.key}
                                 readOnly={readOnly}
+                                mirrorLiveList={mirrorLiveList}
                                 visualStatus={visualStatus}
                                 hasFine={Boolean(existingFine)}
                                 isWaived={isWaived}
@@ -921,24 +1219,53 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                 showRemoveFromFine={showRemoveFromFine}
                                 showFineHint={showFineHint}
                                 showMatchesPrevious={showMatchesPrevious}
+                                canCompare={canCompareItem}
+                                onCompare={
+                                    canCompareItem
+                                        ? () =>
+                                              setCompareView({
+                                                  viewLabel: item.label,
+                                                  previousPhotoUrl: mirrorLiveAccessories
+                                                      ? resolveAssessmentMediaUrl(mirrorBaseline.photo)
+                                                      : comparison?.previousPhotoUrl,
+                                                  currentPhotoUrl: mirrorLiveAccessories
+                                                      ? effectivePresent === true
+                                                          ? resolveAssessmentMediaUrl(effectivePhoto)
+                                                          : null
+                                                      : comparison?.currentPhotoUrl,
+                                              })
+                                        : undefined
+                                }
                                 onAddFine={
                                     showFineAction
                                         ? () => {
-                                              const previousRow = previousHandoverForm[item.key] || {};
-                                              const comparison = comparisonByKey[item.key];
+                                              const previousRow = mirrorLiveAccessories
+                                                  ? mirrorBaseline
+                                                  : previousHandoverForm[item.key] || {};
+                                              const itemComparison = comparisonByKey[item.key];
                                               onOpenItemFine?.({
                                                   itemType: 'accessory',
                                                   itemKey: item.key,
                                                   itemLabel: item.label,
                                                   existingFine,
-                                                  photo: row.photo,
+                                                  photo: mirrorLiveAccessories ? effectivePhoto : row.photo,
                                                   previousPhoto: previousRow.photo,
-                                                  present: row.present,
-                                                  previousPresent:
-                                                      comparison?.previousPresent ?? previousRow.present,
-                                                  photoUrl: comparison?.currentPhotoUrl,
-                                                  previousPhotoUrl: comparison?.previousPhotoUrl,
-                                                  photoChanged: comparison?.photoChanged,
+                                                  present: mirrorLiveAccessories
+                                                      ? effectivePresent
+                                                      : row.present,
+                                                  previousPresent: mirrorLiveAccessories
+                                                      ? mirrorBaseline.present
+                                                      : itemComparison?.previousPresent ??
+                                                        previousRow.present,
+                                                  photoUrl: mirrorLiveAccessories
+                                                      ? resolveAssessmentMediaUrl(effectivePhoto)
+                                                      : itemComparison?.currentPhotoUrl,
+                                                  previousPhotoUrl: mirrorLiveAccessories
+                                                      ? resolveAssessmentMediaUrl(mirrorBaseline.photo)
+                                                      : itemComparison?.previousPhotoUrl,
+                                                  photoChanged: mirrorLiveAccessories
+                                                      ? mirrorChanged
+                                                      : itemComparison?.photoChanged,
                                               });
                                           }
                                         : undefined
@@ -959,55 +1286,36 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                 onPhotoPreview={() => openPhotoViewer(item.key)}
                             />
                         );
-                    })}
-                    {!readOnly ? (
-                        <div className="flex flex-col items-stretch justify-center gap-2 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-3">
-                            <button
-                                type="button"
-                                onClick={handleProcessNext}
-                                disabled={actionBusy || !assessmentComplete}
-                                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {completing ? (
-                                    <Loader2 size={15} className="animate-spin" />
-                                ) : (
-                                    <Check size={15} />
-                                )}
-                                Process Next
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleSaveDraft}
-                                disabled={actionBusy || !hasDraftSelections || !canSaveDraft}
-                                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {savingDraft ? (
-                                    <Loader2 size={15} className="animate-spin" />
-                                ) : (
-                                    <Save size={15} />
-                                )}
-                                Save Draft
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleCancel}
-                                disabled={actionBusy || !canCancel}
-                                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                <RotateCcw size={15} />
-                                Cancel
-                            </button>
+            })}
+            {!sidePanel && actionButtonsColumn ? (
+                <div className="flex min-h-[180px] flex-col justify-center">{actionButtonsColumn}</div>
+            ) : null}
+        </div>
+    );
+
+    return (
+        <>
+            <FineFormCard
+                title="Vehicle Accessories"
+                subtitle={accessoriesSubtitle}
+                icon={ClipboardCheck}
+                iconBg="bg-slate-50"
+                iconColor="text-slate-700"
+                className="w-full"
+                headerAction={accessoriesReferenceHeaderAction}
+            >
+                {accessoryAlertBanners}
+                {sidePanel ? (
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+                        <div className="w-full min-w-0 lg:w-3/4">{accessoryCardsGrid}</div>
+                        <div className="flex w-full min-w-0 flex-col lg:w-1/4 lg:self-stretch">
+                            <div className="flex min-h-0 flex-1 flex-col">{sidePanel}</div>
                         </div>
-                    ) : assessmentCompleted ? (
-                        <div className="flex items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/80 p-3">
-                            <span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-emerald-700">
-                                <Check size={15} />
-                                Vehicle accessories complete
-                            </span>
-                        </div>
-                    ) : null}
-                </div>
-            </div>
+                    </div>
+                ) : (
+                    accessoryCardsGrid
+                )}
+            </FineFormCard>
 
             <VehicleHandoverAssessmentPhotoViewer
                 open={viewerOpen}
@@ -1016,9 +1324,19 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 onClose={() => setViewerOpen(false)}
             />
 
-            <PreviousAccessoriesModal
+            <VehicleHandoverPhotoCompareViewer
+                open={Boolean(compareView)}
+                viewLabel={compareView?.viewLabel}
+                previousPhotoUrl={compareView?.previousPhotoUrl}
+                currentPhotoUrl={compareView?.currentPhotoUrl}
+                previousComment={compareView?.previousComment}
+                currentComment={compareView?.currentComment}
+                onClose={() => setCompareView(null)}
+            />
+
+            <LiveAccessoriesReferenceModal
                 open={previousSectionOpen}
-                items={previousAccessoriesItems}
+                items={modalAccessoriesItems}
                 onClose={() => setPreviousSectionOpen(false)}
             />
         </>

@@ -9,6 +9,8 @@ import {
     flowchartAdminRowMatchesUser,
     isHandoverReportsLocked,
     isHandoverReportsCompleteForEntry,
+    isHandoverHistoryAwaitingHrApproval,
+    userMatchesEmployeeRef,
 } from '../utils/vehicleHandoverAssignActions';
 import { isVehicleInspectionHandoverEntry } from '../utils/vehicleHandoverHistory';
 import { pickFlowchartAdminRow, pickFlowchartHrRow } from '../utils/vehicleHandoverAssignWorkflow';
@@ -17,6 +19,7 @@ import { isAdmin as isPortalSuperUser } from '@/utils/permissions';
 export function useHandoverAssignPermissions(vehicle, historyEntry) {
     const [currentUser, setCurrentUser] = useState(null);
     const [flowchartRows, setFlowchartRows] = useState([]);
+    const [hrActiveHolder, setHrActiveHolder] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -27,9 +30,12 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
             try {
                 const stored = localStorage.getItem('user');
                 const parsedStored = stored ? JSON.parse(stored) : null;
-                const [userRes, flowRes] = await Promise.all([
+                const [userRes, flowRes, hrHolderRes] = await Promise.all([
                     axiosInstance.get('/Employee/me', { skipToast: true }).catch(() => ({ data: parsedStored })),
                     axiosInstance.get('/Flowchart', { skipToast: true }).catch(() => ({ data: [] })),
+                    axiosInstance
+                        .get('/Flowchart/active-holder/hr', { skipToast: true })
+                        .catch(() => ({ data: null })),
                 ]);
                 if (cancelled) return;
 
@@ -49,6 +55,7 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
 
                 setCurrentUser(mergedUser);
                 setFlowchartRows(Array.isArray(flowRes?.data) ? flowRes.data : []);
+                setHrActiveHolder(hrHolderRes?.data?.ok ? hrHolderRes.data : null);
             } catch {
                 if (!cancelled) {
                     try {
@@ -58,6 +65,7 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
                         setCurrentUser(null);
                     }
                     setFlowchartRows([]);
+                    setHrActiveHolder(null);
                 }
             } finally {
                 if (!cancelled) setLoading(false);
@@ -80,8 +88,17 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
     const isFlowchartHr = useMemo(() => {
         if (!currentUser) return false;
         if (isPortalSuperUser()) return true;
-        return flowchartAdminRowMatchesUser(flowchartHrRow, currentUser);
-    }, [currentUser, flowchartHrRow]);
+        if (flowchartHrRow && flowchartAdminRowMatchesUser(flowchartHrRow, currentUser)) {
+            return true;
+        }
+        if (hrActiveHolder?.empObjectId || hrActiveHolder?.employeeId) {
+            return userMatchesEmployeeRef(currentUser, {
+                _id: hrActiveHolder.empObjectId,
+                employeeId: hrActiveHolder.employeeId,
+            });
+        }
+        return false;
+    }, [currentUser, flowchartHrRow, hrActiveHolder]);
 
     const reportsLocked = useMemo(
         () => isHandoverReportsLocked(vehicle, historyEntry),
@@ -154,13 +171,11 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         isFlowchartHr,
         canEditReports,
         canApprove,
-        isHandoverHrStage: useMemo(
-            () => {
-                const stage = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage;
-                return stage === 'hr' || stage === 'management';
-            },
-            [vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage],
-        ),
+        isHandoverHrStage: useMemo(() => {
+            const stage = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage;
+            if (stage === 'hr' || stage === 'management' || stage === 'hod') return true;
+            return isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle);
+        }, [vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage, historyEntry, vehicle]),
         canReviewInspection,
         canEditInspectionForm,
         canSubmitInspectionForHr,

@@ -45,7 +45,7 @@ export default function VehicleHandoverAssignGrid({ historyEntry, vehicle }) {
                 icon={ClipboardList}
                 iconBg="bg-blue-50"
                 iconColor="text-blue-600"
-                className="w-full h-full"
+                className="h-full w-full"
             >
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                     {fields.map((field, index) => (

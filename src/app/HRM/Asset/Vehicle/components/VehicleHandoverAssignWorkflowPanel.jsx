@@ -8,6 +8,7 @@ import {
     pickFlowchartAdminRow,
     pickFlowchartHrRow,
 } from '../utils/vehicleHandoverAssignWorkflow';
+import { isHandoverHistoryFullyApproved } from '../utils/vehicleHandoverAssignActions';
 import {
     buildInspectionHandoverWorkflowEvents,
     isInspectionHandoverDetailEntry,
@@ -31,7 +32,9 @@ export default function VehicleHandoverAssignWorkflowPanel({
     onApproveWithFine,
     onVehicleUpdated,
     onHistoryUpdated,
+    onResponded,
     onScrollToAssessment,
+    accessoriesSidePanel = false,
 }) {
     const [flowchartRows, setFlowchartRows] = useState([]);
     const [hrActiveHolder, setHrActiveHolder] = useState(null);
@@ -63,6 +66,7 @@ export default function VehicleHandoverAssignWorkflowPanel({
     }, []);
 
     const isInspection = isInspectionHandoverDetailEntry(historyEntry, vehicle);
+    const handoverFullyApproved = isHandoverHistoryFullyApproved(historyEntry);
 
     const events = useMemo(() => {
         if (isInspection) {
@@ -82,12 +86,16 @@ export default function VehicleHandoverAssignWorkflowPanel({
         });
     }, [vehicle, historyEntry, flowchartRows, hrActiveHolder, isInspection]);
 
-    const cardHeightClass = card.stretchFullHeight ? 'h-full min-h-0' : '';
+    const useVerticalSpread = accessoriesSidePanel
+        ? timeline.accessoriesSideVerticalSpread ?? timeline.verticalSpread
+        : timeline.verticalSpread;
+    const cardLayoutClass = useVerticalSpread ? 'h-full min-h-0 flex flex-col' : 'h-fit w-full shrink-0';
     const cardMinHeightClass = card.minHeightClass || '';
+    const sidePanelPaddingClass = accessoriesSidePanel ? 'p-4' : card.paddingClass;
 
     return (
         <div
-            className={`flex w-full flex-col ${cardHeightClass} ${cardMinHeightClass} ${card.roundedClass} ${card.borderClass} ${card.backgroundClass} ${card.paddingClass} ${className}`}
+            className={`${cardLayoutClass} ${cardMinHeightClass} ${card.roundedClass} ${card.borderClass} ${card.backgroundClass} ${sidePanelPaddingClass} ${className}`}
         >
             <WorkflowHistoryTimeline
                 title={isInspection ? 'Inspection Handover Workflow' : timeline.title}
@@ -98,10 +106,10 @@ export default function VehicleHandoverAssignWorkflowPanel({
                 }
                 emptyMessage={timeline.emptyMessage}
                 size={timeline.size}
-                verticalSpread={timeline.verticalSpread}
-                className={timeline.verticalSpread ? 'min-h-0 flex-1' : ''}
+                verticalSpread={useVerticalSpread}
+                className={useVerticalSpread ? 'min-h-0 flex-1' : 'shrink-0'}
                 layoutConfig={{
-                    verticalSpread: timeline.verticalSpread,
+                    verticalSpread: useVerticalSpread,
                     steps,
                     header,
                     list,
@@ -111,7 +119,7 @@ export default function VehicleHandoverAssignWorkflowPanel({
                 }}
                 events={events}
             />
-            {!isInspection && canApprove && isHrStage ? (
+            {!isInspection && canApprove && isHrStage && !handoverFullyApproved ? (
                 <div className="mt-4 border-t border-slate-100 pt-4">
                     <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                         HR approval
@@ -124,6 +132,7 @@ export default function VehicleHandoverAssignWorkflowPanel({
                         handoverItemFineWaivers={handoverItemFineWaivers}
                         onVehicleUpdated={onVehicleUpdated}
                         onHistoryUpdated={onHistoryUpdated}
+                        onResponded={onResponded}
                         canApprove={canApprove}
                         isHrStage={isHrStage}
                         onApproveWithFine={onApproveWithFine}

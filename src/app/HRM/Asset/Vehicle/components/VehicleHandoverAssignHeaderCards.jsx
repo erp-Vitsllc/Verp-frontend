@@ -17,6 +17,7 @@ import {
 import {
     getEffectiveHandoverStage,
     handoverStageLabel,
+    isHandoverHistoryFullyApproved,
 } from '../utils/vehicleHandoverAssignActions';
 import { inspectionHandoverStageLabel } from '../utils/vehicleInspectionHandoverWorkflow';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
@@ -68,12 +69,35 @@ function buildVehicleSummaryFields(vehicle, historyEntry, statusKey) {
     ];
 }
 
+function VehicleHandoverAssignHeaderCardsSkeleton() {
+    return (
+        <div className="mb-8 flex w-full flex-row items-stretch gap-6 print:hidden">
+            {[0, 1].map((index) => (
+                <div key={index} className={`min-w-0 flex-1 ${HEADER_PAIR_CARD_FIXED}`}>
+                    <div className="flex h-full w-full flex-col overflow-hidden rounded-lg bg-white p-4 shadow-sm">
+                        <div className="mb-3 h-[26px] w-36 animate-pulse rounded bg-slate-100" />
+                        <div className="grid flex-1 grid-cols-2 gap-2 sm:gap-3">
+                            {Array.from({ length: 6 }).map((_, fieldIndex) => (
+                                <div
+                                    key={fieldIndex}
+                                    className="min-h-[44px] animate-pulse rounded-lg border border-slate-100 bg-slate-50"
+                                />
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 export default function VehicleHandoverAssignHeaderCards({
     vehicle,
     historyEntry,
     assetHistory = [],
     onVehicleUpdated,
     onHistoryUpdated,
+    onResponded,
     canApprove = false,
     isHrStage = false,
     onApproveWithFine,
@@ -83,7 +107,17 @@ export default function VehicleHandoverAssignHeaderCards({
     canSubmitInspectionForHr = false,
     onScrollToAssessment,
 }) {
-    if (!vehicle || !historyEntry) return null;
+    const pendingItem = useMemo(
+        () =>
+            vehicle && historyEntry
+                ? resolveHandoverDetailPendingItem(vehicle, historyEntry, { assetHistory })
+                : null,
+        [vehicle, historyEntry, assetHistory],
+    );
+
+    if (!vehicle || !historyEntry) {
+        return <VehicleHandoverAssignHeaderCardsSkeleton />;
+    }
 
     const isInspection = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
     const baseStatus = getHandoverDisplayStatus(historyEntry, vehicle);
@@ -96,11 +130,7 @@ export default function VehicleHandoverAssignHeaderCards({
     const stageLabel = isInspection
         ? inspectionHandoverStageLabel(vehicle, historyEntry)
         : handoverStageLabel(stage, vehicle, historyEntry);
-
-    const pendingItem = useMemo(
-        () => resolveHandoverDetailPendingItem(vehicle, historyEntry, { assetHistory }),
-        [vehicle, historyEntry, assetHistory],
-    );
+    const handoverFullyApproved = isHandoverHistoryFullyApproved(historyEntry);
 
     const statusBoxClass =
         baseStatus.key === 'pending'
@@ -218,7 +248,7 @@ export default function VehicleHandoverAssignHeaderCards({
                                 canSubmitForHr={canSubmitInspectionForHr}
                                 className="col-span-2"
                             />
-                        ) : (
+                        ) : handoverFullyApproved ? null : (
                             <VehicleHandoverAssignActions
                                 vehicle={vehicle}
                                 historyEntry={historyEntry}
@@ -227,6 +257,7 @@ export default function VehicleHandoverAssignHeaderCards({
                                 handoverItemFineWaivers={handoverItemFineWaivers}
                                 onVehicleUpdated={onVehicleUpdated}
                                 onHistoryUpdated={onHistoryUpdated}
+                                onResponded={onResponded}
                                 canApprove={canApprove}
                                 isHrStage={isHrStage}
                                 onApproveWithFine={onApproveWithFine}

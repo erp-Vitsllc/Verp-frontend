@@ -135,10 +135,109 @@ export function isHandoverReceiverUser(vehicle, historyEntry, currentUser) {
     return Boolean(assigneeRef) && userMatchesEmployeeRef(currentUser, assigneeRef);
 }
 
+export function isHandoverHistoryFullyApproved(historyEntry) {
+    if (!historyEntry) return false;
+
+    const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '')
+        .trim()
+        .toLowerCase();
+    if (lifecycle === 'approved') return true;
+    if (historyEntry?.details?.handoverHrApprovedAt) return true;
+
+    const hrStage = historyEntry?.details?.vehicleHandoverWorkflow?.stages?.hr;
+    return Boolean(hrStage?.date);
+}
+
+export function isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle = null) {
+    if (!historyEntry) return false;
+    if (isHandoverHistoryFullyApproved(historyEntry)) return false;
+
+    const vehicleStatus = String(vehicle?.acceptanceStatus || '').trim();
+    const hasActiveFlow = Boolean(getHandoverFlowStage(vehicle));
+    if (vehicleStatus === 'Accepted' && !hasActiveFlow) return false;
+
+    const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '')
+        .trim()
+        .toLowerCase();
+    if (lifecycle === 'approved' || lifecycle === 'rejected') return false;
+
+    const workflow = historyEntry?.details?.vehicleHandoverWorkflow;
+    const targetDone = Boolean(workflow?.stages?.target?.date);
+    const hrDone = Boolean(workflow?.stages?.hr?.date);
+
+    return (lifecycle === 'accepted' || targetDone) && !hrDone;
+}
+
+/** Optimistic client merge after HR approves — keeps workflow UI in sync before refetch completes. */
+export function mergeHandoverHistoryAfterHrApproval(historyEntry, actor = null) {
+    if (!historyEntry) return historyEntry;
+
+    const now = new Date().toISOString();
+    const existingWorkflow = historyEntry?.details?.vehicleHandoverWorkflow || {};
+    const existingStages = existingWorkflow.stages || {};
+    const actorName = actor
+        ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() ||
+          String(actor.employeeId || '').trim()
+        : existingStages.hr?.actorName || '';
+
+    return {
+        ...historyEntry,
+        action: 'Accepted',
+        details: {
+            ...(historyEntry.details && typeof historyEntry.details === 'object' ? historyEntry.details : {}),
+            acceptanceStatus: 'Accepted',
+            handoverLifecycleStatus: 'approved',
+            handoverHrApprovedAt: now,
+            vehicleHandoverWorkflow: {
+                ...existingWorkflow,
+                stages: {
+                    ...existingStages,
+                    hr: {
+                        ...(existingStages.hr || {}),
+                        actorName: actorName || existingStages.hr?.actorName || '',
+                        actorEmployeeId:
+                            actor?.employeeId || existingStages.hr?.actorEmployeeId || '',
+                        date: now,
+                    },
+                },
+            },
+        },
+    };
+}
+
+function isHandoverFlowLinkedToHistory(vehicle, historyEntry) {
+    const flow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
+    if (!flow?.historyId || !historyEntry?._id) return true;
+    return String(flow.historyId) === String(historyEntry._id);
+}
+
 export function getHandoverAcceptanceStatus(vehicle, historyEntry = null) {
+    if (isHandoverHistoryFullyApproved(historyEntry)) {
+        return 'Accepted';
+    }
+
+    const flowStage = String(getHandoverFlowStage(vehicle) || '').toLowerCase();
+    const fromVehicle = String(vehicle?.acceptanceStatus || '').trim();
+
+    if (flowStage === 'hr' || flowStage === 'management' || flowStage === 'hod') {
+        return 'Pending';
+    }
+
+    if (fromVehicle === 'Accepted' && !flowStage) {
+        return 'Accepted';
+    }
+
+    if (
+        isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle) &&
+        isHandoverFlowLinkedToHistory(vehicle, historyEntry)
+    ) {
+        return 'Pending';
+    }
+
+    if (fromVehicle) return fromVehicle;
+
     return String(
-        vehicle?.acceptanceStatus ||
-            historyEntry?.details?.acceptanceStatus ||
+        historyEntry?.details?.acceptanceStatus ||
             (String(historyEntry?.action || '').trim() === 'Assigned' ? 'Pending' : '') ||
             '',
     ).trim();
@@ -149,9 +248,19 @@ export function getEffectiveHandoverStage(vehicle, historyEntry = null) {
         return null;
     }
 
+    if (isHandoverHistoryFullyApproved(historyEntry)) {
+        return null;
+    }
+
     const explicit = getHandoverFlowStage(vehicle);
     if (explicit === 'hod') return 'hr';
     if (explicit) return explicit;
+
+    if (isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle) &&
+        isHandoverFlowLinkedToHistory(vehicle, historyEntry)
+    ) {
+        return 'hr';
+    }
 
     if (getHandoverAcceptanceStatus(vehicle, historyEntry) === 'Pending') {
         const action = String(historyEntry?.action || '').trim();
@@ -186,8 +295,15 @@ export function getHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, 
 export function isHandoverReportsCompleteForEntry(historyEntry, vehicle = null) {
     if (!historyEntry) return false;
 
-    const assessmentMarkedDone = isReceiverAssessmentMarkedDone(historyEntry);
     const bodyMarkedDone = isBodyConditionMarkedDone(historyEntry);
+
+    if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) {
+        if (bodyMarkedDone) return true;
+        const bodyForm = buildBodyConditionFormState(historyEntry);
+        return isBodyConditionFormComplete(bodyForm);
+    }
+
+    const assessmentMarkedDone = isReceiverAssessmentMarkedDone(historyEntry);
     if (assessmentMarkedDone && bodyMarkedDone) return true;
 
     const assessmentForm = buildAssessmentFormState(historyEntry, vehicle);
@@ -199,20 +315,31 @@ export function isHandoverReportsCompleteForEntry(historyEntry, vehicle = null) 
 export function getHandoverReportsIncompleteMessage(historyEntry, vehicle = null) {
     if (!historyEntry) return 'Handover record is still loading.';
 
+    const bodyForm = buildBodyConditionFormState(historyEntry);
+    const bodyFormComplete = isBodyConditionFormComplete(bodyForm);
+    const bodyMarkedDone = isBodyConditionMarkedDone(historyEntry);
+
+    if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) {
+        if (!bodyMarkedDone && !bodyFormComplete) {
+            return 'Before submitting: upload all Body Condition photos.';
+        }
+        if (!bodyMarkedDone && bodyFormComplete) {
+            return 'Before submitting: click Go to Approval on Body Condition Report.';
+        }
+        return 'Complete body condition (Go to Approval) before submitting for HR approval.';
+    }
+
     const assessmentForm = buildAssessmentFormState(historyEntry, vehicle);
     const liveListForm = buildAccessoriesLiveListForm(vehicle, historyEntry);
-    const bodyForm = buildBodyConditionFormState(historyEntry);
     const assessmentFormComplete = isAssessmentFormComplete(assessmentForm, { liveListForm });
-    const bodyFormComplete = isBodyConditionFormComplete(bodyForm);
     const assessmentMarkedDone = isReceiverAssessmentMarkedDone(historyEntry);
-    const bodyMarkedDone = isBodyConditionMarkedDone(historyEntry);
 
     const missing = [];
 
     if (!assessmentMarkedDone && !assessmentFormComplete) {
-        missing.push('complete Vehicle Accessories (Yes/No and required photos)');
+        missing.push('complete Vehicle Accessories on the vehicle profile (Yes/No and required photos)');
     } else if (!assessmentMarkedDone && assessmentFormComplete) {
-        missing.push('click Process Next on Vehicle Accessories');
+        missing.push('save Vehicle Accessories on the vehicle profile');
     }
 
     if (!bodyMarkedDone && !bodyFormComplete) {
@@ -222,7 +349,7 @@ export function getHandoverReportsIncompleteMessage(historyEntry, vehicle = null
     }
 
     if (missing.length === 0) {
-        return 'Complete assessment (Next Step) and body condition (Go to Approval) before approving.';
+        return 'Complete accessories and body condition before approving.';
     }
 
     return `Before approving: ${missing.join('; ')}.`;
@@ -324,6 +451,7 @@ export function canUserActOnHandoverAssign({
 }) {
     if (!vehicle || !currentUser) return false;
     if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return false;
+    if (isHandoverHistoryFullyApproved(historyEntry)) return false;
     if (getHandoverAcceptanceStatus(vehicle, historyEntry) !== 'Pending') return false;
 
     const stage = getEffectiveHandoverStage(vehicle, historyEntry);
