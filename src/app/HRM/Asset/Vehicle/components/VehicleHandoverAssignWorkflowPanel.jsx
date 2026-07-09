@@ -35,11 +35,20 @@ export default function VehicleHandoverAssignWorkflowPanel({
     onResponded,
     onScrollToAssessment,
     accessoriesSidePanel = false,
+    flowchartRows: flowchartRowsProp,
+    hrActiveHolder: hrActiveHolderProp,
 }) {
     const [flowchartRows, setFlowchartRows] = useState([]);
     const [hrActiveHolder, setHrActiveHolder] = useState(null);
 
+    const hasExternalFlowchart = flowchartRowsProp !== undefined;
+    const resolvedFlowchartRows = hasExternalFlowchart ? flowchartRowsProp : flowchartRows;
+    const resolvedHrActiveHolder =
+        hrActiveHolderProp !== undefined ? hrActiveHolderProp : hrActiveHolder;
+
     useEffect(() => {
+        if (hasExternalFlowchart) return undefined;
+
         let cancelled = false;
 
         const load = async () => {
@@ -63,7 +72,7 @@ export default function VehicleHandoverAssignWorkflowPanel({
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [hasExternalFlowchart]);
 
     const isInspection = isInspectionHandoverDetailEntry(historyEntry, vehicle);
     const handoverFullyApproved = isHandoverHistoryFullyApproved(historyEntry);
@@ -73,18 +82,18 @@ export default function VehicleHandoverAssignWorkflowPanel({
             return buildInspectionHandoverWorkflowEvents({
                 vehicle,
                 historyEntry,
-                flowchartHrRow: pickFlowchartHrRow(flowchartRows),
-                hrActiveHolder,
+                flowchartHrRow: pickFlowchartHrRow(resolvedFlowchartRows),
+                hrActiveHolder: resolvedHrActiveHolder,
             });
         }
         return buildHandoverAssignWorkflowEvents({
             vehicle,
             historyEntry,
-            flowchartAdminRow: pickFlowchartAdminRow(flowchartRows),
-            flowchartHrRow: pickFlowchartHrRow(flowchartRows),
-            hrActiveHolder,
+            flowchartAdminRow: pickFlowchartAdminRow(resolvedFlowchartRows),
+            flowchartHrRow: pickFlowchartHrRow(resolvedFlowchartRows),
+            hrActiveHolder: resolvedHrActiveHolder,
         });
-    }, [vehicle, historyEntry, flowchartRows, hrActiveHolder, isInspection]);
+    }, [vehicle, historyEntry, resolvedFlowchartRows, resolvedHrActiveHolder, isInspection]);
 
     const useVerticalSpread = accessoriesSidePanel
         ? timeline.accessoriesSideVerticalSpread ?? timeline.verticalSpread

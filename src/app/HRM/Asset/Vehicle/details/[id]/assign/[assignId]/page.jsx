@@ -99,14 +99,22 @@ function VehicleHandoverAssignPageContent() {
         canApprove,
         canReviewInspection,
         canEditInspectionForm,
+        canEditInspectionAccessories,
         canSubmitInspectionForHr,
         isHandoverHrStage: handoverAtHrStage,
         isFlowchartHr,
+        flowchartRows,
+        hrActiveHolder,
         loading: permissionsLoading,
     } = useHandoverAssignPermissions(vehicle, historyEntry);
+    const isInspectionHandover = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
     const reportsReadOnly = !permissionsLoading && !canEditReports;
     const inspectionFormReadOnly = !permissionsLoading && !canEditInspectionForm;
-    const isInspectionHandover = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
+    const inspectionAccessoriesReadOnly =
+        permissionsLoading || !canEditInspectionAccessories;
+    const accessoriesReadOnly = isInspectionHandover
+        ? inspectionAccessoriesReadOnly
+        : reportsReadOnly;
 
     const isHrReviewStage = useMemo(
         () =>
@@ -620,33 +628,6 @@ function VehicleHandoverAssignPageContent() {
         };
     }, [assignId, toast, vehicleId]);
 
-    useEffect(() => {
-        if (!isHrReviewStage || !assignId || String(assignId).startsWith('live-')) {
-            return undefined;
-        }
-
-        let cancelled = false;
-
-        const refreshHandoverRecord = async () => {
-            try {
-                const { data } = await axiosInstance.get(`/AssetItem/history-record/${assignId}`, {
-                    skipToast: true,
-                });
-                if (cancelled || !data) return;
-                setHistoryEntry(data);
-                setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, data));
-            } catch {
-                /* keep existing entry */
-            }
-        };
-
-        void refreshHandoverRecord();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [assignId, isHrReviewStage]);
-
     if (loading) {
         return (
             <div className="flex min-h-screen w-full bg-[#F2F6F9]">
@@ -746,12 +727,8 @@ function VehicleHandoverAssignPageContent() {
                                             onDone={handleAssessmentDone}
                                             onVehicleUpdated={handleVehicleUpdated}
                                             inspectionHandover={isInspectionHandover}
-                                            mirrorLiveAccessories
-                                            readOnly={
-                                                isInspectionHandover
-                                                    ? inspectionFormReadOnly
-                                                    : reportsReadOnly
-                                            }
+                                            mirrorLiveAccessories={!isInspectionHandover}
+                                            readOnly={accessoriesReadOnly}
                                             handoverItemFines={handoverItemFineIndexForUi}
                                             handoverFines={handoverFinesForUi}
                                             handoverItemFineWaivers={handoverItemFineWaiversForUi}
@@ -780,6 +757,8 @@ function VehicleHandoverAssignPageContent() {
                                         onHistoryUpdated={setHistoryEntry}
                                         onResponded={handleHandoverResponded}
                                         accessoriesSidePanel
+                                        flowchartRows={permissionsLoading ? undefined : flowchartRows}
+                                        hrActiveHolder={permissionsLoading ? undefined : hrActiveHolder}
                                     />
                                 </div>
                             </div>

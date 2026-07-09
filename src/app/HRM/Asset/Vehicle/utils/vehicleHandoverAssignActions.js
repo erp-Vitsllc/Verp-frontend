@@ -410,6 +410,23 @@ export function canEditInspectionHandoverContent({
     return isAdmin;
 }
 
+/** Inspection/reinspection accessories — editable until assessment is marked done (even after body condition). */
+export function canEditInspectionHandoverAccessories({
+    vehicle,
+    historyEntry = null,
+    currentUser = null,
+    flowchartAdminRow = null,
+} = {}) {
+    if (isReceiverAssessmentMarkedDone(historyEntry)) return false;
+    return canEditInspectionHandoverContent({
+        vehicle,
+        historyEntry,
+        currentUser,
+        flowchartAdminRow,
+        allowAfterBodyComplete: true,
+    });
+}
+
 export function canEditHandoverReports({
     vehicle,
     historyEntry = null,

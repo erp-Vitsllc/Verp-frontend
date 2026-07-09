@@ -19,6 +19,7 @@ import {
     buildAccessoriesLiveListForm,
     buildAccessoryHandoverCardSourceForm,
     buildInspectionHandoverAssessmentForm,
+    normalizeMirrorLiveAssessmentFormForComplete,
     buildMirrorLiveAccessoriesAssessmentForm,
     buildMirrorLiveAccessoryBaselineRow,
     shouldLockInspectionAssessmentToHistory,
@@ -177,6 +178,7 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
     uploading,
     readOnly = false,
     mirrorLiveList = false,
+    mirrorLiveAccessories = false,
     visualStatus = 'neutral',
     hasFine = false,
     isWaived = false,
@@ -192,7 +194,8 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
     onPhotoUpload,
     onPhotoPreview,
 }) {
-    const displayPhoto = mirrorLiveList
+    const useMirrorPhotoRules = mirrorLiveList || mirrorLiveAccessories;
+    const displayPhoto = useMirrorPhotoRules
         ? present === true
             ? photo
             : null
@@ -202,7 +205,7 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
     const showToggles = mirrorLiveList
         ? !readOnly
         : listHasImage && !readOnly;
-    const showPhoto = mirrorLiveList
+    const showPhoto = useMirrorPhotoRules
         ? present === true
         : hasDisplayPhoto ||
           (!readOnly && listHasImage && present === true);
@@ -238,7 +241,7 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
                             Photo <span className="text-red-500">*</span>
                         </p>
                         <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
-                            {mirrorLiveList ? 'Live accessories' : 'From live accessories list'}
+                            {mirrorLiveList || mirrorLiveAccessories ? 'Live accessories' : 'From live accessories list'}
                         </p>
                     </>
                 ) : null}
@@ -259,11 +262,11 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
                     />
                 ) : (
                     <VehicleHandoverLandscapePhotoPlaceholder>
-                        {!mirrorLiveList && !listHasImage
+                        {!mirrorLiveList && !mirrorLiveAccessories && !listHasImage
                             ? 'No image on accessories list'
                             : present === false
                               ? 'No photo required'
-                              : mirrorLiveList
+                              : mirrorLiveList || mirrorLiveAccessories
                                 ? readOnly
                                     ? 'No photo'
                                     : 'Upload accessory photo'
@@ -473,6 +476,8 @@ export default function VehicleHandoverReceiverAssessmentCard({
                             assetHistory,
                             currentEntry: historyEntry,
                             asset: vehicle,
+                            mirrorLiveAccessories: true,
+                            mirrorBaselineForm: frozenHandoverLiveBaseline,
                         })
                       : cloneAssessmentForm(frozenHandoverLiveBaseline)
                   : hasCurrentReceiverAssessmentData(historyEntry) ||
@@ -521,14 +526,12 @@ export default function VehicleHandoverReceiverAssessmentCard({
 
     const displayEntry = localEntry || historyEntry;
     const assessmentCompleted = isReceiverAssessmentMarkedDone(displayEntry);
-    const assessmentLocked =
-        inspectionHandover && shouldLockInspectionAssessmentToHistory(vehicle, displayEntry);
     const readOnly = readOnlyProp || assessmentCompleted || (
         inspectionHandover &&
         String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft'
     );
     const effectiveAssessmentForm = useMemo(() => {
-        if (inspectionHandover || assessmentCompleted || readOnly) {
+        if (inspectionHandover || mirrorLiveAccessories || assessmentCompleted || readOnly) {
             return cloneAssessmentForm(form);
         }
         const merged = cloneAssessmentForm(form);
@@ -542,7 +545,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             };
         });
         return merged;
-    }, [accessoryCardSourceForm, assessmentCompleted, form, inspectionHandover, readOnly]);
+    }, [accessoryCardSourceForm, assessmentCompleted, form, inspectionHandover, mirrorLiveAccessories, readOnly]);
 
     const comparisonCurrentForm = useMemo(() => {
         if (inspectionHandover) {
@@ -552,6 +555,8 @@ export default function VehicleHandoverReceiverAssessmentCard({
             return buildAssessmentFormState(displayEntry, vehicle, {
                 assetHistory,
                 asset: vehicle,
+                mirrorLiveAccessories,
+                mirrorBaselineForm: frozenHandoverLiveBaseline,
             });
         }
         return form;
@@ -561,7 +566,9 @@ export default function VehicleHandoverReceiverAssessmentCard({
         displayEntry,
         effectiveAssessmentForm,
         form,
+        frozenHandoverLiveBaseline,
         inspectionHandover,
+        mirrorLiveAccessories,
         vehicle,
     ]);
 
@@ -743,7 +750,14 @@ export default function VehicleHandoverReceiverAssessmentCard({
         async (formToSave, { complete = false } = {}) => {
             if (readOnly || isReceiverAssessmentMarkedDone(displayEntry)) return null;
 
-            const formForPersist = complete ? effectiveAssessmentForm : formToSave;
+            const formForPersist = complete
+                ? mirrorLiveAccessories
+                    ? normalizeMirrorLiveAssessmentFormForComplete(
+                          effectiveAssessmentForm,
+                          frozenHandoverLiveBaseline,
+                      )
+                    : effectiveAssessmentForm
+                : formToSave;
 
             if (complete) {
                 const errors = validateAssessmentForm(formForPersist, assessmentFormOptions);
@@ -832,7 +846,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             if (complete) onDone?.(merged);
             return merged;
         },
-        [assessmentFormOptions, assetHistory, displayEntry, effectiveAssessmentForm, historyEntry, inspectionHandover, mirrorLiveAccessories, onDone, onSaved, onVehicleUpdated, readOnly, toast, vehicle],
+        [assessmentFormOptions, assetHistory, displayEntry, effectiveAssessmentForm, frozenHandoverLiveBaseline, historyEntry, inspectionHandover, mirrorLiveAccessories, onDone, onSaved, onVehicleUpdated, readOnly, toast, vehicle],
     );
 
     const handleSaveDraft = async () => {
@@ -1008,7 +1022,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
     };
 
     const mirrorLiveList =
-        (mirrorLiveAccessories || inspectionHandover) && !readOnly && !assessmentLocked;
+        (mirrorLiveAccessories || inspectionHandover) && !readOnly && !assessmentCompleted;
 
     const accessoriesSubtitle =
         mirrorLiveAccessories || inspectionHandover
@@ -1121,7 +1135,9 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                 : true;
                         const effectivePhoto =
                             effectivePresent === true
-                                ? row.photo ?? baselineRow.photo ?? null
+                                ? row.present === true || row.present === false
+                                    ? row.photo ?? null
+                                    : row.photo ?? baselineRow.photo ?? null
                                 : null;
                         const mirrorBaseline = buildMirrorLiveAccessoryBaselineRow(
                             frozenHandoverLiveBaseline,
@@ -1195,7 +1211,8 @@ export default function VehicleHandoverReceiverAssessmentCard({
                             visualStatus === 'unchanged' &&
                             (mirrorLiveAccessories || Boolean(comparison?.usesPreviousHandover));
                         const canCompareItem = mirrorLiveAccessories
-                            ? !comparison?.acceptedWithoutFine &&
+                            ? effectivePresent === true &&
+                              !comparison?.acceptedWithoutFine &&
                               mirrorBaseline.present === true &&
                               hasAssessmentPhoto(mirrorBaseline.photo)
                             : Boolean(comparison?.canCompare);
@@ -1212,6 +1229,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                 uploading={uploadingKey === item.key}
                                 readOnly={readOnly}
                                 mirrorLiveList={mirrorLiveList}
+                                mirrorLiveAccessories={mirrorLiveAccessories}
                                 visualStatus={visualStatus}
                                 hasFine={Boolean(existingFine)}
                                 isWaived={isWaived}

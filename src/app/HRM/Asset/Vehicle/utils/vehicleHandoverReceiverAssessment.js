@@ -488,13 +488,41 @@ export function buildMirrorLiveAccessoryBaselineRow(liveListForm, itemKey) {
 }
 
 export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
-    const { asset = vehicle, assetHistory = [] } = options || {};
+    const {
+        asset = vehicle,
+        assetHistory = [],
+        mirrorLiveAccessories = false,
+        mirrorBaselineForm = null,
+    } = options || {};
     const liveListForm = buildAccessoriesLiveListForm(asset, historyEntry, { assetHistory });
     const form = {};
 
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const currentBlock = resolveCurrentAssessmentItemBlock(historyEntry, item.key);
         const liveRow = liveListForm[item.key] || { present: null, photo: null };
+        const baselineRow = mirrorBaselineForm?.[item.key] || { present: false, photo: null };
+
+        if (mirrorLiveAccessories) {
+            if (currentBlock?.present === true || currentBlock?.present === false) {
+                form[item.key] = {
+                    present: currentBlock.present,
+                    photo:
+                        currentBlock.present === true
+                            ? currentBlock.photo ?? null
+                            : null,
+                };
+                return;
+            }
+
+            form[item.key] = {
+                present: baselineRow.present === true ? true : false,
+                photo:
+                    baselineRow.present === true && hasStoredAssessmentPhoto(baselineRow.photo)
+                        ? baselineRow.photo
+                        : null,
+            };
+            return;
+        }
 
         if (currentBlock?.present === true || currentBlock?.present === false) {
             form[item.key] = {
@@ -511,6 +539,41 @@ export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
     });
 
     return form;
+}
+
+/** Ensure every accessory row is explicit before Process Next in mirror-live assign mode. */
+export function normalizeMirrorLiveAssessmentFormForComplete(form, mirrorBaselineForm = {}) {
+    const normalized = cloneAssessmentForm(form);
+
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const row = normalized[item.key] || {};
+        const baselineRow = mirrorBaselineForm[item.key] || { present: false, photo: null };
+
+        if (row.present === true) {
+            normalized[item.key] = {
+                present: true,
+                photo:
+                    row.photo ??
+                    (baselineRow.present === true ? baselineRow.photo ?? null : null),
+            };
+            return;
+        }
+
+        if (row.present === false) {
+            normalized[item.key] = { present: false, photo: null };
+            return;
+        }
+
+        normalized[item.key] = {
+            present: baselineRow.present === true ? true : false,
+            photo:
+                baselineRow.present === true && hasStoredAssessmentPhoto(baselineRow.photo)
+                    ? baselineRow.photo
+                    : null,
+        };
+    });
+
+    return normalized;
 }
 
 /** After inspection is saved or sent to HR, keep assessment rows from history — not a stale live overlay. */

@@ -5,6 +5,7 @@ import axiosInstance from '@/utils/axios';
 import {
     canEditHandoverReports,
     canEditInspectionHandoverContent,
+    canEditInspectionHandoverAccessories,
     canUserActOnHandoverAssign,
     flowchartAdminRowMatchesUser,
     isHandoverReportsLocked,
@@ -151,6 +152,17 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         [vehicle, historyEntry, currentUser, flowchartAdminRow],
     );
 
+    const canEditInspectionAccessories = useMemo(
+        () =>
+            canEditInspectionHandoverAccessories({
+                vehicle,
+                historyEntry,
+                currentUser,
+                flowchartAdminRow,
+            }),
+        [vehicle, historyEntry, currentUser, flowchartAdminRow],
+    );
+
     const canSubmitInspectionForHr = useMemo(() => {
         if (!canEditInspectionHandoverContent({
             vehicle,
@@ -168,6 +180,8 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         currentUser,
         flowchartAdminRow,
         flowchartHrRow,
+        flowchartRows,
+        hrActiveHolder,
         isFlowchartHr,
         canEditReports,
         canApprove,
@@ -178,6 +192,7 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         }, [vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage, historyEntry, vehicle]),
         canReviewInspection,
         canEditInspectionForm,
+        canEditInspectionAccessories,
         canSubmitInspectionForHr,
         reportsLocked,
         loading,
