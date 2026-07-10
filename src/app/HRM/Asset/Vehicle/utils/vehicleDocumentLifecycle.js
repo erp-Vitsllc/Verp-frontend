@@ -20,11 +20,26 @@ export function isVehicleDocumentOld(doc) {
     if (['old', 'renewed', 'archived', 'inactive'].includes(status)) return true;
 
     const descriptionMeta = parseVehicleDocumentMeta(doc);
+    const archiveReason = String(descriptionMeta.archiveReason || doc?.archiveReason || '');
+    if (archiveReason === 'Replaced' || archiveReason === 'Not Renewed') return true;
+
     return Boolean(
         doc?.isRenewed ||
         descriptionMeta.isRenewed ||
         descriptionMeta.notRenewed,
     );
+}
+
+/** Employee-style reason label for Old Documents rows. */
+export function vehicleDocumentArchiveReasonLabel(doc) {
+    const meta = parseVehicleDocumentMeta(doc);
+    const reason = String(meta.archiveReason || doc?.archiveReason || '').trim();
+    if (reason === 'Replaced' || reason === 'Not Renewed') return reason;
+    if (meta.notRenewed) return 'Not Renewed';
+    if (meta.isRenewed || doc?.isRenewed) return 'Replaced';
+    const status = String(doc?.status || '').toLowerCase();
+    if (status === 'old' || status === 'renewed' || status === 'archived') return 'Replaced';
+    return '';
 }
 
 function collectRenewedFromDocIds(docs) {

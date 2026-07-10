@@ -180,19 +180,19 @@ export default function VehicleFleetDashboardPage() {
 
     return (
         <PermissionGuard moduleId="hrm_asset_vehicle" redirectTo="/dashboard">
-            <div className="flex min-h-screen w-full bg-[#f2f6f9]">
+            <div className="flex min-h-screen w-full bg-white">
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0">
                     <Navbar />
                     <div className="p-8">
                         <ScrollReveal className="relative z-[140]" durationMs={550} rootMargin="0px 0px 10% 0px">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 dashboard-hero-glow rounded-2xl px-4 py-3 md:px-5 md:py-4 border border-white/60 shadow-sm shadow-teal-900/5">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 dashboard-hero-glow rounded-2xl px-4 py-3 md:px-5 md:py-4 border border-gray-200 bg-white shadow-sm">
                                 <div>
-                                    <h1 className="text-2xl md:text-3xl font-bold text-gray-800 tracking-tight">
+                                    <h1 className="text-2xl md:text-3xl font-bold text-[#5c4f55] tracking-tight">
                                         Vehicle Dashboard
                                     </h1>
-                                    <p className="text-sm text-slate-500 mt-1 hidden md:block">
-                                        Monitor service reminders, asset value, and fleet utilization at a glance.
+                                    <p className="text-sm text-[#9a8a90] mt-1 hidden md:block">
+                                        Fleet availability, replacement outlook, and service metrics in floral overview.
                                     </p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-3">

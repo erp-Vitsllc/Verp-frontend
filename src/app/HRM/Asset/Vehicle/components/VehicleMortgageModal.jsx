@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { resolveMortgageLoanAmount } from '../lib/vehicleDispositionFinancialDefaults';
 import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 /** Allow empty string or partial decimal input while typing / backspacing. */
 const isEditableNumericInput = (value) => value === '' || /^\d*\.?\d*$/.test(value);
@@ -20,6 +20,7 @@ export default function VehicleMortgageModal({
     onSuccess,
     assetId,
     asset,
+    hrMayApplyDirectly = false,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -286,13 +287,29 @@ export default function VehicleMortgageModal({
                 currentLoanAmount: effectiveLoan,
                 processCharge: Number(formData.processCharge || 0),
                 mortgageExtraAttachments: extraAttachmentsPayload,
-                // Keep header mortgage line in sync.
                 mortgageBank: formData.bankName.trim(),
             };
-            await axiosInstance.put(`/AssetType/${assetId}`, payload);
-            toast({ title: 'Saved', description: 'Mortgage details saved successfully.' });
-            if (onSuccess) onSuccess();
-            onClose();
+
+            await saveVehicleProfileCardOrQueue({
+                asset,
+                assetId,
+                sectionId: 'mortgage',
+                action: 'edit',
+                steps: [{ op: 'put_asset_type', body: payload }],
+                hrMayApplyDirectly,
+                proposedRows: [
+                    { label: 'Bank', value: formData.bankName.trim() || '—' },
+                    {
+                        label: 'Loan amount',
+                        value: effectiveLoan > 0 ? `AED ${effectiveLoan.toLocaleString()}` : '—',
+                    },
+                ],
+                toast,
+                queuedMessage: 'Mortgage change saved. Submit for HR approval when ready.',
+                appliedMessage: 'Mortgage details saved successfully.',
+                onSuccess,
+                onClose,
+            });
         } catch (error) {
             toast({
                 variant: 'destructive',

@@ -125,6 +125,7 @@ import {
 import {
     parseVehicleDocumentMeta,
     partitionVehicleDocuments,
+    vehicleDocumentArchiveReasonLabel,
 } from '../../utils/vehicleDocumentLifecycle';
 import {
     resolveLiveRegistrationDoc,
@@ -1124,15 +1125,24 @@ function VehicleDetailsPageContent() {
                 meta.isRenewed = true;
                 meta.notRenewed = true;
                 meta.notRenewedAt = new Date().toISOString();
+                meta.archiveReason = 'Not Renewed';
                 return meta;
             };
 
             const docType = String(docToNotRenew.type || '').toLowerCase().trim();
-            let sectionId = null;
+            let sectionId = 'documents';
             if (docType === 'registration' || docType === 'registration attachment') {
                 sectionId = 'registration';
             } else if (docType === 'insurance' || docType === 'insurance attachment') {
                 sectionId = 'insurance';
+            } else if (docType === 'warranty' || docType === 'warranty attachment') {
+                sectionId = 'warranty';
+            } else if (docType === 'permit' || docType === 'permit attachment') {
+                sectionId = 'permit';
+            } else if (docType === 'petrol' || docType === 'petrol attachment') {
+                sectionId = 'petrol';
+            } else if (docType === 'toll' || docType === 'toll attachment') {
+                sectionId = 'toll';
             }
 
             const steps = uniqueDocs.map((doc) => ({
@@ -1141,7 +1151,7 @@ function VehicleDetailsPageContent() {
                 body: { description: JSON.stringify(buildMeta(doc)) },
             }));
 
-            if (sectionId && vehicleActPhase === 'active') {
+            if (vehicleActPhase === 'active') {
                 const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
                     sectionId,
                     asset,
@@ -1158,15 +1168,15 @@ function VehicleDetailsPageContent() {
                     previousRows,
                     proposedRows,
                 });
-                if (result.queued) {
-                    toast({
-                        title: 'Saved',
-                        description: 'Not renew queued. Submit for HR approval when ready.',
-                    });
-                    setDocToNotRenew(null);
-                    fetchAssetDetails();
-                    return;
-                }
+                toast({
+                    title: 'Saved',
+                    description: result.queued
+                        ? 'Not renew queued. Submit for HR approval when ready.'
+                        : `${docToNotRenew.type} and related attachments moved to Old Documents (Not Renewed).`,
+                });
+                setDocToNotRenew(null);
+                fetchAssetDetails();
+                return;
             }
 
             await Promise.all(
@@ -2217,8 +2227,7 @@ function VehicleDetailsPageContent() {
         (isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser) &&
             isVehicleAssignedStatus);
 
-    const canApplyVehicleDocRenewalDirectly =
-        isFlowchartHr || canManageFleetHandoverAssignment;
+    const canApplyVehicleDocRenewalDirectly = isFlowchartHr;
 
     const handleAdminDeleteMortgage = () => {
         setConfirmDialog({
@@ -4685,13 +4694,14 @@ function VehicleDetailsPageContent() {
                                                     : documentTabServiceOldRows;
 
                                             const hasAny =
-                                                bucket.basic.length > 0 ||
                                                 bucket.registration.length > 0 ||
                                                 bucket.insurance.length > 0 ||
                                                 bucket.warranty.length > 0 ||
                                                 bucket.permit.length > 0 ||
                                                 bucket.mortgage.length > 0 ||
-                                                !!asset?.invoiceFile ||
+                                                bucket.basic.length > 0 ||
+                                                (documentInnerTab === 'live' && !!asset?.invoiceFile) ||
+                                                documentInnerTab === 'live' ||
                                                 documentTabServiceRowsForTab.length > 0;
 
                                             if (!hasAny) {
@@ -4709,6 +4719,21 @@ function VehicleDetailsPageContent() {
                                             const model = asset?.modelYear || '-';
                                             const aid = asset?.assetId || '-';
                                             const plate = asset?.plateNumber || '-';
+
+                                            const documentTabDocAccess = vehicleCardCrud('document');
+                                            const isLiveDocumentTab = documentInnerTab === 'live';
+                                            const showDocTabEdit = documentTabDocAccess.edit;
+                                            const showDocTabRenew =
+                                                showVehicleCardRenewActions &&
+                                                documentTabDocAccess.edit &&
+                                                isLiveDocumentTab;
+                                            const showDocTabNotRenew =
+                                                showVehicleCardRenewActions &&
+                                                documentTabDocAccess.edit &&
+                                                isLiveDocumentTab;
+                                            const showDocTabDelete = isLiveDocumentTab
+                                                ? showVehicleCardDelete && documentTabDocAccess.delete
+                                                : documentTabDocAccess.delete || canAdminDeleteVehicleRecords;
 
                                             const attachmentBtn = (url, label) =>
                                                 url ? (
@@ -4738,10 +4763,26 @@ function VehicleDetailsPageContent() {
                                                 );
                                             };
 
-                                            const registrationRows = groupRegistrationDocumentRows(bucket.registration);
-                                            const insuranceRows = groupInsuranceDocumentRows(bucket.insurance);
-                                            const warrantyRows = groupWarrantyDocumentRows(bucket.warranty);
-                                            const permitRows = groupPermitDocumentRows(bucket.permit);
+                                            const registrationRows = (isLiveDocumentTab
+                                                ? groupRegistrationDocumentRows(bucket.registration)
+                                                : groupRegistrationDocumentRows(bucket.registration).filter((row) =>
+                                                      vehicleDocumentArchiveReasonLabel(row.primary),
+                                                  ));
+                                            const insuranceRows = (isLiveDocumentTab
+                                                ? groupInsuranceDocumentRows(bucket.insurance)
+                                                : groupInsuranceDocumentRows(bucket.insurance).filter((row) =>
+                                                      vehicleDocumentArchiveReasonLabel(row.primary),
+                                                  ));
+                                            const warrantyRows = (isLiveDocumentTab
+                                                ? groupWarrantyDocumentRows(bucket.warranty)
+                                                : groupWarrantyDocumentRows(bucket.warranty).filter((row) =>
+                                                      vehicleDocumentArchiveReasonLabel(row.primary),
+                                                  ));
+                                            const permitRows = (isLiveDocumentTab
+                                                ? groupPermitDocumentRows(bucket.permit)
+                                                : groupPermitDocumentRows(bucket.permit).filter((row) =>
+                                                      vehicleDocumentArchiveReasonLabel(row.primary),
+                                                  ));
 
                                             const parseMortgageArchivedSnapshot = (doc) => {
                                                 let meta = {};
@@ -4798,7 +4839,7 @@ function VehicleDetailsPageContent() {
                                             );
 
                                             const basicRows = [];
-                                            if (asset?.invoiceFile) {
+                                            if (isLiveDocumentTab && asset?.invoiceFile) {
                                                 basicRows.push({ key: 'inv', doc: null, att: asset.invoiceFile, label: 'Invoice' });
                                             }
                                             bucket.basic.forEach((doc, i) => {
@@ -4809,9 +4850,10 @@ function VehicleDetailsPageContent() {
                                                     label: doc.type || 'Document',
                                                 });
                                             });
-                                            if (basicRows.length === 0) {
+                                            if (basicRows.length === 0 && isLiveDocumentTab) {
                                                 basicRows.push({ key: 'blank', doc: null, att: null, label: null });
                                             }
+                                            const showBasicDetailsSection = isLiveDocumentTab || bucket.basic.length > 0;
 
                                             const openRegistrationEdit = (doc) => {
                                                 if (normDocType(doc.type) === 'registration') {
@@ -4837,6 +4879,7 @@ function VehicleDetailsPageContent() {
 
                                             return (
                                                 <div className="mt-6 space-y-10">
+                                                    {showBasicDetailsSection ? (
                                                     <div>
                                                         {sectionTitle('Basic details')}
                                                         <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -4868,6 +4911,7 @@ function VehicleDetailsPageContent() {
                                                                             <td className="px-6 py-4">
                                                                                 {r.doc ? (
                                                                                     <div className="flex items-center gap-3">
+                                                                                        {showDocTabEdit ? (
                                                                                         <button
                                                                                             type="button"
                                                                                             onClick={() => {
@@ -4880,7 +4924,8 @@ function VehicleDetailsPageContent() {
                                                                                         >
                                                                                             <PencilLine size={16} />
                                                                                         </button>
-                                                                                        {showVehicleCardRenewActions && (
+                                                                                        ) : null}
+                                                                                        {showDocTabRenew ? (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
@@ -4893,8 +4938,8 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <RefreshCw size={16} />
                                                                                             </button>
-                                                                                        )}
-                                                                                        {showVehicleCardRenewActions && documentInnerTab === 'live' && (
+                                                                                        ) : null}
+                                                                                        {showDocTabNotRenew ? (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => setDocToNotRenew(r.doc)}
@@ -4906,17 +4951,17 @@ function VehicleDetailsPageContent() {
                                                                                                     <path d="M4.9 4.9l14.2 14.2" />
                                                                                                 </svg>
                                                                                             </button>
-                                                                                        )}
-                                                                                        {showVehicleCardDelete && (
+                                                                                        ) : null}
+                                                                                        {showDocTabDelete ? (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                title="Delete"
+                                                                                                title="Remove"
                                                                                                 onClick={() => setDocToDelete(r.doc)}
                                                                                             >
                                                                                                 <XCircle size={16} />
                                                                                             </button>
-                                                                                        )}
+                                                                                        ) : null}
                                                                                     </div>
                                                                                 ) : (
                                                                                     <span className="text-slate-300">-</span>
@@ -4928,6 +4973,7 @@ function VehicleDetailsPageContent() {
                                                             </table>
                                                         </div>
                                                     </div>
+                                                    ) : null}
 
                                                     {registrationRows.length > 0 && (
                                                         <div>
@@ -4951,6 +4997,11 @@ function VehicleDetailsPageContent() {
                                                                                 <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
                                                                                     <td className="px-6 py-4 text-sm font-semibold text-gray-700">
                                                                                         Registration card
+                                                                                        {documentInnerTab === 'old' && vehicleDocumentArchiveReasonLabel(doc) ? (
+                                                                                            <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                                                                                {vehicleDocumentArchiveReasonLabel(doc)}
+                                                                                            </span>
+                                                                                        ) : null}
                                                                                     </td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
@@ -4958,6 +5009,7 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4 text-sm">{attachmentCell(row.attachmentItems)}</td>
                                                                                     <td className="px-6 py-4">
                                                                                         <div className="flex items-center gap-3">
+                                                                                            {showDocTabEdit ? (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => { openRegistrationEdit(doc); }}
@@ -4966,7 +5018,8 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
-                                                                                            {showVehicleCardRenewActions && (
+                                                                                            ) : null}
+                                                                                            {showDocTabRenew ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => {
@@ -4988,8 +5041,8 @@ function VehicleDetailsPageContent() {
                                                                                                 >
                                                                                                     <RefreshCw size={16} />
                                                                                                 </button>
-                                                                                            )}
-                                                                                            {showVehicleCardRenewActions && documentInnerTab === 'live' && (
+                                                                                            ) : null}
+                                                                                            {showDocTabNotRenew ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => setDocToNotRenew(doc)}
@@ -5001,17 +5054,17 @@ function VehicleDetailsPageContent() {
                                                                                                         <path d="M4.9 4.9l14.2 14.2" />
                                                                                                     </svg>
                                                                                                 </button>
-                                                                                            )}
-                                                                                            {showVehicleCardDelete && (
+                                                                                            ) : null}
+                                                                                            {showDocTabDelete ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                    title="Delete"
+                                                                                                    title={isLiveDocumentTab ? 'Delete' : 'Remove'}
                                                                                                     onClick={() => setDocToDelete(doc)}
                                                                                                 >
                                                                                                     <XCircle size={16} />
                                                                                                 </button>
-                                                                                            )}
+                                                                                            ) : null}
                                                                                         </div>
                                                                                     </td>
                                                                                 </tr>
@@ -5048,7 +5101,14 @@ function VehicleDetailsPageContent() {
                                                                                 <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
-                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{policy}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
+                                                                                        {policy}
+                                                                                        {documentInnerTab === 'old' && vehicleDocumentArchiveReasonLabel(doc) ? (
+                                                                                            <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                                                                                {vehicleDocumentArchiveReasonLabel(doc)}
+                                                                                            </span>
+                                                                                        ) : null}
+                                                                                    </td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{company}</td>
                                                                                     <td className="px-6 py-4 text-sm">{attachmentCell(row.attachmentItems)}</td>
                                                                                     <td className="px-6 py-4">
@@ -5065,7 +5125,7 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
-                                                                                            {showVehicleCardRenewActions && (
+                                                                                            {showDocTabRenew ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => {
@@ -5078,8 +5138,8 @@ function VehicleDetailsPageContent() {
                                                                                                 >
                                                                                                     <RefreshCw size={16} />
                                                                                                 </button>
-                                                                                            )}
-                                                                                            {showVehicleCardRenewActions && documentInnerTab === 'live' && (
+                                                                                            ) : null}
+                                                                                            {showDocTabNotRenew ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => setDocToNotRenew(doc)}
@@ -5091,17 +5151,17 @@ function VehicleDetailsPageContent() {
                                                                                                         <path d="M4.9 4.9l14.2 14.2" />
                                                                                                     </svg>
                                                                                                 </button>
-                                                                                            )}
-                                                                                            {showVehicleCardDelete && (
+                                                                                            ) : null}
+                                                                                            {showDocTabDelete ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                    title="Delete"
+                                                                                                    title={isLiveDocumentTab ? 'Delete' : 'Remove'}
                                                                                                     onClick={() => setDocToDelete(doc)}
                                                                                                 >
                                                                                                     <XCircle size={16} />
                                                                                                 </button>
-                                                                                            )}
+                                                                                            ) : null}
                                                                                         </div>
                                                                                     </td>
                                                                                 </tr>
@@ -5171,7 +5231,7 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
-                                                                                            {showVehicleCardRenewActions && (
+                                                                                            {showDocTabRenew ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => {
@@ -5184,8 +5244,8 @@ function VehicleDetailsPageContent() {
                                                                                                 >
                                                                                                     <RefreshCw size={16} />
                                                                                                 </button>
-                                                                                            )}
-                                                                                            {showVehicleCardRenewActions && documentInnerTab === 'live' && (
+                                                                                            ) : null}
+                                                                                            {showDocTabNotRenew ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => setDocToNotRenew(doc)}
@@ -5197,17 +5257,17 @@ function VehicleDetailsPageContent() {
                                                                                                         <path d="M4.9 4.9l14.2 14.2" />
                                                                                                     </svg>
                                                                                                 </button>
-                                                                                            )}
-                                                                                            {showVehicleCardDelete && (
+                                                                                            ) : null}
+                                                                                            {showDocTabDelete ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                    title="Delete"
+                                                                                                    title={isLiveDocumentTab ? 'Delete' : 'Remove'}
                                                                                                     onClick={() => setDocToDelete(doc)}
                                                                                                 >
                                                                                                     <XCircle size={16} />
                                                                                                 </button>
-                                                                                            )}
+                                                                                            ) : null}
                                                                                         </div>
                                                                                     </td>
                                                                                 </tr>
@@ -5259,7 +5319,7 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
-                                                                                            {showVehicleCardRenewActions && (
+                                                                                            {showDocTabRenew ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => {
@@ -5272,8 +5332,8 @@ function VehicleDetailsPageContent() {
                                                                                                 >
                                                                                                     <RefreshCw size={16} />
                                                                                                 </button>
-                                                                                            )}
-                                                                                            {showVehicleCardRenewActions && documentInnerTab === 'live' && (
+                                                                                            ) : null}
+                                                                                            {showDocTabNotRenew ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => setDocToNotRenew(doc)}
@@ -5285,17 +5345,17 @@ function VehicleDetailsPageContent() {
                                                                                                         <path d="M4.9 4.9l14.2 14.2" />
                                                                                                     </svg>
                                                                                                 </button>
-                                                                                            )}
-                                                                                            {showVehicleCardDelete && (
+                                                                                            ) : null}
+                                                                                            {showDocTabDelete ? (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                    title="Delete"
+                                                                                                    title={isLiveDocumentTab ? 'Delete' : 'Remove'}
                                                                                                     onClick={() => setDocToDelete(doc)}
                                                                                                 >
                                                                                                     <XCircle size={16} />
                                                                                                 </button>
-                                                                                            )}
+                                                                                            ) : null}
                                                                                         </div>
                                                                                     </td>
                                                                                 </tr>
@@ -5579,8 +5639,10 @@ function VehicleDetailsPageContent() {
                 }}
                 onSuccess={refreshData}
                 assetId={assetId}
+                asset={asset}
                 existingDoc={vehicleGeneralDoc}
                 isRenew={vehicleGeneralDocRenew}
+                hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
             />
 
             <VehicleActivationSubmitModal
@@ -5698,6 +5760,7 @@ function VehicleDetailsPageContent() {
                 onClose={() => { setShowWarrantyModal(false); setIsWarrantyRenew(false); setDocTabWarrantyDoc(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
+                asset={asset}
                 existingDoc={docTabWarrantyDoc}
                 existingAttachmentRows={
                     docTabWarrantyDoc
@@ -5706,6 +5769,7 @@ function VehicleDetailsPageContent() {
                 }
                 isRenew={isWarrantyRenew}
                 excludedCoverageTypes={excludedWarrantyCoverageTypes}
+                hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
             />
 
             <VehiclePermitModal
@@ -5713,9 +5777,11 @@ function VehicleDetailsPageContent() {
                 onClose={() => { setShowPermitModal(false); setIsPermitRenew(false); setSelectedPermitDoc(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
+                asset={asset}
                 existingDoc={selectedPermitDoc}
                 existingAttachmentRows={permitAttachmentsForDoc(selectedPermitDoc, (asset?.documents || []))}
                 isRenew={isPermitRenew}
+                hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
             />
 
             <AddVehicleFineModal
@@ -5904,16 +5970,20 @@ function VehicleDetailsPageContent() {
                 onClose={() => setShowPetrolModal(false)}
                 onSuccess={fetchAssetDetails}
                 assetId={assetId}
+                asset={asset}
                 existingDoc={petrolDoc}
                 existingAttachmentRows={petrolAttachments}
+                hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
             />
             <VehicleTollModal
                 isOpen={showTollModal}
                 onClose={() => setShowTollModal(false)}
                 onSuccess={fetchAssetDetails}
                 assetId={assetId}
+                asset={asset}
                 existingDoc={tollDoc}
                 existingAttachmentRows={tollAttachments}
+                hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
             />
             <VehicleMortgageModal
                 isOpen={showMortgageModal}
@@ -5921,6 +5991,7 @@ function VehicleDetailsPageContent() {
                 onSuccess={fetchAssetDetails}
                 assetId={assetId}
                 asset={asset}
+                hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
             />
             <VehicleMortgageCloseModal
                 isOpen={showMortgageCloseModal}

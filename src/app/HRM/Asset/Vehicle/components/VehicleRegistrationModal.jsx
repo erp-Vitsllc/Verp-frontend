@@ -254,14 +254,20 @@ export default function VehicleRegistrationModal({
         const rows = formData.rows || [];
         const primaryRow = rows[0];
 
+        const descriptionMeta = {
+            fee: formData.fee ? Number(formData.fee) : null,
+        };
+        if (isRenew && existingDoc?._id) {
+            descriptionMeta.renewedFrom = existingDoc._id;
+            descriptionMeta.renewedAt = new Date().toISOString();
+        }
+
         const mainPayload = {
             type: 'Registration',
             issueAuthority: 'RTA',
             issueDate: formData.registrationDate,
             expiryDate: formData.expiryDate,
-            description: JSON.stringify({
-                fee: formData.fee ? Number(formData.fee) : null,
-            }),
+            description: JSON.stringify(descriptionMeta),
         };
 
         if (primaryRow?.fileBase64) {
@@ -288,6 +294,10 @@ export default function VehicleRegistrationModal({
                     body: mainPayload,
                 });
             } else {
+                // Renew must create a new live row and leave the previous group for Old Documents.
+                if (isRenew && existingDoc?._id) {
+                    mainPayload.renewFromDocumentId = existingDoc._id;
+                }
                 steps.push({ op: 'post_document', body: mainPayload });
             }
 
@@ -306,7 +316,8 @@ export default function VehicleRegistrationModal({
                     description: descriptionText,
                 };
 
-                if (r.rowDocId) {
+                // On renew, never update old attachment rows — archive them with the previous primary.
+                if (r.rowDocId && !isRenew) {
                     const updatePayload = { ...basePayload };
                     if (hasFile) {
                         updatePayload.document = {
@@ -316,15 +327,13 @@ export default function VehicleRegistrationModal({
                         };
                     }
                     steps.push({ op: 'put_document', docId: r.rowDocId, body: updatePayload });
-                } else {
+                } else if (hasFile) {
                     const createPayload = { ...basePayload };
-                    if (hasFile) {
-                        createPayload.document = {
-                            name: r.fileName || 'registration-attachment',
-                            data: r.fileBase64,
-                            mimeType: r.fileMime || 'application/pdf',
-                        };
-                    }
+                    createPayload.document = {
+                        name: r.fileName || 'registration-attachment',
+                        data: r.fileBase64,
+                        mimeType: r.fileMime || 'application/pdf',
+                    };
                     steps.push({ op: 'post_document', body: createPayload });
                 }
             }

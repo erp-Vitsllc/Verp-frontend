@@ -2,19 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, X, FileText, Eye } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from "@/components/ui/date-picker";
 import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 export default function VehiclePermitModal({
     isOpen,
     onClose,
     onSuccess,
     assetId,
+    asset = null,
     existingDoc = null,
     existingAttachmentRows = [],
     isRenew = false,
+    hrMayApplyDirectly = false,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -169,12 +171,9 @@ export default function VehiclePermitModal({
         try {
             setLoading(true);
 
-            // Handle Deletions
+            const steps = [];
             for (const id of deletedDocIds) {
-                try {
-                    await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
-                } catch (err) {
-                }
+                steps.push({ op: 'delete_document', docId: id });
             }
 
             const isRenewWithExisting = Boolean(existingDoc?._id && isRenew);
@@ -207,12 +206,12 @@ export default function VehiclePermitModal({
             }
 
             if (existingDoc?._id && !isRenew) {
-                await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, mainPayload);
+                steps.push({ op: 'put_document', docId: existingDoc._id, body: mainPayload });
             } else {
                 if (isRenewWithExisting) {
                     mainPayload.renewFromDocumentId = existingDoc._id;
                 }
-                await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
+                steps.push({ op: 'post_document', body: mainPayload });
             }
 
             const firstRowUsedAsPrimaryAttachment = Boolean(primaryFileRow?.fileBase64);
@@ -242,21 +241,34 @@ export default function VehiclePermitModal({
                     };
                 }
 
-                if (r.rowDocId) {
-                    await axiosInstance.put(`/AssetItem/${assetId}/document/${r.rowDocId}`, rowPayload);
-                } else {
-                    await axiosInstance.post(`/AssetItem/${assetId}/document`, rowPayload);
+                if (r.rowDocId && !isRenew) {
+                    steps.push({ op: 'put_document', docId: r.rowDocId, body: rowPayload });
+                } else if (hasFile) {
+                    steps.push({ op: 'post_document', body: rowPayload });
                 }
             }
 
-            toast({
-                title: isRenew ? 'Permit renewed' : 'Saved',
-                description: isRenew
+            await saveVehicleProfileCardOrQueue({
+                asset,
+                assetId,
+                sectionId: 'permit',
+                action: isRenew ? 'renew' : 'edit',
+                steps,
+                documentId: isRenew ? existingDoc?._id || null : null,
+                hrMayApplyDirectly,
+                proposedRows: [
+                    { label: 'Permit name', value: formData.permitName || '—' },
+                    { label: 'Issue date', value: formData.issueDate || '—' },
+                    ...(isRenew ? [{ label: 'Action', value: 'Renew' }] : []),
+                ],
+                toast,
+                queuedMessage: 'Permit change saved. Submit for HR approval when ready.',
+                appliedMessage: isRenew
                     ? 'New permit is live. The previous document was moved to Old Documents.'
                     : 'Permit saved successfully.',
+                onSuccess,
+                onClose,
             });
-            if (onSuccess) onSuccess();
-            onClose();
         } catch (error) {
             toast({
                 variant: 'destructive',

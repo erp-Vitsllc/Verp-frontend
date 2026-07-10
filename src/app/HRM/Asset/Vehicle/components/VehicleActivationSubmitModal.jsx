@@ -77,6 +77,62 @@ export function buildSectionRows(sectionId, asset) {
                 { label: 'Types present', value: types.length ? types.join(', ') : '—' },
             ];
         }
+        case 'permit': {
+            const permitDoc = docs.find((d) => normType(d.type) === 'permit');
+            let meta = {};
+            if (permitDoc?.description) {
+                try {
+                    meta = JSON.parse(permitDoc.description);
+                } catch {
+                    meta = {};
+                }
+            }
+            return [
+                { label: 'Permit name', value: meta.permitName || '—' },
+                { label: 'Issue date', value: permitDoc?.issueDate ? String(permitDoc.issueDate).slice(0, 10) : '—' },
+            ];
+        }
+        case 'petrol': {
+            const petrolDoc = docs.find((d) => normType(d.type) === 'petrol');
+            let meta = {};
+            if (petrolDoc?.description) {
+                try {
+                    meta = JSON.parse(petrolDoc.description);
+                } catch {
+                    meta = {};
+                }
+            }
+            return [
+                { label: 'Vendor', value: meta.vendor || petrolDoc?.issueAuthority || '—' },
+                { label: 'Tag', value: meta.tagNo || '—' },
+            ];
+        }
+        case 'toll': {
+            const tollDoc = docs.find((d) => normType(d.type) === 'toll');
+            let meta = {};
+            if (tollDoc?.description) {
+                try {
+                    meta = JSON.parse(tollDoc.description);
+                } catch {
+                    meta = {};
+                }
+            }
+            return [
+                { label: 'Provider', value: meta.provider || tollDoc?.issueAuthority || '—' },
+                { label: 'Tag', value: meta.tagNo || '—' },
+            ];
+        }
+        case 'mortgage':
+            return [
+                { label: 'Bank', value: asset?.mortgageBankName || asset?.mortgageBank || '—' },
+                {
+                    label: 'Loan amount',
+                    value:
+                        asset?.loanAmount != null
+                            ? `AED ${Number(asset.loanAmount).toLocaleString()}`
+                            : '—',
+                },
+            ];
         default:
             return [];
     }
@@ -87,6 +143,12 @@ export const VEHICLE_ACTIVATION_SECTION_LABELS = {
     registration: 'Registration card',
     insurance: 'Insurance card',
     profile_picture: 'Profile picture',
+    warranty: 'Warranty card',
+    permit: 'Permit card',
+    petrol: 'Petrol card',
+    toll: 'Toll card',
+    documents: 'Documents',
+    mortgage: 'Mortgage details',
 };
 
 export function sectionGroups() {

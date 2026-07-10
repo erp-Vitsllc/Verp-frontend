@@ -143,6 +143,9 @@ export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, asset
                 toast({ title: 'Success', description: `${formData.documentType} updated successfully` });
             } else {
                 // ADD / RENEW: create a fresh row (renew must keep previous row for old documents).
+                if (isRenewWithExisting) {
+                    payload.renewFromDocumentId = existingDoc._id;
+                }
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, payload);
                 toast({ title: 'Success', description: isRenew ? `${formData.documentType} renewed successfully` : `${formData.documentType} added successfully` });
             }

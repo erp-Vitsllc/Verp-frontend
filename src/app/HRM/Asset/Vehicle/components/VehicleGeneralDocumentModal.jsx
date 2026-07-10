@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import DocumentModal from '@/app/emp/[employeeId]/components/modals/DocumentModal';
 import {
     validateEmployeeDocumentForm,
     validateEmployeeDocumentPdfFile,
 } from '@/utils/employeeDocumentValidation';
+import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 const RESERVED_TYPES = new Set([
     'registration',
@@ -119,8 +119,10 @@ export default function VehicleGeneralDocumentModal({
     onClose,
     onSuccess,
     assetId,
+    asset = null,
     existingDoc = null,
     isRenew = false,
+    hrMayApplyDirectly = false,
 }) {
     const { toast } = useToast();
     const [documentForm, setDocumentForm] = useState(EMPTY_FORM);
@@ -256,27 +258,46 @@ export default function VehicleGeneralDocumentModal({
                 };
             }
 
+            const steps = [];
             if (isEditing) {
-                await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, payload);
-                toast({ title: 'Document Updated', description: 'Document details have been updated successfully.' });
+                steps.push({ op: 'put_document', docId: existingDoc._id, body: payload });
             } else {
                 if (isRenew && existingDoc?._id) {
                     payload.renewFromDocumentId = existingDoc._id;
                 }
-                await axiosInstance.post(`/AssetItem/${assetId}/document`, payload);
-                toast({
-                    title: isRenew ? 'Document Renewed' : 'Document Added',
-                    description: isRenew
-                        ? 'New document is live. The previous file was moved to Old Documents.'
-                        : 'Document details have been added successfully.',
-                });
+                steps.push({ op: 'post_document', body: payload });
             }
 
-            setDocumentForm(EMPTY_FORM);
-            setDocumentErrors({});
-            if (documentFileRef.current) documentFileRef.current.value = '';
-            if (onSuccess) onSuccess();
-            onClose();
+            await saveVehicleProfileCardOrQueue({
+                asset,
+                assetId,
+                sectionId: 'documents',
+                action: isRenew ? 'renew' : 'edit',
+                steps,
+                documentId: isRenew ? existingDoc?._id || null : null,
+                hrMayApplyDirectly,
+                proposedRows: [
+                    { label: 'Document type', value: typeTrimmed },
+                    {
+                        label: 'Action',
+                        value: isRenew ? 'Renew' : isEditing ? 'Edit' : 'Add',
+                    },
+                ],
+                toast,
+                queuedMessage: 'Document change saved. Submit for HR approval when ready.',
+                appliedMessage: isRenew
+                    ? 'New document is live. The previous file was moved to Old Documents.'
+                    : isEditing
+                      ? 'Document details have been updated successfully.'
+                      : 'Document details have been added successfully.',
+                onSuccess: () => {
+                    setDocumentForm(EMPTY_FORM);
+                    setDocumentErrors({});
+                    if (documentFileRef.current) documentFileRef.current.value = '';
+                    onSuccess?.();
+                },
+                onClose,
+            });
         } catch (err) {
             toast({
                 variant: 'destructive',

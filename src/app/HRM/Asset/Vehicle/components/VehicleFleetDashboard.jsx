@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ScrollReveal from '@/components/ScrollReveal';
 import RechartsBox from '@/components/charts/RechartsBox';
@@ -19,13 +19,18 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { AlertCircle, ArrowLeftRight, Bell, Car, ChevronRight, ClipboardList, Clock, Gauge, MapPin, RefreshCw, Route, TrendingUp, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, Bell, Car, ClipboardList, Clock, Gauge, MapPin, RefreshCw, Route, TrendingUp, Wrench } from 'lucide-react';
 import {
     vehicleDashboardKpiHref,
     vehicleDashboardKpiTitle,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetDashboardNavigation';
+import {
+    FLORAL_CLASS_COLORS,
+    floralPanelClass,
+    floralPanelStyle,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetAnalyticsTheme';
 
-const YEAR_COLORS = ['#ef4444', '#f97316', '#a855f7', '#3b82f6', '#14b8a6', '#eab308', '#64748b'];
+const YEAR_COLORS = FLORAL_CLASS_COLORS;
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -75,13 +80,13 @@ function AnimatedCount({ value, className = '' }) {
 function KpiTile({ label, value, tone = 'rose', routeKey, wide = false }) {
     const router = useRouter();
     const tones = {
-        rose: { wrap: 'bg-rose-50/90 border-rose-100', label: 'text-rose-600', value: 'text-rose-900' },
-        amber: { wrap: 'bg-amber-50/90 border-amber-100', label: 'text-amber-700', value: 'text-amber-900' },
-        emerald: { wrap: 'bg-emerald-50/90 border-emerald-100', label: 'text-emerald-700', value: 'text-emerald-900' },
-        sky: { wrap: 'bg-sky-50/90 border-sky-100', label: 'text-sky-700', value: 'text-sky-900' },
-        violet: { wrap: 'bg-violet-50/90 border-violet-100', label: 'text-violet-700', value: 'text-violet-900' },
-        pink: { wrap: 'bg-pink-50/90 border-pink-100', label: 'text-pink-600', value: 'text-pink-900' },
-        lime: { wrap: 'bg-lime-50/90 border-lime-100', label: 'text-lime-700', value: 'text-lime-900' },
+        rose: { wrap: 'bg-[#fff0f3] border-[#f4d4dc]', label: 'text-[#c45c7a]', value: 'text-[#5c4f55]' },
+        amber: { wrap: 'bg-[#fff9e6] border-[#f5e8c4]', label: 'text-[#b8860b]', value: 'text-[#5c4f55]' },
+        emerald: { wrap: 'bg-[#f0fff4] border-[#c8e6c9]', label: 'text-[#4a8a5a]', value: 'text-[#5c4f55]' },
+        sky: { wrap: 'bg-[#e6f7ff] border-[#b8d4e8]', label: 'text-[#4a7a9a]', value: 'text-[#5c4f55]' },
+        violet: { wrap: 'bg-[#f9f0ff] border-[#d4c4e8]', label: 'text-[#7a5a9a]', value: 'text-[#5c4f55]' },
+        pink: { wrap: 'bg-[#fff0f3] border-[#f4d4dc]', label: 'text-[#c45c7a]', value: 'text-[#5c4f55]' },
+        lime: { wrap: 'bg-[#f0fff4] border-[#c8e6c9]', label: 'text-[#4a8a5a]', value: 'text-[#5c4f55]' },
     };
     const t = tones[tone] || tones.rose;
     const href = routeKey ? vehicleDashboardKpiHref(routeKey) : null;
@@ -111,102 +116,167 @@ function KpiTile({ label, value, tone = 'rose', routeKey, wide = false }) {
             type="button"
             onClick={() => router.push(href)}
             title={title}
-            className={`w-full rounded-xl border text-center transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-md hover:z-10 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/60 ${tilePad} ${t.wrap}`}
+            className={`w-full rounded-xl border text-center transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-md hover:z-10 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8b4bc]/60 ${tilePad} ${t.wrap}`}
         >
             {inner}
         </button>
     );
 }
 
-function KpiGroup({ title, icon: Icon, children, delayMs = 0, className = '' }) {
+function KpiSubSection({ title, icon: Icon, children, className = '' }) {
+    return (
+        <div className={`rounded-xl border border-gray-200 bg-white overflow-hidden h-full ${className}`}>
+            <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-2 bg-white">
+                {Icon ? (
+                    <Icon className="w-3.5 h-3.5 text-[#9a8a90] shrink-0" strokeWidth={2.25} />
+                ) : null}
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-[#9a8a90]">{title}</h3>
+            </div>
+            <div className="p-3">{children}</div>
+        </div>
+    );
+}
+
+function GroupedKpiCard({ children, delayMs = 0, className = '' }) {
     return (
         <ScrollReveal delayMs={delayMs} durationMs={600} className={className}>
-            <div className="group h-full bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:shadow-xl hover:shadow-teal-900/8 hover:border-teal-200/60 hover:-translate-y-1">
-                <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-2 bg-gradient-to-r from-white to-slate-50/80">
-                    {Icon ? <Icon className="w-3.5 h-3.5 text-teal-600 shrink-0" strokeWidth={2.25} /> : null}
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">{title}</h3>
-                </div>
-                <div className="p-3">{children}</div>
+            <div className={`${floralPanelClass} overflow-hidden p-3 md:p-4`} style={floralPanelStyle}>
+                {children}
             </div>
         </ScrollReveal>
     );
 }
 
+function LocatorPeriodTabBar({ options, value, onChange }) {
+    return (
+        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
+            {options.map((o) => (
+                <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => onChange(o.id)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
+                        value === o.id
+                            ? 'bg-white text-teal-700 shadow-sm ring-1 ring-teal-200/50 scale-[1.02]'
+                            : 'text-slate-500 hover:text-teal-700 hover:bg-white/80'
+                    }`}
+                >
+                    {o.label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+const RUNNING_PERIOD_TABS = [
+    { id: 'day', label: 'Day' },
+    { id: 'week', label: 'Week' },
+    { id: 'month', label: 'Month' },
+];
+
+const IDLE_PERIOD_TABS = [
+    { id: 'day', label: 'Day' },
+    { id: 'week', label: 'Week' },
+    { id: 'month', label: 'Month' },
+];
+
+const SALIK_PERIOD_TABS = [
+    { id: 'day', label: 'Yesterday' },
+    { id: 'week', label: 'Mon–Sun' },
+    { id: 'month', label: 'Month' },
+];
+
+function LocatorBucketControls({
+    tabs,
+    period,
+    onPeriodChange,
+    bucket,
+    selectedKey,
+    onSelectKey,
+    selectAriaLabel,
+}) {
+    const options = bucket?.options || [];
+    const value = selectedKey || bucket?.defaultKey || '';
+
+    return (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
+            <LocatorPeriodTabBar options={tabs} value={period} onChange={onPeriodChange} />
+            {options.length > 1 ? (
+                <select
+                    value={value}
+                    onChange={(e) => onSelectKey(e.target.value)}
+                    className="w-full sm:min-w-[13rem] sm:w-auto px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-400/40"
+                    aria-label={selectAriaLabel}
+                >
+                    {options.map((opt) => (
+                        <option key={opt.key} value={opt.key}>
+                            {opt.sublabel ? `${opt.label} · ${opt.sublabel}` : opt.label}
+                        </option>
+                    ))}
+                </select>
+            ) : null}
+        </div>
+    );
+}
+
+function readLocatorBucketSeries(bucket, selectedKey) {
+    if (!bucket?.byKey) return [];
+    const key = selectedKey || bucket.defaultKey;
+    return bucket.byKey[key] || [];
+}
+
+function formatLocatorBucketSubtitle(bucket, selectedKey, fallback) {
+    const key = selectedKey || bucket?.defaultKey;
+    const option = bucket?.options?.find((row) => row.key === key);
+    if (!option) return fallback;
+    return option.sublabel ? `${option.label} · ${option.sublabel}` : option.label;
+}
+
 function PeriodTabs({ value, onChange }) {
-    const opts = [
-        { id: 'day', label: 'Day' },
-        { id: 'week', label: 'Week' },
-        { id: 'month', label: 'Month' },
-    ];
     return (
-        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit mb-3">
-            {opts.map((o) => (
-                <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => onChange(o.id)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
-                        value === o.id
-                            ? 'bg-white text-teal-700 shadow-sm ring-1 ring-teal-200/50 scale-[1.02]'
-                            : 'text-slate-500 hover:text-teal-700 hover:bg-white/80'
-                    }`}
-                >
-                    {o.label}
-                </button>
-            ))}
-        </div>
+        <LocatorPeriodTabBar options={RUNNING_PERIOD_TABS} value={value} onChange={onChange} />
     );
 }
 
-function LocatorPeriodTabs({ value, onChange }) {
-    const opts = [
-        { id: 'day', label: 'Day' },
-        { id: 'month', label: 'Month' },
-        { id: 'year', label: 'Year' },
-    ];
+function RunningKmControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey }) {
     return (
-        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit mb-3">
-            {opts.map((o) => (
-                <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => onChange(o.id)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
-                        value === o.id
-                            ? 'bg-white text-teal-700 shadow-sm ring-1 ring-teal-200/50 scale-[1.02]'
-                            : 'text-slate-500 hover:text-teal-700 hover:bg-white/80'
-                    }`}
-                >
-                    {o.label}
-                </button>
-            ))}
-        </div>
+        <LocatorBucketControls
+            tabs={RUNNING_PERIOD_TABS}
+            period={period}
+            onPeriodChange={onPeriodChange}
+            bucket={bucket}
+            selectedKey={selectedKey}
+            onSelectKey={onSelectKey}
+            selectAriaLabel="Select running km period"
+        />
     );
 }
 
-function SalikPeriodTabs({ value, onChange }) {
-    const opts = [
-        { id: 'day', label: 'Yesterday' },
-        { id: 'week', label: 'Mon–Sun' },
-        { id: 'month', label: 'Month' },
-    ];
+function IdleTimeControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey }) {
     return (
-        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit mb-3">
-            {opts.map((o) => (
-                <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => onChange(o.id)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
-                        value === o.id
-                            ? 'bg-white text-teal-700 shadow-sm ring-1 ring-teal-200/50 scale-[1.02]'
-                            : 'text-slate-500 hover:text-teal-700 hover:bg-white/80'
-                    }`}
-                >
-                    {o.label}
-                </button>
-            ))}
-        </div>
+        <LocatorBucketControls
+            tabs={IDLE_PERIOD_TABS}
+            period={period}
+            onPeriodChange={onPeriodChange}
+            bucket={bucket}
+            selectedKey={selectedKey}
+            onSelectKey={onSelectKey}
+            selectAriaLabel="Select idle time period"
+        />
+    );
+}
+
+function SalikControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey }) {
+    return (
+        <LocatorBucketControls
+            tabs={SALIK_PERIOD_TABS}
+            period={period}
+            onPeriodChange={onPeriodChange}
+            bucket={bucket}
+            selectedKey={selectedKey}
+            onSelectKey={onSelectKey}
+            selectAriaLabel="Select salik distance period"
+        />
     );
 }
 
@@ -240,58 +310,30 @@ function locatorVehicleLabel(name) {
     return shortVehicleChartName(text, 10);
 }
 
-function withShortNames(rows, compact = false) {
-    return (rows || []).map((row) => ({
-        ...row,
-        shortName: compact ? locatorVehicleLabel(row.name) : locatorVehicleLabel(row.name),
-    }));
+function formatLocatorBarValue(value, unit) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '';
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M ${unit}`;
+    if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k ${unit}`;
+    return `${Math.round(n).toLocaleString()} ${unit}`;
 }
 
-const LOCATOR_BAR_BG_CLASSES = [
-    'bg-red-500',
-    'bg-orange-500',
-    'bg-amber-500',
-    'bg-yellow-500',
-    'bg-lime-500',
-    'bg-green-500',
-    'bg-teal-500',
-    'bg-sky-500',
-    'bg-blue-500',
-    'bg-indigo-500',
-    'bg-violet-500',
-    'bg-fuchsia-500',
-    'bg-pink-500',
-];
+function withShortNames(rows) {
+    return (rows || []).map((row) => {
+        const fullName = String(row.name || row.label || '—').trim() || '—';
+        return {
+            ...row,
+            name: fullName,
+            shortName: locatorVehicleLabel(fullName),
+            chartName: shortVehicleChartName(fullName, 14),
+        };
+    });
+}
 
-const LOCATOR_BAR_FILLS = [
-    '#ef4444',
-    '#f97316',
-    '#f59e0b',
-    '#eab308',
-    '#84cc16',
-    '#22c55e',
-    '#14b8a6',
-    '#0ea5e9',
-    '#3b82f6',
-    '#6366f1',
-    '#8b5cf6',
-    '#d946ef',
-    '#ec4899',
-];
-
-const LOCATOR_LAYOUT_MS = 900;
-const LOCATOR_LAYOUT_EASE = 'cubic-bezier(0.4, 0, 0.2, 1)';
-const LOCATOR_WIDTH_TRANSITION = `width ${LOCATOR_LAYOUT_MS}ms ${LOCATOR_LAYOUT_EASE}`;
-const LOCATOR_CHART_HEIGHT = 320;
-const LOCATOR_ROW_MIN_HEIGHT = 480;
-const LOCATOR_COLLAPSED_CANVAS_WIDTH = 720;
+const LOCATOR_CHART_HEIGHT = 300;
+const LOCATOR_STATIC_CHART_HEIGHT = 300;
 
 const LOCATOR_GRID_ORDER = ['running', 'odometer', 'idle', 'salik'];
-
-const LOCATOR_ROWS = [
-    { rowKey: 'row1', cardIds: ['odometer', 'running'], defaultActive: 'running' },
-    { rowKey: 'row2', cardIds: ['idle', 'salik'], defaultActive: 'idle' },
-];
 
 const LOCATOR_CHARTS = [
     {
@@ -303,6 +345,7 @@ const LOCATOR_CHARTS = [
         iconClass: 'text-teal-600',
         linkClass: 'text-teal-700',
         valueLabel: 'km',
+        barFill: '#0d9488',
     },
     {
         id: 'running',
@@ -314,6 +357,7 @@ const LOCATOR_CHARTS = [
         iconClass: 'text-violet-600',
         linkClass: 'text-violet-700',
         valueLabel: 'km',
+        barFill: '#7c3aed',
     },
     {
         id: 'idle',
@@ -325,6 +369,7 @@ const LOCATOR_CHARTS = [
         iconClass: 'text-orange-500',
         linkClass: 'text-orange-600',
         valueLabel: 'min',
+        barFill: '#f97316',
     },
     {
         id: 'salik',
@@ -335,20 +380,17 @@ const LOCATOR_CHARTS = [
         iconClass: 'text-fuchsia-600',
         linkClass: 'text-fuchsia-700',
         valueLabel: 'km',
+        barFill: '#0284c7',
     },
 ].sort((a, b) => LOCATOR_GRID_ORDER.indexOf(a.id) - LOCATOR_GRID_ORDER.indexOf(b.id));
-
-function locatorBarColor(index) {
-    return LOCATOR_BAR_FILLS[index % LOCATOR_BAR_FILLS.length];
-}
 
 function LocatorVerticalBarChart({
     data,
     valueLabel,
+    barFill = '#0d9488',
     chartAnim = 0,
-    barOpacity = 1,
     animateBars = false,
-    showDetail = true,
+    chartHeight = LOCATOR_CHART_HEIGHT,
 }) {
     if (!data?.length) {
         return (
@@ -358,99 +400,62 @@ function LocatorVerticalBarChart({
         );
     }
 
-    const chartHeight = LOCATOR_CHART_HEIGHT;
     const barAnimationDuration = animateBars ? chartAnim : 0;
     const barCount = data.length;
-    const expandedBarSize = Math.min(56, Math.max(28, Math.floor(640 / Math.max(barCount, 1))));
-    const collapsedBarSize = Math.min(24, Math.max(12, Math.floor(LOCATOR_COLLAPSED_CANVAS_WIDTH / Math.max(barCount, 1)) - 4));
-
-    const tooltip = (
-        <RechartsTooltip
-            formatter={(v) => [`${Number(v).toLocaleString()} ${valueLabel}`, valueLabel]}
-            labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
-            contentStyle={tooltipStyle}
-        />
-    );
-
-    if (showDetail) {
-        return (
-            <div className="w-full h-full" style={{ minHeight: chartHeight }}>
-                <RechartsBox height={chartHeight} minHeight={chartHeight}>
-                    <BarChart
-                        data={data}
-                        margin={{ top: 18, right: 12, left: 2, bottom: 4 }}
-                        barCategoryGap="16%"
-                    >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                        <XAxis dataKey="shortName" hide />
-                        <YAxis
-                            tick={{ fontSize: 11, fill: '#94a3b8' }}
-                            axisLine={false}
-                            tickLine={false}
-                            width={46}
-                            tickFormatter={formatKmAxisTick}
-                        />
-                        {tooltip}
-                        <Bar
-                            dataKey="value"
-                            radius={[8, 8, 0, 0]}
-                            maxBarSize={expandedBarSize}
-                            isAnimationActive={animateBars}
-                            animationDuration={barAnimationDuration}
-                            animationEasing="ease-out"
-                        >
-                            {data.map((entry, index) => (
-                                <Cell
-                                    key={`loc-bar-${entry.name || index}`}
-                                    fill={locatorBarColor(index)}
-                                    fillOpacity={barOpacity}
-                                />
-                            ))}
-                        </Bar>
-                    </BarChart>
-                </RechartsBox>
-            </div>
-        );
-    }
-
-    const previewCanvasWidth = Math.max(LOCATOR_COLLAPSED_CANVAS_WIDTH, barCount * 34);
+    const barSize = Math.min(48, Math.max(20, Math.floor(520 / Math.max(barCount, 1))));
+    const xLabelAngle = barCount > 6 ? -38 : barCount > 3 ? -28 : 0;
+    const xLabelAnchor = xLabelAngle ? 'end' : 'middle';
+    const bottomMargin = barCount > 6 ? 56 : barCount > 3 ? 48 : 36;
 
     return (
-        <div
-            className="w-full h-full overflow-hidden"
-            style={{ minHeight: chartHeight, height: chartHeight }}
-        >
-            <div style={{ width: previewCanvasWidth, height: chartHeight }}>
-                <RechartsBox
-                    fixedSize={{ width: previewCanvasWidth, height: chartHeight }}
-                    minHeight={chartHeight}
+        <div className="w-full" style={{ minHeight: chartHeight }}>
+            <RechartsBox height={chartHeight} minHeight={chartHeight}>
+                <BarChart
+                    data={data}
+                    margin={{ top: 24, right: 8, left: 2, bottom: bottomMargin }}
+                    barCategoryGap="18%"
                 >
-                    <BarChart
-                        data={data}
-                        margin={{ top: 12, right: 4, left: 0, bottom: 4 }}
-                        barCategoryGap="18%"
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis
+                        dataKey="chartName"
+                        tick={{ fontSize: 9, fill: '#64748b' }}
+                        interval={0}
+                        angle={xLabelAngle}
+                        textAnchor={xLabelAnchor}
+                        height={bottomMargin - 4}
+                        axisLine={false}
+                        tickLine={false}
+                    />
+                    <YAxis
+                        tick={{ fontSize: 10, fill: '#94a3b8' }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={44}
+                        tickFormatter={formatKmAxisTick}
+                    />
+                    <RechartsTooltip
+                        formatter={(v) => [formatLocatorBarValue(v, valueLabel), valueLabel]}
+                        labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
+                        contentStyle={tooltipStyle}
+                    />
+                    <Bar
+                        dataKey="value"
+                        fill={barFill}
+                        radius={[6, 6, 0, 0]}
+                        maxBarSize={barSize}
+                        isAnimationActive={animateBars}
+                        animationDuration={barAnimationDuration}
+                        animationEasing="ease-out"
                     >
-                        <XAxis dataKey="shortName" hide />
-                        <YAxis hide />
-                        {tooltip}
-                        <Bar
+                        <LabelList
                             dataKey="value"
-                            radius={[5, 5, 0, 0]}
-                            maxBarSize={collapsedBarSize}
-                            isAnimationActive={false}
-                            animationDuration={0}
-                        >
-                            {data.map((entry, index) => (
-                                <Cell
-                                    key={`loc-bar-${entry.name || index}`}
-                                    fill={locatorBarColor(index)}
-                                    fillOpacity={barOpacity}
-                                />
-                            ))}
-                        </Bar>
-                    </BarChart>
-                </RechartsBox>
-            </div>
+                            position="top"
+                            formatter={(v) => formatLocatorBarValue(v, valueLabel)}
+                            style={{ fontSize: 9, fill: '#475569', fontWeight: 600 }}
+                        />
+                    </Bar>
+                </BarChart>
+            </RechartsBox>
         </div>
     );
 }
@@ -466,237 +471,85 @@ function resolveLocatorSubtitle(chart, runningPeriod, idlePeriod) {
     return subtitle;
 }
 
-function LocatorChartHeader({ chart, runningPeriod, idlePeriod, expanded }) {
-    const Icon = chart.icon;
-    const subtitle = resolveLocatorSubtitle(chart, runningPeriod, idlePeriod);
+const chartPanelClass =
+    'group/chart bg-white rounded-2xl border border-gray-200 shadow-sm p-5 md:p-6 transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:-translate-y-1 hover:shadow-xl hover:shadow-gray-200/80 hover:border-gray-300';
 
+const compactChartPanelClass =
+    'group/chart bg-white rounded-2xl border border-gray-200 shadow-sm p-3 md:p-4 transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:-translate-y-1 hover:shadow-lg hover:shadow-gray-200/80 hover:border-gray-300';
+
+const COMPACT_ROW_CHART_HEIGHT = 200;
+const COMPACT_ROW_CHART_MIN = 200;
+const COMPACT_ROW_CARD_HEIGHT = 268;
+
+function CompactChartCard({ title, subtitle, children }) {
     return (
         <div
-            className={`relative flex items-start justify-between gap-2 ${
-                expanded ? 'mb-3' : 'mb-2'
-            }`}
+            className={`${compactChartPanelClass} h-full flex flex-col`}
+            style={{ minHeight: COMPACT_ROW_CARD_HEIGHT, height: COMPACT_ROW_CARD_HEIGHT }}
         >
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                    {Icon ? (
-                        <Icon className={`w-4 h-4 shrink-0 ${chart.iconClass}`} strokeWidth={2.25} />
-                    ) : null}
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
-                        {chart.title}
-                    </h3>
-                </div>
+            <div className="shrink-0">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-0.5 group-hover/chart:text-teal-800 transition-colors">
+                    {title}
+                </h3>
                 <p
-                    className={`text-xs text-slate-400 overflow-hidden transition-[max-height,opacity,margin] duration-[900ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${
-                        expanded ? 'max-h-12 opacity-100 mt-1' : 'max-h-0 opacity-0 mt-0'
+                    className={`text-[11px] mb-2 min-h-[16px] ${
+                        subtitle ? 'text-slate-400' : 'text-transparent select-none'
                     }`}
+                    aria-hidden={!subtitle}
                 >
-                    {subtitle}
+                    {subtitle || '\u00A0'}
                 </p>
             </div>
-            <ChevronRight
-                className={`shrink-0 transition-transform duration-[900ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${
-                    expanded
-                        ? 'w-4 h-4 text-slate-400 rotate-90 mt-0.5'
-                        : 'w-3.5 h-3.5 text-slate-300 rotate-0'
-                }`}
-                aria-hidden
-            />
+            <div className="flex-1 min-h-0">{children}</div>
         </div>
     );
 }
 
-function LocatorExpandableCard({
+function LocatorStaticChartCard({
     chart,
     data,
     chartAnim,
+    chartsReady,
     runningPeriod,
     idlePeriod,
     periodControls = null,
-    contentExpanded,
-    onActivate,
+    subtitleOverride = null,
 }) {
-    const chartData = withShortNames(data, !contentExpanded);
-
-    const handleShellKeyDown = (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        if (event.target.closest('button')) return;
-        event.preventDefault();
-        onActivate();
-    };
+    const Icon = chart.icon;
+    const subtitle =
+        subtitleOverride || resolveLocatorSubtitle(chart, runningPeriod, idlePeriod);
 
     return (
-        <div
-            tabIndex={0}
-            onClick={onActivate}
-            onKeyDown={handleShellKeyDown}
-            aria-expanded={contentExpanded}
-            aria-label={`${chart.title}${contentExpanded ? '' : ', click to expand'}`}
-            className={`w-full h-full min-h-0 flex flex-col text-left rounded-2xl border p-3 md:p-5 transition-[border-color,box-shadow,background-color] duration-[900ms] ease-[cubic-bezier(0.4,0,0.2,1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/60 focus-visible:ring-offset-2 cursor-pointer ${
-                contentExpanded
-                    ? `border-t-4 ${chart.accent} border-slate-100 bg-white shadow-sm`
-                    : 'border-slate-100 bg-white hover:border-slate-200 hover:shadow-md'
-            }`}
-        >
-            <LocatorChartHeader
-                chart={chart}
-                runningPeriod={runningPeriod}
-                idlePeriod={idlePeriod}
-                expanded={contentExpanded}
-            />
-            {contentExpanded && periodControls ? (
-                <div
-                    role="presentation"
-                    className="shrink-0 overflow-hidden transition-[max-height,opacity,margin] duration-[900ms] ease-[cubic-bezier(0.4,0,0.2,1)] max-h-16 opacity-100 mb-2"
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => event.stopPropagation()}
-                    onPointerDown={(event) => event.stopPropagation()}
-                >
-                    {periodControls}
-                </div>
-            ) : null}
-            <div
-                className={`flex-1 min-h-[320px] flex flex-col justify-end transition-opacity duration-[900ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${
-                    contentExpanded ? 'opacity-100' : 'opacity-70'
-                }`}
-            >
-                <LocatorVerticalBarChart
-                    data={chartData}
-                    valueLabel={chart.valueLabel}
-                    showDetail={contentExpanded}
-                    chartAnim={chartAnim}
-                    animateBars={false}
-                    barOpacity={1}
-                />
+        <div className={chartPanelClass}>
+            <div className="flex items-center gap-2 mb-1">
+                {Icon ? (
+                    <Icon className={`w-3.5 h-3.5 shrink-0 ${chart.iconClass}`} strokeWidth={2.25} />
+                ) : null}
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 group-hover/chart:text-teal-800 transition-colors">
+                    {chart.title}
+                </h3>
             </div>
-            <p
-                className={`shrink-0 text-[10px] font-semibold overflow-hidden transition-[max-height,opacity,margin] duration-[900ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${
-                    chart.linkClass
-                } ${contentExpanded ? 'max-h-0 opacity-0 mt-0' : 'max-h-6 opacity-100 mt-2'}`}
-            >
-                Click to expand
-            </p>
-        </div>
-    );
-}
-
-function LocatorCardRow({
-    cardIds,
-    activeId,
-    onActiveChange,
-    chartsById,
-    dataById,
-    chartAnim,
-    runningPeriod,
-    idlePeriod,
-    periodControlsFor,
-}) {
-    const [contentActiveId, setContentActiveId] = useState(activeId);
-    const pendingTransitionsRef = useRef(0);
-    const activeIdRef = useRef(activeId);
-    activeIdRef.current = activeId;
-
-    const handleActiveChange = (cardId) => {
-        if (cardId === activeId) return;
-        pendingTransitionsRef.current = 0;
-        onActiveChange(cardId);
-    };
-
-    const handleSlotTransitionEnd = (event) => {
-        if (event.propertyName !== 'width') return;
-        pendingTransitionsRef.current += 1;
-        if (pendingTransitionsRef.current < cardIds.length) return;
-        pendingTransitionsRef.current = 0;
-        setContentActiveId(activeIdRef.current);
-    };
-
-    useEffect(() => {
-        if (contentActiveId === activeId) return undefined;
-        const timer = setTimeout(() => {
-            setContentActiveId(activeIdRef.current);
-        }, LOCATOR_LAYOUT_MS + 32);
-        return () => clearTimeout(timer);
-    }, [activeId, contentActiveId]);
-
-    const renderCard = (cardId) => {
-        const chart = chartsById[cardId];
-        if (!chart) return null;
-
-        return (
-            <LocatorExpandableCard
-                chart={chart}
-                data={dataById[cardId]}
+            {periodControls ? periodControls : null}
+            <p className="text-xs text-slate-400 mb-3">{subtitle}</p>
+            <LocatorVerticalBarChart
+                data={withShortNames(data)}
+                valueLabel={chart.valueLabel}
+                barFill={chart.barFill}
                 chartAnim={chartAnim}
-                runningPeriod={runningPeriod}
-                idlePeriod={idlePeriod}
-                periodControls={periodControlsFor(cardId)}
-                contentExpanded={contentActiveId === cardId}
-                onActivate={() => handleActiveChange(cardId)}
+                animateBars={chartsReady}
+                chartHeight={LOCATOR_STATIC_CHART_HEIGHT}
             />
-        );
-    };
-
-    return (
-        <>
-            <div className="hidden sm:flex gap-4 items-stretch w-full" style={{ minHeight: LOCATOR_ROW_MIN_HEIGHT }}>
-                {cardIds.map((cardId) => {
-                    const isActive = activeId === cardId;
-                    const widthShare = isActive ? 0.75 : 0.25;
-
-                    return (
-                        <div
-                            key={cardId}
-                            className="min-w-0 h-full shrink-0 flex flex-col overflow-hidden will-change-[width]"
-                            style={{
-                                width: `calc((100% - 1rem) * ${widthShare})`,
-                                transition: LOCATOR_WIDTH_TRANSITION,
-                            }}
-                            onTransitionEnd={handleSlotTransitionEnd}
-                        >
-                            {renderCard(cardId)}
-                        </div>
-                    );
-                })}
-            </div>
-
-            <div className="flex flex-col gap-3 sm:hidden">
-                {cardIds.map((cardId) => (
-                    <div key={cardId} className="min-w-0 w-full">
-                        <LocatorExpandableCard
-                            chart={chartsById[cardId]}
-                            data={dataById[cardId]}
-                            chartAnim={chartAnim}
-                            runningPeriod={runningPeriod}
-                            idlePeriod={idlePeriod}
-                            periodControls={periodControlsFor(cardId)}
-                            contentExpanded={activeId === cardId}
-                            onActivate={() => onActiveChange(cardId)}
-                        />
-                    </div>
-                ))}
-            </div>
-        </>
-    );
-}
-
-/* Tailwind safelist — keeps rainbow bar utility classes in the build */
-function LocatorBarPaletteSafelist() {
-    return (
-        <div className="hidden" aria-hidden>
-            {LOCATOR_BAR_BG_CLASSES.map((barClass) => (
-                <span key={barClass} className={barClass} />
-            ))}
         </div>
     );
 }
-
-const chartPanelClass =
-    'group/chart bg-white rounded-2xl border border-slate-100 shadow-sm p-5 md:p-6 transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:-translate-y-1 hover:shadow-xl hover:shadow-teal-900/8 hover:border-teal-200/60';
 
 const tooltipStyle = {
-    borderRadius: '10px',
-    border: '1px solid #e2e8f0',
-    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
+    borderRadius: '12px',
+    border: '1px solid #e5e7eb',
+    background: '#ffffff',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.08)',
     fontSize: '12px',
+    color: '#5c4f55',
 };
 
 export default function VehicleFleetDashboard({
@@ -710,13 +563,17 @@ export default function VehicleFleetDashboard({
     onLocatorRefresh,
 }) {
     const [usagePeriod, setUsagePeriod] = useState('week');
-    const [idlePeriod, setIdlePeriod] = useState('week');
     const [locatorRunningPeriod, setLocatorRunningPeriod] = useState('day');
+    const [locatorRunningDayKey, setLocatorRunningDayKey] = useState('');
+    const [locatorRunningWeekKey, setLocatorRunningWeekKey] = useState('');
+    const [locatorRunningMonthKey, setLocatorRunningMonthKey] = useState('');
     const [locatorIdlePeriod, setLocatorIdlePeriod] = useState('day');
+    const [locatorIdleDayKey, setLocatorIdleDayKey] = useState('');
+    const [locatorIdleWeekKey, setLocatorIdleWeekKey] = useState('');
+    const [locatorIdleMonthKey, setLocatorIdleMonthKey] = useState('');
     const [salikPeriod, setSalikPeriod] = useState('month');
-    const [locatorRowActive, setLocatorRowActive] = useState(() =>
-        Object.fromEntries(LOCATOR_ROWS.map((row) => [row.rowKey, row.defaultActive])),
-    );
+    const [salikWeekKey, setSalikWeekKey] = useState('');
+    const [salikMonthKey, setSalikMonthKey] = useState('');
     const [chartsReady, setChartsReady] = useState(false);
 
     useEffect(() => {
@@ -727,6 +584,29 @@ export default function VehicleFleetDashboard({
         setChartsReady(false);
         return undefined;
     }, [loading, data]);
+
+    useEffect(() => {
+        const running = locatorData?.runningKmByVehicle;
+        if (!running) return;
+        if (running.day?.defaultKey) setLocatorRunningDayKey(running.day.defaultKey);
+        if (running.week?.defaultKey) setLocatorRunningWeekKey(running.week.defaultKey);
+        if (running.month?.defaultKey) setLocatorRunningMonthKey(running.month.defaultKey);
+    }, [locatorData?.runningKmByVehicle]);
+
+    useEffect(() => {
+        const idle = locatorData?.idleTimeByVehicle;
+        if (!idle) return;
+        if (idle.day?.defaultKey) setLocatorIdleDayKey(idle.day.defaultKey);
+        if (idle.week?.defaultKey) setLocatorIdleWeekKey(idle.week.defaultKey);
+        if (idle.month?.defaultKey) setLocatorIdleMonthKey(idle.month.defaultKey);
+    }, [locatorData?.idleTimeByVehicle]);
+
+    useEffect(() => {
+        const salik = locatorData?.salikWise;
+        if (!salik) return;
+        if (salik.week?.defaultKey) setSalikWeekKey(salik.week.defaultKey);
+        if (salik.month?.defaultKey) setSalikMonthKey(salik.month.defaultKey);
+    }, [locatorData?.salikWise]);
 
     const serviceCostByVehicle = useMemo(() => {
         if (!data?.vehicles?.length) return [];
@@ -777,40 +657,148 @@ export default function VehicleFleetDashboard({
         }));
     }, [data?.usageByPeriod, usagePeriod]);
 
-    const idleChartData = useMemo(() => {
-        const block = data?.usageByPeriod?.[idlePeriod];
-        if (!block?.labels?.length) return [];
-        return block.labels.map((label, i) => ({
-            name: label,
-            vehicles: block.idle[i] ?? 0,
-        }));
-    }, [data?.usageByPeriod, idlePeriod]);
-
     const odometerChartData = useMemo(
         () => withShortNames(mapLocatorSeries(locatorData?.odometerByVehicle)),
         [locatorData?.odometerByVehicle],
     );
 
+    const runningKmSelectionKey =
+        locatorRunningPeriod === 'week'
+            ? locatorRunningWeekKey
+            : locatorRunningPeriod === 'month'
+              ? locatorRunningMonthKey
+              : locatorRunningDayKey;
+
     const runningKmChartData = useMemo(() => {
-        const block = locatorData?.runningKm?.[locatorRunningPeriod];
-        if (!block?.length) return [];
-        return withShortNames(
-            block.map((row) => ({
-                name: row.label,
-                value: Number(row.value) || 0,
-            })),
+        const bucket = locatorData?.runningKmByVehicle?.[locatorRunningPeriod];
+        let rows = [];
+        if (bucket) {
+            const key = runningKmSelectionKey || bucket.defaultKey;
+            rows = bucket.byKey?.[key] || [];
+        } else {
+            const legacy = locatorData?.runningKm?.[locatorRunningPeriod];
+            if (legacy?.length) {
+                rows = legacy.map((row) => ({
+                    name: row.label,
+                    value: Number(row.value) || 0,
+                }));
+            }
+        }
+        return withShortNames(rows);
+    }, [locatorData?.runningKmByVehicle, locatorData?.runningKm, locatorRunningPeriod, runningKmSelectionKey]);
+
+    const runningKmSubtitle = useMemo(() => {
+        const bucket = locatorData?.runningKmByVehicle?.[locatorRunningPeriod];
+        if (!bucket) return 'Running km per vehicle';
+        const key = runningKmSelectionKey || bucket.defaultKey;
+        const option = bucket.options?.find((row) => row.key === key);
+        if (!option) return 'Running km per vehicle';
+        if (locatorRunningPeriod === 'day') {
+            return `Running km on ${option.label} · ${option.sublabel}`;
+        }
+        if (locatorRunningPeriod === 'week') {
+            return `Running km for ${option.sublabel || option.label}`;
+        }
+        return `Running km in ${option.label} ${option.sublabel}`;
+    }, [locatorData?.runningKmByVehicle, locatorRunningPeriod, runningKmSelectionKey]);
+
+    const handleRunningPeriodChange = (period) => {
+        setLocatorRunningPeriod(period);
+        const bucket = locatorData?.runningKmByVehicle?.[period];
+        if (!bucket?.defaultKey) return;
+        if (period === 'day') setLocatorRunningDayKey(bucket.defaultKey);
+        else if (period === 'week') setLocatorRunningWeekKey(bucket.defaultKey);
+        else setLocatorRunningMonthKey(bucket.defaultKey);
+    };
+
+    const handleRunningSelectionChange = (key) => {
+        if (locatorRunningPeriod === 'week') setLocatorRunningWeekKey(key);
+        else if (locatorRunningPeriod === 'month') setLocatorRunningMonthKey(key);
+        else setLocatorRunningDayKey(key);
+    };
+
+    const idleSelectionKey =
+        locatorIdlePeriod === 'week'
+            ? locatorIdleWeekKey
+            : locatorIdlePeriod === 'month'
+              ? locatorIdleMonthKey
+              : locatorIdleDayKey;
+
+    const salikSelectionKey =
+        salikPeriod === 'week' ? salikWeekKey : salikPeriod === 'month' ? salikMonthKey : '';
+
+    const locatorIdleChartData = useMemo(() => {
+        const bucket = locatorData?.idleTimeByVehicle?.[locatorIdlePeriod];
+        return withShortNames(readLocatorBucketSeries(bucket, idleSelectionKey));
+    }, [locatorData?.idleTimeByVehicle, locatorIdlePeriod, idleSelectionKey]);
+
+    const salikChartData = useMemo(() => {
+        const bucket = locatorData?.salikWise?.[salikPeriod];
+        return withShortNames(readLocatorBucketSeries(bucket, salikSelectionKey));
+    }, [locatorData?.salikWise, salikPeriod, salikSelectionKey]);
+
+    const idleSubtitle = useMemo(() => {
+        const bucket = locatorData?.idleTimeByVehicle?.[locatorIdlePeriod];
+        const selected = formatLocatorBucketSubtitle(
+            bucket,
+            idleSelectionKey,
+            'Idle / parked time per vehicle',
         );
-    }, [locatorData?.runningKm, locatorRunningPeriod]);
+        if (locatorIdlePeriod === 'day') {
+            return `Idle time on ${selected}`;
+        }
+        if (locatorIdlePeriod === 'week') {
+            return `Idle time for ${selected}`;
+        }
+        if (locatorIdlePeriod === 'month') {
+            return `Idle time in ${selected}`;
+        }
+        return `Idle time for ${selected}`;
+    }, [locatorData?.idleTimeByVehicle, locatorIdlePeriod, idleSelectionKey]);
 
-    const locatorIdleChartData = useMemo(
-        () => withShortNames(mapLocatorSeries(locatorData?.idleTimeByVehicle?.[locatorIdlePeriod])),
-        [locatorData?.idleTimeByVehicle, locatorIdlePeriod],
-    );
+    const salikSubtitle = useMemo(() => {
+        const bucket = locatorData?.salikWise?.[salikPeriod];
+        const selected = formatLocatorBucketSubtitle(
+            bucket,
+            salikSelectionKey,
+            'Vehicles ranked by distance (highest first)',
+        );
+        if (salikPeriod === 'day') {
+            return `Distance on ${selected}`;
+        }
+        if (salikPeriod === 'week') {
+            return `Distance for ${selected}`;
+        }
+        return `Distance in ${selected}`;
+    }, [locatorData?.salikWise, salikPeriod, salikSelectionKey]);
 
-    const salikChartData = useMemo(
-        () => withShortNames(mapLocatorSeries(locatorData?.salikWise?.[salikPeriod])),
-        [locatorData?.salikWise, salikPeriod],
-    );
+    const handleIdlePeriodChange = (period) => {
+        setLocatorIdlePeriod(period);
+        const bucket = locatorData?.idleTimeByVehicle?.[period];
+        if (!bucket?.defaultKey) return;
+        if (period === 'week') setLocatorIdleWeekKey(bucket.defaultKey);
+        else if (period === 'month') setLocatorIdleMonthKey(bucket.defaultKey);
+        else setLocatorIdleDayKey(bucket.defaultKey);
+    };
+
+    const handleIdleSelectionChange = (key) => {
+        if (locatorIdlePeriod === 'week') setLocatorIdleWeekKey(key);
+        else if (locatorIdlePeriod === 'month') setLocatorIdleMonthKey(key);
+        else setLocatorIdleDayKey(key);
+    };
+
+    const handleSalikPeriodChange = (period) => {
+        setSalikPeriod(period);
+        const bucket = locatorData?.salikWise?.[period];
+        if (!bucket?.defaultKey) return;
+        if (period === 'week') setSalikWeekKey(bucket.defaultKey);
+        else if (period === 'month') setSalikMonthKey(bucket.defaultKey);
+    };
+
+    const handleSalikSelectionChange = (key) => {
+        if (salikPeriod === 'week') setSalikWeekKey(key);
+        else if (salikPeriod === 'month') setSalikMonthKey(key);
+    };
 
     const locatorChartDataById = useMemo(
         () => ({
@@ -830,22 +818,38 @@ export default function VehicleFleetDashboard({
     const locatorPeriodControls = (chartId) => {
         if (chartId === 'running') {
             return (
-                <LocatorPeriodTabs value={locatorRunningPeriod} onChange={setLocatorRunningPeriod} />
+                <RunningKmControls
+                    period={locatorRunningPeriod}
+                    onPeriodChange={handleRunningPeriodChange}
+                    bucket={locatorData?.runningKmByVehicle?.[locatorRunningPeriod]}
+                    selectedKey={runningKmSelectionKey}
+                    onSelectKey={handleRunningSelectionChange}
+                />
             );
         }
         if (chartId === 'idle') {
             return (
-                <LocatorPeriodTabs value={locatorIdlePeriod} onChange={setLocatorIdlePeriod} />
+                <IdleTimeControls
+                    period={locatorIdlePeriod}
+                    onPeriodChange={handleIdlePeriodChange}
+                    bucket={locatorData?.idleTimeByVehicle?.[locatorIdlePeriod]}
+                    selectedKey={idleSelectionKey}
+                    onSelectKey={handleIdleSelectionChange}
+                />
             );
         }
         if (chartId === 'salik') {
-            return <SalikPeriodTabs value={salikPeriod} onChange={setSalikPeriod} />;
+            return (
+                <SalikControls
+                    period={salikPeriod}
+                    onPeriodChange={handleSalikPeriodChange}
+                    bucket={locatorData?.salikWise?.[salikPeriod]}
+                    selectedKey={salikSelectionKey}
+                    onSelectKey={handleSalikSelectionChange}
+                />
+            );
         }
         return null;
-    };
-
-    const setLocatorRowActiveId = (rowKey, cardId) => {
-        setLocatorRowActive((prev) => ({ ...prev, [rowKey]: cardId }));
     };
 
     if (loading) {
@@ -891,60 +895,120 @@ export default function VehicleFleetDashboard({
     return (
         <div className="space-y-6">
             <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    <KpiGroup title="Service reminder" icon={Wrench} delayMs={0}>
-                        <div className="grid grid-cols-2 gap-2">
-                            <KpiTile label="Due" value={r.service?.due ?? 0} tone="rose" routeKey="serviceDue" />
-                            <KpiTile label="Days down" value={r.service?.dueSoon ?? 0} tone="amber" routeKey="serviceDueSoon" />
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <GroupedKpiCard delayMs={0}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                            <KpiSubSection title="Service reminder" icon={Wrench}>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <KpiTile
+                                        label="Due"
+                                        value={r.service?.due ?? 0}
+                                        tone="rose"
+                                        routeKey="serviceDue"
+                                    />
+                                    <KpiTile
+                                        label="Days down"
+                                        value={r.service?.dueSoon ?? 0}
+                                        tone="amber"
+                                        routeKey="serviceDueSoon"
+                                    />
+                                </div>
+                            </KpiSubSection>
+                            <KpiSubSection title="Registration reminder" icon={Bell}>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <KpiTile
+                                        label="Due"
+                                        value={r.registration?.due ?? 0}
+                                        tone="rose"
+                                        routeKey="registrationDue"
+                                    />
+                                    <KpiTile
+                                        label="Days down"
+                                        value={r.registration?.dueSoon ?? 0}
+                                        tone="amber"
+                                        routeKey="registrationDueSoon"
+                                    />
+                                </div>
+                            </KpiSubSection>
                         </div>
-                    </KpiGroup>
-                    <KpiGroup title="Registration reminder" icon={Bell} delayMs={60}>
-                        <div className="grid grid-cols-2 gap-2">
-                            <KpiTile label="Due" value={r.registration?.due ?? 0} tone="rose" routeKey="registrationDue" />
-                            <KpiTile label="Days down" value={r.registration?.dueSoon ?? 0} tone="amber" routeKey="registrationDueSoon" />
-                        </div>
-                    </KpiGroup>
-                    <KpiGroup title="Vehicle assets" icon={Car} delayMs={120} className="md:col-span-2 xl:col-span-1">
-                        <div className="grid grid-cols-3 gap-2">
-                            <KpiTile label="Assigned" value={vs.assigned ?? 0} tone="emerald" routeKey="assigned" />
-                            <KpiTile label="Unassigned" value={vs.unassigned ?? 0} tone="sky" routeKey="unassigned" />
-                            <KpiTile label="In service" value={vs.inService ?? 0} tone="violet" routeKey="inService" />
-                        </div>
-                    </KpiGroup>
-                </div>
+                        <KpiSubSection title="Service / asset requests" icon={ClipboardList}>
+                            <div className="grid grid-cols-2 gap-2">
+                                <KpiTile
+                                    label="Pending"
+                                    value={sr.pending ?? 0}
+                                    tone="pink"
+                                    routeKey="requestPending"
+                                />
+                                <KpiTile
+                                    label="Approved"
+                                    value={sr.confirmed ?? 0}
+                                    tone="amber"
+                                    routeKey="requestApproved"
+                                />
+                            </div>
+                        </KpiSubSection>
+                    </GroupedKpiCard>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    <KpiGroup title="Service / asset requests" icon={ClipboardList} delayMs={180}>
-                        <div className="grid grid-cols-2 gap-2">
-                            <KpiTile label="Pending" value={sr.pending ?? 0} tone="pink" routeKey="requestPending" />
-                            <KpiTile label="Approved" value={sr.confirmed ?? 0} tone="amber" routeKey="requestApproved" />
-                        </div>
-                    </KpiGroup>
-                    <KpiGroup
-                        title="Handover (assignment)"
-                        icon={ArrowLeftRight}
-                        delayMs={240}
-                        className="md:col-span-2 xl:col-span-2"
-                    >
-                        <div className="grid grid-cols-2 gap-3">
-                            <KpiTile label="Pending asset" value={hr.pending ?? 0} tone="pink" routeKey="handoverPending" wide />
-                            <KpiTile label="Accepted" value={hr.confirmed ?? 0} tone="lime" routeKey="handoverAccepted" wide />
-                        </div>
-                    </KpiGroup>
+                    <GroupedKpiCard delayMs={80}>
+                        <KpiSubSection title="Vehicle assets" icon={Car} className="mb-3">
+                            <div className="grid grid-cols-3 gap-2">
+                                <KpiTile
+                                    label="Assigned"
+                                    value={vs.assigned ?? 0}
+                                    tone="emerald"
+                                    routeKey="assigned"
+                                />
+                                <KpiTile
+                                    label="Unassigned"
+                                    value={vs.unassigned ?? 0}
+                                    tone="sky"
+                                    routeKey="unassigned"
+                                />
+                                <KpiTile
+                                    label="In service"
+                                    value={vs.inService ?? 0}
+                                    tone="violet"
+                                    routeKey="inService"
+                                />
+                            </div>
+                        </KpiSubSection>
+                        <KpiSubSection title="Handover (assignment)" icon={ArrowLeftRight}>
+                            <div className="grid grid-cols-2 gap-2">
+                                <KpiTile
+                                    label="Pending asset"
+                                    value={hr.pending ?? 0}
+                                    tone="pink"
+                                    routeKey="handoverPending"
+                                />
+                                <KpiTile
+                                    label="Accepted"
+                                    value={hr.confirmed ?? 0}
+                                    tone="lime"
+                                    routeKey="handoverAccepted"
+                                />
+                            </div>
+                        </KpiSubSection>
+                    </GroupedKpiCard>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                <ScrollReveal delayMs={0} durationMs={700}>
-                    <div className={chartPanelClass}>
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1 group-hover/chart:text-teal-800 transition-colors">
-                            Service cost by month
-                        </h3>
-                        <p className="text-xs text-slate-400 mb-4">Total maintenance spend across the year.</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+                <ScrollReveal delayMs={0} durationMs={700} className="h-full">
+                    <CompactChartCard
+                        title="Service cost by month"
+                        subtitle="Total maintenance spend across the year."
+                    >
                         {!hasServiceCostData ? (
-                            <p className="text-sm text-slate-400 py-12 text-center">No service spend recorded yet.</p>
+                            <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
+                                No service spend recorded yet.
+                            </p>
                         ) : (
-                            <RechartsBox height={280} minHeight={240}>
+                            <RechartsBox
+                                height={COMPACT_ROW_CHART_HEIGHT}
+                                minHeight={COMPACT_ROW_CHART_MIN}
+                                className="h-full"
+                                fillParent
+                            >
                                 <AreaChart data={serviceCostMonthData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                                     <defs>
                                         <linearGradient id="fleetServiceCostGrad" x1="0" y1="0" x2="0" y2="1">
@@ -955,16 +1019,16 @@ export default function VehicleFleetDashboard({
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                     <XAxis
                                         dataKey="name"
-                                        tick={{ fontSize: 11, fill: '#94a3b8' }}
+                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
                                         axisLine={false}
                                         tickLine={false}
                                         interval={0}
                                     />
                                     <YAxis
-                                        tick={{ fontSize: 11, fill: '#94a3b8' }}
+                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
                                         axisLine={false}
                                         tickLine={false}
-                                        width={48}
+                                        width={40}
                                         tickFormatter={formatCostAxisTick}
                                         domain={[0, 'auto']}
                                     />
@@ -990,31 +1054,35 @@ export default function VehicleFleetDashboard({
                                 </AreaChart>
                             </RechartsBox>
                         )}
-                    </div>
+                    </CompactChartCard>
                 </ScrollReveal>
 
-                <ScrollReveal delayMs={100} durationMs={700}>
-                    <div className={chartPanelClass}>
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-4 group-hover/chart:text-teal-800 transition-colors">
-                            Service cost by vehicle
-                        </h3>
+                <ScrollReveal delayMs={80} durationMs={700} className="h-full">
+                    <CompactChartCard title="Service cost by vehicle">
                         {serviceCostByVehicle.length === 0 ? (
-                            <p className="text-sm text-slate-400 py-12 text-center">No per-vehicle service costs yet.</p>
+                            <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
+                                No per-vehicle service costs yet.
+                            </p>
                         ) : (
-                            <RechartsBox height={280} minHeight={240}>
+                            <RechartsBox
+                                height={COMPACT_ROW_CHART_HEIGHT}
+                                minHeight={COMPACT_ROW_CHART_MIN}
+                                className="h-full"
+                                fillParent
+                            >
                                 <BarChart
                                     data={serviceCostByVehicle}
                                     layout="vertical"
-                                    margin={{ left: 4, right: 72, top: 4, bottom: 4 }}
-                                    barCategoryGap="22%"
+                                    margin={{ left: 4, right: 64, top: 2, bottom: 2 }}
+                                    barCategoryGap="18%"
                                 >
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                                     <XAxis type="number" hide />
                                     <YAxis
                                         type="category"
                                         dataKey="name"
-                                        width={88}
-                                        tick={{ fontSize: 10, fill: '#64748b' }}
+                                        width={72}
+                                        tick={{ fontSize: 9, fill: '#64748b' }}
                                         axisLine={false}
                                         tickLine={false}
                                     />
@@ -1026,7 +1094,7 @@ export default function VehicleFleetDashboard({
                                         dataKey="total"
                                         fill="#0284c7"
                                         radius={[0, 6, 6, 0]}
-                                        maxBarSize={22}
+                                        maxBarSize={16}
                                         animationDuration={chartAnim}
                                         animationEasing="ease-out"
                                     >
@@ -1040,29 +1108,31 @@ export default function VehicleFleetDashboard({
                                 </BarChart>
                             </RechartsBox>
                         )}
-                    </div>
+                    </CompactChartCard>
                 </ScrollReveal>
-            </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                <ScrollReveal delayMs={0} durationMs={750}>
-                    <div className={chartPanelClass}>
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-4 group-hover/chart:text-teal-800 transition-colors">
-                            Vehicle model year
-                        </h3>
+                <ScrollReveal delayMs={160} durationMs={750} className="h-full">
+                    <CompactChartCard title="Vehicle model year">
                         {pieData.length === 0 ? (
-                            <p className="text-sm text-slate-400 py-12 text-center">No model years on record.</p>
+                            <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
+                                No model years on record.
+                            </p>
                         ) : (
-                            <RechartsBox height={300} minHeight={240}>
+                            <RechartsBox
+                                height={COMPACT_ROW_CHART_HEIGHT}
+                                minHeight={COMPACT_ROW_CHART_MIN}
+                                className="h-full"
+                                fillParent
+                            >
                                 <PieChart>
                                     <Pie
                                         data={pieData}
                                         dataKey="value"
                                         nameKey="name"
                                         cx="50%"
-                                        cy="46%"
-                                        innerRadius={58}
-                                        outerRadius={92}
+                                        cy="42%"
+                                        innerRadius={38}
+                                        outerRadius={58}
                                         paddingAngle={2}
                                         animationDuration={chartAnim}
                                         animationEasing="ease-out"
@@ -1071,7 +1141,11 @@ export default function VehicleFleetDashboard({
                                             <Cell key={`year-${i}`} fill={YEAR_COLORS[i % YEAR_COLORS.length]} stroke="#fff" strokeWidth={2} />
                                         ))}
                                     </Pie>
-                                    <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                                    <Legend
+                                        verticalAlign="bottom"
+                                        iconType="circle"
+                                        wrapperStyle={{ fontSize: 8, paddingTop: 0, lineHeight: '12px' }}
+                                    />
                                     <RechartsTooltip
                                         formatter={(value, _name, ctx) => [`${Number(value)} vehicle(s)`, `Year ${ctx?.payload?.name || ''}`]}
                                         contentStyle={tooltipStyle}
@@ -1079,9 +1153,11 @@ export default function VehicleFleetDashboard({
                                 </PieChart>
                             </RechartsBox>
                         )}
-                    </div>
+                    </CompactChartCard>
                 </ScrollReveal>
+            </div>
 
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 <ScrollReveal delayMs={100} durationMs={750}>
                     <div className={chartPanelClass}>
                         <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1 group-hover/chart:text-teal-800 transition-colors">
@@ -1122,10 +1198,8 @@ export default function VehicleFleetDashboard({
                         )}
                     </div>
                 </ScrollReveal>
-            </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                <ScrollReveal delayMs={0} durationMs={750}>
+                <ScrollReveal delayMs={180} durationMs={750}>
                     <div className={chartPanelClass}>
                         <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1 group-hover/chart:text-teal-800 transition-colors">
                             Vehicle usage (service events)
@@ -1142,32 +1216,6 @@ export default function VehicleFleetDashboard({
                                     fill="#14b8a6"
                                     radius={[6, 6, 0, 0]}
                                     name="Service records"
-                                    maxBarSize={40}
-                                    animationDuration={chartAnim}
-                                    animationEasing="ease-out"
-                                />
-                            </BarChart>
-                        </RechartsBox>
-                    </div>
-                </ScrollReveal>
-
-                <ScrollReveal delayMs={110} durationMs={750}>
-                    <div className={chartPanelClass}>
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1 group-hover/chart:text-teal-800 transition-colors">
-                            Vehicle idle (no service in period)
-                        </h3>
-                        <PeriodTabs value={idlePeriod} onChange={setIdlePeriod} />
-                        <RechartsBox height={260} minHeight={200}>
-                            <BarChart data={idleChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} allowDecimals={false} axisLine={false} tickLine={false} width={36} />
-                                <RechartsTooltip contentStyle={tooltipStyle} />
-                                <Bar
-                                    dataKey="vehicles"
-                                    fill="#f97316"
-                                    radius={[6, 6, 0, 0]}
-                                    name="Vehicles"
                                     maxBarSize={40}
                                     animationDuration={chartAnim}
                                     animationEasing="ease-out"
@@ -1210,23 +1258,79 @@ export default function VehicleFleetDashboard({
                     <div className="rounded-2xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-500">
                         Locator GPS is not configured on the server.
                     </div>
+                ) : locatorData?.connected === false ? (
+                    <div className="rounded-2xl border border-amber-100 bg-amber-50/80 p-6 text-center">
+                        <p className="text-sm font-semibold text-amber-800">
+                            {locatorData?.message || 'Could not load Locator GPS positions.'}
+                        </p>
+                        {onLocatorRefresh ? (
+                            <button
+                                type="button"
+                                onClick={onLocatorRefresh}
+                                className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-200 bg-white text-xs font-semibold text-amber-800 hover:bg-amber-50"
+                            >
+                                <RefreshCw size={14} />
+                                Try again
+                            </button>
+                        ) : null}
+                    </div>
                 ) : (
-                    <div className="space-y-4">
-                        <LocatorBarPaletteSafelist />
-                        {LOCATOR_ROWS.map((row) => (
-                            <LocatorCardRow
-                                key={row.rowKey}
-                                cardIds={row.cardIds}
-                                activeId={locatorRowActive[row.rowKey]}
-                                onActiveChange={(cardId) => setLocatorRowActiveId(row.rowKey, cardId)}
-                                chartsById={locatorChartsById}
-                                dataById={locatorChartDataById}
-                                chartAnim={chartAnim}
-                                runningPeriod={locatorRunningPeriod}
-                                idlePeriod={locatorIdlePeriod}
-                                periodControlsFor={locatorPeriodControls}
-                            />
-                        ))}
+                    <div className="space-y-5">
+                        {locatorData?.snapshotWarning ? (
+                            <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-xs text-amber-800">
+                                GPS live data loaded, but history snapshots could not be saved. Charts may show limited running km until snapshots are captured.
+                            </div>
+                        ) : null}
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-stretch">
+                            <ScrollReveal delayMs={0} durationMs={750} className="h-full">
+                                <LocatorStaticChartCard
+                                    chart={locatorChartsById.odometer}
+                                    data={locatorChartDataById.odometer}
+                                    chartAnim={chartAnim}
+                                    chartsReady={chartsReady}
+                                    runningPeriod={locatorRunningPeriod}
+                                    idlePeriod={locatorIdlePeriod}
+                                />
+                            </ScrollReveal>
+                            <ScrollReveal delayMs={80} durationMs={750} className="h-full">
+                                <LocatorStaticChartCard
+                                    chart={locatorChartsById.running}
+                                    data={runningKmChartData}
+                                    chartAnim={chartAnim}
+                                    chartsReady={chartsReady}
+                                    runningPeriod={locatorRunningPeriod}
+                                    idlePeriod={locatorIdlePeriod}
+                                    periodControls={locatorPeriodControls('running')}
+                                    subtitleOverride={runningKmSubtitle}
+                                />
+                            </ScrollReveal>
+                        </div>
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-stretch">
+                            <ScrollReveal delayMs={160} durationMs={750} className="h-full">
+                                <LocatorStaticChartCard
+                                    chart={locatorChartsById.idle}
+                                    data={locatorChartDataById.idle}
+                                    chartAnim={chartAnim}
+                                    chartsReady={chartsReady}
+                                    runningPeriod={locatorRunningPeriod}
+                                    idlePeriod={locatorIdlePeriod}
+                                    periodControls={locatorPeriodControls('idle')}
+                                    subtitleOverride={idleSubtitle}
+                                />
+                            </ScrollReveal>
+                            <ScrollReveal delayMs={240} durationMs={750} className="h-full">
+                                <LocatorStaticChartCard
+                                    chart={locatorChartsById.salik}
+                                    data={locatorChartDataById.salik}
+                                    chartAnim={chartAnim}
+                                    chartsReady={chartsReady}
+                                    runningPeriod={locatorRunningPeriod}
+                                    idlePeriod={locatorIdlePeriod}
+                                    periodControls={locatorPeriodControls('salik')}
+                                    subtitleOverride={salikSubtitle}
+                                />
+                            </ScrollReveal>
+                        </div>
                     </div>
                 )}
             </div>

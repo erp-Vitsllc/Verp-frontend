@@ -508,7 +508,7 @@ export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
                     present: currentBlock.present,
                     photo:
                         currentBlock.present === true
-                            ? currentBlock.photo ?? null
+                            ? currentBlock.photo ?? baselineRow.photo ?? null
                             : null,
                 };
                 return;

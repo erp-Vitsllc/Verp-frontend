@@ -2,18 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
 import { DatePicker } from '@/components/ui/date-picker';
+import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 export default function VehiclePetrolModal({
     isOpen,
     onClose,
     onSuccess,
     assetId,
+    asset = null,
     existingDoc,
     existingAttachmentRows,
+    hrMayApplyDirectly = false,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -150,15 +152,11 @@ export default function VehiclePetrolModal({
         try {
             setLoading(true);
 
-            // Handle Deletions
+            const steps = [];
             for (const id of deletedDocIds) {
-                try {
-                    await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
-                } catch (err) {
-                }
+                steps.push({ op: 'delete_document', docId: id });
             }
-            
-            // 1. Save Primary Petrol Doc
+
             const mainPayload = {
                 type: 'Petrol',
                 issueAuthority: formData.vendor,
@@ -170,15 +168,12 @@ export default function VehiclePetrolModal({
                 }),
             };
 
-            const shouldUpdateExisting = existingDoc?._id;
-            
-            if (shouldUpdateExisting) {
-                await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, mainPayload);
+            if (existingDoc?._id) {
+                steps.push({ op: 'put_document', docId: existingDoc._id, body: mainPayload });
             } else {
-                await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
+                steps.push({ op: 'post_document', body: mainPayload });
             }
 
-            // 2. Additional Petrol Attachment rows only
             for (let i = 0; i < formData.rows.length; i++) {
                 const r = formData.rows[i];
                 const desc = (r.description || '').trim();
@@ -201,15 +196,29 @@ export default function VehiclePetrolModal({
                 }
 
                 if (r.rowDocId) {
-                    await axiosInstance.put(`/AssetItem/${assetId}/document/${r.rowDocId}`, rowPayload);
-                } else {
-                    await axiosInstance.post(`/AssetItem/${assetId}/document`, rowPayload);
+                    steps.push({ op: 'put_document', docId: r.rowDocId, body: rowPayload });
+                } else if (hasFile) {
+                    steps.push({ op: 'post_document', body: rowPayload });
                 }
             }
 
-            toast({ title: 'Saved', description: 'Petrol details saved successfully.' });
-            if (onSuccess) onSuccess();
-            onClose();
+            await saveVehicleProfileCardOrQueue({
+                asset,
+                assetId,
+                sectionId: 'petrol',
+                action: 'edit',
+                steps,
+                hrMayApplyDirectly,
+                proposedRows: [
+                    { label: 'Vendor', value: formData.vendor || '—' },
+                    { label: 'Tag', value: formData.tagNo || '—' },
+                ],
+                toast,
+                queuedMessage: 'Petrol change saved. Submit for HR approval when ready.',
+                appliedMessage: 'Petrol details saved successfully.',
+                onSuccess,
+                onClose,
+            });
         } catch (error) {
             toast({
                 variant: 'destructive',

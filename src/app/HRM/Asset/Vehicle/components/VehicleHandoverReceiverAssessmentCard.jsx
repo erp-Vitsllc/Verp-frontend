@@ -202,8 +202,9 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
         : photo || listPhoto;
     const photoUrl = resolveAssessmentMediaUrl(displayPhoto);
     const hasDisplayPhoto = hasAssessmentPhoto(displayPhoto);
-    const showToggles = mirrorLiveList
-        ? !readOnly
+    const useMirrorToggles = mirrorLiveList || mirrorLiveAccessories;
+    const showToggles = useMirrorToggles
+        ? true
         : listHasImage && !readOnly;
     const showPhoto = useMirrorPhotoRules
         ? present === true
@@ -393,31 +394,18 @@ export default function VehicleHandoverReceiverAssessmentCard({
         return buildAccessoriesLiveListForm(vehicle, historyEntry, { assetHistory });
     }, [assetHistory, historyEntry, vehicle]);
 
-    const frozenHandoverLiveBaselineRef = useRef({ key: '', form: null });
-
-    const frozenHandoverLiveBaselineKey = useMemo(() => {
-        if (!(mirrorLiveAccessories || inspectionHandover) || !vehicle?._id) return '';
-        return `${vehicle._id}:${historyEntryId || 'new'}`;
-    }, [inspectionHandover, mirrorLiveAccessories, vehicle?._id, historyEntryId]);
-
-    const frozenHandoverLiveBaseline = useMemo(() => {
-        if (!frozenHandoverLiveBaselineKey) {
+    const mirrorLiveAccessoriesForm = useMemo(() => {
+        if (!(mirrorLiveAccessories || inspectionHandover) || !vehicle?._id) {
             return cloneAssessmentForm({});
         }
-        const cached = frozenHandoverLiveBaselineRef.current;
-        if (cached.key === frozenHandoverLiveBaselineKey && cached.form) {
-            return cached.form;
-        }
-        const form = cloneAssessmentForm(
+        return cloneAssessmentForm(
             buildMirrorLiveAccessoriesAssessmentForm(vehicle, historyEntry, { assetHistory }),
         );
-        frozenHandoverLiveBaselineRef.current = { key: frozenHandoverLiveBaselineKey, form };
-        return form;
-    }, [assetHistory, frozenHandoverLiveBaselineKey, historyEntry, vehicle]);
+    }, [assetHistory, historyEntry, inspectionHandover, mirrorLiveAccessories, vehicle]);
 
     const accessoryComparisonBaselineForm = useMemo(() => {
         if (mirrorLiveAccessories || inspectionHandover) {
-            return frozenHandoverLiveBaseline;
+            return mirrorLiveAccessoriesForm;
         }
         const frozen = comparisonBaselineRef.current;
         if (frozen.key === comparisonBaselineKey && frozen.form) {
@@ -432,7 +420,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
         comparisonBaselineKey,
         historyEntry,
         inspectionHandover,
-        frozenHandoverLiveBaseline,
+        mirrorLiveAccessoriesForm,
         mirrorLiveAccessories,
         vehicle,
     ]);
@@ -442,17 +430,17 @@ export default function VehicleHandoverReceiverAssessmentCard({
             return cloneAssessmentForm({});
         }
         if (mirrorLiveAccessories || inspectionHandover) {
-            return frozenHandoverLiveBaseline;
+            return mirrorLiveAccessoriesForm;
         }
         return buildAccessoryHandoverCardSourceForm(vehicle, historyEntry, { assetHistory });
-    }, [assetHistory, frozenHandoverLiveBaseline, historyEntry, inspectionHandover, mirrorLiveAccessories, vehicle]);
+    }, [assetHistory, historyEntry, inspectionHandover, mirrorLiveAccessories, mirrorLiveAccessoriesForm, vehicle]);
 
     const previousHandoverForm = useMemo(() => {
         if (mirrorLiveAccessories || inspectionHandover) {
-            return frozenHandoverLiveBaseline;
+            return mirrorLiveAccessoriesForm;
         }
         return buildPreviousHandoverAccessoryForm(historyEntry, { assetHistory });
-    }, [assetHistory, frozenHandoverLiveBaseline, historyEntry, inspectionHandover, mirrorLiveAccessories, vehicle]);
+    }, [assetHistory, historyEntry, inspectionHandover, mirrorLiveAccessories, mirrorLiveAccessoriesForm, vehicle]);
 
     useEffect(() => {
         if (skipRemoteSyncRef.current) {
@@ -466,6 +454,10 @@ export default function VehicleHandoverReceiverAssessmentCard({
         lastAppliedSyncKeyRef.current = remoteAssessmentSyncKey;
         setLocalEntry(null);
 
+        const mirrorBaselineForm = buildMirrorLiveAccessoriesAssessmentForm(vehicle, historyEntry, {
+            assetHistory,
+        });
+
         const nextForm = cloneAssessmentForm(
             inspectionHandover
                 ? buildInspectionHandoverAssessmentForm(vehicle, historyEntry, { assetHistory })
@@ -477,9 +469,9 @@ export default function VehicleHandoverReceiverAssessmentCard({
                             currentEntry: historyEntry,
                             asset: vehicle,
                             mirrorLiveAccessories: true,
-                            mirrorBaselineForm: frozenHandoverLiveBaseline,
+                            mirrorBaselineForm,
                         })
-                      : cloneAssessmentForm(frozenHandoverLiveBaseline)
+                      : cloneAssessmentForm(mirrorBaselineForm)
                   : hasCurrentReceiverAssessmentData(historyEntry) ||
                       isReceiverAssessmentMarkedDone(historyEntry)
                     ? buildAssessmentFormState(historyEntry, vehicle, {
@@ -498,7 +490,6 @@ export default function VehicleHandoverReceiverAssessmentCard({
         inspectionHandover,
         mirrorLiveAccessories,
         remoteAssessmentSyncKey,
-        frozenHandoverLiveBaseline,
         vehicle,
     ]);
 
@@ -556,7 +547,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 assetHistory,
                 asset: vehicle,
                 mirrorLiveAccessories,
-                mirrorBaselineForm: frozenHandoverLiveBaseline,
+                mirrorBaselineForm: mirrorLiveAccessoriesForm,
             });
         }
         return form;
@@ -566,7 +557,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
         displayEntry,
         effectiveAssessmentForm,
         form,
-        frozenHandoverLiveBaseline,
+        mirrorLiveAccessoriesForm,
         inspectionHandover,
         mirrorLiveAccessories,
         vehicle,
@@ -754,7 +745,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 ? mirrorLiveAccessories
                     ? normalizeMirrorLiveAssessmentFormForComplete(
                           effectiveAssessmentForm,
-                          frozenHandoverLiveBaseline,
+                          mirrorLiveAccessoriesForm,
                       )
                     : effectiveAssessmentForm
                 : formToSave;
@@ -846,7 +837,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             if (complete) onDone?.(merged);
             return merged;
         },
-        [assessmentFormOptions, assetHistory, displayEntry, effectiveAssessmentForm, frozenHandoverLiveBaseline, historyEntry, inspectionHandover, mirrorLiveAccessories, onDone, onSaved, onVehicleUpdated, readOnly, toast, vehicle],
+        [assessmentFormOptions, assetHistory, displayEntry, effectiveAssessmentForm, mirrorLiveAccessoriesForm, historyEntry, inspectionHandover, mirrorLiveAccessories, onDone, onSaved, onVehicleUpdated, readOnly, toast, vehicle],
     );
 
     const handleSaveDraft = async () => {
@@ -1098,7 +1089,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
         </>
     );
 
-    const accessoryCardsGrid = (
+    const accessoryCardsOnly = (
         <div className={HANDOVER_ASSESSMENT_GRID_CLASS}>
             {RECEIVER_ASSESSMENT_ITEMS.map((item) => {
                         const listRow = accessoryCardSourceForm[item.key] || {};
@@ -1116,7 +1107,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                             readOnly ||
                             (inspectionHandover &&
                                 shouldLockInspectionAssessmentToHistory(vehicle, displayEntry));
-                        const baselineRow = frozenHandoverLiveBaseline[item.key] || {
+                        const baselineRow = mirrorLiveAccessoriesForm[item.key] || {
                             present: false,
                             photo: null,
                         };
@@ -1133,16 +1124,14 @@ export default function VehicleHandoverReceiverAssessmentCard({
                               : row.present === false
                                 ? false
                                 : true;
-                        const effectivePhoto =
-                            effectivePresent === true
-                                ? row.present === true || row.present === false
-                                    ? row.photo ?? null
-                                    : row.photo ?? baselineRow.photo ?? null
-                                : null;
                         const mirrorBaseline = buildMirrorLiveAccessoryBaselineRow(
-                            frozenHandoverLiveBaseline,
+                            mirrorLiveAccessoriesForm,
                             item.key,
                         );
+                        const effectivePhoto =
+                            effectivePresent === true
+                                ? row.photo ?? mirrorBaseline.photo ?? null
+                                : null;
                         const mirrorChanged = accessoryAssessmentItemChanged(mirrorBaseline, {
                             present: effectivePresent,
                             photo: effectivePhoto,
@@ -1305,8 +1294,23 @@ export default function VehicleHandoverReceiverAssessmentCard({
                             />
                         );
             })}
-            {!sidePanel && actionButtonsColumn ? (
-                <div className="flex min-h-[180px] flex-col justify-center">{actionButtonsColumn}</div>
+        </div>
+    );
+
+    const accessoryCardsLayout = sidePanel ? (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+            <div className="w-full min-w-0 lg:w-3/4">{accessoryCardsOnly}</div>
+            <div className="flex w-full min-w-0 flex-col lg:w-1/4 lg:self-stretch">
+                <div className="flex min-h-0 flex-1 flex-col">{sidePanel}</div>
+            </div>
+        </div>
+    ) : (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+            <div className="w-full min-w-0 lg:w-3/4">{accessoryCardsOnly}</div>
+            {actionButtonsColumn ? (
+                <div className="flex w-full min-w-0 shrink-0 flex-col lg:w-1/4 lg:sticky lg:top-6">
+                    {actionButtonsColumn}
+                </div>
             ) : null}
         </div>
     );
@@ -1323,16 +1327,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 headerAction={accessoriesReferenceHeaderAction}
             >
                 {accessoryAlertBanners}
-                {sidePanel ? (
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
-                        <div className="w-full min-w-0 lg:w-3/4">{accessoryCardsGrid}</div>
-                        <div className="flex w-full min-w-0 flex-col lg:w-1/4 lg:self-stretch">
-                            <div className="flex min-h-0 flex-1 flex-col">{sidePanel}</div>
-                        </div>
-                    </div>
-                ) : (
-                    accessoryCardsGrid
-                )}
+                {accessoryCardsLayout}
             </FineFormCard>
 
             <VehicleHandoverAssessmentPhotoViewer

@@ -269,17 +269,23 @@ export default function VehicleInsuranceModal({
         try {
             setLoading(true);
 
+            const descriptionMeta = {
+                company: formData.insuranceCompany,
+                policy: formData.policyNumber,
+                premiumAmount: formData.premiumAmount ? Number(formData.premiumAmount) : null,
+                excessCharge: formData.excessCharge ? Number(formData.excessCharge) : null,
+            };
+            if (isRenew && existingDoc?._id) {
+                descriptionMeta.renewedFrom = existingDoc._id;
+                descriptionMeta.renewedAt = new Date().toISOString();
+            }
+
             const mainPayload = {
                 type: 'Insurance',
                 issueAuthority: 'Insurance Company',
                 issueDate: formData.startDate,
                 expiryDate: formData.expiryDate,
-                description: JSON.stringify({
-                    company: formData.insuranceCompany,
-                    policy: formData.policyNumber,
-                    premiumAmount: formData.premiumAmount ? Number(formData.premiumAmount) : null,
-                    excessCharge: formData.excessCharge ? Number(formData.excessCharge) : null,
-                }),
+                description: JSON.stringify(descriptionMeta),
             };
 
             const steps = [];
@@ -295,6 +301,10 @@ export default function VehicleInsuranceModal({
                     body: mainPayload,
                 });
             } else {
+                // Renew must create a new live row and leave the previous group for Old Documents.
+                if (isRenew && existingDoc?._id) {
+                    mainPayload.renewFromDocumentId = existingDoc._id;
+                }
                 steps.push({ op: 'post_document', body: mainPayload });
             }
 

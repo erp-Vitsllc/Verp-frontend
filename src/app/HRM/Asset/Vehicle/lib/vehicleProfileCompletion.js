@@ -72,7 +72,26 @@ const PROFILE_EDIT_SECTION_TO_CHECK = {
     registration: 'Registration Card',
     insurance: 'Insurance Card',
     profile_picture: 'Profile Picture',
+    warranty: 'Warranty Card',
+    permit: 'Permit Card',
+    petrol: 'Petrol Card',
+    toll: 'Toll Card',
+    documents: 'Documents',
+    mortgage: 'Mortgage',
 };
+
+export const VEHICLE_PROFILE_ACTIVATION_SECTION_IDS = [
+    'basic',
+    'registration',
+    'insurance',
+    'profile_picture',
+    'warranty',
+    'permit',
+    'petrol',
+    'toll',
+    'documents',
+    'mortgage',
+];
 
 function getQueuedProfileEditSectionLabels(asset) {
     const profileActive = String(asset?.vehicleProfileActivationStatus || '').toLowerCase() === 'active';
@@ -130,10 +149,3 @@ export function computeVehicleProfileCompletionPercent(asset) {
         pendingChecks: checks.filter((c) => !c.completed),
     };
 }
-
-export const VEHICLE_PROFILE_ACTIVATION_SECTION_IDS = [
-    'basic',
-    'registration',
-    'insurance',
-    'profile_picture',
-];

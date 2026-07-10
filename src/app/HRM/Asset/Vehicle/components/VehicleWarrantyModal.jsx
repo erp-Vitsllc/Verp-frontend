@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, X, Upload } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 const CERTIFICATE_LABEL = 'Warranty Certificate';
 
@@ -23,10 +23,12 @@ export default function VehicleWarrantyModal({
     onClose,
     onSuccess,
     assetId,
+    asset = null,
     existingDoc,
     isRenew = false,
     existingAttachmentRows = [],
     excludedCoverageTypes = [],
+    hrMayApplyDirectly = false,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -259,10 +261,10 @@ export default function VehicleWarrantyModal({
         return Object.keys(next).length === 0;
     };
 
-    const saveAttachment = async (row, description) => {
+    const buildAttachmentStep = (row, description) => {
         const desc = String(description || '').trim();
         const hasFile = !!row.fileBase64;
-        if (!hasFile || !desc) return;
+        if (!hasFile || !desc) return null;
 
         const mime = row.fileMime || 'application/pdf';
         const dataPayload = row.fileBase64.startsWith('data:')
@@ -283,10 +285,9 @@ export default function VehicleWarrantyModal({
         };
 
         if (row.rowDocId && !isRenew) {
-            await axiosInstance.put(`/AssetItem/${assetId}/document/${row.rowDocId}`, rowPayload);
-        } else {
-            await axiosInstance.post(`/AssetItem/${assetId}/document`, rowPayload);
+            return { op: 'put_document', docId: row.rowDocId, body: rowPayload };
         }
+        return { op: 'post_document', body: rowPayload };
     };
 
     const handleSave = async (e) => {
@@ -296,11 +297,9 @@ export default function VehicleWarrantyModal({
         try {
             setLoading(true);
 
+            const steps = [];
             for (const id of deletedDocIds) {
-                try {
-                    await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
-                } catch (err) {
-                }
+                steps.push({ op: 'delete_document', docId: id });
             }
 
             const descriptionPayload = {
@@ -313,6 +312,7 @@ export default function VehicleWarrantyModal({
 
             if (isRenew && existingDoc?._id) {
                 descriptionPayload.renewedFrom = existingDoc._id;
+                descriptionPayload.renewedAt = new Date().toISOString();
             }
 
             const mainPayload = {
@@ -324,28 +324,44 @@ export default function VehicleWarrantyModal({
             };
 
             if (existingDoc?._id && !isRenew) {
-                await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, mainPayload);
+                steps.push({ op: 'put_document', docId: existingDoc._id, body: mainPayload });
             } else {
                 if (isRenew && existingDoc?._id) {
                     mainPayload.renewFromDocumentId = existingDoc._id;
                 }
-                await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
+                steps.push({ op: 'post_document', body: mainPayload });
             }
 
-            await saveAttachment(formData.certificate, CERTIFICATE_LABEL);
+            const certificateStep = buildAttachmentStep(formData.certificate, CERTIFICATE_LABEL);
+            if (certificateStep) steps.push(certificateStep);
 
             for (const row of formData.extraRows) {
-                await saveAttachment(row, row.description);
+                const attachmentStep = buildAttachmentStep(row, row.description);
+                if (attachmentStep) steps.push(attachmentStep);
             }
 
-            toast({
-                title: isRenew ? 'Warranty renewed' : 'Saved',
-                description: isRenew
+            await saveVehicleProfileCardOrQueue({
+                asset,
+                assetId,
+                sectionId: 'warranty',
+                action: isRenew ? 'renew' : 'edit',
+                steps,
+                documentId: isRenew ? existingDoc?._id || null : null,
+                hrMayApplyDirectly,
+                proposedRows: [
+                    { label: 'Provider', value: formData.warrantyBy || '—' },
+                    { label: 'Start', value: formData.startDate || '—' },
+                    { label: 'End', value: formData.endDate || '—' },
+                    ...(isRenew ? [{ label: 'Action', value: 'Renew' }] : []),
+                ],
+                toast,
+                queuedMessage: 'Warranty change saved. Submit for HR approval when ready.',
+                appliedMessage: isRenew
                     ? 'New warranty is live. The previous document was moved to Old Documents.'
                     : 'Warranty details saved successfully.',
+                onSuccess,
+                onClose,
             });
-            if (onSuccess) onSuccess();
-            onClose();
         } catch (error) {
             toast({
                 variant: 'destructive',
