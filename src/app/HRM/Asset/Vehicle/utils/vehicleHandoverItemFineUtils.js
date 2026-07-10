@@ -121,10 +121,9 @@ function mergeHandoverDamageAttachments(attachmentLists = []) {
     return attachments;
 }
 
-/** Only items with an actual damage fine (Add Damage) count for HR "Approve with Fine". */
-function isHandoverItemIncludedInApprovalFine({ hasFine = false, isWaived = false } = {}) {
+function isHandoverItemIncludedInApprovalFine({ hasFine = false, changed = false, isWaived = false } = {}) {
     if (isWaived) return false;
-    return Boolean(hasFine);
+    return hasFine || changed;
 }
 
 function buildHandoverDamageDescription({
@@ -380,7 +379,7 @@ export function buildHandoverItemFineInitialData({
     };
 }
 
-/** True when accessories/body items have an actual damage fine recorded (not merely changed). */
+/** True when body condition or accessories have changed / fined items requiring HR fine choice. */
 export function hasHandoverApprovalFineItems({
     vehicle,
     historyEntry,
@@ -390,12 +389,35 @@ export function hasHandoverApprovalFineItems({
 } = {}) {
     if (!historyEntry) return false;
 
+    const bodyForm = buildBodyConditionEditableFormState(historyEntry, {
+        assetHistory,
+        currentEntry: historyEntry,
+    });
+    const bodyComparisons = buildBodyConditionComparisonRows(historyEntry, assetHistory);
+    const bodyComparisonByKey = Object.fromEntries(bodyComparisons.map((row) => [row.key, row]));
+
+    const accessoryComparisons = buildAssessmentComparisonRows(historyEntry, assetHistory, vehicle);
+    const accessoryComparisonByKey = Object.fromEntries(
+        accessoryComparisons.map((row) => [row.key, row]),
+    );
+
     for (const view of BODY_CONDITION_VIEW_FIELDS) {
         const existingFine = resolveHandoverItemFine(handoverItemFineIndex, 'body', view.key);
         const isWaived = isHandoverItemFineWaived(handoverItemFineWaiverIndex, 'body', view.key);
+        const formRow = bodyForm[view.key] || {};
+        const comparison = bodyComparisonByKey[view.key] || {};
+        const hasPreviousBaseline =
+            hasAssessmentPhoto(comparison.previous?.photo) || Boolean(comparison.previous?.photoUrl);
+        const hasCurrentPhoto = hasAssessmentPhoto(formRow.photo);
+        const rawChanged =
+            hasCurrentPhoto &&
+            formRow.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
+            hasPreviousBaseline;
+        const changed = resolveHandoverComparisonChanged(rawChanged, historyEntry);
         if (
             isHandoverItemIncludedInApprovalFine({
                 hasFine: Boolean(existingFine),
+                changed,
                 isWaived,
             })
         ) {
@@ -406,9 +428,12 @@ export function hasHandoverApprovalFineItems({
     for (const item of RECEIVER_ASSESSMENT_ITEMS) {
         const existingFine = resolveHandoverItemFine(handoverItemFineIndex, 'accessory', item.key);
         const isWaived = isHandoverItemFineWaived(handoverItemFineWaiverIndex, 'accessory', item.key);
+        const comparison = accessoryComparisonByKey[item.key] || {};
+        const changed = resolveHandoverComparisonChanged(comparison.changed, historyEntry);
         if (
             isHandoverItemIncludedInApprovalFine({
                 hasFine: Boolean(existingFine),
+                changed,
                 isWaived,
             })
         ) {
