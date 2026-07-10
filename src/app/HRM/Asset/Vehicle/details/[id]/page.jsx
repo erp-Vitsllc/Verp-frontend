@@ -4396,8 +4396,8 @@ function VehicleDetailsPageContent() {
                                                             type="button"
                                                             onClick={() => setServiceInnerTab(type)}
                                                             className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${serviceInnerTab === type
-                                                                    ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
-                                                                    : 'text-slate-500 hover:text-slate-700'
+                                                                ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
+                                                                : 'text-slate-500 hover:text-slate-700'
                                                                 }`}
                                                         >
                                                             {type}
@@ -4766,23 +4766,23 @@ function VehicleDetailsPageContent() {
                                             const registrationRows = (isLiveDocumentTab
                                                 ? groupRegistrationDocumentRows(bucket.registration)
                                                 : groupRegistrationDocumentRows(bucket.registration).filter((row) =>
-                                                      vehicleDocumentArchiveReasonLabel(row.primary),
-                                                  ));
+                                                    vehicleDocumentArchiveReasonLabel(row.primary),
+                                                ));
                                             const insuranceRows = (isLiveDocumentTab
                                                 ? groupInsuranceDocumentRows(bucket.insurance)
                                                 : groupInsuranceDocumentRows(bucket.insurance).filter((row) =>
-                                                      vehicleDocumentArchiveReasonLabel(row.primary),
-                                                  ));
+                                                    vehicleDocumentArchiveReasonLabel(row.primary),
+                                                ));
                                             const warrantyRows = (isLiveDocumentTab
                                                 ? groupWarrantyDocumentRows(bucket.warranty)
                                                 : groupWarrantyDocumentRows(bucket.warranty).filter((row) =>
-                                                      vehicleDocumentArchiveReasonLabel(row.primary),
-                                                  ));
+                                                    vehicleDocumentArchiveReasonLabel(row.primary),
+                                                ));
                                             const permitRows = (isLiveDocumentTab
                                                 ? groupPermitDocumentRows(bucket.permit)
                                                 : groupPermitDocumentRows(bucket.permit).filter((row) =>
-                                                      vehicleDocumentArchiveReasonLabel(row.primary),
-                                                  ));
+                                                    vehicleDocumentArchiveReasonLabel(row.primary),
+                                                ));
 
                                             const parseMortgageArchivedSnapshot = (doc) => {
                                                 let meta = {};
@@ -4880,99 +4880,99 @@ function VehicleDetailsPageContent() {
                                             return (
                                                 <div className="mt-6 space-y-10">
                                                     {showBasicDetailsSection ? (
-                                                    <div>
-                                                        {sectionTitle('Basic details')}
-                                                        <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                            <table className="w-full min-w-[920px]">
-                                                                <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                    <tr>
-                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Asset ID</th>
-                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Plate No.</th>
-                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Model</th>
-                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Make</th>
-                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody className="divide-y divide-gray-50">
-                                                                    {basicRows.map((r) => (
-                                                                        <tr key={r.key} className="hover:bg-blue-50/30 transition-colors">
-                                                                            <td className="px-6 py-4 text-sm font-semibold text-gray-700">{aid}</td>
-                                                                            <td className="px-6 py-4 text-sm text-gray-600">{plate}</td>
-                                                                            <td className="px-6 py-4 text-sm text-gray-600">{model}</td>
-                                                                            <td className="px-6 py-4 text-sm text-gray-600">{make}</td>
-                                                                            <td className="px-6 py-4 text-sm">
-                                                                                {attachmentBtn(
-                                                                                    r.att,
-                                                                                    r.label,
-                                                                                    r.key === 'inv' ? '__invoice__' : r.doc?._id,
-                                                                                )}
-                                                                            </td>
-                                                                            <td className="px-6 py-4">
-                                                                                {r.doc ? (
-                                                                                    <div className="flex items-center gap-3">
-                                                                                        {showDocTabEdit ? (
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={() => {
-                                                                                                setVehicleGeneralDoc(r.doc);
-                                                                                                setVehicleGeneralDocRenew(false);
-                                                                                                setShowVehicleGeneralDocModal(true);
-                                                                                            }}
-                                                                                            className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                                                            title="Edit"
-                                                                                        >
-                                                                                            <PencilLine size={16} />
-                                                                                        </button>
-                                                                                        ) : null}
-                                                                                        {showDocTabRenew ? (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                onClick={() => {
-                                                                                                    setVehicleGeneralDoc(r.doc);
-                                                                                                    setVehicleGeneralDocRenew(true);
-                                                                                                    setShowVehicleGeneralDocModal(true);
-                                                                                                }}
-                                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                                                title="Renew"
-                                                                                            >
-                                                                                                <RefreshCw size={16} />
-                                                                                            </button>
-                                                                                        ) : null}
-                                                                                        {showDocTabNotRenew ? (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                onClick={() => setDocToNotRenew(r.doc)}
-                                                                                                className="text-slate-500 hover:text-slate-700 transition-colors"
-                                                                                                title="Not Renew"
-                                                                                            >
-                                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                    <circle cx="12" cy="12" r="10" />
-                                                                                                    <path d="M4.9 4.9l14.2 14.2" />
-                                                                                                </svg>
-                                                                                            </button>
-                                                                                        ) : null}
-                                                                                        {showDocTabDelete ? (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                title="Remove"
-                                                                                                onClick={() => setDocToDelete(r.doc)}
-                                                                                            >
-                                                                                                <XCircle size={16} />
-                                                                                            </button>
-                                                                                        ) : null}
-                                                                                    </div>
-                                                                                ) : (
-                                                                                    <span className="text-slate-300">-</span>
-                                                                                )}
-                                                                            </td>
+                                                        <div>
+                                                            {sectionTitle('Basic details')}
+                                                            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                <table className="w-full min-w-[920px]">
+                                                                    <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                        <tr>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Asset ID</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Plate No.</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Model</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Make</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
                                                                         </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-50">
+                                                                        {basicRows.map((r) => (
+                                                                            <tr key={r.key} className="hover:bg-blue-50/30 transition-colors">
+                                                                                <td className="px-6 py-4 text-sm font-semibold text-gray-700">{aid}</td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">{plate}</td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">{model}</td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">{make}</td>
+                                                                                <td className="px-6 py-4 text-sm">
+                                                                                    {attachmentBtn(
+                                                                                        r.att,
+                                                                                        r.label,
+                                                                                        r.key === 'inv' ? '__invoice__' : r.doc?._id,
+                                                                                    )}
+                                                                                </td>
+                                                                                <td className="px-6 py-4">
+                                                                                    {r.doc ? (
+                                                                                        <div className="flex items-center gap-3">
+                                                                                            {showDocTabEdit ? (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => {
+                                                                                                        setVehicleGeneralDoc(r.doc);
+                                                                                                        setVehicleGeneralDocRenew(false);
+                                                                                                        setShowVehicleGeneralDocModal(true);
+                                                                                                    }}
+                                                                                                    className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                                    title="Edit"
+                                                                                                >
+                                                                                                    <PencilLine size={16} />
+                                                                                                </button>
+                                                                                            ) : null}
+                                                                                            {showDocTabRenew ? (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => {
+                                                                                                        setVehicleGeneralDoc(r.doc);
+                                                                                                        setVehicleGeneralDocRenew(true);
+                                                                                                        setShowVehicleGeneralDocModal(true);
+                                                                                                    }}
+                                                                                                    className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                    title="Renew"
+                                                                                                >
+                                                                                                    <RefreshCw size={16} />
+                                                                                                </button>
+                                                                                            ) : null}
+                                                                                            {showDocTabNotRenew ? (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => setDocToNotRenew(r.doc)}
+                                                                                                    className="text-slate-500 hover:text-slate-700 transition-colors"
+                                                                                                    title="Not Renew"
+                                                                                                >
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <circle cx="12" cy="12" r="10" />
+                                                                                                        <path d="M4.9 4.9l14.2 14.2" />
+                                                                                                    </svg>
+                                                                                                </button>
+                                                                                            ) : null}
+                                                                                            {showDocTabDelete ? (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                    title="Remove"
+                                                                                                    onClick={() => setDocToDelete(r.doc)}
+                                                                                                >
+                                                                                                    <XCircle size={16} />
+                                                                                                </button>
+                                                                                            ) : null}
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <span className="text-slate-300">-</span>
+                                                                                    )}
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
                                                         </div>
-                                                    </div>
                                                     ) : null}
 
                                                     {registrationRows.length > 0 && (
@@ -5010,14 +5010,14 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4">
                                                                                         <div className="flex items-center gap-3">
                                                                                             {showDocTabEdit ? (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                onClick={() => { openRegistrationEdit(doc); }}
-                                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                                                                title="Edit"
-                                                                                            >
-                                                                                                <PencilLine size={16} />
-                                                                                            </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => { openRegistrationEdit(doc); }}
+                                                                                                    className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                                    title="Edit"
+                                                                                                >
+                                                                                                    <PencilLine size={16} />
+                                                                                                </button>
                                                                                             ) : null}
                                                                                             {showDocTabRenew ? (
                                                                                                 <button
