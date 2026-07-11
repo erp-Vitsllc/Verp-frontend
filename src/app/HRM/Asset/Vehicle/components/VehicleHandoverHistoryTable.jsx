@@ -8,21 +8,34 @@ import { useToast } from '@/hooks/use-toast';
 import {
     buildHandoverHistoryRows,
     getHandoverByLabel,
+    getHandoverEndDate,
     getHandoverHistoryStatus,
-    getHandoverReason,
+    getHandoverStartDate,
     getHandoverToLabel,
+    getHandoverTypeLabel,
     resolveHandoverDeleteHistoryId,
 } from '../utils/vehicleHandoverHistory';
 
 function formatHandoverDate(value) {
+    if (!value) return '—';
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '-';
+    if (Number.isNaN(date.getTime())) return '—';
     return date.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
     });
 }
+
+const TABLE_HEADERS = [
+    { key: 'sl', label: 'Sl No.', className: 'w-16' },
+    { key: 'type', label: 'Type', className: 'whitespace-nowrap' },
+    { key: 'start', label: 'Start Date', className: 'whitespace-nowrap' },
+    { key: 'end', label: 'End Date', className: 'whitespace-nowrap' },
+    { key: 'from', label: 'From', className: 'min-w-[140px]' },
+    { key: 'to', label: 'To', className: 'min-w-[140px]' },
+    { key: 'status', label: 'Status', className: 'whitespace-nowrap' },
+];
 
 export default function VehicleHandoverHistoryTable({
     assetHistory = [],
@@ -40,6 +53,7 @@ export default function VehicleHandoverHistoryTable({
         [assetHistory, asset],
     );
     const showActionsColumn = canDelete;
+    const columnCount = showActionsColumn ? TABLE_HEADERS.length + 1 : TABLE_HEADERS.length;
 
     const openAssignDetail = (entry) => {
         const vehicleId = asset?._id;
@@ -65,10 +79,11 @@ export default function VehicleHandoverHistoryTable({
             return;
         }
 
-        const handoverDate = formatHandoverDate(entry?.date || entry?.createdAt);
+        const typeLabel = getHandoverTypeLabel(entry, asset);
+        const startDate = formatHandoverDate(getHandoverStartDate(entry));
         const handoverTo = getHandoverToLabel(entry, asset);
         const confirmed = window.confirm(
-            `Delete this handover record?\n\nDate: ${handoverDate}\nTo: ${handoverTo}\n\nThis cannot be undone.`,
+            `Delete this handover record?\n\nType: ${typeLabel}\nStart: ${startDate}\nTo: ${handoverTo}\n\nThis cannot be undone.`,
         );
         if (!confirmed) return;
 
@@ -95,25 +110,24 @@ export default function VehicleHandoverHistoryTable({
         }
     };
 
-    const columnCount = showActionsColumn ? 7 : 6;
+    const renderHeader = () => (
+        <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
+            {TABLE_HEADERS.map((col) => (
+                <th key={col.key} className={`px-4 py-3 ${col.className}`}>
+                    {col.label}
+                </th>
+            ))}
+            {showActionsColumn ? (
+                <th className="px-4 py-3 whitespace-nowrap w-20 text-center">Delete</th>
+            ) : null}
+        </tr>
+    );
 
     if (loading) {
         return (
             <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-                <table className="w-full text-sm border-collapse min-w-[960px]">
-                    <thead className="bg-slate-50 border-b border-slate-200">
-                        <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
-                            <th className="px-4 py-3 whitespace-nowrap w-16">Sl No.</th>
-                            <th className="px-4 py-3 whitespace-nowrap">Handover Date</th>
-                            <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Handover By</th>
-                            <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Handover To</th>
-                            <th className="px-4 py-3 min-w-[180px]">Reason</th>
-                            <th className="px-4 py-3 whitespace-nowrap">Status</th>
-                            {showActionsColumn ? (
-                                <th className="px-4 py-3 whitespace-nowrap w-20 text-center">Delete</th>
-                            ) : null}
-                        </tr>
-                    </thead>
+                <table className="w-full text-sm border-collapse min-w-[1040px]">
+                    <thead className="bg-slate-50 border-b border-slate-200">{renderHeader()}</thead>
                     <tbody>
                         <tr>
                             <td colSpan={columnCount} className="px-4 py-16 text-center text-sm font-medium text-slate-500">
@@ -128,20 +142,8 @@ export default function VehicleHandoverHistoryTable({
 
     return (
         <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-            <table className="w-full text-sm border-collapse min-w-[960px]">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
-                        <th className="px-4 py-3 whitespace-nowrap w-16">Sl No.</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Handover Date</th>
-                        <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Handover By</th>
-                        <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Handover To</th>
-                        <th className="px-4 py-3 min-w-[180px]">Reason</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Status</th>
-                        {showActionsColumn ? (
-                            <th className="px-4 py-3 whitespace-nowrap w-20 text-center">Delete</th>
-                        ) : null}
-                    </tr>
-                </thead>
+            <table className="w-full text-sm border-collapse min-w-[1040px]">
+                <thead className="bg-slate-50 border-b border-slate-200">{renderHeader()}</thead>
                 <tbody className="divide-y divide-slate-100">
                     {!rows.length ? (
                         <tr>
@@ -152,8 +154,11 @@ export default function VehicleHandoverHistoryTable({
                     ) : (
                         rows.map((entry, index) => {
                             const status = getHandoverHistoryStatus(entry, asset, { assetHistory });
-                            const reason = getHandoverReason(entry, asset);
-                            const handoverTo = getHandoverToLabel(entry, asset);
+                            const typeLabel = getHandoverTypeLabel(entry, asset);
+                            const startDate = formatHandoverDate(getHandoverStartDate(entry));
+                            const endDate = formatHandoverDate(getHandoverEndDate(entry, asset));
+                            const fromLabel = getHandoverByLabel(entry, asset);
+                            const toLabel = getHandoverToLabel(entry, asset);
                             const deleteHistoryId = resolveHandoverDeleteHistoryId(
                                 entry,
                                 asset,
@@ -180,16 +185,13 @@ export default function VehicleHandoverHistoryTable({
                                     title="Open handover details"
                                 >
                                     <td className="px-4 py-3 text-slate-600 font-semibold">{index + 1}</td>
-                                    <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
-                                        {formatHandoverDate(entry?.date || entry?.createdAt)}
+                                    <td className="px-4 py-3 text-slate-800 whitespace-nowrap font-medium">
+                                        {typeLabel}
                                     </td>
-                                    <td className="px-4 py-3 text-slate-800">{getHandoverByLabel(entry, asset)}</td>
-                                    <td className="px-4 py-3 text-slate-800">{handoverTo}</td>
-                                    <td className="px-4 py-3 text-slate-600 max-w-[280px]">
-                                        <span className="line-clamp-2" title={reason !== '-' ? reason : undefined}>
-                                            {reason}
-                                        </span>
-                                    </td>
+                                    <td className="px-4 py-3 text-slate-800 whitespace-nowrap">{startDate}</td>
+                                    <td className="px-4 py-3 text-slate-800 whitespace-nowrap">{endDate}</td>
+                                    <td className="px-4 py-3 text-slate-800">{fromLabel}</td>
+                                    <td className="px-4 py-3 text-slate-800">{toLabel}</td>
                                     <td className="px-4 py-3">
                                         <span
                                             className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${status.className}`}

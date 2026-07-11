@@ -1,6 +1,7 @@
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { pickLatestDocOfType } from './vehicleExpirySources';
-import { getHandoverByLabel, getHandoverReason, getHandoverToLabel, isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
+import { getHandoverByLabel, getHandoverReason, getHandoverToLabel } from './vehicleHandoverHistory';
+import { resolvePreviousHandoverEntry } from './vehicleHandoverPreviousReports';
 import {
     decomposeCalendarDurationBetween,
     formatDurationParts,
@@ -73,13 +74,24 @@ function resolveWarrantyLabel(warrantyDoc, asset) {
     return '—';
 }
 
+/**
+ * Driving License Age = Hand Over To (driver) profile license start/issue date → today.
+ * Shown as years / months / days; any unit that is 0 is omitted.
+ */
 function resolveDrivingLicenseAge(assignee) {
     if (!assignee || typeof assignee !== 'object') return '—';
-    const lic = assignee.drivingLicenceDetails || assignee.drivingLicenseDetails;
-    const issueDate = lic?.issueDate;
+    const lic = assignee.drivingLicenceDetails || assignee.drivingLicenseDetails || {};
+    const issueDate =
+        lic.issueDate ||
+        lic.startDate ||
+        assignee.drivingLicenseIssueDate ||
+        assignee.drivingLicenceIssueDate ||
+        null;
     if (!issueDate) return '—';
     const parts = decomposeCalendarDurationBetween(issueDate, new Date());
-    return parts ? formatDurationParts(parts) : '—';
+    if (!parts) return '—';
+    // formatDurationParts already skips years/months/days when count is 0
+    return formatDurationParts(parts) || '—';
 }
 
 function resolveCurrentKm(vehicle, historyEntry = null) {
@@ -104,9 +116,35 @@ function resolveCurrentKm(vehicle, historyEntry = null) {
     return '—';
 }
 
-export function buildVehicleHandoverAssignGridFields(historyEntry, vehicle) {
+function resolveCurrentHandoverDate(historyEntry, vehicle) {
+    return (
+        historyEntry?.date ||
+        historyEntry?.createdAt ||
+        historyEntry?.details?.handoverDate ||
+        vehicle?.assignedDate ||
+        null
+    );
+}
+
+/** Current handover date → today (same duration helpers used elsewhere). */
+function resolvePreviousVehicleUsedDays(historyEntry, vehicle) {
+    const handoverDate = resolveCurrentHandoverDate(historyEntry, vehicle);
+    if (!handoverDate) return '—';
+    const parts = decomposeCalendarDurationBetween(handoverDate, new Date());
+    if (!parts) return '—';
+    return formatDurationParts(parts) || '—';
+}
+
+function resolvePreviousHandoverDateLabel(historyEntry, assetHistory = []) {
+    const previous = resolvePreviousHandoverEntry(assetHistory, historyEntry);
+    if (!previous) return '—';
+    return formatDate(previous?.date || previous?.createdAt || previous?.details?.handoverDate);
+}
+
+export function buildVehicleHandoverAssignGridFields(historyEntry, vehicle, options = {}) {
     if (!historyEntry) return [];
 
+    const assetHistory = Array.isArray(options.assetHistory) ? options.assetHistory : [];
     const snapshot =
         historyEntry?.details && typeof historyEntry.details === 'object'
             ? historyEntry.details
@@ -144,7 +182,15 @@ export function buildVehicleHandoverAssignGridFields(historyEntry, vehicle) {
         { label: 'Current KM', value: resolveCurrentKm(vehicle, historyEntry) },
         {
             label: 'Hand Over Date',
-            value: formatDate(historyEntry?.date || historyEntry?.createdAt),
+            value: formatDate(resolveCurrentHandoverDate(historyEntry, vehicle)),
+        },
+        {
+            label: 'Previous Vehicle Used Days',
+            value: resolvePreviousVehicleUsedDays(historyEntry, vehicle),
+        },
+        {
+            label: 'Previous Handover Date',
+            value: resolvePreviousHandoverDateLabel(historyEntry, assetHistory),
         },
         { label: 'Driving License Age', value: resolveDrivingLicenseAge(assignee) },
         { label: 'Vehicle Value', value: formatMoney(asset?.assetValue) },

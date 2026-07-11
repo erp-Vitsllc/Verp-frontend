@@ -2,6 +2,7 @@ import { toast } from '@/hooks/use-toast';
 
 export const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 export const IDLE_LAST_ACTIVITY_KEY = 'idleSessionLastActivity';
+export const ASSET_FLOWCHART_ROLE_META_KEY = 'assetFlowchartRoleMeta';
 
 export function isAuthenticated() {
     if (typeof window === 'undefined') return false;
@@ -48,6 +49,7 @@ export function clearAuthSession() {
     localStorage.removeItem('tokenExpiresIn');
     localStorage.removeItem('isAdmin');
     sessionStorage.removeItem(IDLE_LAST_ACTIVITY_KEY);
+    sessionStorage.removeItem(ASSET_FLOWCHART_ROLE_META_KEY);
 }
 
 export function performLogout({ reason = 'manual', redirectTo = '/login' } = {}) {

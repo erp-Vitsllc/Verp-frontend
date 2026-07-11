@@ -6,13 +6,13 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList, Trash2, Filter, Pencil } from 'lucide-react';
+import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList, Trash2, Filter, Pencil, Wrench } from 'lucide-react';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import {
     canAdminDeleteActivatedVehicleRecord,
     isVehicleProfileActivationActive,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAdminDeleteAccess';
-import { canAccessAddVehicle } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessCreateService } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -35,6 +35,7 @@ import {
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import VehicleListAssignmentStatusCell from '@/app/HRM/Asset/Vehicle/components/VehicleListAssignmentStatusCell';
 import VehicleLocatorAddPlateModal from '@/app/HRM/Asset/Vehicle/components/VehicleLocatorAddPlateModal';
+import VehicleCreateServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleCreateServiceModal';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
@@ -233,6 +234,7 @@ export default function VehicleAssetPage() {
     const vehicleInboxWarmRef = useRef(false);
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, vehicle: null });
     const [plateModalVehicle, setPlateModalVehicle] = useState(null);
+    const [createServiceModalOpen, setCreateServiceModalOpen] = useState(false);
 
     const openInactiveVehicleEdit = useCallback(async (vehicle, e) => {
         e?.stopPropagation();
@@ -267,6 +269,9 @@ export default function VehicleAssetPage() {
     }, [toast]);
 
     const [fleetListTab, setFleetListTab] = useState('active');
+    const canViewActiveFleet = mounted && canAccessActiveFleet();
+    const canViewSoldFleet = mounted && canAccessSoldFleet();
+    const canCreateService = mounted && canAccessCreateService();
 
     const setFleetListTabAndUrl = useCallback(
         (next) => {
@@ -399,6 +404,23 @@ export default function VehicleAssetPage() {
         setStatusFilter(fromUrl);
         if (fromUrl !== 'All') setShowFilters(true);
     }, [mounted, pathname]);
+
+    useEffect(() => {
+        if (!mounted) return;
+        if (fleetListTab === 'sold_total_loss' && !canViewSoldFleet && canViewActiveFleet) {
+            setFleetListTabAndUrl('active');
+            return;
+        }
+        if (fleetListTab === 'active' && !canViewActiveFleet && canViewSoldFleet) {
+            setFleetListTabAndUrl('sold_total_loss');
+        }
+    }, [
+        mounted,
+        fleetListTab,
+        canViewActiveFleet,
+        canViewSoldFleet,
+        setFleetListTabAndUrl,
+    ]);
 
     useEffect(() => {
         if (!mounted || typeof window === 'undefined') return;
@@ -657,6 +679,16 @@ export default function VehicleAssetPage() {
                                     <ClipboardList size={18} />
                                     Service requests
                                 </Link>
+                                {canCreateService ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setCreateServiceModalOpen(true)}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 shadow-sm transition-colors"
+                                >
+                                    <Wrench size={18} />
+                                    Create service
+                                </button>
+                                ) : null}
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                                     <input
@@ -714,6 +746,7 @@ export default function VehicleAssetPage() {
                                         role="tablist"
                                         aria-label="Fleet list scope"
                                     >
+                                        {canViewActiveFleet ? (
                                         <button
                                             type="button"
                                             role="tab"
@@ -727,6 +760,8 @@ export default function VehicleAssetPage() {
                                         >
                                             Active fleet
                                         </button>
+                                        ) : null}
+                                        {canViewSoldFleet ? (
                                         <button
                                             type="button"
                                             role="tab"
@@ -740,6 +775,7 @@ export default function VehicleAssetPage() {
                                         >
                                             Sold &amp; total loss
                                         </button>
+                                        ) : null}
                                     </div>
                                     {fleetListTab === 'active' ? (
                                         <>
@@ -1061,6 +1097,15 @@ export default function VehicleAssetPage() {
                     patchVehiclePlateInList(plateModalVehicle?.locator?.deviceId, plateData);
                     setPlateModalVehicle(null);
                     void fetchVehicles({ silent: true });
+                }}
+            />
+
+            <VehicleCreateServiceModal
+                isOpen={createServiceModalOpen}
+                vehicles={vehicles}
+                onClose={() => setCreateServiceModalOpen(false)}
+                onSuccess={() => {
+                    void fetchVehicleInboxCount({ force: true });
                 }}
             />
 

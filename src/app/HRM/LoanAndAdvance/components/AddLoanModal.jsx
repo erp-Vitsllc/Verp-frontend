@@ -5,6 +5,11 @@ import { X, AlertCircle } from 'lucide-react';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
+import {
+    canCreateLoan,
+    canCreateAdvance,
+    getDefaultLoanAdvanceType,
+} from '../utils/loanPermissionAccess';
 
 export default function AddLoanModal({
     isOpen,
@@ -18,9 +23,12 @@ export default function AddLoanModal({
     employeeDetails = null,
 }) {
     const { toast } = useToast();
+    const allowLoanType = canCreateLoan() || (Boolean(initialData) && initialData?.type === 'Loan');
+    const allowAdvanceType = canCreateAdvance() || (Boolean(initialData) && initialData?.type === 'Advance');
+    const defaultType = getDefaultLoanAdvanceType();
     const [formData, setFormData] = useState({
         employeeId: '',
-        type: 'Loan', // Loan or Advance
+        type: defaultType,
         amount: '',
         duration: '', // months
         reason: '',
@@ -98,7 +106,7 @@ export default function AddLoanModal({
                 // New Mode
                 setFormData({
                     employeeId: '',
-                    type: 'Loan',
+                    type: getDefaultLoanAdvanceType(),
                     amount: '',
                     duration: '',
                     reason: '',
@@ -110,6 +118,16 @@ export default function AddLoanModal({
             }
         }
     }, [isOpen, initialData, employees, scheduleOnlyEdit, employeeDetails]);
+
+    // If Create Loan / Create Advance permission changes, drop unavailable type from the toggle.
+    useEffect(() => {
+        if (!isOpen || initialData) return;
+        if (formData.type === 'Loan' && !allowLoanType && allowAdvanceType) {
+            setFormData((prev) => ({ ...prev, type: 'Advance' }));
+        } else if (formData.type === 'Advance' && !allowAdvanceType && allowLoanType) {
+            setFormData((prev) => ({ ...prev, type: 'Loan' }));
+        }
+    }, [isOpen, initialData, formData.type, allowLoanType, allowAdvanceType]);
 
     // Handle Employee Selection & Eligibility Logic
     const handleEmployeeChange = (empId) => {
@@ -428,18 +446,21 @@ export default function AddLoanModal({
                 {/* Body */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-4 pr-1">
 
-                    {/* Type Select */}
+                    {/* Type Select — Loan / Advance options follow Create Loan / Create Advance permissions */}
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-gray-700">Type <span className="text-red-500">*</span></label>
                         <select
                             value={formData.type}
                             onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                            disabled={fieldDisabled}
+                            disabled={fieldDisabled || (!allowLoanType && !allowAdvanceType)}
                             className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-gray-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
-                            <option value="Loan">Loan</option>
-                            <option value="Advance">Salary Advance</option>
+                            {allowLoanType ? <option value="Loan">Loan</option> : null}
+                            {allowAdvanceType ? <option value="Advance">Salary Advance</option> : null}
                         </select>
+                        {!allowLoanType && !allowAdvanceType ? (
+                            <p className="text-xs text-red-500">You do not have permission to create a loan or advance.</p>
+                        ) : null}
                     </div>
 
                     {/* Employee Select */}

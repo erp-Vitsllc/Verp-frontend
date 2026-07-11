@@ -11,6 +11,8 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 
 import { isAdmin } from '@/utils/permissions';
+import { canAccessAddToolsAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import { setCachedAssetFlowchartRoleMeta } from '@/utils/assetFlowchartModuleAccess';
 
 import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft, Pencil, Bell, ExternalLink, AlertCircle } from 'lucide-react';
 
@@ -939,7 +941,10 @@ function AssetPageContent() {
         (async () => {
             try {
                 const r = await axiosInstance.get('/AssetType/meta/role', { skipToast: true });
-                if (!cancelled && r?.data) setAssetRoleMeta(r.data);
+                if (!cancelled && r?.data) {
+                    setAssetRoleMeta(r.data);
+                    setCachedAssetFlowchartRoleMeta(r.data);
+                }
             } catch {
                 /* non-fatal */
             }
@@ -2069,7 +2074,7 @@ function AssetPageContent() {
 
 
 
-                                {((activeTab === 'asset') ||
+                                {((activeTab === 'asset' && canAccessAddToolsAsset()) ||
                                     (activeTab === 'accessories') ||
                                     ((activeTab === 'type' || activeTab === 'category') && canAddTypeCategory)) &&
                                     !selectionMode && (

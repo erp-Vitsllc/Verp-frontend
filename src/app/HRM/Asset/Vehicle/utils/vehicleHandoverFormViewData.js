@@ -96,7 +96,9 @@ function gridFieldsToMap(fields) {
 export function buildVehicleHandoverFormData(historyEntry, vehicle) {
     if (!historyEntry) return null;
 
-    const fields = buildVehicleHandoverAssignGridFields(historyEntry, vehicle);
+    const fields = buildVehicleHandoverAssignGridFields(historyEntry, vehicle, {
+        assetHistory: Array.isArray(vehicle?.assetHistory) ? vehicle.assetHistory : [],
+    });
     const fieldMap = gridFieldsToMap(fields);
     const assignee = resolveAssignee(historyEntry, vehicle);
     const assigner = resolveAssigner(historyEntry, vehicle);

@@ -9,6 +9,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { useToast } from "@/hooks/use-toast";
 import { isAdmin } from '@/utils/permissions';
+import { canAccessCreateReward } from '@/app/HRM/Reward/utils/rewardPermissionAccess';
 import { format } from 'date-fns';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -261,7 +262,10 @@ export default function RewardDetailsPage({ params }) {
     const canPerformAction = () => {
         if (!currentUser || !employee || !reward) return false;
 
-        const isAdminUser = isAdmin() || (currentUser.permissions && currentUser.permissions.HRM?.Reward?.edit);
+        const isAdminUser =
+            isAdmin() ||
+            canAccessCreateReward() ||
+            (currentUser.permissions && currentUser.permissions.HRM?.Reward?.edit);
         const dept = (currentUser.department || '').toLowerCase();
         const desig = (currentUser.designation || '').toLowerCase();
 

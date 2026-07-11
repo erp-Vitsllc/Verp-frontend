@@ -64,6 +64,7 @@ import {
     vehicleTabCrud,
     vehicleTabVisible,
 } from '../../utils/vehiclePermissionAccess';
+import { ensureAssetFlowchartRoleMeta } from '@/utils/assetFlowchartModuleAccess';
 import {
     buildAssetActionUser,
     resolveAdminInCompanyFlowchart,
@@ -1384,9 +1385,18 @@ function VehicleDetailsPageContent() {
 
     useEffect(() => {
         if (!permissionsMounted) return;
-        if (!canAccessVehicleDetailsPage()) {
-            router.replace('/dashboard');
-        }
+        let cancelled = false;
+        ensureAssetFlowchartRoleMeta()
+            .catch(() => null)
+            .finally(() => {
+                if (cancelled) return;
+                if (!canAccessVehicleDetailsPage()) {
+                    router.replace('/dashboard');
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
     }, [permissionsMounted, router]);
 
     useEffect(() => {
@@ -3273,7 +3283,13 @@ function VehicleDetailsPageContent() {
                                     registrationExpirySrc={vehicleExpirySources.registrationExpirySrc}
                                     insuranceExpirySrc={vehicleExpirySources.insuranceExpirySrc}
                                     warrantyExpirySrc={vehicleExpirySources.warrantyExpirySrc}
-                                    insuranceProviderLabel={insuranceMeta.policy}
+                                    insuranceProviderLabel={
+                                        insuranceMeta.company ||
+                                        insuranceDoc?.issueAuthority ||
+                                        asset?.insuranceCompany ||
+                                        asset?.insuranceProvider ||
+                                        ''
+                                    }
                                     warrantyKmLabel={warrantyKmEffective}
                                     warrantyRequired={warrantyRequiredForCompletion}
                                     permitHint={permitHint}

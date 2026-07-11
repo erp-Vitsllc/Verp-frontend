@@ -19,33 +19,31 @@ const emptyPerm = () => ({
     isDownload: false,
 });
 
+/** Parent with children: View only. */
 const E_ONLY_VIEW = ['isCreate', 'isEdit', 'isDelete', 'isDownload'];
-/** Full CRUD + download — all columns enabled on the permission chart. */
+/** Add Fine: all columns enabled. */
 const E_ALL = [];
 
-const VEHICLE_GROUP_DISABLED_PERMS_BY_ID = {
-    hrm_asset_vehicle: E_ONLY_VIEW,
-    hrm_asset_vehicle_list: E_ONLY_VIEW,
-    hrm_asset_vehicle_sold_fleet: E_ONLY_VIEW,
-    hrm_asset_vehicle_add: E_ALL,
-    hrm_asset_vehicle_create_service: E_ALL,
+const FINE_GROUP_DISABLED_PERMS_BY_ID = {
+    hrm_fine: E_ONLY_VIEW,
+    hrm_fine_add: E_ALL,
 };
 
-export function getVehicleBranchDisabledPermTypes(module) {
-    if (!module?.id || !String(module.id).startsWith('hrm_asset_vehicle')) return null;
-    if (Object.prototype.hasOwnProperty.call(VEHICLE_GROUP_DISABLED_PERMS_BY_ID, module.id)) {
-        return VEHICLE_GROUP_DISABLED_PERMS_BY_ID[module.id];
+export function getFineBranchDisabledPermTypes(module) {
+    if (!module?.id || !String(module.id).startsWith('hrm_fine')) return null;
+    if (Object.prototype.hasOwnProperty.call(FINE_GROUP_DISABLED_PERMS_BY_ID, module.id)) {
+        return FINE_GROUP_DISABLED_PERMS_BY_ID[module.id];
     }
     if (module.children?.length) return E_ONLY_VIEW;
-    return E_ONLY_VIEW;
+    return null;
 }
 
-export function applyVehiclePermissionUiClamp(permissions) {
+export function applyFinePermissionUiClamp(permissions) {
     const flat = flattenModulesTree([HRM_MODULE]).filter((m) =>
-        String(m.id).startsWith('hrm_asset_vehicle'),
+        String(m.id).startsWith('hrm_fine'),
     );
     flat.forEach((m) => {
-        const disabledList = getVehicleBranchDisabledPermTypes(m);
+        const disabledList = getFineBranchDisabledPermTypes(m);
         if (disabledList == null) return;
         if (!permissions[m.id]) {
             permissions[m.id] = emptyPerm();

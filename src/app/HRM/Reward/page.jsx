@@ -13,6 +13,7 @@ import { Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
+import { canAccessCreateReward } from '@/app/HRM/Reward/utils/rewardPermissionAccess';
 import {
     BarChart,
     Bar,
@@ -277,7 +278,7 @@ function RewardContent() {
 
                             {/* Right Side - Actions Bar */}
                             <div className="flex items-center gap-4">
-                                {mounted && (
+                                {mounted && canAccessCreateReward() && (
                                     <button
                                         onClick={handleAddReward}
                                         className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
@@ -550,7 +551,7 @@ function RewardContent() {
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-right">
                                                         <div className="relative z-20 flex items-center justify-end gap-2">
-                                                            {isAdmin() && (
+                                                            {(isAdmin() || canAccessCreateReward()) && (
                                                                 <button
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();

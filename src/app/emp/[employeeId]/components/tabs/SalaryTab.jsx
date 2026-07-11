@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { isAdmin, crudAccess } from '@/utils/permissions';
+import { isAdmin, crudAccess, crudAccessUnion } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess } from '@/utils/employeeProfileCardAccess';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { isOldestSalaryHistoryEntry } from '@/utils/employeeSalaryValidation';
@@ -168,10 +168,20 @@ export default function SalaryTab({
 
     const accSalaryHistory = employeeProfileCardCrudAccess('hrm_employees_view_salary');
     const canDeleteSalaryHistory = canDeleteEmployeeCard(employee, accSalaryHistory.delete);
-    const accSalaryFine = crudAccess('hrm_fine');
-    const accSalaryReward = crudAccess('hrm_reward');
-    const accSalaryLoans = crudAccess('hrm_loan');
-    const accSalaryAdvance = crudAccess('hrm_loan');
+    const accSalaryFine = crudAccessUnion(['hrm_fine', 'hrm_fine_add']);
+    const accSalaryReward = crudAccessUnion(['hrm_reward', 'hrm_reward_create']);
+    const accSalaryLoans = crudAccessUnion([
+        'hrm_loan',
+        'hrm_loan_loan',
+        'hrm_loan_loan_create',
+        'hrm_loan_advance',
+        'hrm_loan_advance_create',
+    ]);
+    const accSalaryAdvance = crudAccessUnion([
+        'hrm_loan',
+        'hrm_loan_advance',
+        'hrm_loan_advance_create',
+    ]);
     const accSalaryAssetsTab = crudAccess('hrm_asset');
     const accViewBank = employeeProfileCardCrudAccess('hrm_employees_view_bank');
     const bankRowsForCheck = [

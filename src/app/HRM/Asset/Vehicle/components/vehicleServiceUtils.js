@@ -546,6 +546,66 @@ export function buildVehicleServiceTabPendingRequestBody(asset, serviceType) {
     };
 }
 
+/**
+ * Pending service create from Vehicle list / fleet dashboard (type + vehicle only).
+ * Uses the same row/email bootstrap as the vehicle Service tab.
+ */
+export function buildFleetListServicePendingRequestBody(asset, serviceType, { source = 'vehicle_fleet_dashboard' } = {}) {
+    const type = String(serviceType || '').trim();
+    if (type === 'Oil Service') {
+        return {
+            ...buildOilServicePendingRequestBody(asset),
+            serviceRequestSource: source,
+        };
+    }
+    if (type === 'Car Wash') {
+        const currentKm = Number(asset?.currentKilometer ?? 0);
+        const now = new Date();
+        const carWashMonth = resolveNextCarWashMonth(asset) ||
+            `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        return {
+            serviceType: 'Car Wash',
+            date: now.toISOString().slice(0, 10),
+            currentKm,
+            description: `Car wash request — ${formatNextChangeMonthDisplay(carWashMonth)}`,
+            paidBy: 'Company',
+            value: 0,
+            remark: JSON.stringify({
+                serviceSubtype: 'Car Wash',
+                amountMode: 'amount',
+                requestStatus: 'pending',
+                currentKm,
+                carWashMonth,
+                carWashType: 'Exterior',
+                carWashPaymentStatus: 'pending',
+            }),
+            serviceRequestSource: source,
+            isDraft: true,
+        };
+    }
+    if (isVehicleServiceTabRequestType(type)) {
+        return {
+            ...buildVehicleServiceTabPendingRequestBody(asset, type),
+            serviceRequestSource: source,
+        };
+    }
+    return {
+        serviceType: type || 'Other',
+        date: new Date().toISOString().slice(0, 10),
+        currentKm: Number(asset?.currentKilometer ?? 0),
+        description: '',
+        paidBy: 'Company',
+        value: 0,
+        remark: JSON.stringify({
+            serviceSubtype: type || 'Other',
+            amountMode: 'amount',
+            requestStatus: 'pending',
+        }),
+        serviceRequestSource: source,
+        isDraft: true,
+    };
+}
+
 export function formatNextChangeMonthDisplay(ym) {
     if (!ym || String(ym).trim() === '') return '—';
     const str = String(ym).trim();

@@ -817,6 +817,7 @@ function VehicleHandoverAssignPageContent() {
                                     <VehicleHandoverAssignGrid
                                         historyEntry={historyEntry}
                                         vehicle={vehicle}
+                                        assetHistory={handoverAssetHistory}
                                     />
 
                                     <div

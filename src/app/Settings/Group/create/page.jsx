@@ -21,6 +21,7 @@ import {
     applyDisabledGroupPermissionClamp,
     getEffectiveGroupPermissionChecked,
     isGroupPermissionCheckboxDisabled,
+    areAllAncestorsViewEnabled,
 } from '@/constants/groupPermissionMatrixUi';
 
 const MODULES = [
@@ -342,16 +343,29 @@ export default function CreateGroupPage() {
                     </td>
                     {PERMISSION_TYPES.map((perm) => {
                         const checkboxId = `permission-${module.id}-${perm.id}`;
+                        const permissionUiOptions = {
+                            allPermissions: formData.permissions,
+                            modulesRoot: MODULES,
+                        };
                         const isDisabled = isGroupPermissionCheckboxDisabled(
                             module,
                             perm.id,
-                            modulePermissions
+                            modulePermissions,
+                            permissionUiOptions
                         );
                         const isChecked = getEffectiveGroupPermissionChecked(
                             module,
                             perm.id,
-                            modulePermissions
+                            modulePermissions,
+                            permissionUiOptions
                         );
+                        const parentBlocked =
+                            !!module.parent &&
+                            !areAllAncestorsViewEnabled(
+                                module,
+                                formData.permissions,
+                                MODULES
+                            );
                         return (
                             <td key={perm.id} className="px-4 py-3 text-center">
                                 <label htmlFor={checkboxId} className="sr-only">
@@ -375,11 +389,13 @@ export default function CreateGroupPage() {
                                     aria-label={`${module.label} - ${perm.label} permission`}
                                     title={
                                         isDisabled
-                                            ? (perm.id === 'isDownload'
-                                                ? (!module.hasDownload
-                                                    ? 'Download not available for this module'
-                                                    : 'Download requires View permission')
-                                                : `${perm.label} requires View permission`)
+                                            ? (parentBlocked
+                                                ? 'Enable View on the parent module first'
+                                                : perm.id === 'isDownload'
+                                                    ? (!module.hasDownload
+                                                        ? 'Download not available for this module'
+                                                        : 'Download requires View permission')
+                                                    : `${perm.label} requires View permission`)
                                             : `${module.label} - ${perm.label} permission`
                                     }
                                 />

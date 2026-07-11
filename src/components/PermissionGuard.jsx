@@ -3,6 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { hasAnyPermission, isAdmin } from '@/utils/permissions';
+import {
+    canAccessAssetModuleViaFlowchart,
+    ensureAssetFlowchartRoleMeta,
+    isAssetModuleId,
+} from '@/utils/assetFlowchartModuleAccess';
 
 /**
  * Permission Guard Component
@@ -14,6 +19,7 @@ import { hasAnyPermission, isAdmin } from '@/utils/permissions';
 export default function PermissionGuard({ moduleId, permissionType = 'view', children, redirectTo = '/dashboard' }) {
     const router = useRouter();
     const [mounted, setMounted] = useState(false);
+    const [flowchartReady, setFlowchartReady] = useState(() => !isAssetModuleId(moduleId));
 
     // Handle client-side mounting to prevent hydration mismatch
     useEffect(() => {
@@ -21,50 +27,63 @@ export default function PermissionGuard({ moduleId, permissionType = 'view', chi
     }, []);
 
     useEffect(() => {
-        if (!mounted) return;
-
-        // Dashboard is always accessible
-        if (moduleId === 'dashboard') {
+        if (!mounted || !isAssetModuleId(moduleId)) {
+            setFlowchartReady(true);
             return;
         }
+        let cancelled = false;
+        ensureAssetFlowchartRoleMeta()
+            .catch(() => null)
+            .finally(() => {
+                if (!cancelled) setFlowchartReady(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [mounted, moduleId]);
 
-        // Admin has access to everything
-        if (isAdmin()) {
-            return;
+    const hasAccess = (() => {
+        if (moduleId === 'dashboard') return true;
+        if (isAdmin()) return true;
+        const groupAccess = hasAnyPermission(moduleId);
+        if (isAssetModuleId(moduleId)) {
+            return canAccessAssetModuleViaFlowchart(moduleId, groupAccess);
         }
+        return groupAccess;
+    })();
 
-        // Check if user has permission
-        const hasAccess = hasAnyPermission(moduleId);
+    useEffect(() => {
+        if (!mounted || !flowchartReady) return;
+
+        if (moduleId === 'dashboard') return;
+        if (isAdmin()) return;
 
         if (!hasAccess) {
-            // Redirect to dashboard if no permission
             router.replace(redirectTo);
         }
-    }, [moduleId, router, redirectTo, mounted]);
+    }, [moduleId, router, redirectTo, mounted, flowchartReady, hasAccess]);
 
     // During SSR or before mount, render children to prevent hydration mismatch
     if (!mounted) {
         return <>{children}</>;
     }
 
-    // Dashboard is always accessible
     if (moduleId === 'dashboard') {
         return <>{children}</>;
     }
 
-    // Admin has access to everything
     if (isAdmin()) {
         return <>{children}</>;
     }
 
-    // Check if user has permission
-    const hasAccess = hasAnyPermission(moduleId);
+    // Wait for flowchart role meta before blocking asset modules
+    if (isAssetModuleId(moduleId) && !flowchartReady) {
+        return null;
+    }
 
     if (!hasAccess) {
-        return null; // Don't render content if no permission
+        return null;
     }
 
     return <>{children}</>;
 }
-
-

@@ -196,7 +196,8 @@ export default function VehicleAssetProfileHeader({
     }
 
     const mortgageBy = truncate(
-        asset?.mortgageBy ||
+        asset?.mortgageBankName ||
+            asset?.mortgageBy ||
             asset?.mortgageBank ||
             asset?.bankName ||
             asset?.financedBy ||
@@ -223,6 +224,33 @@ export default function VehicleAssetProfileHeader({
         const parts = decomposeCalendarDurationBetween(asset.assignedDate, new Date());
         return parts ? formatDurationParts(parts) : '';
     })();
+
+    const unassignedSinceDate = (() => {
+        if (assigneeName) return null;
+        const historyRows = Array.isArray(assetHistory) ? assetHistory : [];
+        let latest = null;
+        for (const entry of historyRows) {
+            const action = String(entry?.action || '').trim();
+            if (action !== 'Returned' && action !== 'Unassigned') continue;
+            const raw = entry?.date || entry?.createdAt || entry?.details?.handoverHrApprovedAt || null;
+            if (!raw) continue;
+            const t = new Date(raw).getTime();
+            if (!Number.isFinite(t)) continue;
+            if (latest == null || t > latest) latest = t;
+        }
+        if (latest != null) return new Date(latest);
+        return asset?.purchaseDate || asset?.createdAt || null;
+    })();
+
+    const unassignedDuration = (() => {
+        if (assigneeName || !unassignedSinceDate) return '';
+        const parts = decomposeCalendarDurationBetween(unassignedSinceDate, new Date());
+        return parts ? formatDurationParts(parts) : '';
+    })();
+
+    const plateAssignmentDurationLabel = assigneeName
+        ? `Assigned${assignmentDuration ? ` · ${assignmentDuration}` : ''}`
+        : `Unassigned${unassignedDuration ? ` · ${unassignedDuration}` : ''}`;
 
     const dispositionKey = String(asset?.vehicleDispositionStatus || 'active')
         .toLowerCase()
@@ -341,7 +369,7 @@ export default function VehicleAssetProfileHeader({
                             {subtitle ? <p className="text-[14px] font-bold text-black leading-none uppercase">{subtitle}</p> : null}
                         </div>
                         
-                        <div className="shrink-0 pt-1">
+                        <div className="shrink-0 pt-1 flex flex-col items-end gap-1">
                             {asset?.plateNumber?.trim() ? (
                                 <VehiclePlateThumbnail plateEmirate={asset.plateEmirate} plateNumber={asset.plateNumber} />
                             ) : (
@@ -349,6 +377,12 @@ export default function VehicleAssetProfileHeader({
                                     No plate
                                 </div>
                             )}
+                            <p
+                                className="max-w-[168px] text-right text-[11px] font-bold uppercase tracking-wide text-slate-600 leading-tight"
+                                title={plateAssignmentDurationLabel}
+                            >
+                                {plateAssignmentDurationLabel}
+                            </p>
                         </div>
                     </div>
 

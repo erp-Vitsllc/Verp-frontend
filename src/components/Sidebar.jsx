@@ -33,6 +33,10 @@ import {
     Search,
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
+import {
+    canAccessAssetModuleViaFlowchart,
+    ensureAssetFlowchartRoleMeta,
+} from '@/utils/assetFlowchartModuleAccess';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
 import { performLogout } from '@/utils/authSession';
 import {
@@ -117,15 +121,15 @@ const menuItems = [
             { label: 'Leave', icon: CalendarX2, permissionModule: 'hrm_leave' },
             { label: 'NCR', icon: ClipboardList, permissionModule: 'hrm_ncr' },
             { label: 'Fine', icon: FileWarning, permissionModule: 'hrm_fine' },
-            { label: 'Loan/Advance', icon: HandCoins, permissionModule: 'hrm_loan' },
+            { label: 'Loan and Advance', icon: HandCoins, permissionModule: 'hrm_loan' },
             { label: 'Reward', icon: Award, permissionModule: 'hrm_reward' },
             {
                 label: 'Asset',
                 icon: Package,
                 permissionModule: 'hrm_asset',
                 children: [
-                    { label: 'Vehicle Asset', icon: Car, permissionModule: 'hrm_asset_vehicle' },
-                    { label: 'Tools Assets', icon: Wrench, permissionModule: 'hrm_asset_tools' },
+                    { label: 'Vehicle', icon: Car, permissionModule: 'hrm_asset_vehicle' },
+                    { label: 'Tools Asset', icon: Wrench, permissionModule: 'hrm_asset_tools' },
                 ],
             },
         ],
@@ -188,7 +192,7 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Employees') return '/emp';
         if (label === 'Reward') return '/HRM/Reward';
         if (label === 'Fine') return '/HRM/Fine';
-        if (label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
+        if (label === 'Loan and Advance' || label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
         if (label === 'Vehicle Asset') return '/HRM/Asset/Vehicle/dashboard';
         if (label === 'Telecommunication') return '/HRM/Asset/Telecommunication';
         if (label === 'Tools Assets') return '/HRM/Asset';
@@ -230,6 +234,7 @@ export default function Sidebar() {
         payments: 0,
     });
     const [canRestoreRecovery, setCanRestoreRecovery] = useState(false);
+    const [assetFlowchartReady, setAssetFlowchartReady] = useState(false);
 
     // Handle client-side mounting to prevent hydration mismatch
     useEffect(() => {
@@ -265,6 +270,20 @@ export default function Sidebar() {
             .get('/AdminDeletionArchive/access')
             .then((res) => setCanRestoreRecovery(!!res.data?.allowed))
             .catch(() => setCanRestoreRecovery(false));
+    }, [mounted]);
+
+    // Warm flowchart AC / Admin Officer override so Vehicle + Tools show without group perms
+    useEffect(() => {
+        if (!mounted) return;
+        let cancelled = false;
+        ensureAssetFlowchartRoleMeta()
+            .catch(() => null)
+            .finally(() => {
+                if (!cancelled) setAssetFlowchartReady(true);
+            });
+        return () => {
+            cancelled = true;
+        };
     }, [mounted]);
 
     useEffect(() => {
@@ -578,7 +597,7 @@ export default function Sidebar() {
             router.push('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
             router.push('/HRM/Fine');
-        } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
+        } else if (parentId === 'HRM' && (subItem.label === 'Loan and Advance' || subItem.label === 'Loan/Advance')) {
             router.push('/HRM/LoanAndAdvance');
         } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
             router.push('/HRM/Asset/Vehicle/dashboard');
@@ -618,7 +637,7 @@ export default function Sidebar() {
             return pathname?.startsWith('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
             return pathname?.startsWith('/HRM/Fine');
-        } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
+        } else if (parentId === 'HRM' && (subItem.label === 'Loan and Advance' || subItem.label === 'Loan/Advance')) {
             return pathname?.startsWith('/HRM/LoanAndAdvance');
         } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
             return pathname?.startsWith('/HRM/Asset/Vehicle');
@@ -661,6 +680,19 @@ export default function Sidebar() {
         // Admin sees everything
         if (isAdmin()) {
             return true;
+        }
+
+        // Flowchart AC / Admin Officer: keep HRM visible so Asset → Vehicle / Tools is reachable
+        if (item.id === 'HRM' && assetFlowchartReady) {
+            const vehicleOk = canAccessAssetModuleViaFlowchart(
+                'hrm_asset_vehicle',
+                hasAnyPermission('hrm_asset_vehicle'),
+            );
+            const toolsOk = canAccessAssetModuleViaFlowchart(
+                'hrm_asset_tools',
+                hasAnyPermission('hrm_asset_tools'),
+            );
+            if (vehicleOk || toolsOk) return true;
         }
 
         // Check if user has isView permission for this module
@@ -722,8 +754,12 @@ export default function Sidebar() {
 
         // Match PermissionGuard / route access: any view on this module OR on descendants (e.g. hrm_company_list).
         // Groups often grant only child keys (hrm_company_*) without a row for the parent hrm_company.
+        // Flowchart Asset Controller / Admin Officer bypass Vehicle + Tools group perms.
         if (subItem.permissionModule) {
-            return hasAnyPermission(subItem.permissionModule);
+            return canAccessAssetModuleViaFlowchart(
+                subItem.permissionModule,
+                hasAnyPermission(subItem.permissionModule),
+            );
         }
 
         // If no permission module specified, show it by default

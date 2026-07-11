@@ -24,10 +24,10 @@ function HandoverFieldBox({ label, value, accentClass, minHeightPx }) {
     );
 }
 
-export default function VehicleHandoverAssignGrid({ historyEntry, vehicle }) {
+export default function VehicleHandoverAssignGrid({ historyEntry, vehicle, assetHistory = [] }) {
     const fields = useMemo(
-        () => buildVehicleHandoverAssignGridFields(historyEntry, vehicle),
-        [historyEntry, vehicle],
+        () => buildVehicleHandoverAssignGridFields(historyEntry, vehicle, { assetHistory }),
+        [historyEntry, vehicle, assetHistory],
     );
 
     const isInspection = isVehicleInspectionHandoverEntry(historyEntry, vehicle);

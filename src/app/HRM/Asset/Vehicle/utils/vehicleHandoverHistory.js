@@ -21,8 +21,6 @@ const HANDOVER_ACTIONS_REQUIRING_ASSIGNEE = new Set([
     'Rejected',
 ]);
 
-const STATUS_SORT_ORDER = { incomplete: 0, pending: 1, accepted: 2, approved: 3, rejected: 4 };
-
 const STATUS_PENDING = {
     key: 'pending',
     label: 'Pending',
@@ -318,7 +316,22 @@ export function getHandoverByLabel(entry, vehicle = null) {
     }
 
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
-        // Inspection / reinspection: Handover By is always empty.
+        // Reinspection: By = To = assigned owner, else Admin Officer.
+        if (isVehicleReinspectionHandoverEntry(entry)) {
+            const frozenBy = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
+            if (frozenBy) return frozenBy;
+            const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
+            if (frozenTo) return frozenTo;
+            const liveAssignee = fmtHandoverPerson(vehicle?.assignedTo);
+            if (liveAssignee) return liveAssignee;
+            const assignee = fmtHandoverPerson(entry?.assignedTo);
+            if (assignee) return assignee;
+            const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
+            const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
+            if (fromStage !== '—') return fromStage;
+            return '—';
+        }
+        // First inspection: Handover By stays empty.
         return '—';
     }
 
@@ -372,8 +385,13 @@ export function getHandoverToLabel(entry, vehicle = null) {
 
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
         // Inspection / reinspection: To = assigned owner, else Admin Officer.
+        // Reinspection By uses the same person (see getHandoverByLabel).
         const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
         if (frozenTo) return frozenTo;
+        if (isVehicleReinspectionHandoverEntry(entry)) {
+            const liveAssignee = fmtHandoverPerson(vehicle?.assignedTo);
+            if (liveAssignee) return liveAssignee;
+        }
         const assignee = fmtHandoverPerson(entry?.assignedTo);
         if (assignee) return assignee;
         const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
@@ -456,15 +474,71 @@ export function getHandoverReason(entry, vehicle = null) {
     return '-';
 }
 
+/** Table Type: Assign | Reassign | Return | Inspection | Reinspection */
+export function getHandoverTypeLabel(entry, vehicle = null) {
+    if (isVehicleReinspectionHandoverEntry(entry)) return 'Reinspection';
+    if (isVehicleInspectionHandoverEntry(entry, vehicle)) return 'Inspection';
+
+    const action = String(entry?.action || '').trim();
+    if (
+        isVehicleReturnHandoverEntry(entry, vehicle) ||
+        action === 'Returned' ||
+        action === 'Unassigned'
+    ) {
+        return 'Return';
+    }
+
+    const workflow = entry?.details?.vehicleHandoverWorkflow;
+    if (workflow?.wasAssignedFromPool === true) return 'Assign';
+    if (workflow?.previousAssigneeId) return 'Reassign';
+    if (workflow?.wasAssignedFromPool === false) return 'Reassign';
+
+    return 'Assign';
+}
+
+/** Assignment / handover start date (row created). */
+export function getHandoverStartDate(entry) {
+    return entry?.date || entry?.createdAt || null;
+}
+
+/**
+ * End date = HR / final approval date when the handover is approved.
+ * Pending / incomplete / rejected / mid-flow accepted rows have no end date.
+ */
+export function getHandoverEndDate(entry, vehicle = null) {
+    const status = getHandoverDisplayStatus(entry, vehicle);
+    if (status.key !== 'approved') return null;
+
+    const details = entry?.details || {};
+    const candidates = [
+        details.handoverHrApprovedAt,
+        details.vehicleHandoverWorkflow?.stages?.hr?.date,
+        details.vehicleHandoverWorkflow?.stages?.management?.date,
+        details.inspectionApprovedAt,
+        details.approvedAt,
+        entry?.date,
+        entry?.updatedAt,
+        entry?.createdAt,
+    ];
+
+    for (const value of candidates) {
+        if (!value) continue;
+        const date = new Date(value);
+        if (!Number.isNaN(date.getTime())) return value;
+    }
+    return null;
+}
+
+/** Latest handover first, oldest last (by start date / createdAt). */
 export function sortHandoverHistoryEntries(entries = []) {
     return [...entries].sort((a, b) => {
-        const timeA = new Date(a?.date || a?.createdAt || 0).getTime();
-        const timeB = new Date(b?.date || b?.createdAt || 0).getTime();
+        const timeA = new Date(a?.createdAt || a?.date || 0).getTime();
+        const timeB = new Date(b?.createdAt || b?.date || 0).getTime();
         if (timeA !== timeB) return timeB - timeA;
 
-        const statusA = STATUS_SORT_ORDER[getHandoverHistoryStatus(a).key] ?? 9;
-        const statusB = STATUS_SORT_ORDER[getHandoverHistoryStatus(b).key] ?? 9;
-        if (statusA !== statusB) return statusA - statusB;
+        const startA = new Date(getHandoverStartDate(a) || 0).getTime();
+        const startB = new Date(getHandoverStartDate(b) || 0).getTime();
+        if (startA !== startB) return startB - startA;
 
         return String(b?._id || '').localeCompare(String(a?._id || ''));
     });

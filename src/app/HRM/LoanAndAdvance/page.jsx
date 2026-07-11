@@ -12,6 +12,11 @@ import { Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import {
+    canAccessAddLoanOrAdvance,
+    canViewAdvanceList,
+    canViewLoanList,
+} from './utils/loanPermissionAccess';
+import {
     AlertDialog,
     AlertDialogAction,
     AlertDialogCancel,
@@ -70,6 +75,10 @@ function LoanPageContent() {
     const [recordToDelete, setRecordToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
+    const showLoanTab = !mounted || canViewLoanList();
+    const showAdvanceTab = !mounted || canViewAdvanceList();
+    const canAdd = mounted && canAccessAddLoanOrAdvance();
+
     const listReturnParams = useMemo(() => ({
         tab: activeTab,
         status: selectedStatus,
@@ -89,6 +98,15 @@ function LoanPageContent() {
         fetchEmployees();
         fetchLoans();
     }, []);
+
+    useEffect(() => {
+        if (!mounted) return;
+        if (activeTab === 'Loan' && !canViewLoanList() && canViewAdvanceList()) {
+            setActiveTab('Advance');
+        } else if (activeTab === 'Advance' && !canViewAdvanceList() && canViewLoanList()) {
+            setActiveTab('Loan');
+        }
+    }, [mounted, activeTab]);
 
     const fetchEmployees = async () => {
         try {
@@ -219,6 +237,7 @@ function LoanPageContent() {
                                 </p>
                             </div>
 
+                            {canAdd ? (
                             <button
                                 onClick={handleAddLoan}
                                 className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
@@ -228,11 +247,13 @@ function LoanPageContent() {
                                 </svg>
                                 Add Loan/Advance
                             </button>
+                            ) : null}
                         </div>
 
                         {/* Stats Dashboard */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
                             {/* Loan Stats */}
+                            {showLoanTab ? (
                             <div className={`bg-white rounded-xl p-6 border ${activeTab === 'Loan' && selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden`} style={{ height: '320px' }}>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex justify-between items-center">
                                     Loan Statistics
@@ -299,8 +320,10 @@ function LoanPageContent() {
                                     </div>
                                 </div>
                             </div>
+                            ) : null}
 
                             {/* Advance Stats */}
+                            {showAdvanceTab ? (
                             <div className={`bg-white rounded-xl p-6 border ${activeTab === 'Advance' && selectedStatus !== 'All' ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden`} style={{ height: '320px' }}>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex justify-between items-center">
                                     Advance Statistics
@@ -367,11 +390,13 @@ function LoanPageContent() {
                                     </div>
                                 </div>
                             </div>
+                            ) : null}
                         </div>
 
                         {/* Tabs */}
                         <div className="flex items-center justify-between mb-6">
                             <div className="flex gap-4">
+                                {showLoanTab ? (
                                 <button
                                     onClick={() => { setActiveTab('Loan'); setSelectedStatus('All'); }}
                                     className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'Loan'
@@ -381,6 +406,8 @@ function LoanPageContent() {
                                 >
                                     Loan List
                                 </button>
+                                ) : null}
+                                {showAdvanceTab ? (
                                 <button
                                     onClick={() => { setActiveTab('Advance'); setSelectedStatus('All'); }}
                                     className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'Advance'
@@ -390,6 +417,7 @@ function LoanPageContent() {
                                 >
                                     Salary Advance List
                                 </button>
+                                ) : null}
                             </div>
 
                             {selectedStatus !== 'All' && (

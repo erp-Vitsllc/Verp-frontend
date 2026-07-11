@@ -59,17 +59,32 @@ function formatFleetModalRemaining(daysRemaining) {
     return `${n} Days`;
 }
 
+function formatFleetModalDaysCount(days) {
+    if (days == null || !Number.isFinite(Number(days))) return '—';
+    const n = Number(days);
+    if (n === 0) return '0 Days';
+    if (n === 1) return '1 Day';
+    return `${n} Days`;
+}
+
 function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
     if (!open || !bucket) return null;
     const rows = sortFleetModalRows(bucket.docs || []);
-    const showExpiryCols = rows.some(
-        (r) => r?.expiryDate != null || (r?.daysRemaining != null && Number.isFinite(Number(r.daysRemaining))),
-    );
-    const showServiceCount = rows.some((r) => r?.serviceCount != null);
+    const modalKind =
+        bucket.modalKind ||
+        rows.find((r) => r?.modalKind)?.modalKind ||
+        'default';
+    const showExpiryCols =
+        modalKind === 'default' &&
+        rows.some(
+            (r) => r?.expiryDate != null || (r?.daysRemaining != null && Number.isFinite(Number(r.daysRemaining))),
+        );
+    const thClass =
+        'px-4 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100';
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-200">
                 <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 rounded-t-2xl">
                     <div>
                         <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
@@ -97,74 +112,148 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
                         <table className="w-full text-left border-collapse">
                             <thead className="sticky top-0 bg-white z-10 shadow-sm">
                                 <tr>
-                                    <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
-                                        Sl No
-                                    </th>
-                                    <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
-                                        Card Name
-                                    </th>
-                                    <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
-                                        Vehicle No / Plate
-                                    </th>
-                                    {showExpiryCols ? (
+                                    <th className={thClass}>Sl No</th>
+                                    {modalKind === 'assigned' ? (
                                         <>
-                                            <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-center">
-                                                Expiry Date
-                                            </th>
-                                            <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">
-                                                Expires In
-                                            </th>
+                                            <th className={thClass}>Asset ID</th>
+                                            <th className={thClass}>Vehicle Number (Plate)</th>
+                                            <th className={thClass}>Name</th>
+                                            <th className={thClass}>Assigned User</th>
+                                            <th className={`${thClass} text-right`}>No of Days Assigned</th>
                                         </>
                                     ) : null}
-                                    {showServiceCount ? (
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">
-                                            Services
-                                        </th>
+                                    {modalKind === 'unassigned' ? (
+                                        <>
+                                            <th className={thClass}>Asset ID</th>
+                                            <th className={thClass}>Vehicle Number</th>
+                                            <th className={thClass}>Name</th>
+                                            <th className={`${thClass} text-right`}>No of Days Unassigned</th>
+                                        </>
+                                    ) : null}
+                                    {modalKind === 'pendingService' ? (
+                                        <>
+                                            <th className={thClass}>Service Type</th>
+                                            <th className={thClass}>Vehicle No</th>
+                                            <th className={thClass}>Vehicle Assigned User</th>
+                                            <th className={thClass}>Pending For Whom</th>
+                                            <th className={`${thClass} text-right`}>No of Days Service Pending</th>
+                                        </>
+                                    ) : null}
+                                    {modalKind !== 'assigned' &&
+                                    modalKind !== 'unassigned' &&
+                                    modalKind !== 'pendingService' ? (
+                                        <>
+                                            <th className={thClass}>Card Name</th>
+                                            <th className={thClass}>Vehicle No / Plate</th>
+                                            {showExpiryCols ? (
+                                                <>
+                                                    <th className={`${thClass} text-center`}>Expiry Date</th>
+                                                    <th className={`${thClass} text-right`}>Expires In</th>
+                                                </>
+                                            ) : null}
+                                        </>
                                     ) : null}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
                                 {rows.map((row, idx) => (
                                     <tr
-                                        key={`${row.vehicleId || row.assetId || idx}-${row.cardName || ''}-${idx}`}
+                                        key={`${row.vehicleId || row.assetId || idx}-${row.serviceId || row.cardName || ''}-${idx}`}
                                         className="hover:bg-orange-50/50 transition-all border-l-4 border-l-transparent hover:border-l-orange-500 group cursor-pointer"
                                         onClick={() => onRowClick(row)}
                                     >
-                                        <td className="px-6 py-4 text-xs font-bold text-gray-400">
+                                        <td className="px-4 py-4 text-xs font-bold text-gray-400">
                                             {String(idx + 1).padStart(2, '0')}
                                         </td>
-                                        <td className="px-6 py-4">
-                                            <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">
-                                                {row.cardName || '—'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">
-                                            {row.plate || row.assetId || '—'}
-                                        </td>
-                                        {showExpiryCols ? (
+                                        {modalKind === 'assigned' ? (
                                             <>
-                                                <td className="px-6 py-4 text-sm font-medium text-gray-600 text-center">
-                                                    {formatFleetModalExpiryDate(row.expiryDate)}
+                                                <td className="px-4 py-4 text-sm font-semibold text-gray-700">
+                                                    {row.assetId || '—'}
                                                 </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <span
-                                                        className={`text-[11px] font-black px-2 py-1 rounded-full ${
-                                                            Number(row.daysRemaining) < 0
-                                                                ? 'bg-red-600 text-white shadow-sm'
-                                                                : Number(row.daysRemaining) <= 7
-                                                                  ? 'bg-red-100 text-red-600'
-                                                                  : 'bg-orange-100 text-orange-600'
-                                                        }`}
-                                                    >
-                                                        {formatFleetModalRemaining(row.daysRemaining)}
-                                                    </span>
+                                                <td className="px-4 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">
+                                                    {row.plate || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm text-gray-700">
+                                                    {row.vehicleName || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm font-medium text-gray-700">
+                                                    {row.assignedUser || 'Unassigned'}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-black text-gray-700 tabular-nums">
+                                                    {formatFleetModalDaysCount(row.daysAssigned ?? row.daysRemaining)}
                                                 </td>
                                             </>
                                         ) : null}
-                                        {showServiceCount ? (
-                                            <td className="px-6 py-4 text-right text-sm font-black text-gray-700 tabular-nums">
-                                                {row.serviceCount ?? 0}
-                                            </td>
+                                        {modalKind === 'unassigned' ? (
+                                            <>
+                                                <td className="px-4 py-4 text-sm font-semibold text-gray-700">
+                                                    {row.assetId || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">
+                                                    {row.plate || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm text-gray-700">
+                                                    {row.vehicleName || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-black text-gray-700 tabular-nums">
+                                                    {formatFleetModalDaysCount(row.daysUnassigned ?? row.daysRemaining)}
+                                                </td>
+                                            </>
+                                        ) : null}
+                                        {modalKind === 'pendingService' ? (
+                                            <>
+                                                <td className="px-4 py-4">
+                                                    <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-800 text-[10px] font-bold uppercase">
+                                                        {row.serviceType || row.cardName || 'Service'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">
+                                                    {row.plate || row.assetId || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm font-medium text-gray-700">
+                                                    {row.assignedUser || 'Unassigned'}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm font-semibold text-teal-700">
+                                                    {row.pendingForWhom || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-black text-gray-700 tabular-nums">
+                                                    {formatFleetModalDaysCount(row.daysPending ?? row.daysRemaining)}
+                                                </td>
+                                            </>
+                                        ) : null}
+                                        {modalKind !== 'assigned' &&
+                                        modalKind !== 'unassigned' &&
+                                        modalKind !== 'pendingService' ? (
+                                            <>
+                                                <td className="px-4 py-4">
+                                                    <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">
+                                                        {row.cardName || '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">
+                                                    {row.plate || row.assetId || '—'}
+                                                </td>
+                                                {showExpiryCols ? (
+                                                    <>
+                                                        <td className="px-4 py-4 text-sm font-medium text-gray-600 text-center">
+                                                            {formatFleetModalExpiryDate(row.expiryDate)}
+                                                        </td>
+                                                        <td className="px-4 py-4 text-right">
+                                                            <span
+                                                                className={`text-[11px] font-black px-2 py-1 rounded-full ${
+                                                                    Number(row.daysRemaining) < 0
+                                                                        ? 'bg-red-600 text-white shadow-sm'
+                                                                        : Number(row.daysRemaining) <= 7
+                                                                          ? 'bg-red-100 text-red-600'
+                                                                          : 'bg-orange-100 text-orange-600'
+                                                                }`}
+                                                            >
+                                                                {formatFleetModalRemaining(row.daysRemaining)}
+                                                            </span>
+                                                        </td>
+                                                    </>
+                                                ) : null}
+                                            </>
                                         ) : null}
                                     </tr>
                                 ))}
@@ -1152,6 +1241,7 @@ export default function VehicleFleetDashboard({
                                         openDetailModal({
                                             name: 'Assigned',
                                             title: 'Assigned vehicles',
+                                            modalKind: 'assigned',
                                             docs: vs.assignedRows || [],
                                         }),
                                 },
@@ -1172,16 +1262,18 @@ export default function VehicleFleetDashboard({
                                         openDetailModal({
                                             name: 'Unassigned',
                                             title: 'Unassigned vehicles',
+                                            modalKind: 'unassigned',
                                             docs: vs.unassignedRows || [],
                                         }),
                                 },
                                 {
-                                    label: 'Total service no',
+                                    label: 'Total service pending',
                                     value: vs.totalServices ?? 0,
                                     onClick: () =>
                                         openDetailModal({
-                                            name: 'Total service no',
-                                            title: 'Vehicles with service records',
+                                            name: 'Total service pending',
+                                            title: 'Pending service requests',
+                                            modalKind: 'pendingService',
                                             docs: vs.totalServiceRows || [],
                                         }),
                                 },
