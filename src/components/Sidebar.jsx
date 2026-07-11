@@ -179,6 +179,14 @@ const menuItems = [
     },
 ];
 
+function isVehicleSidebarItem(label) {
+    return label === 'Vehicle' || label === 'Vehicle Asset';
+}
+
+function isToolsAssetSidebarItem(label) {
+    return label === 'Tools Asset' || label === 'Tools Assets';
+}
+
 /**
  * Path for real links so right-click / middle-click get standard browser behavior (e.g. Open in new tab).
  * Returns null for expand-only rows, Logout, and items with no route wired in the sidebar.
@@ -193,9 +201,9 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Reward') return '/HRM/Reward';
         if (label === 'Fine') return '/HRM/Fine';
         if (label === 'Loan and Advance' || label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
-        if (label === 'Vehicle Asset') return '/HRM/Asset/Vehicle/dashboard';
+        if (isVehicleSidebarItem(label)) return '/HRM/Asset/Vehicle/dashboard';
         if (label === 'Telecommunication') return '/HRM/Asset/Telecommunication';
-        if (label === 'Tools Assets') return '/HRM/Asset';
+        if (isToolsAssetSidebarItem(label)) return '/HRM/Asset';
         if (label === 'Company') return '/Company';
     }
     if (parentId === 'Settings') {
@@ -451,8 +459,8 @@ export default function Sidebar() {
             if (label === 'Employees') return sidebarCounts.employee;
             if (label === 'Fine') return sidebarCounts.fine;
             if (label === 'Asset') return (sidebarCounts.vehicleAsset || 0) + (sidebarCounts.toolsAsset || 0);
-            if (label === 'Vehicle Asset') return sidebarCounts.vehicleAsset;
-            if (label === 'Tools Assets') return sidebarCounts.toolsAsset;
+            if (isVehicleSidebarItem(label)) return sidebarCounts.vehicleAsset;
+            if (isToolsAssetSidebarItem(label)) return sidebarCounts.toolsAsset;
             return 0;
         }
         if (parentId === 'Accounts' && label === 'Payments') return sidebarCounts.payments;
@@ -599,11 +607,11 @@ export default function Sidebar() {
             router.push('/HRM/Fine');
         } else if (parentId === 'HRM' && (subItem.label === 'Loan and Advance' || subItem.label === 'Loan/Advance')) {
             router.push('/HRM/LoanAndAdvance');
-        } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
+        } else if (parentId === 'HRM' && isVehicleSidebarItem(subItem.label)) {
             router.push('/HRM/Asset/Vehicle/dashboard');
         } else if (parentId === 'HRM' && subItem.label === 'Telecommunication') {
             router.push('/HRM/Asset/Telecommunication');
-        } else if (parentId === 'HRM' && subItem.label === 'Tools Assets') {
+        } else if (parentId === 'HRM' && isToolsAssetSidebarItem(subItem.label)) {
             router.push('/HRM/Asset');
         } else if (parentId === 'Settings' && subItem.label === 'User') {
             router.push('/Settings/User');
@@ -639,12 +647,12 @@ export default function Sidebar() {
             return pathname?.startsWith('/HRM/Fine');
         } else if (parentId === 'HRM' && (subItem.label === 'Loan and Advance' || subItem.label === 'Loan/Advance')) {
             return pathname?.startsWith('/HRM/LoanAndAdvance');
-        } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
+        } else if (parentId === 'HRM' && isVehicleSidebarItem(subItem.label)) {
             return pathname?.startsWith('/HRM/Asset/Vehicle');
         } else if (parentId === 'HRM' && subItem.label === 'Telecommunication') {
             return pathname?.startsWith('/HRM/Asset/Telecommunication');
-        } else if (parentId === 'HRM' && subItem.label === 'Tools Assets') {
-            return pathname === '/HRM/Asset';
+        } else if (parentId === 'HRM' && isToolsAssetSidebarItem(subItem.label)) {
+            return pathname === '/HRM/Asset' || pathname?.startsWith('/HRM/Asset/details');
         } else if (parentId === 'Settings' && subItem.label === 'User') {
             return pathname?.startsWith('/Settings/User');
         } else if (parentId === 'Settings' && subItem.label === 'Group') {
