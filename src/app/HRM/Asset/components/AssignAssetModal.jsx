@@ -685,7 +685,7 @@ export default function AssignAssetModal({
                                         const statusLower = status.toLowerCase();
                                         const isReassign = ['Assigned', 'Returned', 'Service', 'On Service', 'Waiting for Service', 'Maintenance'].includes(status)
                                             || ['service', 'on service', 'waiting for service', 'maintenance'].includes(statusLower);
-                                        if (!isReassign) return isVehicleAssignment ? 'Add Vehicle' : 'Add Asset';
+                                        if (!isReassign) return isVehicleAssignment ? 'Assign Vehicle' : 'Assign Asset';
                                         if (formData.assignmentType !== 'Temporary') return 'Reassign';
                                         const d = Number(formData.assignedDays);
                                         if (!Number.isFinite(d) || d < 1) return 'Reassign';
