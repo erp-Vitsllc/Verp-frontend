@@ -12,7 +12,8 @@ import {
     canAdminDeleteActivatedVehicleRecord,
     isVehicleProfileActivationActive,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAdminDeleteAccess';
-import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessCreateService } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessCreateService, canEditVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+
 import {
     AlertDialog,
     AlertDialogAction,
@@ -376,7 +377,7 @@ export default function VehicleAssetPage() {
 
     const isFleetAdmin = mounted && isAdmin();
     const canEditInactiveVehicleFromList =
-        mounted && (isAdmin() || hasPermission('hrm_asset_vehicle_list', 'isEdit'));
+        mounted && (isAdmin() || canEditVehicleAsset());
     const showVehicleRowActions = canEditInactiveVehicleFromList || isFleetAdmin;
     const tableColSpan = showVehicleRowActions ? 9 : 8;
 

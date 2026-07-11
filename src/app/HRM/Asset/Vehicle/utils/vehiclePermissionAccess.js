@@ -18,6 +18,15 @@ function canOpenVehicleModule() {
     return isAdmin() || isFlowchartAssetModuleOverride();
 }
 
+/** Add Vehicle row carries Create/Edit/Delete/Download for vehicle asset cards. */
+function withAddVehicleWriteAccess(moduleIds) {
+    const ids = Array.isArray(moduleIds) ? [...moduleIds] : [];
+    if (!ids.includes('hrm_asset_vehicle_add')) {
+        ids.push('hrm_asset_vehicle_add');
+    }
+    return crudAccessUnion(ids);
+}
+
 export function vehicleTabVisible(tabId) {
     if (isAdmin()) return true;
     const modules = VEHICLE_MAIN_TAB_MODULES[tabId];
@@ -31,7 +40,7 @@ export function vehicleCardCrud(cardKey) {
         return { view: true, create: true, edit: true, delete: true, download: true };
     }
     const modules = VEHICLE_BASIC_CARD_MODULES[cardKey] || ['hrm_asset_vehicle'];
-    return crudAccessUnion(modules);
+    return withAddVehicleWriteAccess(modules);
 }
 
 export function vehicleDocumentInnerTabVisible(innerTab) {
@@ -74,6 +83,15 @@ export function canAccessAddVehicle() {
         hasPermission('hrm_asset_vehicle_add', 'isEdit') ||
         hasPermission('hrm_asset_vehicle_add', 'isDelete') ||
         hasPermission('hrm_asset_vehicle_add', 'isDownload')
+    );
+}
+
+/** Edit existing vehicle assets (list + profile cards) — uses Add Vehicle Edit. */
+export function canEditVehicleAsset() {
+    return (
+        isAdmin() ||
+        hasPermission('hrm_asset_vehicle_add', 'isEdit') ||
+        hasPermission('hrm_asset_vehicle', 'isEdit')
     );
 }
 
@@ -123,10 +141,10 @@ export function canAccessVehicleServiceRequests() {
 }
 
 export function vehiclePermitCardCrud() {
-    return crudAccessUnion(['hrm_asset_vehicle']);
+    return withAddVehicleWriteAccess(['hrm_asset_vehicle']);
 }
 
 export function vehicleTabCrud(tabId) {
     const modules = VEHICLE_MAIN_TAB_MODULES[tabId] || ['hrm_asset_vehicle'];
-    return crudAccessUnion(modules);
+    return withAddVehicleWriteAccess(modules);
 }

@@ -2577,7 +2577,9 @@ function VehicleDetailsPageContent() {
             checkIsAdmin() ||
             currentUser?.isAdministrator === true ||
             (permissionsMounted &&
-                (hasPermission('hrm_asset', 'isEdit') || hasPermission('hrm_asset_vehicle', 'isEdit'))));
+                (hasPermission('hrm_asset', 'isEdit') ||
+                    hasPermission('hrm_asset_vehicle', 'isEdit') ||
+                    hasPermission('hrm_asset_vehicle_add', 'isEdit'))));
 
     const openApproveVehicleProfileEdit = () => {
         setConfirmDialog({
