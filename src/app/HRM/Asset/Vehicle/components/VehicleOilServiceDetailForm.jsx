@@ -13,6 +13,7 @@ import {
     OIL_SERVICE_DETAIL_GRID_ACCENTS,
     OIL_SERVICE_DETAIL_GRID_LAYOUT,
 } from '../utils/vehicleOilServiceDetailGrid';
+import { formatVehicleServiceReqNo } from '../utils/vehicleServiceReqNo';
 import {
     isOilServiceAssignmentPending,
 } from '../utils/vehicleOilServiceAccess';
@@ -27,6 +28,7 @@ import {
     getOilServiceDetailFormMissingFields,
 } from '../utils/vehicleOilServiceDetailForm';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
 
 const PDF_MIME_TYPES = ['application/pdf'];
@@ -387,6 +389,11 @@ export default function VehicleOilServiceDetailForm({
         };
     }, []);
 
+    const licensedEmployees = useDrivingLicenseHolders({
+        preserveEmployeeId: formData.carDrivenByEmployeeId,
+        sourceEmployees: employees,
+    });
+
     const set = useCallback((key, value) => {
         setFormData((prev) => {
             const next = { ...prev, [key]: value };
@@ -398,7 +405,7 @@ export default function VehicleOilServiceDetailForm({
     }, []);
 
     const warrantyExpiryLabel = formatWarrantyExpiryFromAsset(asset);
-    const serviceReqNo = String(service?._id || '').slice(-8) || asset?.assetId || '—';
+    const serviceReqNo = formatVehicleServiceReqNo(service, asset);
     const isSuperUser = mounted && isSystemSuperUser();
 
     const vehicleAssignedLabel = useMemo(() => {
@@ -558,7 +565,7 @@ export default function VehicleOilServiceDetailForm({
         onDraftStateChange({ canRequest, requesting: saving });
     }, [canRequest, onDraftStateChange, saving]);
 
-    const employeeOptions = employees.map((emp) => (
+    const employeeOptions = licensedEmployees.map((emp) => (
         <option key={emp._id} value={String(emp._id)}>
             {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
         </option>
@@ -674,7 +681,7 @@ export default function VehicleOilServiceDetailForm({
                             onChange={(e) => set('carDrivenByEmployeeId', e.target.value)}
                             disabled={fieldsDisabled}
                         >
-                            <option value="">Select employee</option>
+                            <option value="">Select employee with driving license</option>
                             {employeeOptions}
                         </select>
                     </FormFieldCell>

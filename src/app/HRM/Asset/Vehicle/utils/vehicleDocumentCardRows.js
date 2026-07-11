@@ -7,8 +7,35 @@ export const vehicleDocDateKey = (value) => {
     return t.toISOString().slice(0, 10);
 };
 
+/** Prefer description.text when description is JSON metadata (e.g. after renew). */
+const descriptionDisplayLabel = (doc, fallback = '') => {
+    const raw = doc?.description;
+    if (raw == null || raw === '') return String(doc?.name || fallback || '').trim() || fallback;
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith('{')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    return (
+                        String(parsed.text || parsed.label || parsed.name || '').trim() ||
+                        String(doc?.name || fallback || '').trim() ||
+                        fallback
+                    );
+                }
+            } catch {
+                /* plain string */
+            }
+        }
+        return trimmed || String(doc?.name || fallback || '').trim() || fallback;
+    }
+    return String(doc?.name || fallback || '').trim() || fallback;
+};
+
 export const isInsuranceInvoiceAttachmentLabel = (doc) =>
-    String(doc?.description || doc?.name || '').toLowerCase().includes('invoice');
+    descriptionDisplayLabel(doc, String(doc?.description || doc?.name || ''))
+        .toLowerCase()
+        .includes('invoice');
 
 export const isInvoiceDocumentLabel = (labelOrDoc) =>
     isInsuranceInvoiceAttachmentLabel(
@@ -91,11 +118,19 @@ const attachmentLabelForDoc = (doc, fallback = 'Attachment') => {
     if (t === 'registration') return 'Registration';
     if (t === 'warranty') return 'Warranty';
     if (t === 'permit') return 'Permit';
-    if (t === 'insurance attachment') return String(doc?.description || 'Insurance Attachment').trim() || 'Insurance Attachment';
-    if (t === 'registration attachment') return String(doc?.description || 'Supporting').trim() || 'Supporting';
-    if (t === 'warranty attachment') return String(doc?.description || 'Warranty Attachment').trim() || 'Warranty Attachment';
-    if (t === 'permit attachment') return String(doc?.description || 'Permit Attachment').trim() || 'Permit Attachment';
-    return String(doc?.description || doc?.type || fallback).trim() || fallback;
+    if (t === 'insurance attachment') {
+        return descriptionDisplayLabel(doc, 'Insurance Attachment');
+    }
+    if (t === 'registration attachment') {
+        return descriptionDisplayLabel(doc, 'Supporting');
+    }
+    if (t === 'warranty attachment') {
+        return descriptionDisplayLabel(doc, 'Warranty Attachment');
+    }
+    if (t === 'permit attachment') {
+        return descriptionDisplayLabel(doc, 'Permit Attachment');
+    }
+    return descriptionDisplayLabel(doc, String(doc?.type || fallback).trim() || fallback);
 };
 
 export const buildDocumentAttachmentItems = (primaryDoc, attachmentDocs = []) => {

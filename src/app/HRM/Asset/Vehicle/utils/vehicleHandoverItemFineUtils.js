@@ -22,6 +22,15 @@ export const HANDOVER_DAMAGE_FINE_MODAL_PROPS = {
     allowMultipleImages: true,
 };
 
+/** Payload fields so handover fines always classify as Vehicle Damage. */
+export function buildHandoverVehicleDamageFineTypeFields() {
+    return {
+        category: HANDOVER_DAMAGE_FINE_MODAL_PROPS.fineCategory,
+        subCategory: HANDOVER_DAMAGE_FINE_MODAL_PROPS.fineTypeName,
+        fineType: HANDOVER_DAMAGE_FINE_MODAL_PROPS.fineTypeName,
+    };
+}
+
 function formatHandoverPresentLabel(value) {
     if (value === true) return 'Present';
     if (value === false) return 'Not present';
@@ -231,9 +240,29 @@ export function indexHandoverItemFineWaivers(historyEntry) {
     return index;
 }
 
+export function indexHandoverItemFineInclusions(historyEntry) {
+    const index = {};
+    const list = historyEntry?.details?.handoverItemFineInclusions;
+    if (!Array.isArray(list)) return index;
+
+    list.forEach((entry) => {
+        const itemType = String(entry?.itemType || '').trim();
+        const itemKey = String(entry?.itemKey || '').trim();
+        if (!itemType || !itemKey) return;
+        index[buildHandoverItemFineKey(itemType, itemKey)] = true;
+    });
+
+    return index;
+}
+
 export function isHandoverItemFineWaived(waiverIndex, itemType, itemKey) {
     if (!waiverIndex || !itemType || !itemKey) return false;
     return Boolean(waiverIndex[buildHandoverItemFineKey(itemType, itemKey)]);
+}
+
+export function isHandoverItemFineIncluded(inclusionIndex, itemType, itemKey) {
+    if (!inclusionIndex || !itemType || !itemKey) return false;
+    return Boolean(inclusionIndex[buildHandoverItemFineKey(itemType, itemKey)]);
 }
 
 /** Display amount from the linked handover item fine when present. */
@@ -311,6 +340,7 @@ export function buildHandoverItemFineInitialData({
         assetId: vehicle?.assetId || '',
         employeeId,
         assignedEmployees: employeeId ? [{ employeeId }] : [],
+        ...buildHandoverVehicleDamageFineTypeFields(),
         handoverApprovalContext: {
             historyId: historyEntry?._id ? String(historyEntry._id) : null,
             vehicleId: vehicle?._id ? String(vehicle._id) : null,
@@ -598,10 +628,12 @@ export function resolveHandoverItemVisualStatus({
     changed,
     hasFine,
     isWaived = false,
+    isIncluded = false,
     hasBaseline = true,
     acceptedWithoutFine = false,
 }) {
-    if (hasFine) return 'fined';
+    if (isWaived) return 'unchanged';
+    if (hasFine || isIncluded) return 'fined';
     if (acceptedWithoutFine && changed && hasBaseline) return 'unchanged';
     if (changed && hasBaseline) return 'changed';
     if (hasBaseline && !changed) return 'unchanged';
@@ -613,18 +645,130 @@ export function shouldShowHandoverItemFineActions({
     changed = false,
     hasFine = false,
     isWaived = false,
+    isIncluded = false,
 } = {}) {
     if (!canManageItemFines) return false;
-    return changed || hasFine || isWaived;
+    return changed || hasFine || isWaived || isIncluded;
 }
 
-export async function updateHandoverItemFineWaiver(axiosInstance, historyId, { itemType, itemKey, waived }) {
+/** Changed / fined cards that still need an HR include/exclude decision. */
+export function listHandoverApprovalFineDecisionItems({
+    vehicle,
+    historyEntry,
+    assetHistory = [],
+    handoverItemFineIndex = {},
+    handoverItemFineWaiverIndex = {},
+    handoverItemFineInclusionIndex = {},
+} = {}) {
+    if (!historyEntry) return [];
+
+    const bodyForm = buildBodyConditionEditableFormState(historyEntry, {
+        assetHistory,
+        currentEntry: historyEntry,
+    });
+    const bodyComparisons = buildBodyConditionComparisonRows(historyEntry, assetHistory);
+    const bodyComparisonByKey = Object.fromEntries(bodyComparisons.map((row) => [row.key, row]));
+    const accessoryComparisons = buildAssessmentComparisonRows(historyEntry, assetHistory, vehicle);
+    const accessoryComparisonByKey = Object.fromEntries(
+        accessoryComparisons.map((row) => [row.key, row]),
+    );
+
+    const items = [];
+
+    BODY_CONDITION_VIEW_FIELDS.forEach((view) => {
+        const existingFine = resolveHandoverItemFine(handoverItemFineIndex, 'body', view.key);
+        const isWaived = isHandoverItemFineWaived(handoverItemFineWaiverIndex, 'body', view.key);
+        const isIncluded = isHandoverItemFineIncluded(
+            handoverItemFineInclusionIndex,
+            'body',
+            view.key,
+        );
+        const formRow = bodyForm[view.key] || {};
+        const comparison = bodyComparisonByKey[view.key] || {};
+        const hasPreviousBaseline =
+            hasAssessmentPhoto(comparison.previous?.photo) || Boolean(comparison.previous?.photoUrl);
+        const hasCurrentPhoto = hasAssessmentPhoto(formRow.photo);
+        const rawChanged =
+            hasCurrentPhoto &&
+            formRow.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
+            hasPreviousBaseline;
+        const changed = resolveHandoverComparisonChanged(rawChanged, historyEntry);
+
+        if (!changed && !existingFine && !isIncluded && !isWaived) return;
+
+        items.push({
+            itemType: 'body',
+            itemKey: view.key,
+            itemLabel: view.label,
+            changed,
+            hasFine: Boolean(existingFine),
+            isWaived,
+            isIncluded: isIncluded || Boolean(existingFine),
+            decided: isWaived || isIncluded || Boolean(existingFine),
+            needsDecision: Boolean(changed || existingFine || isIncluded || isWaived),
+            existingFine,
+            formRow,
+            comparison,
+        });
+    });
+
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const existingFine = resolveHandoverItemFine(handoverItemFineIndex, 'accessory', item.key);
+        const isWaived = isHandoverItemFineWaived(handoverItemFineWaiverIndex, 'accessory', item.key);
+        const isIncluded = isHandoverItemFineIncluded(
+            handoverItemFineInclusionIndex,
+            'accessory',
+            item.key,
+        );
+        const comparison = accessoryComparisonByKey[item.key] || {};
+        const changed = resolveHandoverComparisonChanged(comparison.changed, historyEntry);
+
+        if (!changed && !existingFine && !isIncluded && !isWaived) return;
+
+        items.push({
+            itemType: 'accessory',
+            itemKey: item.key,
+            itemLabel: item.label,
+            changed,
+            hasFine: Boolean(existingFine),
+            isWaived,
+            isIncluded: isIncluded || Boolean(existingFine),
+            decided: isWaived || isIncluded || Boolean(existingFine),
+            needsDecision: Boolean(changed || existingFine || isIncluded || isWaived),
+            existingFine,
+            comparison,
+        });
+    });
+
+    return items.filter((row) => row.needsDecision);
+}
+
+export function areAllHandoverFineItemsDecided(args) {
+    const items = listHandoverApprovalFineDecisionItems(args);
+    if (!items.length) return true;
+    return items.every((row) => row.decided);
+}
+
+export function listIncludedHandoverFineItems(args) {
+    return listHandoverApprovalFineDecisionItems(args).filter(
+        (row) => row.isIncluded && !row.isWaived,
+    );
+}
+
+export async function updateHandoverItemFineWaiver(axiosInstance, historyId, { itemType, itemKey, waived, decision }) {
     if (!historyId || String(historyId).startsWith('live-')) {
         throw new Error('Save the handover record before updating item fines.');
     }
+    const body = { itemType, itemKey };
+    if (decision === 'include' || decision === 'exclude') {
+        body.decision = decision;
+    } else {
+        body.waived = Boolean(waived);
+        if (waived === false) body.included = true;
+    }
     const { data } = await axiosInstance.put(
         `/AssetItem/history-record/${historyId}/handover-item-fine-waiver`,
-        { itemType, itemKey, waived: Boolean(waived) },
+        body,
         { skipActionDedupe: true },
     );
     return data;
@@ -633,10 +777,10 @@ export async function updateHandoverItemFineWaiver(axiosInstance, historyId, { i
 export function handoverItemVisualClasses(status) {
     if (status === 'fined') {
         return {
-            card: 'border-2 border-amber-400 bg-amber-50/30 shadow-sm shadow-amber-100',
-            frame: 'ring-2 ring-amber-400 ring-offset-1',
-            badge: 'bg-amber-100 text-amber-800',
-            badgeLabel: 'In Fine',
+            card: 'border-2 border-red-400 bg-red-50/30 shadow-sm shadow-red-100',
+            frame: 'ring-2 ring-red-400 ring-offset-1',
+            badge: 'bg-red-100 text-red-700',
+            badgeLabel: 'Added in fine',
         };
     }
     if (status === 'changed') {

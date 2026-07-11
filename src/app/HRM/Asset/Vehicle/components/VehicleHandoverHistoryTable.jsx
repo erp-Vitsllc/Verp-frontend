@@ -43,8 +43,9 @@ export default function VehicleHandoverHistoryTable({
 
     const openAssignDetail = (entry) => {
         const vehicleId = asset?._id;
-        const assignId = entry?._id;
-        if (!vehicleId || !assignId) return;
+        if (!vehicleId || !entry?._id) return;
+        const assignId =
+            resolveHandoverDeleteHistoryId(entry, asset, assetHistory) || entry._id;
         router.push(`/HRM/Asset/Vehicle/details/${vehicleId}/assign/${assignId}`);
     };
 

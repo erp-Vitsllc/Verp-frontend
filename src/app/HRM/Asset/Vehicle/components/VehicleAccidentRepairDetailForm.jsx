@@ -17,6 +17,7 @@ import VehicleCarDrivenBySelect from './VehicleCarDrivenBySelect';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import { formatDisplayDate } from './VehicleAccidentRepairForm';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
+import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import {
     buildAccidentRepairDetailFormState,
@@ -248,6 +249,11 @@ export default function VehicleAccidentRepairDetailForm({
             active = false;
         };
     }, []);
+
+    const licensedEmployees = useDrivingLicenseHolders({
+        preserveEmployeeId: formData.carDrivenByEmployeeId,
+        sourceEmployees: employees,
+    });
 
     useEffect(() => {
         if (!asset?.documents) return;
@@ -658,11 +664,11 @@ export default function VehicleAccidentRepairDetailForm({
                         >
                             <VehicleCarDrivenBySelect
                                 formData={formData}
-                                employees={employees}
+                                employees={licensedEmployees}
                                 companies={companies}
                                 disabled={fieldsDisabled}
                                 className={tireFieldSelect}
-                                placeholder="Select"
+                                placeholder="Select employee with driving license"
                                 onChange={(selection) => {
                                     setFormData((prev) =>
                                         applyCarDrivenBySelection(prev, selection, { companies }),

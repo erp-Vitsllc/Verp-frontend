@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2, X, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
@@ -46,17 +47,6 @@ export default function VehicleWarrantyModal({
     });
 
     const [errors, setErrors] = useState({});
-
-    const vendorOptions = [
-        'Al Futtaim Motors',
-        'AGMC',
-        'Emirates Motor Company',
-        'Dynatrade',
-        'Galadari Automobiles',
-        'Arabian Automobiles',
-        'Premier Car Care',
-        'Habtoor Motors',
-    ];
 
     const coverageOptions = [
         { id: 'Engine', label: 'Engine' },
@@ -414,19 +404,17 @@ export default function VehicleWarrantyModal({
                         <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">
                             Warranty By <span className="text-red-500">*</span>
                         </label>
-                        <select
+                        <ZohoVendorSelect
                             value={formData.warrantyBy}
-                            onChange={(e) => setFormData((p) => ({ ...p, warrantyBy: e.target.value }))}
-                            className={`${fieldInput} ${errors.warrantyBy ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
+                            onChange={(nextValue) =>
+                                setFormData((p) => ({ ...p, warrantyBy: nextValue }))
+                            }
                             disabled={loading}
-                        >
-                            <option value="">Select vendor...</option>
-                            {vendorOptions.map((v) => (
-                                <option key={v} value={v}>
-                                    {v}
-                                </option>
-                            ))}
-                        </select>
+                            className={errors.warrantyBy ? '[&_.zoho-vendor__control]:border-red-400' : ''}
+                            placeholder="Select vendor..."
+                            emptyLabel="No warranty vendors found"
+                            enabled={isOpen}
+                        />
                         {errors.warrantyBy && (
                             <p className="text-[11px] font-medium text-red-500 mt-1">{errors.warrantyBy}</p>
                         )}

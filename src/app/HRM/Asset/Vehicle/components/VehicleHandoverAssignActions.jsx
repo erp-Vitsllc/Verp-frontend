@@ -22,7 +22,11 @@ import {
     isHandoverReportsCompleteForEntry,
     mergeHandoverHistoryAfterHrApproval,
 } from '../utils/vehicleHandoverAssignActions';
-import { hasHandoverApprovalFineItems } from '../utils/vehicleHandoverItemFineUtils';
+import {
+    areAllHandoverFineItemsDecided,
+    listHandoverApprovalFineDecisionItems,
+    listIncludedHandoverFineItems,
+} from '../utils/vehicleHandoverItemFineUtils';
 
 const ACTION_BOX =
     'flex min-h-[44px] flex-1 items-center justify-between rounded-lg border px-4 py-2 transition-all';
@@ -35,12 +39,13 @@ export default function VehicleHandoverAssignActions({
     assetHistory = [],
     handoverItemFines = {},
     handoverItemFineWaivers = {},
+    handoverItemFineInclusions = {},
     onVehicleUpdated,
     onHistoryUpdated,
     onResponded,
     canApprove = false,
     isHrStage = false,
-    onApproveWithFine,
+    onApproveWithIncludedFines,
     onScrollToAssessment,
     className = '',
     hideWhenInactive = false,
@@ -58,39 +63,69 @@ export default function VehicleHandoverAssignActions({
         () => isHandoverReportsCompleteForEntry(historyEntry, vehicle),
         [historyEntry, vehicle],
     );
+
+    const fineDecisionArgs = useMemo(
+        () => ({
+            vehicle,
+            historyEntry,
+            assetHistory,
+            handoverItemFineIndex: handoverItemFines,
+            handoverItemFineWaiverIndex: handoverItemFineWaivers,
+            handoverItemFineInclusionIndex: handoverItemFineInclusions,
+        }),
+        [
+            assetHistory,
+            handoverItemFineInclusions,
+            handoverItemFineWaivers,
+            handoverItemFines,
+            historyEntry,
+            vehicle,
+        ],
+    );
+
+    const fineDecisionItems = useMemo(
+        () => (isHrStage ? listHandoverApprovalFineDecisionItems(fineDecisionArgs) : []),
+        [fineDecisionArgs, isHrStage],
+    );
+    const allFineItemsDecided = useMemo(
+        () => !isHrStage || areAllHandoverFineItemsDecided(fineDecisionArgs),
+        [fineDecisionArgs, isHrStage],
+    );
+    const includedFineItems = useMemo(
+        () => (isHrStage ? listIncludedHandoverFineItems(fineDecisionArgs) : []),
+        [fineDecisionArgs, isHrStage],
+    );
+
     const acceptBlockedReason = useMemo(() => {
         if (!canAct) return '';
         if ((!stage || stage === 'target') && !reportsComplete) {
             return getHandoverReportsIncompleteMessage(historyEntry, vehicle);
         }
+        if (isHrStage && fineDecisionItems.length > 0 && !allFineItemsDecided) {
+            return 'Mark every changed body/accessory card as Add to Fine or Remove from Fine before approving.';
+        }
         return '';
-    }, [canAct, stage, reportsComplete, historyEntry, vehicle]);
+    }, [
+        allFineItemsDecided,
+        canAct,
+        fineDecisionItems.length,
+        historyEntry,
+        isHrStage,
+        reportsComplete,
+        stage,
+        vehicle,
+    ]);
 
-    const hasFineItems = useMemo(
-        () =>
-            hasHandoverApprovalFineItems({
-                vehicle,
-                historyEntry,
-                assetHistory,
-                handoverItemFineIndex: handoverItemFines,
-                handoverItemFineWaiverIndex: handoverItemFineWaivers,
-            }),
-        [assetHistory, handoverItemFineWaivers, handoverItemFines, historyEntry, vehicle],
-    );
-
-    const showFineApprovalOptions = isHrStage && hasFineItems;
-
-    const submitResponse = async ({ action, comments = '', handoverFineId = null }) => {
+    const submitResponse = async ({ action, comments = '', handoverFineId = null, handoverFineIds = null }) => {
         if (!vehicle?._id || submitInFlightRef.current) return;
         submitInFlightRef.current = true;
         setActionLoading(true);
         try {
-            const payload = {
-                action,
-                comments,
-            };
-            if (handoverFineId) {
-                payload.handoverFineId = handoverFineId;
+            const payload = { action, comments };
+            if (handoverFineId) payload.handoverFineId = handoverFineId;
+            if (Array.isArray(handoverFineIds) && handoverFineIds.length > 0) {
+                payload.handoverFineIds = handoverFineIds;
+                if (!payload.handoverFineId) payload.handoverFineId = handoverFineIds[0];
             }
             const res = await axiosInstance.put(
                 `/AssetItem/${vehicle._id}/respond`,
@@ -132,9 +167,9 @@ export default function VehicleHandoverAssignActions({
                 description:
                     action === 'Reject'
                         ? 'Handover was rejected.'
-                        : handoverFineId
-                            ? 'Handover approved and vehicle fine recorded.'
-                            : 'Handover approved successfully.',
+                        : handoverFineId || (handoverFineIds && handoverFineIds.length)
+                          ? 'Handover approved. Draft fine rows were created for the selected sections.'
+                          : 'Handover approved successfully.',
             });
             invalidateAssetPendingInbox('vehicle');
         } catch (error) {
@@ -171,13 +206,24 @@ export default function VehicleHandoverAssignActions({
         if (confirmMode === 'accept' && acceptBlockedReason) {
             toast({
                 variant: 'destructive',
-                title: 'Cannot accept',
+                title: 'Cannot approve',
                 description: acceptBlockedReason,
             });
             return;
         }
 
         try {
+            if (confirmMode === 'accept' && includedFineItems.length > 0 && onApproveWithIncludedFines) {
+                setConfirmOpen(false);
+                setActionLoading(true);
+                try {
+                    await onApproveWithIncludedFines(includedFineItems);
+                } finally {
+                    setActionLoading(false);
+                }
+                return;
+            }
+
             await submitResponse({
                 action: confirmMode === 'accept' ? 'Accept' : 'Reject',
                 comments: confirmMode === 'reject' ? rejectionReason.trim() : '',
@@ -204,46 +250,13 @@ export default function VehicleHandoverAssignActions({
     }
 
     const showActions = canAct || acceptBlockedReason;
+    const includedLabels = includedFineItems.map((row) => row.itemLabel).filter(Boolean);
 
     return (
         <>
             {showActions ? (
                 <div className={`grid grid-cols-2 gap-2 sm:gap-3 ${className}`}>
-                    {canAct && showFineApprovalOptions ? (
-                        <>
-                            <button
-                                type="button"
-                                onClick={() => openConfirm('accept')}
-                                disabled={actionLoading}
-                                className={`${ACTION_BOX} border-emerald-100 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50`}
-                            >
-                                <span className="text-[10px] font-bold uppercase tracking-wide">
-                                    Approve without Fine
-                                </span>
-                                <Check size={16} className="shrink-0" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => onApproveWithFine?.()}
-                                disabled={actionLoading}
-                                className={`${ACTION_BOX} border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100 disabled:opacity-50`}
-                            >
-                                <span className="text-[10px] font-bold uppercase tracking-wide">
-                                    Approve with Fine
-                                </span>
-                                <Check size={16} className="shrink-0" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => openConfirm('reject')}
-                                disabled={actionLoading}
-                                className={`${ACTION_BOX} col-span-2 border-red-100 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50`}
-                            >
-                                <span className="text-[10px] font-bold uppercase tracking-wide">Reject</span>
-                                <X size={16} className="shrink-0" />
-                            </button>
-                        </>
-                    ) : canAct ? (
+                    {canAct ? (
                         <>
                             <button
                                 type="button"
@@ -253,7 +266,11 @@ export default function VehicleHandoverAssignActions({
                                 className={`${ACTION_BOX} border-green-100 bg-green-50 text-green-700 hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50`}
                             >
                                 <span className="text-[10px] font-bold uppercase tracking-wide">Approve</span>
-                                <Check size={16} className="shrink-0" />
+                                {actionLoading ? (
+                                    <Loader2 size={16} className="shrink-0 animate-spin" />
+                                ) : (
+                                    <Check size={16} className="shrink-0" />
+                                )}
                             </button>
                             <button
                                 type="button"
@@ -275,14 +292,13 @@ export default function VehicleHandoverAssignActions({
                     {acceptBlockedReason ? (
                         <div className="col-span-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
                             <p>{acceptBlockedReason}</p>
-                            {onScrollToAssessment &&
-                                acceptBlockedReason.toLowerCase().includes('vehicle accessories') ? (
+                            {onScrollToAssessment ? (
                                 <button
                                     type="button"
                                     onClick={onScrollToAssessment}
                                     className="mt-2 text-[11px] font-bold text-amber-900 underline"
                                 >
-                                    Go to Vehicle Accessories section
+                                    Go to assessment sections
                                 </button>
                             ) : null}
                         </div>
@@ -300,17 +316,37 @@ export default function VehicleHandoverAssignActions({
                     <AlertDialogHeader>
                         <AlertDialogTitle>
                             {confirmMode === 'accept'
-                                ? showFineApprovalOptions
-                                    ? 'Approve without fine'
+                                ? includedFineItems.length > 0
+                                    ? 'Approve with fine sections?'
                                     : 'Approve handover'
                                 : 'Reject handover'}
                         </AlertDialogTitle>
-                        <AlertDialogDescription>
-                            {confirmMode === 'accept'
-                                ? showFineApprovalOptions
-                                    ? 'Approve this handover without creating a vehicle fine.'
-                                    : 'Are you sure you want to approve this handover? The status will be set to approved.'
-                                : 'Please provide a reason for rejecting this handover.'}
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-sm text-muted-foreground">
+                                {confirmMode === 'accept' ? (
+                                    includedFineItems.length > 0 ? (
+                                        <>
+                                            <p>
+                                                These sections are marked for fine. Are you sure you want to add them
+                                                and approve this handover?
+                                            </p>
+                                            <ul className="list-disc pl-5 text-slate-700">
+                                                {includedLabels.map((label) => (
+                                                    <li key={label}>{label}</li>
+                                                ))}
+                                            </ul>
+                                            <p>Draft fine rows will be created so amounts can be edited afterward.</p>
+                                        </>
+                                    ) : (
+                                        <p>
+                                            Are you sure you want to approve this handover? The status will be set to
+                                            approved.
+                                        </p>
+                                    )
+                                ) : (
+                                    <p>Please provide a reason for rejecting this handover.</p>
+                                )}
+                            </div>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     {confirmMode === 'reject' ? (
@@ -323,12 +359,9 @@ export default function VehicleHandoverAssignActions({
                     ) : null}
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={actionLoading}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            disabled={actionLoading}
-                            onClick={handleConfirm}
-                        >
+                        <AlertDialogAction disabled={actionLoading} onClick={handleConfirm}>
                             {actionLoading ? <Loader2 className="animate-spin" size={16} /> : null}
-                            {confirmMode === 'accept' ? 'Approve' : 'Reject'}
+                            {confirmMode === 'accept' ? 'OK' : 'Reject'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

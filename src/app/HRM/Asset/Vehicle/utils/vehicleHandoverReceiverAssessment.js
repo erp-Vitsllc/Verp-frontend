@@ -143,7 +143,12 @@ function resolveCurrentAssessmentItemBlock(historyEntry, key) {
             return block;
         }
         if (block?.photo) {
-            return { present: true, photo: block.photo, amount: block.amount ?? null };
+            return {
+                present: true,
+                photo: block.photo,
+                amount: block.amount ?? null,
+                comment: block.comment ?? block.notes ?? '',
+            };
         }
     }
 
@@ -154,7 +159,12 @@ function resolveCurrentAssessmentItemBlock(historyEntry, key) {
             return block;
         }
         if (block?.photo) {
-            return { present: true, photo: block.photo, amount: block.amount ?? null };
+            return {
+                present: true,
+                photo: block.photo,
+                amount: block.amount ?? null,
+                comment: block.comment ?? block.notes ?? '',
+            };
         }
     }
 
@@ -690,12 +700,17 @@ export function buildReceiverAssessmentRows(historyEntry, vehicle, options = {})
         const present = row.present ?? null;
         const photo = row.photo ?? null;
         const amount = resolveVehicleAccessoryItemPrice(asset, item.key, item.label, row);
+        const sourceBlock = resolveCurrentAssessmentItemBlock(historyEntry, item.key) || {};
+        const comment = String(
+            row.comment ?? sourceBlock.comment ?? sourceBlock.notes ?? '',
+        ).trim();
 
         return {
             ...item,
             present,
             photo,
             amount,
+            comment,
             yesLabel: present === true ? 'Yes' : present === false ? 'No' : '—',
             photoRequired: present === true,
             photoMissing: present === true && !resolveAssessmentMediaUrl(photo),

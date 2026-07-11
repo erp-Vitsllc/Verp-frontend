@@ -31,30 +31,25 @@ export default function VehicleExpirySummaryCard({
     const hasActions = actionButtons.length > 0;
     const showExpiry = showExpirySummary !== false;
     const splitLayout = showExpiry && hasActions;
-    const actionsOnlyAtTop = actionsAtTop && hasActions && !showExpiry;
     const actionGridClass = 'grid-cols-2';
 
     return (
         <div
-            className={`w-full h-full rounded-2xl bg-[#00AEEF] p-2.5 shadow-xl transition-all duration-300 ${className}`.trim()}
+            className={`w-full h-full flex flex-col rounded-2xl bg-[#00AEEF] p-2.5 shadow-xl transition-all duration-300 ${className}`.trim()}
         >
             <div
-                className={`w-full h-full border-2 border-white/50 rounded-xl ${
+                className={`w-full h-full min-h-0 border-2 border-white/50 rounded-xl ${
                     splitLayout
-                        ? 'flex flex-row items-stretch gap-4 sm:gap-5 px-5 py-5'
-                        : hasActions
-                          ? actionsOnlyAtTop
-                              ? 'flex flex-col justify-start px-5 pt-4 pb-5'
-                              : 'flex flex-col justify-center px-5 py-5'
-                          : 'flex flex-col justify-center gap-5 px-7 py-8'
+                        ? 'flex flex-row items-stretch gap-4 sm:gap-5 px-5 py-4'
+                        : 'flex flex-col justify-center gap-3 px-5 py-4'
                 }`}
             >
                 {showExpiry ? (
                     <div
                         className={
                             splitLayout
-                                ? 'flex flex-col justify-center gap-4 sm:gap-5 shrink-0 w-[42%] min-w-[140px] py-1'
-                                : 'flex flex-col justify-center gap-5'
+                                ? 'flex flex-col justify-center gap-3 sm:gap-3.5 shrink-0 w-[42%] min-w-[140px] py-0.5'
+                                : 'flex flex-col justify-center gap-3'
                         }
                     >
                         {rows.map(({ label, value, hasDate }) => (
@@ -79,9 +74,7 @@ export default function VehicleExpirySummaryCard({
                         className={
                             splitLayout
                                 ? 'flex-1 flex flex-col justify-center min-w-0'
-                                : actionsOnlyAtTop
-                                  ? 'flex flex-col justify-start min-w-0 w-full'
-                                  : 'flex flex-col justify-center min-w-0 w-full'
+                                : 'flex flex-col justify-center min-w-0 w-full'
                         }
                     >
                         <div className={`grid gap-3 w-full ${actionGridClass}`}>

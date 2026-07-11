@@ -143,7 +143,11 @@ export function evaluateVehicleHandoverCardActions({
         !hasPendingAssignmentAck &&
         !isAssigneeReassignPending;
     const assigneeMayReturn =
-        isAssignee && assigned && !hasPendingAssignmentAck && !isAssigneeReturnPending;
+        isAssignee &&
+        assigned &&
+        String(asset.status || '').trim().toLowerCase() === 'assigned' &&
+        !hasPendingAssignmentAck &&
+        !isAssigneeReturnPending;
     const adminMayManage = canManageAssignment;
 
     let assignDisabled = false;
@@ -214,12 +218,13 @@ export function evaluateVehicleHandoverCardActions({
     } else if (!profileActive) {
         returnDisabled = true;
         returnTitle = 'Return is available after the vehicle profile is activated.';
-    } else if (!assigned) {
+    } else if (!assigned || String(asset.status || '').trim().toLowerCase() !== 'assigned') {
         returnDisabled = true;
-        returnTitle = 'Vehicle is not assigned.';
+        returnTitle = 'Return is available only when the vehicle status is Assigned.';
     } else if (!adminMayManage && !assigneeMayReturn) {
         returnDisabled = true;
-        returnTitle = 'Only the flowchart Admin Officer or the current assignee can return this vehicle.';
+        returnTitle =
+            'Only the flowchart Admin Officer or the current assignee can return this vehicle.';
     } else if (hasWorkflowPending) {
         returnDisabled = true;
         returnTitle = adminMayManage
@@ -234,12 +239,11 @@ export function evaluateVehicleHandoverCardActions({
     } else if (isAssigneeReturnPending) {
         returnDisabled = true;
         returnTitle = 'Your return request is awaiting HR approval.';
-    } else if (inspectionHandoverStarted) {
-        returnDisabled = true;
-        returnTitle =
-            'Return is not available after a vehicle inspection has been created. Use Reassign instead.';
     } else if (!returnDisabled && isAssignee && !adminMayManage) {
         returnTitle = 'Request goes to HR for approval (email and dashboard task).';
+    } else if (!returnDisabled) {
+        returnTitle =
+            'Return vehicle to Admin Officer. Handover By = current owner, Handover To = Admin Officer.';
     }
 
     let createInspectionDisabled = true;
@@ -357,6 +361,7 @@ export function evaluateVehicleHandoverCardActions({
         const postInspectionKeys = [
             'assign',
             'reassign',
+            'return',
             ...(canCreateReinspection ? ['create-reinspection'] : []),
             'create-inspection',
         ];
@@ -393,7 +398,6 @@ export function evaluateVehicleFleetHeaderActions({
     const profileActive = isVehicleProfileActiveForAssignment(vehicleActPhase);
     const isDisposed =
         ['sold', 'total loss'].includes(String(asset.vehicleDispositionStatus || '').toLowerCase().trim());
-    const inspectionHandoverStarted = hasVehicleInspectionHandoverStarted(asset);
 
     const actions = [];
 
@@ -423,15 +427,13 @@ export function evaluateVehicleFleetHeaderActions({
         isVehicleActivelyAssigned(asset) &&
         (isHr || isAdmin || isAssignee)
     ) {
-        if (!inspectionHandoverStarted) {
-            actions.push({
-                key: 'return',
-                label: 'RETURN ASSET',
-                displayLabel: 'RETURN ASSET',
-                disabled: false,
-                onClick: onReturn,
-            });
-        }
+        actions.push({
+            key: 'return',
+            label: 'RETURN ASSET',
+            displayLabel: 'RETURN ASSET',
+            disabled: String(asset.status || '').trim().toLowerCase() !== 'assigned',
+            onClick: onReturn,
+        });
         actions.push({
             key: 'reassign',
             label: 'REASSIGN ASSET',

@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import VehicleHandoverFormView from '../../../HRM/Asset/Vehicle/components/VehicleHandoverFormView';
 import { prepareImagesForPdfCapture } from '../../../HRM/Asset/Vehicle/utils/compressImageForPdf';
+import { enrichVehicleWithLocatorKm } from '../../../HRM/Asset/Vehicle/utils/enrichVehicleWithLocatorKm';
 import {
     PDF_IMAGE_MAX_EDGE,
     PDF_JPEG_QUALITY,
@@ -21,6 +22,7 @@ function VehicleHandoverPrintContent() {
     const [historyEntry, setHistoryEntry] = useState(null);
     const [loading, setLoading] = useState(true);
     const [imagesCompressed, setImagesCompressed] = useState(false);
+    const [paginationReady, setPaginationReady] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -39,7 +41,9 @@ function VehicleHandoverPrintContent() {
                     axiosInstance.get(`/AssetItem/history-record/${historyId}`),
                 ]);
                 if (cancelled) return;
-                setVehicle(vehicleRes.data);
+                const vehicleData = await enrichVehicleWithLocatorKm(vehicleRes.data);
+                if (cancelled) return;
+                setVehicle(vehicleData);
                 setHistoryEntry(historyRes.data);
             } catch {
                 if (!cancelled) {
@@ -60,6 +64,7 @@ function VehicleHandoverPrintContent() {
     useEffect(() => {
         if (loading || !vehicle || !historyEntry) {
             setImagesCompressed(false);
+            setPaginationReady(false);
             return;
         }
 
@@ -82,7 +87,43 @@ function VehicleHandoverPrintContent() {
         };
     }, [loading, vehicle, historyEntry]);
 
-    const handoverReady = !loading && !!vehicle && !!historyEntry && imagesCompressed;
+    useEffect(() => {
+        if (loading || !vehicle || !historyEntry) {
+            setPaginationReady(false);
+            return undefined;
+        }
+
+        let cancelled = false;
+        const check = () => {
+            const form = document.getElementById('vehicle-handover-form-view');
+            const ready = form?.getAttribute('data-pdf-pagination-ready') === 'true';
+            if (ready && !cancelled) {
+                setPaginationReady(true);
+                return true;
+            }
+            return false;
+        };
+
+        if (check()) return undefined;
+
+        const interval = window.setInterval(() => {
+            if (check()) window.clearInterval(interval);
+        }, 120);
+
+        const timeout = window.setTimeout(() => {
+            window.clearInterval(interval);
+            if (!cancelled) setPaginationReady(true);
+        }, 8000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(interval);
+            window.clearTimeout(timeout);
+        };
+    }, [loading, vehicle, historyEntry, imagesCompressed]);
+
+    const handoverReady =
+        !loading && !!vehicle && !!historyEntry && imagesCompressed && paginationReady;
 
     return (
         <div

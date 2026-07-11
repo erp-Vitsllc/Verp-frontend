@@ -17,6 +17,7 @@ import {
 import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import VehicleServiceModalAccidentSection from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModalAccidentSection';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 
 const input = (err) =>
     `w-full h-11 px-3 bg-white border rounded-xl text-sm font-medium text-slate-700 outline-none transition-all focus:ring-2 focus:ring-teal-500/15 ${err ? 'border-red-300' : 'border-slate-200 focus:border-[#00B5AD]'
@@ -414,6 +415,12 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         };
     }, [isOpen]);
 
+    const licensedEmployees = useDrivingLicenseHolders({
+        enabled: isOpen,
+        preserveEmployeeId: formData.carDrivenByEmployeeId,
+        sourceEmployees: employees,
+    });
+
     const set = (key, val) => setFormData(prev => ({ ...prev, [key]: val }));
     const isOilService = formData.serviceType === 'Oil Service';
     const isTireChange = formData.serviceType === 'Tire Change';
@@ -507,17 +514,6 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             setFormData((prev) => ({ ...prev, policeFineAmount: '' }));
         }
     }, [isAccidentRepair, formData.accidentOwnerType, formData.policeFineAmount]);
-
-    const licensedEmployees = useMemo(() => {
-        const hasLicense = (emp) =>
-            Boolean(
-                emp?.drivingLicenceDetails?.number ||
-                emp?.drivingLicenseDetails?.number ||
-                emp?.drivingLicenceNo ||
-                emp?.drivingLicenseNo
-            );
-        return (employees || []).filter(hasLicense);
-    }, [employees]);
 
     const isHrApprovalStep = embedMode && workflowStage === 'pending_hr';
     const isAdminApprovalStep = embedMode && workflowStage === 'pending_admin';
@@ -1597,6 +1593,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                         set={set}
                         errors={errors}
                         employees={employees}
+                        drivenByEmployees={licensedEmployees}
                         assetControllerName={assetControllerName}
                         ASSET_CONTROLLER_VALUE={ASSET_CONTROLLER_VALUE}
                         resolvedAssetControllerEmployeeId={resolvedAssetControllerEmployeeId}

@@ -37,6 +37,12 @@ function PdfAccessoryCell({ row, photoHeight = PDF_ACCESSORY_PHOTO_HEIGHT }) {
         return (
             <td className={`${PDF_CELL} align-top p-1.5`} style={PDF_CELL_STYLE}>
                 <p className={`${PDF_CELL_LABEL_CLASS} mb-1`}>&nbsp;</p>
+                <p className="mt-0.5 text-[9pt] font-semibold uppercase tracking-wide text-slate-600">
+                    Comment
+                </p>
+                <p className="mb-1 min-h-[16px] border-b border-black pb-0.5 text-[10pt] leading-snug">
+                    &nbsp;
+                </p>
                 <PdfAccessoryPhotoSlot photoUrl={null} label="" photoHeight={photoHeight} />
             </td>
         );
@@ -46,11 +52,18 @@ function PdfAccessoryCell({ row, photoHeight = PDF_ACCESSORY_PHOTO_HEIGHT }) {
     const statusLabel =
         row.present === true ? 'Yes' : row.present === false ? 'No' : '—';
     const photoUrl = row.present === true ? resolveAssessmentMediaUrl(row.photo) : null;
+    const comment = String(row.comment || row.notes || '').trim();
 
     return (
         <td className={`${PDF_CELL} align-top p-1.5`} style={PDF_CELL_STYLE}>
             <p className={`${PDF_CELL_LABEL_CLASS} mb-1`}>
                 {label} {statusLabel}
+            </p>
+            <p className="mt-0.5 text-[9pt] font-semibold uppercase tracking-wide text-slate-600">
+                Comment
+            </p>
+            <p className="mb-1 min-h-[16px] border-b border-black pb-0.5 text-[10pt] leading-snug">
+                {comment || '\u00A0'}
             </p>
             <PdfAccessoryPhotoSlot photoUrl={photoUrl} label={label} photoHeight={photoHeight} />
         </td>

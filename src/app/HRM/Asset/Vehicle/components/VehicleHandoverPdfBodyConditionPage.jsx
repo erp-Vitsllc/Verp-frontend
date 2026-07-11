@@ -9,26 +9,19 @@ import VehicleHandoverPdfClosingSection from './VehicleHandoverPdfClosingSection
 export const PDF_TABLE = PDF_TABLE_CLASS;
 export const PDF_CELL = PDF_CELL_CLASS;
 
-export const PDF_BODY_PHOTO_HEIGHT = 'h-[38mm]';
-export const PDF_ACCESSORY_PHOTO_HEIGHT = 'h-[30mm]';
+export const PDF_BODY_PHOTO_HEIGHT = 'h-[28mm]';
+export const PDF_ACCESSORY_PHOTO_HEIGHT = 'h-[26mm]';
 /** Body-condition lead row on page 2 (below accessories). */
-export const PDF_BODY_LEAD_PHOTO_HEIGHT = 'h-[30mm]';
-/** First body-condition row pair shown below accessories on page 2. */
+export const PDF_BODY_LEAD_PHOTO_HEIGHT = 'h-[28mm]';
+/** @deprecated Fixed chunking replaced by measured pagination — kept for fallbacks. */
 export const PDF_BODY_ROWS_ON_ACCESSORIES_PAGE = 1;
-/** Body-condition row pairs on page 3 (after the lead pair on page 2). */
+/** @deprecated Fixed chunking replaced by measured pagination — kept for fallbacks. */
 export const PDF_BODY_ROWS_FIRST_PAGE = 5;
-/** Row pairs per continuation body-condition page. */
+/** @deprecated Fixed chunking replaced by measured pagination — kept for fallbacks. */
 export const PDF_BODY_ROWS_PER_PAGE = 4;
 
-/** Scale photo box height so N rows (+ optional closing block) fit one A4 sheet. */
-export function resolveBodyPhotoHeight(pairCount, includesClosing = false) {
-    if (includesClosing) {
-        if (pairCount >= 5) return 'h-[28mm]';
-        if (pairCount >= 4) return 'h-[30mm]';
-        return 'h-[32mm]';
-    }
-    if (pairCount >= 5) return 'h-[32mm]';
-    if (pairCount >= 4) return 'h-[34mm]';
+/** Prefer a stable photo box height; pagination moves whole rows instead of shrinking. */
+export function resolveBodyPhotoHeight(_pairCount, _includesClosing = false) {
     return PDF_BODY_PHOTO_HEIGHT;
 }
 
@@ -49,6 +42,7 @@ function resolveRightLinkLabel(key) {
 export function PdfBodyConditionViewCell({ view, linkLabel, photoHeight = PDF_BODY_PHOTO_HEIGHT }) {
     const photoUrl = resolveAssessmentMediaUrl(view.photo);
     const label = PDF_BODY_CONDITION_LABELS[view.key] || view.label;
+    const comment = String(view?.comment || '').trim();
 
     const headerContent = (() => {
         if (linkLabel === 'Back View') {
@@ -65,8 +59,14 @@ export function PdfBodyConditionViewCell({ view, linkLabel, photoHeight = PDF_BO
     })();
 
     return (
-        <td className={`${PDF_CELL} p-1.5`} style={PDF_CELL_STYLE}>
+        <td className={`${PDF_CELL} p-1.5 align-top`} style={PDF_CELL_STYLE}>
             <p className={`mb-1 text-center ${PDF_CELL_LABEL_CLASS}`}>{headerContent}</p>
+            <p className="mt-0.5 text-[9pt] font-semibold uppercase tracking-wide text-slate-600">
+                Comment
+            </p>
+            <p className="mb-1 min-h-[16px] border-b border-black pb-0.5 text-[10pt] leading-snug">
+                {comment || '\u00A0'}
+            </p>
             <div className="mt-1 leading-none">
                 {photoUrl ? (
                     <VehicleHandoverAssessmentPhotoPanel
@@ -87,7 +87,11 @@ export function PdfBodyConditionViewCell({ view, linkLabel, photoHeight = PDF_BO
 
 function PdfBodyConditionPairRow({ pair, photoHeight }) {
     return (
-        <tr>
+        <tr
+            className="pdf-body-condition-row"
+            style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+            data-pdf-body-row={`${pair.left.key}-${pair.right.key}`}
+        >
             <PdfBodyConditionViewCell view={pair.left} photoHeight={photoHeight} />
             <PdfBodyConditionViewCell
                 view={pair.right}

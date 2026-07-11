@@ -101,9 +101,9 @@ import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingI
 import VehicleDispositionRequestModal from '../../components/VehicleDispositionRequestModal';
 import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
+import { HEADER_PAIR_CARD_FIXED, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import {
     evaluateVehicleHandoverCardActions,
-    hasVehicleInspectionHandoverStarted,
     isVehicleProfileActiveForAssignment,
     isVehicleActivelyAssigned,
     isCurrentUserVehicleAssignee,
@@ -126,6 +126,7 @@ import {
     parseVehicleDocumentMeta,
     partitionVehicleDocuments,
     vehicleDocumentArchiveReasonLabel,
+    vehicleDocumentDescriptionLabel,
 } from '../../utils/vehicleDocumentLifecycle';
 import {
     resolveLiveRegistrationDoc,
@@ -138,6 +139,9 @@ import VehicleCarWashRequestModal from '../../components/VehicleCarWashRequestMo
 import VehicleCarWashRequestTable from '../../components/VehicleCarWashRequestTable';
 import VehicleOilServiceRequestTable from '../../components/VehicleOilServiceRequestTable';
 import VehicleServiceTabRequestTable from '../../components/VehicleServiceTabRequestTable';
+import VehicleDocumentTabServiceSections, {
+    documentTabHasServiceRows,
+} from '../../components/VehicleDocumentTabServiceSections';
 import VehicleHandoverHistoryTable from '../../components/VehicleHandoverHistoryTable';
 import { isSameHandoverAssignee } from '../../utils/vehicleHandoverHistory';
 import VehicleAccessoriesListTab from '../../components/VehicleAccessoriesListTab';
@@ -146,8 +150,6 @@ import {
     buildOilServiceDraftRequestBody,
     buildOilServiceRequestRowsFromAsset,
     buildCarWashRequestRowsFromAsset,
-    findOpenOilServiceDraft,
-    findOpenVehicleServiceTabDraft,
     buildVehicleServiceTabPendingRequestBody,
     buildVehicleServiceTabRequestRowsFromAsset,
     isVehicleServiceTabRequestType,
@@ -478,6 +480,8 @@ function VehicleDetailsPageContent() {
             setActiveTab('service');
             if (searchParams.get('carWashServiceId')) {
                 setServiceInnerTab('Car Wash');
+            } else if (searchParams.get('focusCard') === 'vehicleService') {
+                setServiceInnerTab('Oil Service');
             }
         }
         if (tab === 'handover') {
@@ -1763,6 +1767,7 @@ function VehicleDetailsPageContent() {
         return (
             <div
                 key={doc._id || `warranty-card-${cardIdx}`}
+                id={cardIdx === 0 ? 'asset-focus-vehicleWarranty' : undefined}
                 className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0"
             >
                 <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between gap-3">
@@ -1871,7 +1876,7 @@ function VehicleDetailsPageContent() {
                                                 <FileText size={16} />
                                             </div>
                                             <div className="min-w-0">
-                                                <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Document'}</p>
+                                                <p className="text-[12px] font-bold text-slate-700 truncate">{vehicleDocumentDescriptionLabel(att, 'Document')}</p>
                                             </div>
                                         </div>
                                         <button
@@ -2302,12 +2307,12 @@ function VehicleDetailsPageContent() {
 
     const openReturnAssetModal = () => {
         if (!guardFleetAssignmentProfileActive()) return;
-        if (hasVehicleInspectionHandoverStarted(asset)) {
+        const status = String(asset?.status || '').trim().toLowerCase();
+        if (status !== 'assigned') {
             toast({
                 variant: 'destructive',
                 title: 'Return not available',
-                description:
-                    'Return is not available after a vehicle inspection has been created. Use Reassign instead.',
+                description: 'Return is available only when the vehicle status is Assigned.',
             });
             return;
         }
@@ -3259,8 +3264,8 @@ function VehicleDetailsPageContent() {
 
 
                     <div className="mt-10 flex flex-col gap-10">
-                        <div className="grid w-full grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
-                            <div className="min-w-0">
+                        <div className={HEADER_PAIR_GRID}>
+                            <div className={HEADER_PAIR_CARD_FIXED}>
                                 <VehicleAssetProfileHeader
                                     className="h-full"
                                     asset={asset}
@@ -3278,7 +3283,9 @@ function VehicleDetailsPageContent() {
                                     vehicleActivationFlowchartAdminName={vehicleProfileActivationHrName}
                                     canRequestActivationAfterHold={isVehicleProfileActivationSubmitter}
                                     canSubmitForActivation={canSubmitVehicleProfileActivation}
-                                    canSubmitProfileEdit={canSubmitVehicleProfileEdit}
+                                    canSubmitProfileEdit={
+                                        canSubmitVehicleProfileEdit && !showVehicleProfileEditDraftBanner
+                                    }
                                     onProfileEditSubmit={() => {
                                         setVehicleProfileEditModalReadOnly(false);
                                         setShowVehicleProfileEditSubmitModal(true);
@@ -3286,9 +3293,9 @@ function VehicleDetailsPageContent() {
                                     onActivationRequest={() => setShowVehicleActivationModal(true)}
                                 />
                             </div>
-                            <div className="min-w-0">
+                            <div className={HEADER_PAIR_CARD_FIXED}>
                                 <VehicleExpirySummaryCard
-                                    className="min-h-[200px] sm:min-h-[220px]"
+                                    className="h-full"
                                     registrationExpirySrc={vehicleExpirySources.registrationExpirySrc}
                                     insuranceExpirySrc={vehicleExpirySources.insuranceExpirySrc}
                                     warrantyExpirySrc={vehicleExpirySources.warrantyExpirySrc}
@@ -3496,7 +3503,7 @@ function VehicleDetailsPageContent() {
                                                                                     <FileText size={16} />
                                                                                 </div>
                                                                                 <div className="min-w-0">
-                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Document'}</p>
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{vehicleDocumentDescriptionLabel(att, 'Document')}</p>
                                                                                 </div>
                                                                             </div>
                                                                             <button
@@ -3515,7 +3522,7 @@ function VehicleDetailsPageContent() {
                                             )}
 
                                             {hasPetrolCardData && (
-                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                <div id="asset-focus-vehiclePetrol" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                     <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                         <h3 className="text-base font-bold text-slate-800">Petrol tag</h3>
                                                         <div className="flex items-center gap-2">
@@ -3589,7 +3596,7 @@ function VehicleDetailsPageContent() {
                                                                                     <Fuel size={16} />
                                                                                 </div>
                                                                                 <div className="min-w-0">
-                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Petrol Attachment'}</p>
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{vehicleDocumentDescriptionLabel(att, 'Petrol Attachment')}</p>
                                                                                     <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
                                                                                 </div>
                                                                             </div>
@@ -3752,7 +3759,7 @@ function VehicleDetailsPageContent() {
                                                                                     <FileText size={16} />
                                                                                 </div>
                                                                                 <div className="min-w-0">
-                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Registration Attachment'}</p>
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{vehicleDocumentDescriptionLabel(att, 'Registration Attachment')}</p>
                                                                                     <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
                                                                                 </div>
                                                                             </div>
@@ -3772,7 +3779,7 @@ function VehicleDetailsPageContent() {
                                             )}
 
                                             {hasTollCardData && (
-                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                <div id="asset-focus-vehicleToll" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                     <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                         <h3 className="text-base font-bold text-slate-800">Toll tag (Salik / Darb)</h3>
                                                         <div className="flex items-center gap-2">
@@ -3846,7 +3853,7 @@ function VehicleDetailsPageContent() {
                                                                                     <CreditCard size={16} />
                                                                                 </div>
                                                                                 <div className="min-w-0">
-                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Toll Attachment'}</p>
+                                                                                    <p className="text-[12px] font-bold text-slate-700 truncate">{vehicleDocumentDescriptionLabel(att, 'Toll Attachment')}</p>
                                                                                     <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
                                                                                 </div>
                                                                             </div>
@@ -3866,7 +3873,7 @@ function VehicleDetailsPageContent() {
                                             )}
 
                                             {hasMortgageData && (
-                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                <div id="asset-focus-vehicleMortgage" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                     <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                         <h3 className="text-base font-bold text-slate-800">Mortgage Details</h3>
                                                         <div className="flex items-center gap-2">
@@ -4015,20 +4022,18 @@ function VehicleDetailsPageContent() {
                                                     Insurance
                                                 </button>
                                             )}
-                                            {(warrantyRequiredForCompletion || warrantyCards.length > 0) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        clearDocTabModalContext();
-                                                        setDocTabWarrantyDoc(null);
-                                                        setIsWarrantyRenew(false);
-                                                        setShowWarrantyModal(true);
-                                                    }}
-                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                                >
-                                                    {warrantyCards.length === 0 ? 'Warranty' : 'Add Warranty'}
-                                                </button>
-                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    clearDocTabModalContext();
+                                                    setDocTabWarrantyDoc(null);
+                                                    setIsWarrantyRenew(false);
+                                                    setShowWarrantyModal(true);
+                                                }}
+                                                className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                            >
+                                                {warrantyCards.length === 0 ? 'Warranty' : 'Add Warranty'}
+                                            </button>
                                             {!hasPetrolCardData && (
                                                 <button
                                                     type="button"
@@ -4062,7 +4067,7 @@ function VehicleDetailsPageContent() {
                             )}
 
                             {activeTab === 'permit' && (
-                                <div className="w-full px-2 space-y-6">
+                                <div id="asset-focus-vehiclePermit" className="w-full px-2 space-y-6">
                                     <div className="flex items-center justify-between">
                                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Permit</h3>
                                         {permitTabAccess.create && (
@@ -4186,7 +4191,7 @@ function VehicleDetailsPageContent() {
                                                                                         <FileText size={20} />
                                                                                     </div>
                                                                                     <div className="min-w-0">
-                                                                                        <p className="text-[13px] font-bold text-slate-800 truncate">{att.description || 'Permit Attachment'}</p>
+                                                                                        <p className="text-[13px] font-bold text-slate-800 truncate">{vehicleDocumentDescriptionLabel(att, 'Permit Attachment')}</p>
                                                                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Additional Document</p>
                                                                                     </div>
                                                                                 </div>
@@ -4277,7 +4282,7 @@ function VehicleDetailsPageContent() {
                             )}
 
                             {activeTab === 'service' && asset && (() => {
-                                const serviceCounts = serviceCountByType(asset.services);
+                                const serviceCounts = serviceCountByType(asset.services, asset);
                                 const isOilServiceTab = serviceInnerTab === 'Oil Service';
                                 const isCarWashTab = serviceInnerTab === 'Car Wash';
                                 const isVehicleServiceTabRequest = isVehicleServiceTabRequestType(serviceInnerTab);
@@ -4323,16 +4328,6 @@ function VehicleDetailsPageContent() {
                                                 });
                                                 return;
                                             }
-                                            const existingDraft = isOilServiceTab
-                                                ? findOpenOilServiceDraft(asset)
-                                                : findOpenVehicleServiceTabDraft(asset, serviceInnerTab);
-                                            if (existingDraft) {
-                                                toast({
-                                                    title: 'Request already open',
-                                                    description: `A pending ${serviceInnerTab.toLowerCase()} request is already in the list. Click the row to open it.`,
-                                                });
-                                                return;
-                                            }
                                             const vehicleId = normalizeMongoId(asset?._id);
                                             if (!vehicleId) return;
                                             if (isOilServiceTab) {
@@ -4372,7 +4367,7 @@ function VehicleDetailsPageContent() {
                                     });
                                 };
                                 return (
-                                    <div className="w-full max-w-none space-y-5">
+                                    <div id="asset-focus-vehicleService" className="w-full max-w-none space-y-5">
                                         {asset?.nextServiceDate ? (
                                             <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-950 w-full">
                                                 <span className="font-bold">Next service:</span>{' '}
@@ -4402,7 +4397,7 @@ function VehicleDetailsPageContent() {
                                                         >
                                                             {type}
                                                             {count > 0 ? (
-                                                                <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800 tabular-nums">
+                                                                <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-black text-red-600 tabular-nums">
                                                                     {count}
                                                                 </span>
                                                             ) : null}
@@ -4677,21 +4672,10 @@ function VehicleDetailsPageContent() {
                                                 ? vehicleDocumentLifecycleBuckets.old
                                                 : vehicleDocumentLifecycleBuckets.live;
 
-                                            const documentTabServiceLiveRows = VEHICLE_SERVICE_TYPES.map(
-                                                (st) => ({
-                                                    serviceType: st,
-                                                    srv: fleetServicesForTypeSortedDesc(asset?.services, st)[0] || null,
-                                                }),
-                                            ).filter((x) => x.srv);
-                                            const documentTabServiceOldRows = VEHICLE_SERVICE_TYPES.flatMap((st) =>
-                                                fleetServicesForTypeSortedDesc(asset?.services, st)
-                                                    .slice(1)
-                                                    .map((srv) => ({ serviceType: st, srv })),
-                                            );
                                             const documentTabServiceRowsForTab =
                                                 documentInnerTab === 'live'
-                                                    ? documentTabServiceLiveRows
-                                                    : documentTabServiceOldRows;
+                                                    ? documentTabHasServiceRows(asset, 'live')
+                                                    : documentTabHasServiceRows(asset, 'old');
 
                                             const hasAny =
                                                 bucket.registration.length > 0 ||
@@ -4702,7 +4686,7 @@ function VehicleDetailsPageContent() {
                                                 bucket.basic.length > 0 ||
                                                 (documentInnerTab === 'live' && !!asset?.invoiceFile) ||
                                                 documentInnerTab === 'live' ||
-                                                documentTabServiceRowsForTab.length > 0;
+                                                documentTabServiceRowsForTab;
 
                                             if (!hasAny) {
                                                 return (
@@ -5424,118 +5408,21 @@ function VehicleDetailsPageContent() {
                                                         </div>
                                                     )}
 
-                                                    {documentTabServiceRowsForTab.length > 0 && (
-                                                        <div>
-                                                            {sectionTitle('Service')}
-                                                            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                                <table className="w-full min-w-[1180px]">
-                                                                    <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                        <tr>
-                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
-                                                                                Service type
-                                                                            </th>
-                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
-                                                                                Service date
-                                                                            </th>
-                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
-                                                                                Workflow
-                                                                            </th>
-                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
-                                                                                KM
-                                                                            </th>
-                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
-                                                                                Amount
-                                                                            </th>
-                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
-                                                                                Description
-                                                                            </th>
-                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
-                                                                                Attachment
-                                                                            </th>
-                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
-                                                                                Add
-                                                                            </th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody className="divide-y divide-gray-50">
-                                                                        {documentTabServiceRowsForTab.map(({ serviceType, srv }, idx) => {
-                                                                            const remark = parseServiceRemark(srv?.remark);
-                                                                            const vendor =
-                                                                                remark?.vendorName && String(remark.vendorName).trim()
-                                                                                    ? String(remark.vendorName).trim()
-                                                                                    : '';
-                                                                            const descRaw =
-                                                                                srv?.description && String(srv.description).trim()
-                                                                                    ? String(srv.description).trim()
-                                                                                    : '';
-                                                                            const descDisp =
-                                                                                descRaw.length > 72 ? `${descRaw.slice(0, 72)}…` : descRaw || '-';
-                                                                            const kmDisp =
-                                                                                srv?.currentKm != null &&
-                                                                                    String(srv.currentKm).trim() !== ''
-                                                                                    ? String(srv.currentKm)
-                                                                                    : '-';
-                                                                            const attRows = fleetServiceAttachmentRows(srv);
-                                                                            const primary = attRows[0] || null;
-                                                                            return (
-                                                                                <tr
-                                                                                    key={`${String(srv?._id || idx)}-${serviceType}-${documentInnerTab}`}
-                                                                                    className="hover:bg-blue-50/30 transition-colors"
-                                                                                >
-                                                                                    <td className="px-6 py-4 text-sm font-semibold text-gray-700">
-                                                                                        {serviceType}
-                                                                                        {vendor ? (
-                                                                                            <span className="block text-xs font-normal text-gray-500 mt-0.5">
-                                                                                                {vendor}
-                                                                                            </span>
-                                                                                        ) : null}
-                                                                                    </td>
-                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
-                                                                                        {formatTableDate(srv?.date || srv?.createdAt)}
-                                                                                    </td>
-                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
-                                                                                        {fleetServiceWorkflowLabel(srv) || '-'}
-                                                                                    </td>
-                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
-                                                                                        {kmDisp}
-                                                                                    </td>
-                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
-                                                                                        {serviceAmountDisplay(srv)}
-                                                                                    </td>
-                                                                                    <td className="px-6 py-4 text-sm text-gray-600 max-w-[220px]">
-                                                                                        <span className="line-clamp-2 break-words" title={descRaw || undefined}>
-                                                                                            {descDisp}
-                                                                                        </span>
-                                                                                    </td>
-                                                                                    <td className="px-6 py-4 text-sm">
-                                                                                        {primary ? (
-                                                                                            attachmentBtn(primary.url, primary.label || 'View')
-                                                                                        ) : (
-                                                                                            <span className="text-slate-300">-</span>
-                                                                                        )}
-                                                                                    </td>
-                                                                                    <td className="px-6 py-4">
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={() => {
-                                                                                                setVehicleServicePresetType(serviceType);
-                                                                                                setVehicleServiceEditingRecord(null);
-                                                                                                setVehicleServiceModalOpen(true);
-                                                                                            }}
-                                                                                            className="text-emerald-600 hover:text-emerald-700 transition-colors p-1 rounded-lg hover:bg-emerald-50"
-                                                                                            title={`Add ${serviceType} request`}
-                                                                                        >
-                                                                                            <PlusCircle size={18} />
-                                                                                        </button>
-                                                                                    </td>
-                                                                                </tr>
-                                                                            );
-                                                                        })}
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        </div>
-                                                    )}
+                                                    {documentTabServiceRowsForTab ? (
+                                                        <VehicleDocumentTabServiceSections
+                                                            asset={asset}
+                                                            mode={documentInnerTab === 'old' ? 'old' : 'live'}
+                                                            sectionTitle={sectionTitle}
+                                                            onOpenAttachment={(url, label) =>
+                                                                openFilePreview(url, label || 'Attachment')
+                                                            }
+                                                            onAddService={(serviceType) => {
+                                                                setVehicleServicePresetType(serviceType);
+                                                                setVehicleServiceEditingRecord(null);
+                                                                setVehicleServiceModalOpen(true);
+                                                            }}
+                                                        />
+                                                    ) : null}
 
 
                                                 </div>
@@ -5660,7 +5547,7 @@ function VehicleDetailsPageContent() {
                     setVehicleProfileEditModalReadOnly(false);
                 }}
                 asset={asset}
-                assetMongoId={-assetId}
+                assetMongoId={assetId}
                 readOnly={vehicleProfileEditModalReadOnly}
                 onSuccess={refreshData}
             />

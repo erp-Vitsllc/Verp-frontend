@@ -592,7 +592,11 @@ export default function VehicleAssetPage() {
         if (!value) return '-';
         const d = new Date(value);
         if (Number.isNaN(d.getTime())) return '-';
-        return d.toLocaleDateString();
+        return d.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+        });
     };
 
     return (
@@ -921,8 +925,17 @@ export default function VehicleAssetPage() {
                                                                 '-'
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm text-gray-600">
-                                                            {formatDate(vehicle.registrationExpiryDate || vehicle.registrationExpiry)}
+                                                        <td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">
+                                                            {formatDate(
+                                                                vehicle.registrationExpiryDate ||
+                                                                    vehicle.registrationExpiry ||
+                                                                    vehicle.documents?.find?.(
+                                                                        (d) =>
+                                                                            String(d?.type || '')
+                                                                                .toLowerCase()
+                                                                                .includes('registration'),
+                                                                    )?.expiryDate,
+                                                            )}
                                                         </td>
 
                                                         <td className="px-6 py-4 whitespace-nowrap">

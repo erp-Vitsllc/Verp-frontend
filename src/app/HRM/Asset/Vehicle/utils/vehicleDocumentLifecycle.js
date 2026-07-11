@@ -14,6 +14,18 @@ export function parseVehicleDocumentMeta(doc) {
     }
 }
 
+/** Human-readable document title from plain text or JSON description metadata. */
+export function vehicleDocumentDescriptionLabel(doc, fallback = '') {
+    const raw = doc?.description;
+    if (raw == null || raw === '') return fallback;
+    const meta = parseVehicleDocumentMeta(doc);
+    if (Object.keys(meta).length > 0) {
+        const label = String(meta.text || meta.label || meta.name || '').trim();
+        return label || fallback;
+    }
+    return String(raw).trim() || fallback;
+}
+
 /** Whether a vehicle document row belongs in Old Documents (renewed, not renewed, or archived). */
 export function isVehicleDocumentOld(doc) {
     const status = String(doc?.status || doc?.documentStatus || '').toLowerCase();

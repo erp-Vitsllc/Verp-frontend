@@ -14,6 +14,7 @@ import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleMechanicalWorkFormFieldCell from './VehicleMechanicalWorkFormFieldCell';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
+import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import {
     buildMechanicalWorkDetailFormState,
@@ -173,6 +174,11 @@ export default function VehicleMechanicalWorkDetailForm({
         };
     }, []);
 
+    const licensedEmployees = useDrivingLicenseHolders({
+        preserveEmployeeId: formData.carDrivenByEmployeeId,
+        sourceEmployees: employees,
+    });
+
     const set = useCallback((key, value) => {
         setFormData((prev) => ({ ...prev, [key]: value }));
     }, []);
@@ -284,6 +290,12 @@ export default function VehicleMechanicalWorkDetailForm({
     );
 
     const employeeOptions = employees.map((emp) => (
+        <option key={emp._id} value={String(emp._id)}>
+            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+        </option>
+    ));
+
+    const drivenByEmployeeOptions = licensedEmployees.map((emp) => (
         <option key={emp._id} value={String(emp._id)}>
             {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
         </option>
@@ -601,8 +613,8 @@ export default function VehicleMechanicalWorkDetailForm({
                                 onChange={(e) => set('carDrivenByEmployeeId', e.target.value)}
                                 disabled={fieldsDisabled}
                             >
-                                <option value="">Select employee</option>
-                                {employeeOptions}
+                                <option value="">Select employee with driving license</option>
+                                {drivenByEmployeeOptions}
                             </select>
                         </VehicleMechanicalWorkFormFieldCell>
                         <VehicleMechanicalWorkFormFieldCell

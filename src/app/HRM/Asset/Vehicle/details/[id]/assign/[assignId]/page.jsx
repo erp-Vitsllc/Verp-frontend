@@ -15,22 +15,31 @@ import VehicleHandoverReceiverAssessmentCard from '../../../../components/Vehicl
 import VehicleHandoverBodyConditionCard from '../../../../components/VehicleHandoverBodyConditionCard';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
-import { isHandoverHrStage } from '../../../../utils/vehicleHandoverAssignActions';
-import { buildLiveHandoverEntry, isVehicleInspectionHandoverEntry } from '../../../../utils/vehicleHandoverHistory';
+import { isHandoverHrStage, isHandoverHistoryFullyApproved } from '../../../../utils/vehicleHandoverAssignActions';
+import {
+    buildLiveHandoverEntry,
+    isVehicleInspectionHandoverEntry,
+    resolveHandoverDeleteHistoryId,
+} from '../../../../utils/vehicleHandoverHistory';
 import VehicleHandoverAssignHeaderCards from '../../../../components/VehicleHandoverAssignHeaderCards';
 import VehicleHandoverAttachmentPanel from '../../../../components/VehicleHandoverAttachmentPanel';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../../../../utils/vehicleHandoverAssignWorkflowTrackerConfig';
 import { useHandoverAssignPermissions } from '../../../../hooks/useHandoverAssignPermissions';
 import {
-    buildHandoverApprovalFineInitialData,
     buildHandoverItemFineInitialData,
+    buildHandoverVehicleDamageFineTypeFields,
     HANDOVER_DAMAGE_FINE_MODAL_PROPS,
     canManageHandoverItemFines,
+    indexHandoverItemFineInclusions,
     indexHandoverItemFineWaivers,
     indexHandoverItemFines,
     updateHandoverItemFineWaiver,
 } from '../../../../utils/vehicleHandoverItemFineUtils';
-import { resolveVehicleAccessoryItemPrice, buildPreviousHandoverComparisonForm } from '../../../../utils/vehicleHandoverReceiverAssessment';
+import {
+    isReceiverAssessmentMarkedDone,
+    resolveVehicleAccessoryItemPrice,
+} from '../../../../utils/vehicleHandoverReceiverAssessment';
+import { enrichVehicleWithLocatorKm } from '../../../../utils/enrichVehicleWithLocatorKm';
 
 function mergeHistoryEntryIntoList(list, entry) {
     if (!entry?._id || !Array.isArray(list)) return list;
@@ -162,6 +171,11 @@ function VehicleHandoverAssignPageContent() {
         [historyEntry],
     );
 
+    const handoverItemFineInclusionIndex = useMemo(
+        () => indexHandoverItemFineInclusions(historyEntry),
+        [historyEntry],
+    );
+
     const handoverItemFineIndexForUi = useMemo(
         () => (isInspectionHandover ? {} : handoverItemFineIndex),
         [isInspectionHandover, handoverItemFineIndex],
@@ -172,29 +186,32 @@ function VehicleHandoverAssignPageContent() {
         [isInspectionHandover, handoverItemFineWaiverIndex],
     );
 
+    const handoverItemFineInclusionsForUi = useMemo(
+        () => (isInspectionHandover ? {} : handoverItemFineInclusionIndex),
+        [isInspectionHandover, handoverItemFineInclusionIndex],
+    );
+
     const handoverFinesForUi = useMemo(
         () => (isInspectionHandover ? [] : handoverFines),
         [handoverFines, isInspectionHandover],
     );
 
-    const handoverFineInitialData = useMemo(
-        () =>
-            buildHandoverApprovalFineInitialData({
-                vehicle,
-                historyEntry,
-                assetHistory,
-                handoverItemFineIndex,
-                handoverItemFineWaiverIndex,
-                assignee: historyEntry?.assignedTo || vehicle?.assignedTo,
-            }),
-        [
-            assetHistory,
-            handoverItemFineIndex,
-            handoverItemFineWaiverIndex,
-            historyEntry,
-            vehicle,
-        ],
-    );
+    const approvedHandoverFineIds = useMemo(() => {
+        const fromDetails = Array.isArray(historyEntry?.details?.handoverFineIds)
+            ? historyEntry.details.handoverFineIds
+            : [];
+        const primary = historyEntry?.details?.handoverFineId
+            ? [historyEntry.details.handoverFineId]
+            : [];
+        const fromFines = handoverFines
+            .filter(
+                (fine) =>
+                    String(fine?.handoverApprovalContext?.historyId || '') ===
+                    String(historyEntry?._id || ''),
+            )
+            .map((fine) => fine._id);
+        return [...new Set([...fromDetails, ...primary, ...fromFines].map((id) => String(id)).filter(Boolean))];
+    }, [handoverFines, historyEntry]);
 
     const canManageItemFines = useMemo(
         () =>
@@ -245,7 +262,7 @@ function VehicleHandoverAssignPageContent() {
                 const updated = await updateHandoverItemFineWaiver(axiosInstance, historyId, {
                     itemType,
                     itemKey,
-                    waived: true,
+                    decision: 'exclude',
                 });
                 setHistoryEntry(updated);
                 setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, updated));
@@ -254,7 +271,7 @@ function VehicleHandoverAssignPageContent() {
                 }
                 toast({
                     title: 'Removed from fine',
-                    description: `${itemLabel || itemKey} is no longer included in the handover fine.`,
+                    description: `${itemLabel || itemKey} will not be included in the handover fine.`,
                 });
             } catch (error) {
                 toast({
@@ -267,96 +284,72 @@ function VehicleHandoverAssignPageContent() {
         [fetchHandoverFines, historyEntry?._id, toast, vehicle],
     );
 
-    const openHandoverItemFine = useCallback(
-        ({
-            itemType,
-            itemKey,
-            itemLabel,
-            existingFine = null,
-            photo = null,
-            previousPhoto = null,
-            comment = null,
-            previousComment = null,
-            present = null,
-            previousPresent = null,
-            photoUrl = null,
-            previousPhotoUrl = null,
-            photoChanged = false,
-        }) => {
-            const assignee = historyEntry?.assignedTo || vehicle?.assignedTo;
-            let suggestedAmount = null;
-            let resolvedPhoto = photo;
-            let resolvedPreviousPhoto = previousPhoto;
-            let resolvedComment = comment;
-            let resolvedPreviousComment = previousComment;
-            let resolvedPresent = present;
-            let resolvedPreviousPresent = previousPresent;
-
-            if (itemType === 'accessory') {
-                const assessmentRow =
-                    historyEntry?.details?.receiverAssessment?.[itemKey] ||
-                    historyEntry?.details?.vehicleAssessmentReportByReceiver?.[itemKey] ||
-                    null;
-                suggestedAmount = resolveVehicleAccessoryItemPrice(
-                    vehicle,
-                    itemKey,
-                    itemLabel,
-                    assessmentRow,
-                );
-                if (!resolvedPhoto) {
-                    resolvedPhoto = assessmentRow?.photo ?? null;
-                }
-                if (resolvedPresent == null) {
-                    resolvedPresent = assessmentRow?.present ?? null;
-                }
-                if (!resolvedPreviousPhoto || resolvedPreviousPresent == null) {
-                    const previousForm = buildPreviousHandoverComparisonForm(historyEntry, vehicle, {
-                        assetHistory,
-                        currentEntry: historyEntry,
-                        asset: vehicle,
-                    });
-                    const previousRow = previousForm[itemKey] || {};
-                    if (!resolvedPreviousPhoto) {
-                        resolvedPreviousPhoto = previousRow.photo ?? null;
-                    }
-                    if (resolvedPreviousPresent == null) {
-                        resolvedPreviousPresent = previousRow.present ?? null;
-                    }
-                }
+    const markHandoverItemFineInclude = useCallback(
+        async ({ itemType, itemKey, itemLabel }) => {
+            const historyId = historyEntry?._id;
+            if (!historyId || String(historyId).startsWith('live-')) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot add to fine',
+                    description: 'Save the handover record before updating item fines.',
+                });
+                return;
             }
-
-            setItemFineInitialData(
-                buildHandoverItemFineInitialData({
-                    vehicle,
-                    historyEntry,
+            try {
+                const updated = await updateHandoverItemFineWaiver(axiosInstance, historyId, {
                     itemType,
                     itemKey,
-                    itemLabel,
-                    suggestedAmount,
-                    existingFine,
-                    assignee,
-                    photo: resolvedPhoto,
-                    previousPhoto: resolvedPreviousPhoto,
-                    comment: resolvedComment,
-                    previousComment: resolvedPreviousComment,
-                    present: resolvedPresent,
-                    previousPresent: resolvedPreviousPresent,
-                    photoUrl,
-                    previousPhotoUrl,
-                    photoChanged,
-                }),
-            );
-            pendingHandoverApprovalRef.current = false;
-            setShowHandoverFineModal(true);
+                    decision: 'include',
+                });
+                setHistoryEntry(updated);
+                setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, updated));
+                toast({
+                    title: 'Added in fine',
+                    description: `${itemLabel || itemKey} is marked for fine. Approve to create the draft fine row.`,
+                });
+            } catch (error) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Could not add to fine',
+                    description: error.response?.data?.message || error.message || 'Please try again.',
+                });
+            }
         },
-        [assetHistory, historyEntry, vehicle],
+        [historyEntry?._id, toast],
     );
 
-    const openApprovalHandoverFine = useCallback(() => {
-        pendingHandoverApprovalRef.current = true;
-        setItemFineInitialData(handoverFineInitialData);
-        setShowHandoverFineModal(true);
-    }, [handoverFineInitialData]);
+    const openHandoverItemFine = useCallback(
+        (payload) => {
+            if (payload?.existingFine?._id) {
+                const assignee = historyEntry?.assignedTo || vehicle?.assignedTo;
+                setItemFineInitialData(
+                    buildHandoverItemFineInitialData({
+                        vehicle,
+                        historyEntry,
+                        itemType: payload.itemType,
+                        itemKey: payload.itemKey,
+                        itemLabel: payload.itemLabel,
+                        existingFine: payload.existingFine,
+                        assignee,
+                        photo: payload.photo,
+                        previousPhoto: payload.previousPhoto,
+                        comment: payload.comment,
+                        previousComment: payload.previousComment,
+                        present: payload.present,
+                        previousPresent: payload.previousPresent,
+                        photoUrl: payload.photoUrl,
+                        previousPhotoUrl: payload.previousPhotoUrl,
+                        photoChanged: payload.photoChanged,
+                    }),
+                );
+                pendingHandoverApprovalRef.current = false;
+                setShowHandoverFineModal(true);
+                return;
+            }
+            void markHandoverItemFineInclude(payload);
+        },
+        [historyEntry, markHandoverItemFineInclude, vehicle],
+    );
 
     const handoverAssetHistory = useMemo(() => {
         if (!historyEntry?._id) return assetHistory;
@@ -410,7 +403,7 @@ function VehicleHandoverAssignPageContent() {
                     .get(`/AssetItem/history-record/${assignId}`, { skipToast: true })
                     .catch(() => ({ data: null })),
             ]);
-            const vehicleData = vehicleRes.data;
+            const vehicleData = await enrichVehicleWithLocatorKm(vehicleRes.data);
             const historyList = Array.isArray(historyRes.data)
                 ? historyRes.data
                 : historyRes.data?.history || [];
@@ -429,12 +422,22 @@ function VehicleHandoverAssignPageContent() {
     }, [assignId, fetchHandoverFines, vehicleId]);
 
     const completeHandoverAcceptance = useCallback(
-        async (handoverFineId = null) => {
+        async (handoverFineId = null, handoverFineIds = null) => {
             if (!vehicle?._id) return;
             setHandoverFineSubmitting(true);
             try {
                 const payload = { action: 'Accept', comments: '' };
-                if (handoverFineId) payload.handoverFineId = String(handoverFineId);
+                const ids = [
+                    ...(Array.isArray(handoverFineIds) ? handoverFineIds : []),
+                    ...(handoverFineId ? [handoverFineId] : []),
+                ]
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean);
+                const uniqueIds = [...new Set(ids)];
+                if (uniqueIds.length > 0) {
+                    payload.handoverFineId = uniqueIds[0];
+                    payload.handoverFineIds = uniqueIds;
+                }
                 await axiosInstance.put(
                     `/AssetItem/${vehicle._id}/respond`,
                     payload,
@@ -443,8 +446,8 @@ function VehicleHandoverAssignPageContent() {
                 await refreshAll();
                 toast({
                     title: 'Approved',
-                    description: handoverFineId
-                        ? 'Handover approved and vehicle damage recorded.'
+                    description: uniqueIds.length
+                        ? 'Handover approved. Draft fine rows are ready to edit amounts.'
                         : 'Handover approved successfully.',
                 });
                 invalidateAssetPendingInbox('vehicle');
@@ -462,64 +465,123 @@ function VehicleHandoverAssignPageContent() {
         [refreshAll, toast, vehicle?._id],
     );
 
+    const createDraftFinesAndApprove = useCallback(
+        async (includedItems = []) => {
+            if (!vehicle?._id || !historyEntry?._id) return;
+            setHandoverFineSubmitting(true);
+            try {
+                const assignee = historyEntry?.assignedTo || vehicle?.assignedTo;
+                const createdIds = [];
+
+                for (const item of includedItems) {
+                    if (item.existingFine?._id) {
+                        createdIds.push(String(item.existingFine._id));
+                        continue;
+                    }
+
+                    let suggestedAmount = null;
+                    let photo = null;
+                    let previousPhoto = null;
+                    let comment = null;
+                    let previousComment = null;
+                    let present = null;
+                    let previousPresent = null;
+                    let photoUrl = null;
+                    let previousPhotoUrl = null;
+                    let photoChanged = false;
+
+                    if (item.itemType === 'body') {
+                        const formRow = item.formRow || {};
+                        const comparison = item.comparison || {};
+                        photo = formRow.photo;
+                        previousPhoto = comparison.previous?.photo;
+                        comment = formRow.comment;
+                        previousComment = comparison.previous?.comment;
+                        photoUrl = comparison.current?.photoUrl;
+                        previousPhotoUrl = comparison.previous?.photoUrl;
+                        photoChanged = comparison.photoChanged;
+                    } else {
+                        const assessmentRow =
+                            historyEntry?.details?.receiverAssessment?.[item.itemKey] ||
+                            historyEntry?.details?.vehicleAssessmentReportByReceiver?.[item.itemKey] ||
+                            null;
+                        suggestedAmount = resolveVehicleAccessoryItemPrice(
+                            vehicle,
+                            item.itemKey,
+                            item.itemLabel,
+                            assessmentRow,
+                        );
+                        const comparison = item.comparison || {};
+                        photo = comparison.current?.photo ?? assessmentRow?.photo;
+                        previousPhoto = comparison.previous?.photo;
+                        present = comparison.current?.present ?? assessmentRow?.present;
+                        previousPresent = comparison.previous?.present;
+                        photoUrl = comparison.current?.photoUrl;
+                        previousPhotoUrl = comparison.previous?.photoUrl;
+                        photoChanged = comparison.photoChanged;
+                    }
+
+                    const initial = buildHandoverItemFineInitialData({
+                        vehicle,
+                        historyEntry,
+                        itemType: item.itemType,
+                        itemKey: item.itemKey,
+                        itemLabel: item.itemLabel,
+                        suggestedAmount,
+                        assignee,
+                        photo,
+                        previousPhoto,
+                        comment,
+                        previousComment,
+                        present,
+                        previousPresent,
+                        photoUrl,
+                        previousPhotoUrl,
+                        photoChanged,
+                    });
+
+                    const { data } = await axiosInstance.post(
+                        '/Fine',
+                        {
+                            ...initial,
+                            ...buildHandoverVehicleDamageFineTypeFields(),
+                            fineStatus: 'Draft',
+                            fineAmount: initial.fineAmount || '',
+                            responsibleFor: 'Employee',
+                        },
+                        { skipActionDedupe: true },
+                    );
+                    const fineId = data?.fines?.[0]?._id || data?.fine?._id || data?._id;
+                    if (fineId) createdIds.push(String(fineId));
+                }
+
+                await completeHandoverAcceptance(createdIds[0] || null, createdIds);
+            } catch (error) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Approval failed',
+                    description:
+                        error.response?.data?.message ||
+                        error.message ||
+                        'Could not create draft fines and approve handover.',
+                });
+            } finally {
+                setHandoverFineSubmitting(false);
+            }
+        },
+        [completeHandoverAcceptance, historyEntry, toast, vehicle],
+    );
+
     const handleHandoverFineCreated = useCallback(
-        async (result) => {
-            const fineId =
-                result?.fines?.[0]?._id ||
-                result?.fine?._id ||
-                result?._id ||
-                null;
-            const itemContext = itemFineInitialData?.handoverApprovalContext;
-            const shouldCompleteApproval =
-                pendingHandoverApprovalRef.current ||
-                Boolean(itemFineInitialData?.handoverApprovalFine) ||
-                Boolean(handoverFineInitialData?.handoverApprovalFine);
+        async () => {
             pendingHandoverApprovalRef.current = false;
             setShowHandoverFineModal(false);
             setItemFineInitialData(null);
-
-            if (
-                itemContext?.historyId &&
-                itemContext?.itemType &&
-                itemContext?.itemKey &&
-                !itemFineInitialData?.handoverApprovalFine
-            ) {
-                try {
-                    const updated = await updateHandoverItemFineWaiver(
-                        axiosInstance,
-                        itemContext.historyId,
-                        {
-                            itemType: itemContext.itemType,
-                            itemKey: itemContext.itemKey,
-                            waived: false,
-                        },
-                    );
-                    setHistoryEntry(updated);
-                    setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, updated));
-                } catch {
-                    /* non-fatal — fine was still created */
-                }
-            }
-
             if (vehicle) {
                 await fetchHandoverFines(vehicle);
             }
-
-            if (shouldCompleteApproval) {
-                try {
-                    await completeHandoverAcceptance(fineId);
-                } catch {
-                    /* toast shown */
-                }
-            }
         },
-        [
-            completeHandoverAcceptance,
-            fetchHandoverFines,
-            handoverFineInitialData?.handoverApprovalFine,
-            itemFineInitialData?.handoverApprovalFine,
-            vehicle,
-        ],
+        [fetchHandoverFines, vehicle],
     );
 
     const handleHandoverFineModalClose = useCallback(() => {
@@ -581,7 +643,9 @@ function VehicleHandoverAssignPageContent() {
 
                 if (cancelled) return;
 
-                const vehicleData = vehicleRes.data;
+                const vehicleData = await enrichVehicleWithLocatorKm(vehicleRes.data);
+                if (cancelled) return;
+
                 const historyList = Array.isArray(historyRes.data)
                     ? historyRes.data
                     : historyRes.data?.history || [];
@@ -590,7 +654,41 @@ function VehicleHandoverAssignPageContent() {
 
                 let entry = null;
                 if (String(assignId).startsWith('live-')) {
-                    entry = buildLiveHandoverEntry(vehicleData);
+                    const liveStub = buildLiveHandoverEntry(vehicleData);
+                    const resolvedHistoryId = resolveHandoverDeleteHistoryId(
+                        liveStub,
+                        vehicleData,
+                        historyList,
+                    );
+                    if (resolvedHistoryId) {
+                        // Prefer the real Assigned history row so Process Next / body photos
+                        // persist for HR instead of staying on a synthetic live- entry.
+                        try {
+                            const { data: resolvedRecord } = await axiosInstance.get(
+                                `/AssetItem/history-record/${resolvedHistoryId}`,
+                                { skipToast: true },
+                            );
+                            entry =
+                                resolvedRecord ||
+                                historyList.find((row) => String(row?._id) === String(resolvedHistoryId)) ||
+                                null;
+                        } catch {
+                            entry =
+                                historyList.find((row) => String(row?._id) === String(resolvedHistoryId)) ||
+                                null;
+                        }
+                        if (entry?._id && String(entry._id) !== String(assignId)) {
+                            const tabQuery =
+                                searchParams.get('tab') === 'attachment' ? '?tab=attachment' : '';
+                            router.replace(
+                                `/HRM/Asset/Vehicle/details/${vehicleId}/assign/${entry._id}${tabQuery}`,
+                            );
+                            return;
+                        }
+                    }
+                    if (!entry) {
+                        entry = liveStub;
+                    }
                 } else {
                     entry =
                         recordRes?.data ||
@@ -626,7 +724,7 @@ function VehicleHandoverAssignPageContent() {
         return () => {
             cancelled = true;
         };
-    }, [assignId, toast, vehicleId]);
+    }, [assignId, router, searchParams, toast, vehicleId]);
 
     if (loading) {
         return (
@@ -694,9 +792,15 @@ function VehicleHandoverAssignPageContent() {
                             onResponded={handleHandoverResponded}
                             canApprove={canApprove}
                             isHrStage={isHrReviewStage}
-                            onApproveWithFine={isInspectionHandover ? undefined : openApprovalHandoverFine}
+                            onApproveWithIncludedFines={
+                                isInspectionHandover ? undefined : createDraftFinesAndApprove
+                            }
                             handoverItemFines={handoverItemFineIndexForUi}
                             handoverItemFineWaivers={handoverItemFineWaiversForUi}
+                            handoverItemFineInclusions={handoverItemFineInclusionsForUi}
+                            approvedHandoverFineIds={
+                                isHandoverHistoryFullyApproved(historyEntry) ? approvedHandoverFineIds : []
+                            }
                             canReviewInspection={canReviewInspection}
                             canSubmitInspectionForHr={canSubmitInspectionForHr}
                         />
@@ -727,11 +831,16 @@ function VehicleHandoverAssignPageContent() {
                                             onDone={handleAssessmentDone}
                                             onVehicleUpdated={handleVehicleUpdated}
                                             inspectionHandover={isInspectionHandover}
-                                            mirrorLiveAccessories={!isInspectionHandover}
+                                            mirrorLiveAccessories={
+                                                !isInspectionHandover &&
+                                                !accessoriesReadOnly &&
+                                                !isReceiverAssessmentMarkedDone(historyEntry)
+                                            }
                                             readOnly={accessoriesReadOnly}
                                             handoverItemFines={handoverItemFineIndexForUi}
                                             handoverFines={handoverFinesForUi}
                                             handoverItemFineWaivers={handoverItemFineWaiversForUi}
+                                            handoverItemFineInclusions={handoverItemFineInclusionsForUi}
                                             canManageItemFines={canManageItemFines}
                                             isHrApprovalStage={isHrReviewStage}
                                             onOpenItemFine={openHandoverItemFine}
@@ -747,11 +856,12 @@ function VehicleHandoverAssignPageContent() {
                                         assetHistory={handoverAssetHistory}
                                         handoverItemFines={handoverItemFineIndexForUi}
                                         handoverItemFineWaivers={handoverItemFineWaiversForUi}
+                                        handoverItemFineInclusions={handoverItemFineInclusionsForUi}
                                         className={assignPageLayout.panelClassName}
                                         canApprove={canApprove}
                                         isHrStage={isHrReviewStage}
-                                        onApproveWithFine={
-                                            isInspectionHandover ? undefined : openApprovalHandoverFine
+                                        onApproveWithIncludedFines={
+                                            isInspectionHandover ? undefined : createDraftFinesAndApprove
                                         }
                                         onVehicleUpdated={handleVehicleUpdated}
                                         onHistoryUpdated={setHistoryEntry}
@@ -779,6 +889,7 @@ function VehicleHandoverAssignPageContent() {
                                     handoverItemFines={handoverItemFineIndexForUi}
                                     handoverFines={handoverFinesForUi}
                                     handoverItemFineWaivers={handoverItemFineWaiversForUi}
+                                    handoverItemFineInclusions={handoverItemFineInclusionsForUi}
                                     canManageItemFines={canManageItemFines}
                                     isHrApprovalStage={isHrReviewStage}
                                     onOpenItemFine={openHandoverItemFine}
@@ -803,7 +914,7 @@ function VehicleHandoverAssignPageContent() {
                 isOpen={showHandoverFineModal}
                 onClose={handleHandoverFineModalClose}
                 onSuccess={handleHandoverFineCreated}
-                initialData={itemFineInitialData || handoverFineInitialData}
+                initialData={itemFineInitialData}
                 employees={handoverFineEmployees}
                 vehicles={handoverFineVehicles}
                 {...HANDOVER_DAMAGE_FINE_MODAL_PROPS}

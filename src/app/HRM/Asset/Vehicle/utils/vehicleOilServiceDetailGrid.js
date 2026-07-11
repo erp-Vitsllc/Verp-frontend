@@ -1,6 +1,7 @@
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { formatNextChangeMonthDisplay, parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import { pickLatestDocOfType } from './vehicleExpirySources';
+import { formatVehicleServiceReqNo } from './vehicleServiceReqNo';
 
 function formatDate(value) {
     if (!value) return '—';
@@ -104,7 +105,7 @@ export function buildOilServiceDetailGridFields(asset, service, scheduleRow, emp
         { label: 'Garage Contact', value: remark.garageContact || '—' },
         {
             label: 'Service Req No',
-            value: String(service._id || '').slice(-8) || asset?.assetId || '—',
+            value: formatVehicleServiceReqNo(service, asset),
         },
         {
             label: 'Service Start Date',

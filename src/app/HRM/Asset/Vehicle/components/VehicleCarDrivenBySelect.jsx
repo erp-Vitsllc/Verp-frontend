@@ -29,7 +29,7 @@ export default function VehicleCarDrivenBySelect({
         >
             <option value="">{placeholder}</option>
             {employees.length > 0 ? (
-                <optgroup label="Employees">
+                <optgroup label="Employees with driving license">
                     {employees.map((emp) => {
                         const id = String(emp?._id || emp?.id || '');
                         if (!id) return null;

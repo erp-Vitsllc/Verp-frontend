@@ -59,7 +59,7 @@ export default function VehicleHandoverPdfPage1({ headerTable, className = '' })
     const bodyRows = [
         ['Asset No', headerTable.assetNo, 'Brand', headerTable.brand, 'Reg Expiry', headerTable.regExpiry],
         ['Handover By', headerTable.handoverBy, 'Hand Over to', headerTable.handoverTo, 'Warranty', headerTable.warranty],
-        ['Current Usage', headerTable.currentUsage, 'Hand Over Date', headerTable.handoverDate, 'Driving License Age', headerTable.drivingLicenseAge],
+        ['Current KM', headerTable.currentKm || headerTable.currentUsage, 'Hand Over Date', headerTable.handoverDate, 'Driving License Age', headerTable.drivingLicenseAge],
         ['Vehicle Value', headerTable.vehicleValue, 'Insurance by', headerTable.insuranceBy, 'Insurance Expiry', headerTable.insuranceExpiry],
     ];
 

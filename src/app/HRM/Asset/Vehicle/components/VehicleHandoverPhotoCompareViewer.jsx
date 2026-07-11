@@ -13,7 +13,7 @@ function clampZoom(value) {
     return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 }
 
-function ComparePane({ label, tone, photoUrl, comment }) {
+function ComparePane({ label, tone, photoUrl, comment, emptyLabel }) {
     const isPrevious = tone === 'previous';
     const headerClass = isPrevious ? 'bg-emerald-600' : 'bg-red-600';
     const borderClass = isPrevious ? 'border-emerald-400' : 'border-red-400';
@@ -135,7 +135,7 @@ function ComparePane({ label, tone, photoUrl, comment }) {
                         />
                     </div>
                 ) : (
-                    <p className="text-sm text-slate-400">No photo</p>
+                    <p className="text-sm text-slate-400">{emptyLabel || 'No photo'}</p>
                 )}
             </div>
 
@@ -186,6 +186,8 @@ export default function VehicleHandoverPhotoCompareViewer({
     currentPhotoUrl = null,
     previousComment = '',
     currentComment = '',
+    previousPresent = null,
+    currentPresent = null,
     onClose,
 }) {
     const [mounted, setMounted] = useState(false);
@@ -239,12 +241,14 @@ export default function VehicleHandoverPhotoCompareViewer({
                     tone="previous"
                     photoUrl={previousPhotoUrl}
                     comment={previousComment}
+                    emptyLabel={previousPresent === false ? 'Not present' : 'No photo'}
                 />
                 <ComparePane
                     label="Current (50%)"
                     tone="current"
                     photoUrl={currentPhotoUrl}
                     comment={currentComment}
+                    emptyLabel={currentPresent === false ? 'Not present' : 'No photo'}
                 />
             </div>
         </div>,

@@ -4,12 +4,31 @@ import {
     resolveAssessmentMediaUrl,
 } from './vehicleHandoverReceiverAssessment';
 
+const IMAGE_COMPRESS_TIMEOUT_MS = 12000;
+const PHOTO_UPLOAD_TIMEOUT_MS = 60000;
+
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result);
         reader.onerror = reject;
         reader.readAsDataURL(file);
+    });
+}
+
+function withTimeout(promise, ms, message) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(message)), ms);
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
     });
 }
 
@@ -24,12 +43,16 @@ export async function compressHandoverImageFile(
 
     const objectUrl = URL.createObjectURL(file);
     try {
-        const image = await new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-            img.src = objectUrl;
-        });
+        const image = await withTimeout(
+            new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error('Could not read image for compression.'));
+                img.src = objectUrl;
+            }),
+            IMAGE_COMPRESS_TIMEOUT_MS,
+            'Image processing timed out. Try a JPG or PNG photo.',
+        );
 
         const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
         const width = Math.max(1, Math.round(image.width * scale));
@@ -44,6 +67,7 @@ export async function compressHandoverImageFile(
         const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
         return canvas.toDataURL(outputType, quality);
     } catch {
+        // Fall back to raw data URL so HEIC/odd formats still upload when canvas fails.
         return readFileAsDataUrl(file);
     } finally {
         URL.revokeObjectURL(objectUrl);
@@ -59,7 +83,7 @@ export async function uploadHandoverAssessmentPhoto(file, itemKey, { skipToast =
             file: compressed,
             fileName: `${itemKey || 'accessory'}-receiver-assessment`,
         },
-        { skipToast },
+        { skipToast, timeout: PHOTO_UPLOAD_TIMEOUT_MS },
     );
     const publicId = response?.data?.publicId;
     const url = response?.data?.url;

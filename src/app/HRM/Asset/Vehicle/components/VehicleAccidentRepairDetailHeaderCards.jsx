@@ -4,6 +4,7 @@ import { Car, Settings } from 'lucide-react';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
+import { formatVehicleServiceReqNo } from '../utils/vehicleServiceReqNo';
 import {
     resolveShopWorkApprovalStageLabel,
     resolveShopWorkHeaderStatus,
@@ -134,7 +135,7 @@ export default function VehicleAccidentRepairDetailHeaderCards({
                                 Record ID
                             </span>
                             <span className="text-xs font-bold ml-2 truncate font-mono">
-                                {String(service?._id || '').slice(-8) || '—'}
+                                {formatVehicleServiceReqNo(service, vehicle)}
                             </span>
                         </div>
                     </div>

@@ -203,6 +203,14 @@ export async function downloadVehicleHandoverPdfFromDom({ filename, rootId = CAP
         throw new Error('Handover form preview is not ready yet.');
     }
 
+    const readyAt = Date.now();
+    while (
+        root.getAttribute('data-pdf-pagination-ready') !== 'true' &&
+        Date.now() - readyAt < 8000
+    ) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
     root.scrollIntoView({ block: 'center', inline: 'nearest' });
 
     const pageNodes = Array.from(root.querySelectorAll(`.${PDF_PAGE_SURFACE_CLASS}`));

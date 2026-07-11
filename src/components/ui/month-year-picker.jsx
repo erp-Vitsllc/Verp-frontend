@@ -29,9 +29,24 @@ function formatMonthValue(date, valueFormat) {
     return valueFormat === "yyyy-MM" ? format(date, "yyyy-MM") : format(date, "yyyy-MM-dd")
 }
 
+function toYearMonthKey(dateOrYm) {
+    if (!dateOrYm) return ""
+    if (dateOrYm instanceof Date) {
+        if (!isValid(dateOrYm)) return ""
+        return format(dateOrYm, "yyyy-MM")
+    }
+    const m = String(dateOrYm).trim().match(/^(\d{4})-(\d{1,2})/)
+    if (!m) return ""
+    const month = parseInt(m[2], 10)
+    if (!month || month < 1 || month > 12) return ""
+    return `${m[1]}-${String(month).padStart(2, "0")}`
+}
+
 /**
  * Shadcn month grid picker.
  * @param {'yyyy-MM' | 'yyyy-MM-dd'} valueFormat - shape of `value` / `onChange` (default yyyy-MM-dd).
+ * @param {string} [minMonth] - earliest selectable month as `yyyy-MM` (inclusive).
+ * @param {string} [maxMonth] - latest selectable month as `yyyy-MM` (inclusive).
  */
 export function MonthYearPicker({
     value,
@@ -42,16 +57,39 @@ export function MonthYearPicker({
     valueFormat = "yyyy-MM-dd",
     fromYear,
     toYear,
+    minMonth,
+    maxMonth,
 }) {
     const [date, setDate] = React.useState(undefined)
     const [year, setYearState] = React.useState(() => new Date().getFullYear())
     const [isOpen, setIsOpen] = React.useState(false)
 
-    const minYear = fromYear ?? new Date().getFullYear() - 20
-    const maxYear = toYear ?? new Date().getFullYear() + 10
+    const minMonthKey = toYearMonthKey(minMonth)
+    const maxMonthKey = toYearMonthKey(maxMonth)
+    const minYearFromMonth = minMonthKey ? Number(minMonthKey.slice(0, 4)) : null
+    const maxYearFromMonth = maxMonthKey ? Number(maxMonthKey.slice(0, 4)) : null
+
+    const minYear = Math.max(
+        fromYear ?? new Date().getFullYear() - 20,
+        minYearFromMonth ?? Number.NEGATIVE_INFINITY,
+    )
+    const maxYear = Math.min(
+        toYear ?? new Date().getFullYear() + 10,
+        maxYearFromMonth ?? Number.POSITIVE_INFINITY,
+    )
     const yearOptions = React.useMemo(
-        () => Array.from({ length: maxYear - minYear + 1 }, (_, i) => minYear + i),
+        () => Array.from({ length: Math.max(0, maxYear - minYear + 1) }, (_, i) => minYear + i),
         [minYear, maxYear],
+    )
+
+    const isMonthDisabled = React.useCallback(
+        (monthIndex, forYear = year) => {
+            const key = `${forYear}-${String(monthIndex + 1).padStart(2, "0")}`
+            if (minMonthKey && key < minMonthKey) return true
+            if (maxMonthKey && key > maxMonthKey) return true
+            return false
+        },
+        [year, minMonthKey, maxMonthKey],
     )
 
     React.useEffect(() => {
@@ -64,15 +102,24 @@ export function MonthYearPicker({
         }
     }, [value, valueFormat])
 
+    React.useEffect(() => {
+        setYearState((prev) => {
+            if (prev < minYear) return minYear
+            if (prev > maxYear) return maxYear
+            return prev
+        })
+    }, [minYear, maxYear])
+
     const applyMonth = React.useCallback(
         (monthIndex, nextYear = year) => {
+            if (isMonthDisabled(monthIndex, nextYear)) return
             const newDate = new Date(nextYear, monthIndex, 1)
             setDate(newDate)
             setYearState(nextYear)
             onChange(formatMonthValue(newDate, valueFormat))
             setIsOpen(false)
         },
-        [onChange, valueFormat, year],
+        [onChange, valueFormat, year, isMonthDisabled],
     )
 
     const handleYearChange = (increment) => {
@@ -85,8 +132,11 @@ export function MonthYearPicker({
 
     const goToCurrentMonth = () => {
         const now = new Date()
+        if (isMonthDisabled(now.getMonth(), now.getFullYear())) return
         applyMonth(now.getMonth(), now.getFullYear())
     }
+
+    const currentMonthDisabled = isMonthDisabled(new Date().getMonth(), new Date().getFullYear())
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -158,16 +208,20 @@ export function MonthYearPicker({
                         {MONTH_LABELS.map((month, index) => {
                             const isSelected =
                                 date && date.getMonth() === index && date.getFullYear() === year
+                            const monthDisabled = isMonthDisabled(index, year)
                             return (
                                 <Button
                                     key={month}
                                     type="button"
                                     variant="ghost"
+                                    disabled={monthDisabled}
                                     className={cn(
                                         "h-11 text-sm font-medium rounded-xl transition-all",
-                                        isSelected
-                                            ? "bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200"
-                                            : "hover:bg-blue-50 hover:text-blue-600 text-slate-600",
+                                        monthDisabled
+                                            ? "text-slate-300 cursor-not-allowed opacity-50 hover:bg-transparent hover:text-slate-300"
+                                            : isSelected
+                                              ? "bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200"
+                                              : "hover:bg-blue-50 hover:text-blue-600 text-slate-600",
                                     )}
                                     onClick={() => applyMonth(index)}
                                 >
@@ -181,7 +235,13 @@ export function MonthYearPicker({
                         <Button
                             type="button"
                             variant="ghost"
-                            className="w-full text-[11px] font-bold text-blue-600 hover:bg-blue-50 uppercase tracking-wider h-10"
+                            disabled={currentMonthDisabled}
+                            className={cn(
+                                "w-full text-[11px] font-bold uppercase tracking-wider h-10",
+                                currentMonthDisabled
+                                    ? "text-slate-300 cursor-not-allowed hover:bg-transparent"
+                                    : "text-blue-600 hover:bg-blue-50",
+                            )}
                             onClick={goToCurrentMonth}
                         >
                             Current month

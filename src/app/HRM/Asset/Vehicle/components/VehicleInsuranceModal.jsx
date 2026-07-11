@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 import {
     buildInsuranceProposedRows,
@@ -61,17 +62,6 @@ export default function VehicleInsuranceModal({
     });
 
     const [errors, setErrors] = useState({});
-
-    const vendorOptions = [
-        'Al Sagr National Insurance',
-        'Emirates Insurance',
-        'AXA Insurance',
-        'Oman Insurance',
-        'Sukoon Insurance',
-        'Noor Takaful',
-        'Alliance Insurance',
-        'RSA Insurance',
-    ];
 
     useEffect(() => {
         if (!isOpen) return;
@@ -429,15 +419,17 @@ export default function VehicleInsuranceModal({
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
                                 Insurance Company <span className="text-red-500">*</span>
                             </label>
-                            <select
+                            <ZohoVendorSelect
                                 value={formData.insuranceCompany}
-                                onChange={(e) => setFormData(p => ({ ...p, insuranceCompany: e.target.value }))}
-                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.insuranceCompany ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
+                                onChange={(nextValue) =>
+                                    setFormData((p) => ({ ...p, insuranceCompany: nextValue }))
+                                }
                                 disabled={loading}
-                            >
-                                <option value="">Select Insurance Company...</option>
-                                {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
-                            </select>
+                                className={errors.insuranceCompany ? '[&_.zoho-vendor__control]:border-red-400' : ''}
+                                placeholder="Select Insurance Company..."
+                                emptyLabel="No insurance vendors found"
+                                enabled={isOpen}
+                            />
                             {errors.insuranceCompany && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.insuranceCompany}</p>}
                         </div>
                         <div className="space-y-1.5">

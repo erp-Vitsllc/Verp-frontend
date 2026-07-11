@@ -26,10 +26,11 @@ export default function VehicleHandoverAssignWorkflowPanel({
     assetHistory = [],
     handoverItemFines = {},
     handoverItemFineWaivers = {},
+    handoverItemFineInclusions = {},
     className = '',
     canApprove = false,
     isHrStage = false,
-    onApproveWithFine,
+    onApproveWithIncludedFines,
     onVehicleUpdated,
     onHistoryUpdated,
     onResponded,
@@ -139,12 +140,13 @@ export default function VehicleHandoverAssignWorkflowPanel({
                         assetHistory={assetHistory}
                         handoverItemFines={handoverItemFines}
                         handoverItemFineWaivers={handoverItemFineWaivers}
+                        handoverItemFineInclusions={handoverItemFineInclusions}
                         onVehicleUpdated={onVehicleUpdated}
                         onHistoryUpdated={onHistoryUpdated}
                         onResponded={onResponded}
                         canApprove={canApprove}
                         isHrStage={isHrStage}
-                        onApproveWithFine={onApproveWithFine}
+                        onApproveWithIncludedFines={onApproveWithIncludedFines}
                         onScrollToAssessment={onScrollToAssessment}
                     />
                 </div>

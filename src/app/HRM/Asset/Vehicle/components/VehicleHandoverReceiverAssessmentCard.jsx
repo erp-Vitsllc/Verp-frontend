@@ -55,6 +55,7 @@ import {
     indexHandoverItemFineWaivers,
     isHandoverApprovedWithoutFine,
     isHandoverItemFineWaived,
+    isHandoverItemFineIncluded,
     resolveHandoverComparisonChanged,
     resolveHandoverItemFineForCard,
     resolveHandoverItemVisualStatus,
@@ -182,6 +183,7 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
     visualStatus = 'neutral',
     hasFine = false,
     isWaived = false,
+    isIncluded = false,
     showFineAction = false,
     showRemoveFromFine = false,
     onAddFine,
@@ -189,6 +191,7 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
     showFineHint = false,
     showMatchesPrevious = false,
     canCompare = false,
+    previousWasNo = false,
     onCompare,
     onPresentChange,
     onPhotoUpload,
@@ -286,20 +289,21 @@ const AssessmentItemCard = memo(function AssessmentItemCard({
                 ) : null}
             </p>
 
-            {canCompare && onCompare ? (
+            {canCompare && onCompare && !isWaived && (visualStatus === 'changed' || visualStatus === 'fined') ? (
                 <button
                     type="button"
                     onClick={onCompare}
                     disabled={saving || uploading}
                     className="mt-2 w-full rounded-lg border border-red-300 bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                    Compare to Previous
+                    {present === false || previousWasNo ? 'Show Previous' : 'Compare to Previous'}
                 </button>
             ) : null}
 
             {showFineAction ? (
                 <VehicleHandoverItemFineButton
                     hasFine={hasFine}
+                    isIncluded={isIncluded}
                     isWaived={isWaived}
                     showRemoveFromFine={showRemoveFromFine}
                     onAddFine={onAddFine}
@@ -324,6 +328,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
     handoverItemFines = {},
     handoverFines = [],
     handoverItemFineWaivers = {},
+    handoverItemFineInclusions = {},
     canManageItemFines = false,
     isHrApprovalStage = false,
     onOpenItemFine,
@@ -571,6 +576,23 @@ export default function VehicleHandoverReceiverAssessmentCard({
         [accessoryCardSourceForm, inspectionHandover, mirrorLiveAccessories],
     );
     const assessmentComplete = isAssessmentFormComplete(effectiveAssessmentForm, assessmentFormOptions);
+    const assessmentIncompleteHint = useMemo(() => {
+        if (assessmentComplete) return '';
+        const errors = validateAssessmentForm(effectiveAssessmentForm, assessmentFormOptions);
+        const photoMissing = RECEIVER_ASSESSMENT_ITEMS.filter(
+            (item) => String(errors[item.key] || '').toLowerCase().includes('photo'),
+        ).map((item) => item.label);
+        if (photoMissing.length) {
+            return `Upload a photo for: ${photoMissing.join(', ')}.`;
+        }
+        const unanswered = RECEIVER_ASSESSMENT_ITEMS.filter((item) => errors[item.key]).map(
+            (item) => item.label,
+        );
+        if (unanswered.length) {
+            return `Select Yes or No for: ${unanswered.join(', ')}.`;
+        }
+        return 'Finish all accessory Yes/No answers and required photos.';
+    }, [assessmentComplete, assessmentFormOptions, effectiveAssessmentForm]);
     const formDirty = useMemo(() => assessmentFormChanged(savedForm, form), [form, savedForm]);
     const differsFromAccessoriesList = useMemo(
         () => assessmentFormChanged(accessoryCardSourceForm, form),
@@ -620,10 +642,15 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 currentPhotoUrl,
                 previousPresent: previousRow.present,
                 currentPresent: row.current.present,
+                // Allow compare when previous had a photo, or previous/current was NO
+                // (viewer shows "No photo" for the missing side).
                 canCompare:
                     !inspectionHandover &&
                     !acceptedWithoutFine &&
-                    (hasAssessmentPhoto(previousRow.photo) || Boolean(previousPhotoUrl)),
+                    (hasAssessmentPhoto(previousRow.photo) ||
+                        Boolean(previousPhotoUrl) ||
+                        previousRow.present === false ||
+                        currentRow.present === false),
             };
         });
         return map;
@@ -788,10 +815,17 @@ export default function VehicleHandoverReceiverAssessmentCard({
             const isLiveEntry = !persistHistoryId || String(persistHistoryId).startsWith('live-');
 
             if (isLiveEntry) {
+                if (complete) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Handover record missing',
+                        description:
+                            'Open this assignment from the handover history row (not Live) so accessories can be saved for HR.',
+                    });
+                    return null;
+                }
                 const withAssessment = mergeReceiverAssessmentIntoEntry(displayEntry, payload);
-                const merged = complete
-                    ? mergeAssessmentCompletedIntoEntry(withAssessment)
-                    : withAssessment;
+                const merged = withAssessment;
                 if (complete && !inspectionHandover && !mirrorLiveAccessories) {
                     const changeEntry = buildAccessoriesListAssignmentChangeEntry(
                         formForPersist,
@@ -1042,6 +1076,9 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 {completing ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
                 Process Next
             </button>
+            {!assessmentComplete && assessmentIncompleteHint ? (
+                <p className="text-[10px] leading-snug text-amber-700">{assessmentIncompleteHint}</p>
+            ) : null}
             <button
                 type="button"
                 onClick={handleSaveDraft}
@@ -1100,6 +1137,13 @@ export default function VehicleHandoverReceiverAssessmentCard({
                         const isWaived = inspectionHandover
                             ? false
                             : isHandoverItemFineWaived(handoverItemFineWaivers, 'accessory', item.key);
+                        const isIncluded = inspectionHandover
+                            ? false
+                            : isHandoverItemFineIncluded(
+                                  handoverItemFineInclusions,
+                                  'accessory',
+                                  item.key,
+                              );
                         const listHasImage = accessoryListItemHasImage(accessoryCardSourceForm, item.key);
                         const listPhoto = listRow.photo ?? null;
                         const lockDisplayToSaved =
@@ -1130,7 +1174,9 @@ export default function VehicleHandoverReceiverAssessmentCard({
                         );
                         const effectivePhoto =
                             effectivePresent === true
-                                ? row.photo ?? mirrorBaseline.photo ?? null
+                                ? assessmentCompleted || readOnly || !mirrorLiveAccessories
+                                    ? row.photo ?? null
+                                    : row.photo ?? mirrorBaseline.photo ?? null
                                 : null;
                         const mirrorChanged = accessoryAssessmentItemChanged(mirrorBaseline, {
                             present: effectivePresent,
@@ -1158,6 +1204,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                       changed: mirrorChanged,
                                       hasFine: Boolean(existingFine),
                                       isWaived,
+                                      isIncluded,
                                       hasBaseline: true,
                                       acceptedWithoutFine: comparison?.acceptedWithoutFine,
                                   })
@@ -1173,6 +1220,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                             changed: comparison?.changed,
                                             hasFine: Boolean(existingFine),
                                             isWaived,
+                                            isIncluded,
                                             hasBaseline: comparison?.hasBaseline,
                                             acceptedWithoutFine: comparison?.acceptedWithoutFine,
                                         });
@@ -1184,27 +1232,35 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                   changed: itemChanged,
                                   hasFine: Boolean(existingFine),
                                   isWaived,
+                                  isIncluded,
                               });
                         const showRemoveFromFine =
                             showFineAction &&
                             !isWaived &&
-                            (Boolean(existingFine) || itemChanged);
+                            (Boolean(existingFine) || isIncluded || itemChanged);
 
                         const showFineHint =
                             !inspectionHandover &&
                             visualStatus === 'changed' &&
                             !existingFine &&
+                            !isIncluded &&
                             !isWaived;
                         const showMatchesPrevious =
                             !inspectionHandover &&
                             visualStatus === 'unchanged' &&
                             (mirrorLiveAccessories || Boolean(comparison?.usesPreviousHandover));
                         const canCompareItem = mirrorLiveAccessories
-                            ? effectivePresent === true &&
-                              !comparison?.acceptedWithoutFine &&
-                              mirrorBaseline.present === true &&
-                              hasAssessmentPhoto(mirrorBaseline.photo)
-                            : Boolean(comparison?.canCompare);
+                            ? !comparison?.acceptedWithoutFine && !isWaived
+                            : Boolean(comparison?.canCompare) && !isWaived;
+
+                        const previousPresentValue = mirrorLiveAccessories
+                            ? mirrorBaseline.present
+                            : comparison?.previousPresent;
+                        const previousWasNo = previousPresentValue === false;
+                        const hasPreviousPhoto = mirrorLiveAccessories
+                            ? hasAssessmentPhoto(mirrorBaseline.photo)
+                            : Boolean(comparison?.previousPhotoUrl) ||
+                              hasAssessmentPhoto(comparison?.previous?.photo);
 
                         return (
                             <AssessmentItemCard
@@ -1221,25 +1277,31 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                 mirrorLiveAccessories={mirrorLiveAccessories}
                                 visualStatus={visualStatus}
                                 hasFine={Boolean(existingFine)}
+                                isIncluded={isIncluded}
                                 isWaived={isWaived}
                                 showFineAction={showFineAction}
                                 showRemoveFromFine={showRemoveFromFine}
                                 showFineHint={showFineHint}
                                 showMatchesPrevious={showMatchesPrevious}
                                 canCompare={canCompareItem}
+                                previousWasNo={previousWasNo}
                                 onCompare={
                                     canCompareItem
                                         ? () =>
                                               setCompareView({
                                                   viewLabel: item.label,
-                                                  previousPhotoUrl: mirrorLiveAccessories
-                                                      ? resolveAssessmentMediaUrl(mirrorBaseline.photo)
-                                                      : comparison?.previousPhotoUrl,
+                                                  previousPhotoUrl: hasPreviousPhoto
+                                                      ? mirrorLiveAccessories
+                                                          ? resolveAssessmentMediaUrl(mirrorBaseline.photo)
+                                                          : comparison?.previousPhotoUrl
+                                                      : null,
                                                   currentPhotoUrl: mirrorLiveAccessories
                                                       ? effectivePresent === true
                                                           ? resolveAssessmentMediaUrl(effectivePhoto)
                                                           : null
                                                       : comparison?.currentPhotoUrl,
+                                                  previousPresent: previousPresentValue,
+                                                  currentPresent: effectivePresent,
                                               })
                                         : undefined
                                 }
@@ -1344,6 +1406,8 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 currentPhotoUrl={compareView?.currentPhotoUrl}
                 previousComment={compareView?.previousComment}
                 currentComment={compareView?.currentComment}
+                previousPresent={compareView?.previousPresent}
+                currentPresent={compareView?.currentPresent}
                 onClose={() => setCompareView(null)}
             />
 

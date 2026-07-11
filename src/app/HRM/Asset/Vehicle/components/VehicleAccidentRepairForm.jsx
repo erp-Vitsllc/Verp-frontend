@@ -154,6 +154,7 @@ export default function VehicleAccidentRepairForm({
     set,
     errors,
     employees,
+    drivenByEmployees,
     companies = [],
     assetControllerName,
     ASSET_CONTROLLER_VALUE,
@@ -196,6 +197,7 @@ export default function VehicleAccidentRepairForm({
     const policeFine = Number(formData.policeFineAmount || 0);
     const otherFine = Number(formData.otherFineAmount || 0);
     const totalFines = insuranceExcess + policeFine + otherFine;
+    const carDrivenByEmployees = drivenByEmployees || employees;
 
     const employeeOptions = (employees || []).map((emp) => (
         <option key={emp._id} value={String(emp._id)}>
@@ -306,11 +308,11 @@ export default function VehicleAccidentRepairForm({
                         <span className={fieldLabel}>Car Driven By</span>
                         <VehicleCarDrivenBySelect
                             formData={formData}
-                            employees={employees}
+                            employees={carDrivenByEmployees}
                             companies={companies}
                             disabled={fieldDisabled}
                             className={fieldInput}
-                            placeholder="Select..."
+                            placeholder="Select employee with driving license"
                             onChange={(selection) => {
                                 const next = applyCarDrivenBySelection(formData, selection, { companies });
                                 set('carDrivenByType', next.carDrivenByType);

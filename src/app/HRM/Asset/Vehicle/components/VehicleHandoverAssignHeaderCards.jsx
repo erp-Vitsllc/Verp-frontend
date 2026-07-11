@@ -100,9 +100,11 @@ export default function VehicleHandoverAssignHeaderCards({
     onResponded,
     canApprove = false,
     isHrStage = false,
-    onApproveWithFine,
+    onApproveWithIncludedFines,
     handoverItemFines = {},
     handoverItemFineWaivers = {},
+    handoverItemFineInclusions = {},
+    approvedHandoverFineIds = [],
     canReviewInspection = false,
     canSubmitInspectionForHr = false,
     onScrollToAssessment,
@@ -248,19 +250,39 @@ export default function VehicleHandoverAssignHeaderCards({
                                 canSubmitForHr={canSubmitInspectionForHr}
                                 className="col-span-2"
                             />
-                        ) : handoverFullyApproved ? null : (
+                        ) : handoverFullyApproved ? (
+                            approvedHandoverFineIds.length > 0 ? (
+                                <div className="col-span-2 space-y-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+                                        Handover fines (Draft)
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {approvedHandoverFineIds.map((fineId) => (
+                                            <a
+                                                key={fineId}
+                                                href={`/HRM/Fine/${fineId}`}
+                                                className="inline-flex items-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-bold text-amber-900 hover:bg-amber-100"
+                                            >
+                                                Open fine · Edit amounts
+                                            </a>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null
+                        ) : (
                             <VehicleHandoverAssignActions
                                 vehicle={vehicle}
                                 historyEntry={historyEntry}
                                 assetHistory={assetHistory}
                                 handoverItemFines={handoverItemFines}
                                 handoverItemFineWaivers={handoverItemFineWaivers}
+                                handoverItemFineInclusions={handoverItemFineInclusions}
                                 onVehicleUpdated={onVehicleUpdated}
                                 onHistoryUpdated={onHistoryUpdated}
                                 onResponded={onResponded}
                                 canApprove={canApprove}
                                 isHrStage={isHrStage}
-                                onApproveWithFine={onApproveWithFine}
+                                onApproveWithIncludedFines={onApproveWithIncludedFines}
                                 onScrollToAssessment={onScrollToAssessment}
                                 hideWhenInactive
                                 className="col-span-2"

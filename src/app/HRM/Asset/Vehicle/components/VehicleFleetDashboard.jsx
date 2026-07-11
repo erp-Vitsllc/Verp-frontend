@@ -19,18 +19,163 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { AlertCircle, ArrowLeftRight, Bell, Car, ClipboardList, Clock, Gauge, MapPin, RefreshCw, Route, TrendingUp, Wrench } from 'lucide-react';
-import {
-    vehicleDashboardKpiHref,
-    vehicleDashboardKpiTitle,
-} from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetDashboardNavigation';
+import { AlertCircle, Clock, Gauge, MapPin, RefreshCw, Route, TrendingUp, XCircle } from 'lucide-react';
 import {
     FLORAL_CLASS_COLORS,
-    floralPanelClass,
-    floralPanelStyle,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetAnalyticsTheme';
+import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
+import { navigateFromList } from '@/utils/listReturnNavigation';
 
 const YEAR_COLORS = FLORAL_CLASS_COLORS;
+
+const FLEET_DASHBOARD_LIST_RETURN = '/HRM/Asset/Vehicle/dashboard';
+
+function sortFleetModalRows(rows) {
+    const n = (v) => {
+        const x = Number(v);
+        return Number.isFinite(x) ? x : NaN;
+    };
+    return [...(rows || [])].sort((a, b) => {
+        const an = n(a?.daysRemaining);
+        const bn = n(b?.daysRemaining);
+        if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+        if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1;
+        return String(a?.plate || '').localeCompare(String(b?.plate || ''));
+    });
+}
+
+function formatFleetModalExpiryDate(value) {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatFleetModalRemaining(daysRemaining) {
+    if (daysRemaining == null || !Number.isFinite(Number(daysRemaining))) return '—';
+    const n = Number(daysRemaining);
+    if (n < 0) return `Expired (${Math.abs(n)} Days)`;
+    if (n === 0) return 'Expires today';
+    return `${n} Days`;
+}
+
+function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
+    if (!open || !bucket) return null;
+    const rows = sortFleetModalRows(bucket.docs || []);
+    const showExpiryCols = rows.some(
+        (r) => r?.expiryDate != null || (r?.daysRemaining != null && Number.isFinite(Number(r.daysRemaining))),
+    );
+    const showServiceCount = rows.some((r) => r?.serviceCount != null);
+
+    return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-200">
+                <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 rounded-t-2xl">
+                    <div>
+                        <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                            <Clock className="text-orange-500" size={24} />
+                            {bucket.title || bucket.name}
+                        </h3>
+                        <p className="text-sm text-gray-500 font-medium">
+                            Found {rows.length} {rows.length === 1 ? 'item' : 'items'}
+                            {bucket.subtitle ? ` · ${bucket.subtitle}` : ''}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-2 hover:bg-white rounded-full transition-colors text-gray-400 hover:text-gray-600 shadow-sm border border-transparent hover:border-gray-200"
+                    >
+                        <XCircle size={24} />
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                    {rows.length === 0 ? (
+                        <div className="p-10 text-center text-sm font-semibold text-gray-400">No records in this list.</div>
+                    ) : (
+                        <table className="w-full text-left border-collapse">
+                            <thead className="sticky top-0 bg-white z-10 shadow-sm">
+                                <tr>
+                                    <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                                        Sl No
+                                    </th>
+                                    <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                                        Card Name
+                                    </th>
+                                    <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                                        Vehicle No / Plate
+                                    </th>
+                                    {showExpiryCols ? (
+                                        <>
+                                            <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-center">
+                                                Expiry Date
+                                            </th>
+                                            <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">
+                                                Expires In
+                                            </th>
+                                        </>
+                                    ) : null}
+                                    {showServiceCount ? (
+                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">
+                                            Services
+                                        </th>
+                                    ) : null}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {rows.map((row, idx) => (
+                                    <tr
+                                        key={`${row.vehicleId || row.assetId || idx}-${row.cardName || ''}-${idx}`}
+                                        className="hover:bg-orange-50/50 transition-all border-l-4 border-l-transparent hover:border-l-orange-500 group cursor-pointer"
+                                        onClick={() => onRowClick(row)}
+                                    >
+                                        <td className="px-6 py-4 text-xs font-bold text-gray-400">
+                                            {String(idx + 1).padStart(2, '0')}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">
+                                                {row.cardName || '—'}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">
+                                            {row.plate || row.assetId || '—'}
+                                        </td>
+                                        {showExpiryCols ? (
+                                            <>
+                                                <td className="px-6 py-4 text-sm font-medium text-gray-600 text-center">
+                                                    {formatFleetModalExpiryDate(row.expiryDate)}
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <span
+                                                        className={`text-[11px] font-black px-2 py-1 rounded-full ${
+                                                            Number(row.daysRemaining) < 0
+                                                                ? 'bg-red-600 text-white shadow-sm'
+                                                                : Number(row.daysRemaining) <= 7
+                                                                  ? 'bg-red-100 text-red-600'
+                                                                  : 'bg-orange-100 text-orange-600'
+                                                        }`}
+                                                    >
+                                                        {formatFleetModalRemaining(row.daysRemaining)}
+                                                    </span>
+                                                </td>
+                                            </>
+                                        ) : null}
+                                        {showServiceCount ? (
+                                            <td className="px-6 py-4 text-right text-sm font-black text-gray-700 tabular-nums">
+                                                {row.serviceCount ?? 0}
+                                            </td>
+                                        ) : null}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -77,76 +222,6 @@ function AnimatedCount({ value, className = '' }) {
     return <span className={`fleet-kpi-value tabular-nums ${className}`}>{display}</span>;
 }
 
-function KpiTile({ label, value, tone = 'rose', routeKey, wide = false }) {
-    const router = useRouter();
-    const tones = {
-        rose: { wrap: 'bg-[#fff0f3] border-[#f4d4dc]', label: 'text-[#c45c7a]', value: 'text-[#5c4f55]' },
-        amber: { wrap: 'bg-[#fff9e6] border-[#f5e8c4]', label: 'text-[#b8860b]', value: 'text-[#5c4f55]' },
-        emerald: { wrap: 'bg-[#f0fff4] border-[#c8e6c9]', label: 'text-[#4a8a5a]', value: 'text-[#5c4f55]' },
-        sky: { wrap: 'bg-[#e6f7ff] border-[#b8d4e8]', label: 'text-[#4a7a9a]', value: 'text-[#5c4f55]' },
-        violet: { wrap: 'bg-[#f9f0ff] border-[#d4c4e8]', label: 'text-[#7a5a9a]', value: 'text-[#5c4f55]' },
-        pink: { wrap: 'bg-[#fff0f3] border-[#f4d4dc]', label: 'text-[#c45c7a]', value: 'text-[#5c4f55]' },
-        lime: { wrap: 'bg-[#f0fff4] border-[#c8e6c9]', label: 'text-[#4a8a5a]', value: 'text-[#5c4f55]' },
-    };
-    const t = tones[tone] || tones.rose;
-    const href = routeKey ? vehicleDashboardKpiHref(routeKey) : null;
-    const title = routeKey ? vehicleDashboardKpiTitle(routeKey) : undefined;
-    const tilePad = wide ? 'px-4 py-5' : 'px-3 py-3';
-    const valueSize = wide ? 'text-3xl' : 'text-2xl';
-
-    const inner = (
-        <>
-            <p className={`text-[9px] font-bold uppercase tracking-wider mb-1 ${t.label}`}>{label}</p>
-            <p className={`${valueSize} font-black leading-none ${t.value}`}>
-                <AnimatedCount value={value} />
-            </p>
-        </>
-    );
-
-    if (!href) {
-        return (
-            <div className={`rounded-xl border text-center ${tilePad} ${t.wrap}`}>
-                {inner}
-            </div>
-        );
-    }
-
-    return (
-        <button
-            type="button"
-            onClick={() => router.push(href)}
-            title={title}
-            className={`w-full rounded-xl border text-center transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-md hover:z-10 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e8b4bc]/60 ${tilePad} ${t.wrap}`}
-        >
-            {inner}
-        </button>
-    );
-}
-
-function KpiSubSection({ title, icon: Icon, children, className = '' }) {
-    return (
-        <div className={`rounded-xl border border-gray-200 bg-white overflow-hidden h-full ${className}`}>
-            <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-2 bg-white">
-                {Icon ? (
-                    <Icon className="w-3.5 h-3.5 text-[#9a8a90] shrink-0" strokeWidth={2.25} />
-                ) : null}
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-[#9a8a90]">{title}</h3>
-            </div>
-            <div className="p-3">{children}</div>
-        </div>
-    );
-}
-
-function GroupedKpiCard({ children, delayMs = 0, className = '' }) {
-    return (
-        <ScrollReveal delayMs={delayMs} durationMs={600} className={className}>
-            <div className={`${floralPanelClass} overflow-hidden p-3 md:p-4`} style={floralPanelStyle}>
-                {children}
-            </div>
-        </ScrollReveal>
-    );
-}
-
 function LocatorPeriodTabBar({ options, value, onChange }) {
     return (
         <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
@@ -181,8 +256,8 @@ const IDLE_PERIOD_TABS = [
 ];
 
 const SALIK_PERIOD_TABS = [
-    { id: 'day', label: 'Yesterday' },
-    { id: 'week', label: 'Mon–Sun' },
+    { id: 'day', label: 'Day' },
+    { id: 'week', label: 'Week' },
     { id: 'month', label: 'Month' },
 ];
 
@@ -275,7 +350,7 @@ function SalikControls({ period, onPeriodChange, bucket, selectedKey, onSelectKe
             bucket={bucket}
             selectedKey={selectedKey}
             onSelectKey={onSelectKey}
-            selectAriaLabel="Select salik distance period"
+            selectAriaLabel="Select salik cost period"
         />
     );
 }
@@ -300,32 +375,40 @@ function shortVehicleChartName(name, max = 14) {
     return `${text.slice(0, max - 1)}…`;
 }
 
-function locatorVehicleLabel(name) {
-    const text = String(name || '').trim();
-    if (!text) return '—';
-    const plateMatch = text.match(/\b([A-Z]{1,3}\s?\d{1,6}|\d{4,6})\b/i);
-    if (plateMatch?.[1]) return plateMatch[1].replace(/\s+/g, ' ');
-    const parts = text.split(/\s+/).filter(Boolean);
-    if (parts.length > 1) return parts[parts.length - 1];
-    return shortVehicleChartName(text, 10);
-}
-
 function formatLocatorBarValue(value, unit) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '';
+    if (String(unit).toUpperCase() === 'AED') {
+        return `AED ${Math.round(n).toLocaleString()}`;
+    }
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M ${unit}`;
     if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k ${unit}`;
     return `${Math.round(n).toLocaleString()} ${unit}`;
 }
 
+function formatLocatorTooltipValue(value, unit) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '';
+    if (String(unit).toUpperCase() === 'AED') {
+        return `AED ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    }
+    return `${Math.round(n).toLocaleString()} ${unit}`;
+}
+
 function withShortNames(rows) {
     return (rows || []).map((row) => {
-        const fullName = String(row.name || row.label || '—').trim() || '—';
+        const fullName =
+            String(row.chartLabel || row.name || row.label || '—').trim() || '—';
+        // Keep assignee first names / plate labels intact (do not re-parse GPS device names).
+        const axisName =
+            fullName === 'no plate not added'
+                ? fullName
+                : shortVehicleChartName(fullName, 16);
         return {
             ...row,
             name: fullName,
-            shortName: locatorVehicleLabel(fullName),
-            chartName: shortVehicleChartName(fullName, 14),
+            shortName: axisName,
+            chartName: axisName,
         };
     });
 }
@@ -362,8 +445,8 @@ const LOCATOR_CHARTS = [
     {
         id: 'idle',
         title: 'Idle time',
-        subtitle: 'Idle / parked time per vehicle',
-        subtitleDay: 'Engine-on but stationary hours per vehicle',
+        subtitle: 'Engine-on idle time per vehicle (from stored GPS samples)',
+        subtitleDay: 'Engine-on idle minutes for the selected day',
         accent: 'border-t-orange-500',
         icon: Clock,
         iconClass: 'text-orange-500',
@@ -373,13 +456,13 @@ const LOCATOR_CHARTS = [
     },
     {
         id: 'salik',
-        title: 'Salik-wise distance',
-        subtitle: 'Vehicles ranked by distance (highest first)',
+        title: 'Salik-wise cost',
+        subtitle: 'Toll price taken per vehicle (AED)',
         accent: 'border-t-fuchsia-500',
         icon: Route,
         iconClass: 'text-fuchsia-600',
         linkClass: 'text-fuchsia-700',
-        valueLabel: 'km',
+        valueLabel: 'AED',
         barFill: '#0284c7',
     },
 ].sort((a, b) => LOCATOR_GRID_ORDER.indexOf(a.id) - LOCATOR_GRID_ORDER.indexOf(b.id));
@@ -434,7 +517,7 @@ function LocatorVerticalBarChart({
                         tickFormatter={formatKmAxisTick}
                     />
                     <RechartsTooltip
-                        formatter={(v) => [formatLocatorBarValue(v, valueLabel), valueLabel]}
+                        formatter={(v) => [formatLocatorTooltipValue(v, valueLabel), valueLabel]}
                         labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
                         contentStyle={tooltipStyle}
                     />
@@ -562,6 +645,7 @@ export default function VehicleFleetDashboard({
     locatorError,
     onLocatorRefresh,
 }) {
+    const router = useRouter();
     const [usagePeriod, setUsagePeriod] = useState('week');
     const [locatorRunningPeriod, setLocatorRunningPeriod] = useState('day');
     const [locatorRunningDayKey, setLocatorRunningDayKey] = useState('');
@@ -572,9 +656,12 @@ export default function VehicleFleetDashboard({
     const [locatorIdleWeekKey, setLocatorIdleWeekKey] = useState('');
     const [locatorIdleMonthKey, setLocatorIdleMonthKey] = useState('');
     const [salikPeriod, setSalikPeriod] = useState('month');
+    const [salikDayKey, setSalikDayKey] = useState('');
     const [salikWeekKey, setSalikWeekKey] = useState('');
     const [salikMonthKey, setSalikMonthKey] = useState('');
     const [chartsReady, setChartsReady] = useState(false);
+    const [detailModalOpen, setDetailModalOpen] = useState(false);
+    const [detailModalBucket, setDetailModalBucket] = useState(null);
 
     useEffect(() => {
         if (!loading && data) {
@@ -604,6 +691,7 @@ export default function VehicleFleetDashboard({
     useEffect(() => {
         const salik = locatorData?.salikWise;
         if (!salik) return;
+        if (salik.day?.defaultKey) setSalikDayKey(salik.day.defaultKey);
         if (salik.week?.defaultKey) setSalikWeekKey(salik.week.defaultKey);
         if (salik.month?.defaultKey) setSalikMonthKey(salik.month.defaultKey);
     }, [locatorData?.salikWise]);
@@ -725,7 +813,11 @@ export default function VehicleFleetDashboard({
               : locatorIdleDayKey;
 
     const salikSelectionKey =
-        salikPeriod === 'week' ? salikWeekKey : salikPeriod === 'month' ? salikMonthKey : '';
+        salikPeriod === 'week'
+            ? salikWeekKey
+            : salikPeriod === 'month'
+              ? salikMonthKey
+              : salikDayKey;
 
     const locatorIdleChartData = useMemo(() => {
         const bucket = locatorData?.idleTimeByVehicle?.[locatorIdlePeriod];
@@ -761,15 +853,15 @@ export default function VehicleFleetDashboard({
         const selected = formatLocatorBucketSubtitle(
             bucket,
             salikSelectionKey,
-            'Vehicles ranked by distance (highest first)',
+            'Toll price taken per vehicle (AED)',
         );
         if (salikPeriod === 'day') {
-            return `Distance on ${selected}`;
+            return `Salik toll price on ${selected}`;
         }
         if (salikPeriod === 'week') {
-            return `Distance for ${selected}`;
+            return `Salik toll price for ${selected}`;
         }
-        return `Distance in ${selected}`;
+        return `Salik toll price in ${selected}`;
     }, [locatorData?.salikWise, salikPeriod, salikSelectionKey]);
 
     const handleIdlePeriodChange = (period) => {
@@ -793,11 +885,13 @@ export default function VehicleFleetDashboard({
         if (!bucket?.defaultKey) return;
         if (period === 'week') setSalikWeekKey(bucket.defaultKey);
         else if (period === 'month') setSalikMonthKey(bucket.defaultKey);
+        else setSalikDayKey(bucket.defaultKey);
     };
 
     const handleSalikSelectionChange = (key) => {
         if (salikPeriod === 'week') setSalikWeekKey(key);
         else if (salikPeriod === 'month') setSalikMonthKey(key);
+        else setSalikDayKey(key);
     };
 
     const locatorChartDataById = useMemo(
@@ -887,110 +981,237 @@ export default function VehicleFleetDashboard({
 
     const r = data.reminders || {};
     const vs = data.vehicleStatus || {};
-    const sr = data.serviceRequest || {};
-    const hr = data.handoverRequest || {};
+    const documentExpiryChartData = Array.isArray(data.documentExpiryChartData)
+        ? data.documentExpiryChartData
+        : [
+              { name: 'Expired', value: 0, docs: [] },
+              { name: '10-30 Days', value: 0, docs: [] },
+              { name: 'More', value: 0, docs: [] },
+          ];
+    const oilServiceDue = r.oilServiceDue ?? r.service?.due ?? 0;
+    const registrationExpiresWithin30 =
+        r.registrationExpiresWithin30 ??
+        (Number(r.registration?.due || 0) + Number(r.registration?.dueSoon || 0));
+
+    const openDetailModal = (bucket) => {
+        setDetailModalBucket(bucket);
+        setDetailModalOpen(true);
+    };
+
+    const closeDetailModal = () => {
+        setDetailModalOpen(false);
+        setDetailModalBucket(null);
+    };
+
+    const handleDetailRowClick = (row) => {
+        const vehicleId = row?.vehicleId;
+        if (!vehicleId) return;
+        const path = buildVehicleDetailPath(vehicleId, {
+            tab: row.tab || 'basic',
+            focusCard: row.focusCard || undefined,
+        });
+        if (!path) return;
+        closeDetailModal();
+        navigateFromList(router, path, FLEET_DASHBOARD_LIST_RETURN);
+    };
 
     const chartAnim = chartsReady ? 1400 : 0;
 
     return (
         <div className="space-y-6">
-            <div className="space-y-4">
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                    <GroupedKpiCard delayMs={0}>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                            <KpiSubSection title="Service reminder" icon={Wrench}>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <KpiTile
-                                        label="Due"
-                                        value={r.service?.due ?? 0}
-                                        tone="rose"
-                                        routeKey="serviceDue"
-                                    />
-                                    <KpiTile
-                                        label="Days down"
-                                        value={r.service?.dueSoon ?? 0}
-                                        tone="amber"
-                                        routeKey="serviceDueSoon"
-                                    />
-                                </div>
-                            </KpiSubSection>
-                            <KpiSubSection title="Registration reminder" icon={Bell}>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <KpiTile
-                                        label="Due"
-                                        value={r.registration?.due ?? 0}
-                                        tone="rose"
-                                        routeKey="registrationDue"
-                                    />
-                                    <KpiTile
-                                        label="Days down"
-                                        value={r.registration?.dueSoon ?? 0}
-                                        tone="amber"
-                                        routeKey="registrationDueSoon"
-                                    />
-                                </div>
-                            </KpiSubSection>
+            <div className="flex flex-col xl:flex-row gap-6 mb-2 min-h-[320px]">
+                {/* Card 1 — Oil / Registration + Document Expiry (company-list style) */}
+                <ScrollReveal delayMs={0} durationMs={600} className="flex-1 min-w-0">
+                    <div className="h-full min-h-[320px] bg-white rounded-xl shadow-sm border border-gray-100 flex p-6 gap-6 overflow-hidden">
+                        <div className="w-[150px] shrink-0 flex flex-col gap-4">
+                            {[
+                                {
+                                    label: 'Oil service due',
+                                    value: oilServiceDue,
+                                    onClick: () =>
+                                        openDetailModal({
+                                            name: 'Oil service due',
+                                            title: 'Oil service due',
+                                            subtitle: 'Vehicles with oil / next service overdue',
+                                            docs: r.oilServiceDueRows || [],
+                                        }),
+                                },
+                                {
+                                    label: 'Registration expires in',
+                                    value: registrationExpiresWithin30,
+                                    onClick: () =>
+                                        openDetailModal({
+                                            name: 'Registration expires in',
+                                            title: 'Registration expires in ≤ 30 days',
+                                            subtitle: 'Mulkia registration within 30 days (incl. expired)',
+                                            docs: r.registrationExpiresWithin30Rows || [],
+                                        }),
+                                },
+                            ].map((item) => (
+                                <button
+                                    key={item.label}
+                                    type="button"
+                                    onClick={item.onClick}
+                                    className="flex-1 bg-gray-50 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center p-2 hover:bg-white hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                                >
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 leading-tight px-1">
+                                        {item.label}
+                                    </span>
+                                    <span className="text-4xl font-black" style={{ color: '#dc2626' }}>
+                                        <AnimatedCount value={item.value || 0} />
+                                    </span>
+                                </button>
+                            ))}
                         </div>
-                        <KpiSubSection title="Service / asset requests" icon={ClipboardList}>
-                            <div className="grid grid-cols-2 gap-2">
-                                <KpiTile
-                                    label="Pending"
-                                    value={sr.pending ?? 0}
-                                    tone="pink"
-                                    routeKey="requestPending"
-                                />
-                                <KpiTile
-                                    label="Approved"
-                                    value={sr.confirmed ?? 0}
-                                    tone="amber"
-                                    routeKey="requestApproved"
-                                />
-                            </div>
-                        </KpiSubSection>
-                    </GroupedKpiCard>
 
-                    <GroupedKpiCard delayMs={80}>
-                        <KpiSubSection title="Vehicle assets" icon={Car} className="mb-3">
-                            <div className="grid grid-cols-3 gap-2">
-                                <KpiTile
-                                    label="Assigned"
-                                    value={vs.assigned ?? 0}
-                                    tone="emerald"
-                                    routeKey="assigned"
-                                />
-                                <KpiTile
-                                    label="Unassigned"
-                                    value={vs.unassigned ?? 0}
-                                    tone="sky"
-                                    routeKey="unassigned"
-                                />
-                                <KpiTile
-                                    label="In service"
-                                    value={vs.inService ?? 0}
-                                    tone="violet"
-                                    routeKey="inService"
-                                />
-                            </div>
-                        </KpiSubSection>
-                        <KpiSubSection title="Handover (assignment)" icon={ArrowLeftRight}>
-                            <div className="grid grid-cols-2 gap-2">
-                                <KpiTile
-                                    label="Pending asset"
-                                    value={hr.pending ?? 0}
-                                    tone="pink"
-                                    routeKey="handoverPending"
-                                />
-                                <KpiTile
-                                    label="Accepted"
-                                    value={hr.confirmed ?? 0}
-                                    tone="lime"
-                                    routeKey="handoverAccepted"
-                                />
-                            </div>
-                        </KpiSubSection>
-                    </GroupedKpiCard>
-                </div>
+                        <div className="flex-1 flex flex-col min-w-0">
+                            <h3 className="text-[11px] font-bold text-gray-400 text-center uppercase tracking-[0.2em] mb-4">
+                                Document Expiry
+                            </h3>
+                            <RechartsBox height={200} minHeight={160} className="flex-1">
+                                <BarChart
+                                    data={documentExpiryChartData}
+                                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                                >
+                                    <XAxis
+                                        dataKey="name"
+                                        fontSize={10}
+                                        fontWeight="700"
+                                        axisLine={false}
+                                        tickLine={false}
+                                        dy={5}
+                                    />
+                                    <YAxis hide={true} />
+                                    <RechartsTooltip
+                                        cursor={{ fill: 'transparent' }}
+                                        contentStyle={{
+                                            borderRadius: '8px',
+                                            border: 'none',
+                                            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                                        }}
+                                    />
+                                    <Bar
+                                        dataKey="value"
+                                        radius={[6, 6, 0, 0]}
+                                        isAnimationActive={chartsReady}
+                                        animationDuration={chartAnim || 1500}
+                                        barSize={30}
+                                        className="cursor-pointer"
+                                        onClick={(entry, index) => {
+                                            const rows = documentExpiryChartData || [];
+                                            const row =
+                                                (entry && entry.payload && entry.payload.name !== undefined
+                                                    ? entry.payload
+                                                    : null) ??
+                                                (typeof index === 'number' && rows[index] ? rows[index] : null) ??
+                                                entry;
+                                            if (!row?.name) return;
+                                            openDetailModal({
+                                                name: row.name,
+                                                title: `Documents Expiring: ${row.name}`,
+                                                subtitle: 'Vehicle documents (mulkia, insurance, and other cards)',
+                                                docs: sortFleetModalRows(row.docs || []),
+                                            });
+                                        }}
+                                    >
+                                        <LabelList
+                                            dataKey="value"
+                                            position="top"
+                                            style={{
+                                                fill: '#dc2626',
+                                                fontSize: '12px',
+                                                fontWeight: '900',
+                                            }}
+                                            offset={8}
+                                        />
+                                        {documentExpiryChartData.map((_, index) => (
+                                            <Cell key={`doc-expiry-${index}`} fill="url(#fleetDocExpiryBarGrad)" />
+                                        ))}
+                                    </Bar>
+                                    <defs>
+                                        <linearGradient id="fleetDocExpiryBarGrad" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stopColor="#3B82F6" stopOpacity={1} />
+                                            <stop offset="100%" stopColor="#1E40AF" stopOpacity={1} />
+                                        </linearGradient>
+                                    </defs>
+                                </BarChart>
+                            </RechartsBox>
+                        </div>
+                    </div>
+                </ScrollReveal>
+
+                {/* Card 2 — 2x2 status grid + empty half */}
+                <ScrollReveal delayMs={80} durationMs={600} className="flex-1 min-w-0">
+                    <div className="h-full min-h-[320px] bg-white rounded-xl shadow-sm border border-gray-100 flex p-6 gap-6 overflow-hidden">
+                        <div className="flex-1 grid grid-cols-2 gap-4 min-w-0 content-stretch">
+                            {[
+                                {
+                                    label: 'Assigned',
+                                    value: vs.assigned ?? 0,
+                                    onClick: () =>
+                                        openDetailModal({
+                                            name: 'Assigned',
+                                            title: 'Assigned vehicles',
+                                            docs: vs.assignedRows || [],
+                                        }),
+                                },
+                                {
+                                    label: 'In service',
+                                    value: vs.inService ?? 0,
+                                    onClick: () =>
+                                        openDetailModal({
+                                            name: 'In service',
+                                            title: 'Vehicles in service',
+                                            docs: vs.inServiceRows || [],
+                                        }),
+                                },
+                                {
+                                    label: 'Unassigned',
+                                    value: vs.unassigned ?? 0,
+                                    onClick: () =>
+                                        openDetailModal({
+                                            name: 'Unassigned',
+                                            title: 'Unassigned vehicles',
+                                            docs: vs.unassignedRows || [],
+                                        }),
+                                },
+                                {
+                                    label: 'Total service no',
+                                    value: vs.totalServices ?? 0,
+                                    onClick: () =>
+                                        openDetailModal({
+                                            name: 'Total service no',
+                                            title: 'Vehicles with service records',
+                                            docs: vs.totalServiceRows || [],
+                                        }),
+                                },
+                            ].map((item) => (
+                                <button
+                                    key={item.label}
+                                    type="button"
+                                    onClick={item.onClick}
+                                    className="bg-gray-50 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center p-3 hover:bg-white hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                                >
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 leading-tight px-1">
+                                        {item.label}
+                                    </span>
+                                    <span className="text-4xl font-black" style={{ color: '#dc2626' }}>
+                                        <AnimatedCount value={item.value || 0} />
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex-1 min-w-0 rounded-lg border border-dashed border-gray-200 bg-gray-50/40" aria-hidden="true" />
+                    </div>
+                </ScrollReveal>
             </div>
+
+            <FleetDashboardDetailModal
+                open={detailModalOpen}
+                bucket={detailModalBucket}
+                onClose={closeDetailModal}
+                onRowClick={handleDetailRowClick}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
                 <ScrollReveal delayMs={0} durationMs={700} className="h-full">

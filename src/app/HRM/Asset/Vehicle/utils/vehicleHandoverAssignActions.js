@@ -1,11 +1,45 @@
 import { isAdmin as isPortalSuperUser } from '@/utils/permissions';
-import { buildAssessmentFormState, buildAccessoriesLiveListForm, isAssessmentFormComplete, isReceiverAssessmentMarkedDone } from './vehicleHandoverReceiverAssessment';
-import { buildBodyConditionFormState, isBodyConditionFormComplete, isBodyConditionMarkedDone } from './vehicleHandoverBodyCondition';
+import {
+    RECEIVER_ASSESSMENT_ITEMS,
+    hasAssessmentPhoto,
+    isReceiverAssessmentMarkedDone,
+} from './vehicleHandoverReceiverAssessment';
+import {
+    BODY_CONDITION_VIEW_FIELDS,
+    isBodyConditionMarkedDone,
+} from './vehicleHandoverBodyCondition';
 import {
     nameFromFlowchartRow,
     pickFlowchartAdminRow,
 } from './vehicleHandoverAssignWorkflow';
 import { isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
+
+/** History-record completeness only (matches backend accept gate — not live list / previous merge). */
+function isReceiverAssessmentCompleteOnHistory(historyEntry) {
+    const source =
+        historyEntry?.details?.receiverAssessment ||
+        historyEntry?.details?.vehicleAssessmentReportByReceiver ||
+        null;
+    if (!source || typeof source !== 'object') return false;
+    return RECEIVER_ASSESSMENT_ITEMS.every((item) => {
+        const row = source[item.key];
+        if (!row || typeof row !== 'object') return false;
+        if (row.present !== true && row.present !== false) return false;
+        if (row.present === true && !hasAssessmentPhoto(row.photo || row.image)) return false;
+        return true;
+    });
+}
+
+function isBodyConditionCompleteOnHistory(historyEntry) {
+    const source =
+        historyEntry?.details?.bodyConditionReport || historyEntry?.details?.bodyCondition || null;
+    if (!source || typeof source !== 'object') return false;
+    return BODY_CONDITION_VIEW_FIELDS.every((field) => {
+        const row = source[field.key];
+        if (!row || typeof row !== 'object') return false;
+        return hasAssessmentPhoto(row.photo || row.image);
+    });
+}
 
 function normEmpId(value) {
     return String(value || '').toLowerCase().replace(/\s+/g, '');
@@ -296,63 +330,59 @@ export function isHandoverReportsCompleteForEntry(historyEntry, vehicle = null) 
     if (!historyEntry) return false;
 
     const bodyMarkedDone = isBodyConditionMarkedDone(historyEntry);
+    const bodyDataComplete = isBodyConditionCompleteOnHistory(historyEntry);
 
     if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) {
-        if (bodyMarkedDone) return true;
-        const bodyForm = buildBodyConditionFormState(historyEntry);
-        return isBodyConditionFormComplete(bodyForm);
+        return bodyMarkedDone || bodyDataComplete;
     }
 
     const assessmentMarkedDone = isReceiverAssessmentMarkedDone(historyEntry);
-    if (assessmentMarkedDone && bodyMarkedDone) return true;
+    const assessmentDataComplete = isReceiverAssessmentCompleteOnHistory(historyEntry);
 
-    const assessmentForm = buildAssessmentFormState(historyEntry, vehicle);
-    const liveListForm = buildAccessoriesLiveListForm(vehicle, historyEntry);
-    const bodyForm = buildBodyConditionFormState(historyEntry);
-    return isAssessmentFormComplete(assessmentForm, { liveListForm }) && isBodyConditionFormComplete(bodyForm);
+    // Require Process Next + Go to Approval (or equivalent saved history data).
+    // Do not treat live-list / previous-assignment photos as complete for Accept.
+    if (assessmentMarkedDone && bodyMarkedDone) return true;
+    return assessmentDataComplete && bodyDataComplete;
 }
 
 export function getHandoverReportsIncompleteMessage(historyEntry, vehicle = null) {
     if (!historyEntry) return 'Handover record is still loading.';
 
-    const bodyForm = buildBodyConditionFormState(historyEntry);
-    const bodyFormComplete = isBodyConditionFormComplete(bodyForm);
     const bodyMarkedDone = isBodyConditionMarkedDone(historyEntry);
+    const bodyDataComplete = isBodyConditionCompleteOnHistory(historyEntry);
 
     if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) {
-        if (!bodyMarkedDone && !bodyFormComplete) {
+        if (!bodyMarkedDone && !bodyDataComplete) {
             return 'Before submitting: upload all Body Condition photos.';
         }
-        if (!bodyMarkedDone && bodyFormComplete) {
+        if (!bodyMarkedDone && bodyDataComplete) {
             return 'Before submitting: click Go to Approval on Body Condition Report.';
         }
         return 'Complete body condition (Go to Approval) before submitting for HR approval.';
     }
 
-    const assessmentForm = buildAssessmentFormState(historyEntry, vehicle);
-    const liveListForm = buildAccessoriesLiveListForm(vehicle, historyEntry);
-    const assessmentFormComplete = isAssessmentFormComplete(assessmentForm, { liveListForm });
     const assessmentMarkedDone = isReceiverAssessmentMarkedDone(historyEntry);
+    const assessmentDataComplete = isReceiverAssessmentCompleteOnHistory(historyEntry);
 
     const missing = [];
 
-    if (!assessmentMarkedDone && !assessmentFormComplete) {
-        missing.push('complete Vehicle Accessories on the vehicle profile (Yes/No and required photos)');
-    } else if (!assessmentMarkedDone && assessmentFormComplete) {
-        missing.push('save Vehicle Accessories on the vehicle profile');
+    if (!assessmentMarkedDone && !assessmentDataComplete) {
+        missing.push('complete Vehicle Accessories and click Process Next');
+    } else if (!assessmentMarkedDone && assessmentDataComplete) {
+        missing.push('click Process Next on Vehicle Accessories');
     }
 
-    if (!bodyMarkedDone && !bodyFormComplete) {
-        missing.push('upload all Body Condition photos');
-    } else if (!bodyMarkedDone && bodyFormComplete) {
+    if (!bodyMarkedDone && !bodyDataComplete) {
+        missing.push('upload all Body Condition photos and click Go to Approval');
+    } else if (!bodyMarkedDone && bodyDataComplete) {
         missing.push('click Go to Approval on Body Condition Report');
     }
 
     if (missing.length === 0) {
-        return 'Complete accessories and body condition before approving.';
+        return 'Complete accessories (Process Next) and body condition (Go to Approval) before accepting.';
     }
 
-    return `Before approving: ${missing.join('; ')}.`;
+    return `Before accepting: ${missing.join('; ')}.`;
 }
 
 export function isHandoverReportsLocked(vehicle, historyEntry = null) {

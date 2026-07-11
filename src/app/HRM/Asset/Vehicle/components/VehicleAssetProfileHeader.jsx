@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useCallback } from 'react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
-import { Camera } from 'lucide-react';
+import { Camera, CheckCircle2, User, UserX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
@@ -271,9 +271,9 @@ export default function VehicleAssetProfileHeader({
 
     return (
         <div
-            className={`w-full rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.03] ${className}`}
+            className={`w-full h-full flex flex-col rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.03] ${className}`}
         >
-            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 p-4 sm:p-6">
+            <div className="flex flex-1 min-h-0 flex-col sm:flex-row gap-3 sm:gap-5 p-4 sm:p-5">
                 <div className="shrink-0 mx-auto sm:mx-0 flex flex-col">
                 <div className="relative group cursor-pointer" onClick={() => {
                     const input = document.createElement('input');
@@ -308,17 +308,30 @@ export default function VehicleAssetProfileHeader({
                         </div>
                     </div>
                 </div>
-                {profilePendingItems.length > 0 ? (
-                    <div className="w-full max-w-[300px] sm:w-[300px] mt-2 space-y-2">
-                        {profilePendingItems.map((item) => (
-                            <VehicleProfilePendingStatusBadge
-                                key={`${item.kind}-${item.label}-${item.pendingFor}`}
-                                item={item}
-                                fullWidth
-                            />
-                        ))}
-                    </div>
-                ) : null}
+                <div className="w-full max-w-[300px] sm:w-[300px] mt-2 flex items-center justify-center gap-1.5 px-1">
+                    {assigneeName ? (
+                        <>
+                            <User size={14} className="text-blue-500 shrink-0" aria-hidden />
+                            <span
+                                className="truncate text-[12px] font-bold uppercase tracking-wide text-slate-700"
+                                title={
+                                    assignmentDuration
+                                        ? `${assigneeName} — ${assignmentDuration}`
+                                        : assigneeName
+                                }
+                            >
+                                {assigneeName}
+                            </span>
+                        </>
+                    ) : (
+                        <>
+                            <UserX size={14} className="text-slate-400 shrink-0" aria-hidden />
+                            <span className="truncate text-[12px] font-bold uppercase tracking-wide text-slate-500">
+                                Unassigned
+                            </span>
+                        </>
+                    )}
+                </div>
                 </div>
 
                 <div className="flex-1 min-w-0 flex flex-col pt-0">
@@ -346,61 +359,112 @@ export default function VehicleAssetProfileHeader({
                                 <span className="text-[14px] font-bold text-black leading-tight">{row.value}</span>
                             </div>
                         ))}
-                        {isDisposedFleet ? (
-                            <div className="pt-1 flex flex-wrap items-center gap-2">
-                                <span
-                                    className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wide ring-1 ${
-                                        isSoldDisposition
-                                            ? 'bg-amber-50 text-amber-950 ring-amber-300/90'
-                                            : 'bg-slate-200 text-slate-900 ring-slate-400/80'
-                                    }`}
-                                    title={
-                                        isSoldDisposition
-                                            ? 'This vehicle is recorded as Sold in fleet disposition.'
-                                            : 'This vehicle is recorded as Total loss in fleet disposition.'
-                                    }
-                                >
-                                    {isSoldDisposition ? 'Sold' : 'Total loss'}
-                                </span>
-                                {vehicleActPhase === 'active' ? (
+                        <div className="pt-1 flex flex-wrap items-center gap-2">
+                            {isDisposedFleet ? (
+                                <>
                                     <span
-                                        className="inline-flex items-center rounded-full bg-emerald-50/80 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/70"
-                                        title="Profile activation was completed before this disposition."
+                                        className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wide ring-1 ${
+                                            isSoldDisposition
+                                                ? 'bg-amber-50 text-amber-950 ring-amber-300/90'
+                                                : 'bg-slate-200 text-slate-900 ring-slate-400/80'
+                                        }`}
+                                        title={
+                                            isSoldDisposition
+                                                ? 'This vehicle is recorded as Sold in fleet disposition.'
+                                                : 'This vehicle is recorded as Total loss in fleet disposition.'
+                                        }
                                     >
-                                        Profile completed
+                                        {isSoldDisposition ? 'Sold' : 'Total loss'}
                                     </span>
-                                ) : null}
-                            </div>
-                        ) : vehicleActPhase === 'active' ? (
-                            <div className="pt-1">
+                                    {vehicleActPhase === 'active' ? (
+                                        <span
+                                            className="inline-flex items-center rounded-full bg-emerald-50/80 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/70"
+                                            title="Profile activation was completed before this disposition."
+                                        >
+                                            Profile completed
+                                        </span>
+                                    ) : null}
+                                </>
+                            ) : vehicleActPhase === 'active' ? (
                                 <span
                                     className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/90"
                                     title="Fleet profile activation is complete for this vehicle"
                                 >
                                     Profile activated
                                 </span>
-                            </div>
-                        ) : vehicleActPhase === 'inactive' || vehicleActPhase === 'none' ? (
-                            <div className="pt-1">
+                            ) : vehicleActPhase === 'inactive' || vehicleActPhase === 'none' ? (
                                 <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-700 ring-1 ring-slate-200">
                                     Inactive
                                 </span>
+                            ) : null}
+                            {profilePendingItems.map((item) => (
+                                <VehicleProfilePendingStatusBadge
+                                    key={`${item.kind}-${item.label}-${item.pendingFor}`}
+                                    item={item}
+                                />
+                            ))}
+                        </div>
+                        {canSubmitProfileEdit ? (
+                            <div className="pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (typeof onProfileEditSubmit === 'function') {
+                                            onProfileEditSubmit();
+                                        }
+                                    }}
+                                    className="inline-flex items-center justify-center rounded-lg bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-sm shadow-violet-600/20 hover:bg-violet-700 transition-colors"
+                                >
+                                    Submit for HR approval
+                                </button>
                             </div>
                         ) : null}
                     </div>
                 </div>
             </div>
 
-            <div className="px-4 sm:px-6 pb-6 mt-4">
-                <div className="flex items-center justify-between gap-3 text-[13px] font-medium text-slate-600 mb-2.5">
-                    <span>{isDisposedFleet ? 'Fleet disposition' : 'Profile Status'}</span>
-                    <span className="font-bold text-slate-800">
-                        {isDisposedFleet
-                            ? isSoldDisposition
-                                ? 'Sold'
-                                : 'Total loss'
-                            : `${profilePct}%`}
-                    </span>
+            <div className="px-4 sm:px-6 pb-4 pt-3 mt-auto shrink-0 border-t border-slate-100">
+                <div className="flex items-center justify-between gap-3 mb-2.5">
+                    <div className="flex items-center gap-2 min-w-0 text-[13px] font-medium text-slate-700">
+                        <span>{isDisposedFleet ? 'Fleet disposition' : 'Profile Status'}</span>
+                        <span
+                            className={`font-bold shrink-0 ${
+                                isDisposedFleet
+                                    ? 'text-slate-800'
+                                    : profilePct >= 100
+                                      ? 'text-emerald-600'
+                                      : 'text-slate-800'
+                            }`}
+                        >
+                            {isDisposedFleet
+                                ? isSoldDisposition
+                                    ? 'Sold'
+                                    : 'Total loss'
+                                : `${profilePct}%`}
+                        </span>
+                    </div>
+                    {canSubmitForActivation ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (typeof onActivationRequest === 'function') {
+                                    onActivationRequest();
+                                } else {
+                                    toast({
+                                        title: 'Profile complete',
+                                        description:
+                                            'Basic details, registration card, insurance card, profile picture, and vehicle inspection are on file.',
+                                    });
+                                }
+                            }}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-600 px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-sm shadow-emerald-600/20 hover:bg-emerald-700 transition-colors shrink-0"
+                        >
+                            <CheckCircle2 size={14} strokeWidth={2.5} className="shrink-0" />
+                            {vehicleActPhase === 'on_hold'
+                                ? 'Resubmit for activation'
+                                : 'Submit for activation'}
+                        </button>
+                    ) : null}
                 </div>
                 <div
                     ref={progressBarRef}
@@ -416,7 +480,7 @@ export default function VehicleAssetProfileHeader({
                     }}
                 >
                     <div
-                        className={`h-[8px] w-full bg-slate-100 rounded-full overflow-hidden ${isDisposedFleet ? '' : 'cursor-pointer'}`}
+                        className={`h-[10px] w-full bg-slate-100 rounded-full overflow-hidden ${isDisposedFleet ? '' : 'cursor-pointer'}`}
                     >
                         <div
                             className={`h-full rounded-full transition-all duration-500 ${
@@ -424,7 +488,7 @@ export default function VehicleAssetProfileHeader({
                                     ? isSoldDisposition
                                         ? 'bg-amber-500'
                                         : 'bg-slate-500'
-                                    : 'bg-[#1E6BFA]'
+                                    : 'bg-emerald-600'
                             }`}
                             style={{ width: `${headerProgressPct}%` }}
                         />
@@ -477,42 +541,6 @@ export default function VehicleAssetProfileHeader({
                         </div>
                     )}
                 </div>
-                {canSubmitProfileEdit && (
-                    <div className="mt-4">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (typeof onProfileEditSubmit === 'function') {
-                                    onProfileEditSubmit();
-                                }
-                            }}
-                            className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-violet-600/20 hover:bg-violet-700 transition-colors"
-                        >
-                            Submit for HR approval
-                        </button>
-                    </div>
-                )}
-                {canSubmitForActivation && (
-                    <div className="mt-4">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (typeof onActivationRequest === 'function') {
-                                    onActivationRequest();
-                                } else {
-                                    toast({
-                                        title: 'Profile complete',
-                                        description:
-                                            'Basic details, registration card, insurance card, profile picture, and vehicle inspection are on file.',
-                                    });
-                                }
-                            }}
-                            className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors"
-                        >
-                            {vehicleActPhase === 'on_hold' ? 'Resubmit for activation' : 'Submit for activation'}
-                        </button>
-                    </div>
-                )}
                 {!isDisposedFleet && profilePct === 100 && vehicleActPhase === 'pending_review' && (
                     <p className="mt-3 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
                         {String(vehicleActivationFlowchartAdminName || '').trim() ? (

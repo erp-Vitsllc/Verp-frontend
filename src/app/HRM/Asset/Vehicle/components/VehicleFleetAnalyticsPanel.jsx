@@ -33,6 +33,12 @@ function formatCostM(value) {
     return `$${Math.round(n)}`;
 }
 
+function formatCostTooltip(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return '$0';
+    return `$${Math.round(n).toLocaleString()}`;
+}
+
 function shortDept(name, max = 10) {
     const text = String(name || '').trim();
     if (text.length <= max) return text;
@@ -378,7 +384,7 @@ export default function VehicleFleetAnalyticsPanel({ fleetAnalytics, chartAnim =
                                 />
                                 <RechartsTooltip
                                     contentStyle={floralTooltipStyle}
-                                    formatter={(v) => formatCostM(v)}
+                                    formatter={(v) => formatCostTooltip(v)}
                                 />
                                 <Legend
                                     wrapperStyle={{ fontSize: 11 }}

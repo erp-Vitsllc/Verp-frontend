@@ -1,10 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, ChevronDown, Paperclip, Sparkles, History, Calendar, Plus, CheckCircle2, Eye } from 'lucide-react';
+import { X, Loader2, ChevronDown, Paperclip, Sparkles, History, Calendar, CheckCircle2, Eye } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { isAdmin } from '@/utils/permissions';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
@@ -14,12 +13,21 @@ import {
     parseVehicleServiceRemark,
     resolveAssetCurrentKilometer,
     resolveVehicleServiceListRowTone,
+    resolveNextCarWashMonth,
+    isCarWashMonthOccupied,
+    listOccupiedCarWashMonths,
+    addMonthsToCarWashMonth,
+    normalizeCarWashMonthKey,
+    formatNextChangeMonthDisplay,
 } from './vehicleServiceUtils';
+import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
 const PDF_MIME_TYPES = ['application/pdf'];
 const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg'];
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+/** Fixed wash-type choices on the car wash request form. */
+const CAR_WASH_TYPE_OPTIONS = ['Full Wash', 'Body Wash'];
 
 function currentMonthValue() {
     const d = new Date();
@@ -209,214 +217,6 @@ function InvoiceField({
     );
 }
 
-function CarWashTypeDropdown({
-    label,
-    value,
-    options,
-    loading,
-    error,
-    canManage,
-    onChange,
-    onAddType,
-    disabled = false,
-}) {
-    const rootRef = useRef(null);
-    const addInputRef = useRef(null);
-    const [open, setOpen] = useState(false);
-    const [showAddInput, setShowAddInput] = useState(false);
-    const [newTypeName, setNewTypeName] = useState('');
-    const [adding, setAdding] = useState(false);
-
-    useEffect(() => {
-        if (!open) return undefined;
-        const onDocClick = (event) => {
-            if (rootRef.current && !rootRef.current.contains(event.target)) {
-                setOpen(false);
-                setShowAddInput(false);
-                setNewTypeName('');
-            }
-        };
-        document.addEventListener('mousedown', onDocClick);
-        return () => document.removeEventListener('mousedown', onDocClick);
-    }, [open]);
-
-    useEffect(() => {
-        if (showAddInput && addInputRef.current) {
-            addInputRef.current.focus();
-        }
-    }, [showAddInput]);
-
-    const closeMenu = () => {
-        setOpen(false);
-        setShowAddInput(false);
-        setNewTypeName('');
-    };
-
-    const handleSelect = (typeName) => {
-        onChange(typeName);
-        closeMenu();
-    };
-
-    const handleSaveNewType = async () => {
-        const name = String(newTypeName || '').trim();
-        if (!name) return;
-        setAdding(true);
-        try {
-            await onAddType(name);
-            closeMenu();
-        } finally {
-            setAdding(false);
-        }
-    };
-
-    const displayLabel = loading ? 'Loading types…' : value || 'Select type';
-
-    if (!canManage) {
-        return (
-            <FormField label={label} error={error}>
-                <div className="relative">
-                    <select
-                        value={value}
-                        onChange={(e) => onChange(e.target.value)}
-                        disabled={loading || disabled}
-                        className={`${fieldSelect} ${error ? 'border-red-300' : ''} ${loading || disabled ? 'opacity-60 cursor-not-allowed bg-slate-50' : ''}`}
-                    >
-                        <option value="">{loading ? 'Loading types…' : 'Select type'}</option>
-                        {options.map((typeName) => (
-                            <option key={typeName} value={typeName}>
-                                {typeName}
-                            </option>
-                        ))}
-                    </select>
-                    <ChevronDown
-                        size={16}
-                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-                </div>
-                {!loading && options.length === 0 ? (
-                    <p className="text-[11px] text-slate-400">
-                        No car wash types configured yet. Contact your administrator.
-                    </p>
-                ) : null}
-            </FormField>
-        );
-    }
-
-    return (
-        <FormField label={label} error={error}>
-            <div ref={rootRef} className="relative min-w-0">
-                <button
-                    type="button"
-                    disabled={loading || disabled}
-                    onClick={() => {
-                        if (loading || disabled) return;
-                        setOpen((prev) => !prev);
-                        if (open) {
-                            setShowAddInput(false);
-                            setNewTypeName('');
-                        }
-                    }}
-                    className={`${fieldSelect} flex w-full items-center justify-between gap-2 text-left ${
-                        error ? 'border-red-300' : ''
-                    } ${!value ? 'text-slate-400' : ''} ${loading || disabled ? 'opacity-60 cursor-not-allowed bg-slate-50' : ''}`}
-                >
-                    <span className="truncate">{displayLabel}</span>
-                    <ChevronDown
-                        size={16}
-                        className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
-                    />
-                </button>
-
-                {open && !loading ? (
-                    <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-40 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                        <ul className="max-h-48 overflow-y-auto py-1">
-                            {options.length ? (
-                                options.map((typeName) => (
-                                    <li key={typeName}>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSelect(typeName)}
-                                            className={`w-full px-3.5 py-2.5 text-left text-sm font-medium hover:bg-slate-50 ${
-                                                value === typeName
-                                                    ? 'bg-slate-100 text-slate-900 font-semibold'
-                                                    : 'text-slate-700'
-                                            }`}
-                                        >
-                                            {typeName}
-                                        </button>
-                                    </li>
-                                ))
-                            ) : (
-                                <li className="px-3.5 py-2.5 text-sm text-slate-400">No types yet</li>
-                            )}
-                        </ul>
-
-                        <div className="border-t border-slate-100 bg-slate-50/80">
-                            {!showAddInput ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setShowAddInput(true)}
-                                    className="flex w-full items-center gap-1.5 px-3.5 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                                >
-                                    <Plus size={14} className="shrink-0" />
-                                    Add type
-                                </button>
-                            ) : (
-                                <div className="space-y-2 p-2.5">
-                                    <input
-                                        ref={addInputRef}
-                                        type="text"
-                                        value={newTypeName}
-                                        onChange={(e) => setNewTypeName(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                void handleSaveNewType();
-                                            }
-                                            if (e.key === 'Escape') {
-                                                setShowAddInput(false);
-                                                setNewTypeName('');
-                                            }
-                                        }}
-                                        placeholder="New car wash type"
-                                        className={`${fieldControl} h-10 text-sm`}
-                                        disabled={adding}
-                                    />
-                                    <div className="flex justify-end gap-1.5">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setShowAddInput(false);
-                                                setNewTypeName('');
-                                            }}
-                                            disabled={adding}
-                                            className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => void handleSaveNewType()}
-                                            disabled={adding || !String(newTypeName || '').trim()}
-                                            className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50"
-                                        >
-                                            {adding ? <Loader2 size={12} className="animate-spin" /> : null}
-                                            Save
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                ) : null}
-            </div>
-            {!loading && options.length === 0 ? (
-                <p className="text-[11px] text-slate-400">Open the list and use Add type to create the first option.</p>
-            ) : null}
-        </FormField>
-    );
-}
-
 function buildFormDataFromService(service, assignedEmployee, todayIso) {
     const remark = parseVehicleServiceRemark(service) || {};
     const assigneeId = assignedEmployee?._id ? String(assignedEmployee._id) : '';
@@ -463,19 +263,11 @@ export default function VehicleCarWashRequestModal({
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
-    const [carWashTypes, setCarWashTypes] = useState([]);
-    const [loadingCarWashTypes, setLoadingCarWashTypes] = useState(false);
-    const [mounted, setMounted] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
     const [errors, setErrors] = useState({});
     const [previewDocument, setPreviewDocument] = useState(null);
     const [invoiceViewLoading, setInvoiceViewLoading] = useState(false);
     const todayIso = new Date().toISOString().slice(0, 10);
-    const canManageCarWashTypes = mounted && isAdmin();
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
 
     const previousCarWash = useMemo(() => {
         const list = fleetServicesForTypeSortedDesc(asset?.services, 'Car Wash');
@@ -495,6 +287,22 @@ export default function VehicleCarWashRequestModal({
         const remark = parseVehicleServiceRemark(previousCarWash);
         return remark?.carWashServiceDate || previousCarWash?.date || previousCarWash?.createdAt || null;
     }, [previousCarWash]);
+
+    const previousWashMonth = useMemo(() => {
+        const occupied = [...listOccupiedCarWashMonths(asset)].sort();
+        return occupied[occupied.length - 1] || '';
+    }, [asset]);
+
+    /** Earliest allowed month = previous wash month + 1 (previous and earlier are disabled). */
+    const minSelectableCarWashMonth = useMemo(() => {
+        if (!previousWashMonth) return '';
+        return addMonthsToCarWashMonth(previousWashMonth, 1);
+    }, [previousWashMonth]);
+
+    const suggestedCarWashMonth = useMemo(
+        () => resolveNextCarWashMonth(asset),
+        [asset],
+    );
 
     const vehicleCurrentKm = useMemo(() => {
         const fromAsset = resolveAssetCurrentKilometer(asset);
@@ -516,7 +324,7 @@ export default function VehicleCarWashRequestModal({
         date: todayIso,
         vehicleOwnerEmployeeId: '',
         carDrivenByEmployeeId: '',
-        carWashMonth: currentMonthValue(),
+        carWashMonth: suggestedCarWashMonth || currentMonthValue(),
         carWashType: '',
         value: '',
         carWashServiceDate: todayIso,
@@ -537,7 +345,7 @@ export default function VehicleCarWashRequestModal({
             date: todayIso,
             vehicleOwnerEmployeeId: assigneeId,
             carDrivenByEmployeeId: assigneeId,
-            carWashMonth: currentMonthValue(),
+            carWashMonth: suggestedCarWashMonth || currentMonthValue(),
             carWashType: '',
             value: '',
             carWashServiceDate: todayIso,
@@ -551,7 +359,7 @@ export default function VehicleCarWashRequestModal({
         });
         setErrors({});
         setShowHistory(false);
-    }, [assignedEmployee, todayIso]);
+    }, [assignedEmployee, todayIso, suggestedCarWashMonth]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -566,6 +374,26 @@ export default function VehicleCarWashRequestModal({
 
     const formReadOnly = Boolean(existingService && !accountsReviewMode);
     const accountsFieldLocked = accountsReviewMode;
+
+    // Keep selected month at or after the minimum allowed (previous wash month + 1).
+    useEffect(() => {
+        if (!isOpen || existingService || formReadOnly) return;
+        if (!minSelectableCarWashMonth) return;
+        const selected = normalizeCarWashMonthKey(formData.carWashMonth);
+        if (!selected || selected < minSelectableCarWashMonth) {
+            setFormData((prev) => ({
+                ...prev,
+                carWashMonth: suggestedCarWashMonth || minSelectableCarWashMonth,
+            }));
+        }
+    }, [
+        isOpen,
+        existingService,
+        formReadOnly,
+        minSelectableCarWashMonth,
+        suggestedCarWashMonth,
+        formData.carWashMonth,
+    ]);
 
     const existingInvoiceUrl = useMemo(() => {
         const direct = String(existingService?.invoice || '').trim();
@@ -681,27 +509,6 @@ export default function VehicleCarWashRequestModal({
         };
     }, [isOpen]);
 
-    useEffect(() => {
-        if (!isOpen) return;
-        let cancelled = false;
-        setLoadingCarWashTypes(true);
-        (async () => {
-            try {
-                const { data } = await axiosInstance.get('/AssetItem/car-wash-types');
-                if (!cancelled) {
-                    setCarWashTypes(Array.isArray(data) ? data : []);
-                }
-            } catch {
-                if (!cancelled) setCarWashTypes([]);
-            } finally {
-                if (!cancelled) setLoadingCarWashTypes(false);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [isOpen]);
-
     const assetControllerName = useMemo(() => {
         const direct = employeeLabel(assetController);
         if (direct) return direct;
@@ -722,6 +529,21 @@ export default function VehicleCarWashRequestModal({
         return opts;
     }, [employees, assignedEmployee]);
 
+    const licensedEmployees = useDrivingLicenseHolders({
+        enabled: isOpen,
+        preserveEmployeeId: formData.carDrivenByEmployeeId,
+        sourceEmployees: employees,
+    });
+
+    const drivenByEmployeeOptions = useMemo(
+        () =>
+            licensedEmployees.map((emp) => ({
+                value: String(emp._id),
+                label: employeeLabel(emp),
+            })),
+        [licensedEmployees],
+    );
+
     const historyRows = useMemo(
         () => fleetServicesForTypeSortedDesc(asset?.services, 'Car Wash').slice(0, 5),
         [asset],
@@ -733,32 +555,11 @@ export default function VehicleCarWashRequestModal({
     }, [historyRows]);
 
     const carWashTypeOptions = useMemo(() => {
-        const names = new Set(carWashTypes);
-        if (formData.carWashType) names.add(formData.carWashType);
-        return [...names].sort((a, b) => a.localeCompare(b));
-    }, [carWashTypes, formData.carWashType]);
-
-    const handleAddCarWashType = async (name) => {
-        const trimmed = String(name || '').trim();
-        if (!trimmed) return;
-        try {
-            const { data } = await axiosInstance.post('/AssetItem/car-wash-types', { name: trimmed });
-            const added = data?.name || trimmed;
-            setCarWashTypes((prev) => [...new Set([...prev, added])].sort((a, b) => a.localeCompare(b)));
-            set('carWashType', added);
-            toast({
-                title: 'Type added',
-                description: `"${added}" is now available in the dropdown.`,
-            });
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Could not add type',
-                description: error.response?.data?.message || 'Try again.',
-            });
-            throw error;
-        }
-    };
+        const names = new Set(CAR_WASH_TYPE_OPTIONS);
+        const current = String(formData.carWashType || '').trim();
+        if (current) names.add(current);
+        return [...names];
+    }, [formData.carWashType]);
 
     const validate = (forDraft = false) => {
         const e = {};
@@ -768,6 +569,24 @@ export default function VehicleCarWashRequestModal({
             if (vehicleCurrentKm === '') e.currentKm = 'Vehicle KM is not available';
             const amount = Number(formData.value);
             if (!Number.isFinite(amount) || amount <= 0) e.value = 'Amount is required';
+        }
+        if (
+            formData.carWashMonth &&
+            isCarWashMonthOccupied(asset, formData.carWashMonth, {
+                excludeServiceId: existingService?._id,
+            })
+        ) {
+            e.carWashMonth =
+                'This vehicle already has a car wash for that month. Only one wash per month is allowed.';
+        }
+        const selectedMonth = normalizeCarWashMonthKey(formData.carWashMonth);
+        if (
+            !existingService &&
+            selectedMonth &&
+            previousWashMonth &&
+            selectedMonth <= previousWashMonth
+        ) {
+            e.carWashMonth = `Car wash month must be after ${formatNextChangeMonthDisplay(previousWashMonth)}. Previous and earlier months are not allowed.`;
         }
         setErrors(e);
         return Object.keys(e).length === 0;
@@ -1043,8 +862,8 @@ export default function VehicleCarWashRequestModal({
                             onChange={(e) => set('carDrivenByEmployeeId', e.target.value)}
                             disabled={formReadOnly || accountsFieldLocked}
                         >
-                            <option value="">Select driver</option>
-                            {employeeOptions.map((opt) => (
+                            <option value="">Select driver with driving license</option>
+                            {drivenByEmployeeOptions.map((opt) => (
                                 <option key={opt.value} value={opt.value}>
                                     {opt.label}
                                 </option>
@@ -1057,26 +876,41 @@ export default function VehicleCarWashRequestModal({
                                 onChange={(v) => set('carWashMonth', v || '')}
                                 placeholder="Select month"
                                 valueFormat="yyyy-MM"
-                                fromYear={new Date().getFullYear() - 2}
+                                fromYear={
+                                    minSelectableCarWashMonth
+                                        ? Number(minSelectableCarWashMonth.slice(0, 4))
+                                        : new Date().getFullYear() - 2
+                                }
                                 toYear={new Date().getFullYear() + 10}
+                                minMonth={minSelectableCarWashMonth || undefined}
                                 disabled={formReadOnly}
                                 className={`shadow-none font-medium ${
                                     errors.carWashMonth ? 'border-red-300' : ''
                                 }`}
                             />
+                            {!formReadOnly && !accountsFieldLocked ? (
+                                <p className="text-[11px] text-slate-400">
+                                    {previousWashMonth
+                                        ? `Must be after ${formatNextChangeMonthDisplay(previousWashMonth)}. Previous and earlier months are disabled. One wash per vehicle per month.`
+                                        : 'One wash per vehicle per month.'}
+                                </p>
+                            ) : null}
                         </FormField>
 
-                        <CarWashTypeDropdown
+                        <SelectField
                             label="Car Wash Type"
                             value={formData.carWashType}
-                            options={carWashTypeOptions}
-                            loading={loadingCarWashTypes}
+                            onChange={(e) => set('carWashType', e.target.value)}
                             error={errors.carWashType}
-                            canManage={canManageCarWashTypes}
-                            onChange={(typeName) => set('carWashType', typeName)}
-                            onAddType={handleAddCarWashType}
                             disabled={formReadOnly || accountsFieldLocked}
-                        />
+                        >
+                            <option value="">Select wash type</option>
+                            {carWashTypeOptions.map((typeName) => (
+                                <option key={typeName} value={typeName}>
+                                    {typeName}
+                                </option>
+                            ))}
+                        </SelectField>
 
                         <InvoiceField
                             label="Invoice"

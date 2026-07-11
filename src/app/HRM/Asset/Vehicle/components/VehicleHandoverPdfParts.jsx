@@ -57,9 +57,12 @@ export function VehicleHandoverPdfThemeStyles() {
     );
 }
 
-export const PdfRoot = React.forwardRef(function PdfRoot({ children, className = '', id }, ref) {
+export const PdfRoot = React.forwardRef(function PdfRoot(
+    { children, className = '', id, ...rest },
+    ref,
+) {
     return (
-        <div ref={ref} id={id} className={`${PDF_ROOT_CLASS} ${className}`}>
+        <div ref={ref} id={id} className={`${PDF_ROOT_CLASS} ${className}`} {...rest}>
             <VehicleHandoverPdfThemeStyles />
             {children}
         </div>

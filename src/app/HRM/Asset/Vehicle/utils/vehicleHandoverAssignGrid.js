@@ -82,11 +82,26 @@ function resolveDrivingLicenseAge(assignee) {
     return parts ? formatDurationParts(parts) : '—';
 }
 
-function resolveCurrentUsage(asset) {
-    const km = asset?.currentKilometer ?? asset?.currentKM ?? asset?.currentKm;
-    if (km === null || km === undefined || String(km).trim() === '') return '—';
-    const n = Number(km);
-    return Number.isFinite(n) ? `${n.toLocaleString()} KM` : `${String(km).trim()} KM`;
+function resolveCurrentKm(vehicle, historyEntry = null) {
+    // Prefer live Locator odometer, then vehicle.currentKilometer.
+    // Do NOT read history.details.currentKm — that is often warranty/service metadata.
+    const handoverStored =
+        historyEntry?.details?.handoverCurrentKilometer ??
+        historyEntry?.details?.odometerAtHandover ??
+        null;
+    const candidates = [
+        vehicle?.locator?.currentKilometer,
+        vehicle?.locator?.odometerKm,
+        vehicle?.currentKilometer,
+        handoverStored,
+    ];
+    for (const km of candidates) {
+        if (km === null || km === undefined || String(km).trim() === '') continue;
+        const n = Number(km);
+        if (Number.isFinite(n)) return `${n.toLocaleString()} KM`;
+        return `${String(km).trim()} KM`;
+    }
+    return '—';
 }
 
 export function buildVehicleHandoverAssignGridFields(historyEntry, vehicle) {
@@ -126,7 +141,7 @@ export function buildVehicleHandoverAssignGridFields(historyEntry, vehicle) {
             ? [{ label: 'Assignment Reason', value: assignmentReason }]
             : []),
         { label: 'Warranty', value: resolveWarrantyLabel(warrantyDoc, asset) },
-        { label: 'Current Usage', value: resolveCurrentUsage(asset) },
+        { label: 'Current KM', value: resolveCurrentKm(vehicle, historyEntry) },
         {
             label: 'Hand Over Date',
             value: formatDate(historyEntry?.date || historyEntry?.createdAt),

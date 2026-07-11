@@ -119,6 +119,9 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
     const assignerFromWorkflow = resolveWorkflowStage(historyEntry, 'assigner');
     const targetFromWorkflow = resolveWorkflowStage(historyEntry, 'target');
 
+    const handoverByLabel = getHandoverByLabel(historyEntry, vehicle);
+    const handoverToLabel = getHandoverToLabel(historyEntry, vehicle);
+
     return {
         headerTable: {
             vehicleNo: fieldMap['Vehicle NO'],
@@ -127,10 +130,11 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
             assetNo: fieldMap['Asset No'],
             brand: fieldMap.Brand,
             regExpiry: fieldMap['Reg Expiry'],
-            handoverBy: fieldMap['Handover By'] || getHandoverByLabel(historyEntry),
-            handoverTo: fieldMap['Hand Over to'] || getHandoverToLabel(historyEntry),
+            handoverBy: handoverByLabel,
+            handoverTo: handoverToLabel,
             warranty: fieldMap.Warranty,
-            currentUsage: fieldMap['Current Usage'],
+            currentUsage: fieldMap['Current KM'] || fieldMap['Current Usage'],
+            currentKm: fieldMap['Current KM'] || fieldMap['Current Usage'],
             handoverDate: fieldMap['Hand Over Date'] || formatDate(handoverDate),
             drivingLicenseAge: fieldMap['Driving License Age'],
             vehicleValue: fieldMap['Vehicle Value'],
@@ -138,8 +142,8 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
             insuranceExpiry: fieldMap['Insurance Expiry'],
         },
         signatures: {
-            handoverByName: getHandoverByLabel(historyEntry),
-            handoverToName: getHandoverToLabel(historyEntry),
+            handoverByName: handoverByLabel,
+            handoverToName: handoverToLabel,
             handoverByPerson: assigner,
             handoverToPerson: assignee,
             handoverBySignature: pickSignature(

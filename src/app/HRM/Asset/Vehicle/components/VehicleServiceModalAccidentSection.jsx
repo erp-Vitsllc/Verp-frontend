@@ -16,6 +16,7 @@ export default function VehicleServiceModalAccidentSection({
     set,
     errors,
     employees,
+    drivenByEmployees,
     assetControllerName,
     ASSET_CONTROLLER_VALUE,
     resolvedAssetControllerEmployeeId,
@@ -121,6 +122,7 @@ export default function VehicleServiceModalAccidentSection({
             set={set}
             errors={errors}
             employees={employees}
+            drivenByEmployees={drivenByEmployees || employees}
             companies={companies}
             assetControllerName={assetControllerName}
             ASSET_CONTROLLER_VALUE={ASSET_CONTROLLER_VALUE}

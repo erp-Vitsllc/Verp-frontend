@@ -25,10 +25,8 @@ import {
     buildBodyConditionComparisonRows,
 } from '../utils/vehicleHandoverPhotoComparison';
 import {
-    buildAssessmentFormState,
     HANDOVER_BODY_CONDITION_GRID_CLASS,
     hasAssessmentPhoto,
-    isAssessmentFormComplete,
     isReceiverAssessmentMarkedDone,
     resolveAssessmentMediaUrl,
 } from '../utils/vehicleHandoverReceiverAssessment';
@@ -41,12 +39,14 @@ import {
     handoverItemVisualClasses,
     isHandoverApprovedWithoutFine,
     isHandoverItemFineWaived,
+    isHandoverItemFineIncluded,
     resolveHandoverComparisonChanged,
     resolveHandoverItemFineForCard,
     resolveHandoverItemVisualStatus,
     shouldShowHandoverItemFineActions,
 } from '../utils/vehicleHandoverItemFineUtils';
 import VehicleHandoverItemFineButton from './VehicleHandoverItemFineButton';
+import { resolveHandoverDeleteHistoryId } from '../utils/vehicleHandoverHistory';
 
 const BODY_MUTATION_CONFIG = { skipActionDedupe: true };
 
@@ -92,12 +92,13 @@ function resolveBodyConditionCardVisualStatus({
     comparison,
     hasFine,
     isWaived = false,
+    isIncluded = false,
     acceptedWithoutFine,
     hasPhoto,
 }) {
-    if (hasFine) return 'fined';
+    if (isWaived) return 'unchanged';
+    if (hasFine || isIncluded) return 'fined';
     if (!hasPhoto) return 'neutral';
-    if (isWaived && comparison?.hasPreviousBaseline) return 'unchanged';
     if (photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS) return 'unchanged';
     if (photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW) {
         if (acceptedWithoutFine && comparison?.hasPreviousBaseline) return 'unchanged';
@@ -108,6 +109,7 @@ function resolveBodyConditionCardVisualStatus({
         changed: comparison?.changed,
         hasFine,
         isWaived,
+        isIncluded,
         hasBaseline: comparison?.hasPreviousBaseline,
         acceptedWithoutFine,
     });
@@ -128,6 +130,7 @@ function ViewCellEditor({
     showFineAction = false,
     showRemoveFromFine = false,
     isWaived = false,
+    isIncluded = false,
     onAddFine,
     onRemoveFromFine,
     onCommentBlur,
@@ -214,7 +217,10 @@ function ViewCellEditor({
                     />
                 </div>
 
-                {comparison?.canCompare && !skipFineFlow ? (
+                {comparison?.canCompare &&
+                !skipFineFlow &&
+                !isWaived &&
+                (visualStatus === 'changed' || visualStatus === 'fined') ? (
                     <button
                         type="button"
                         onClick={onCompare}
@@ -227,6 +233,7 @@ function ViewCellEditor({
                 {showFineAction ? (
                     <VehicleHandoverItemFineButton
                         hasFine={hasFine}
+                        isIncluded={isIncluded}
                         isWaived={isWaived}
                         showRemoveFromFine={showRemoveFromFine}
                         onAddFine={onAddFine}
@@ -289,6 +296,7 @@ export default function VehicleHandoverBodyConditionCard({
     handoverItemFines = {},
     handoverFines = [],
     handoverItemFineWaivers = {},
+    handoverItemFineInclusions = {},
     canManageItemFines = false,
     isHrApprovalStage = false,
     onOpenItemFine,
@@ -423,8 +431,12 @@ export default function VehicleHandoverBodyConditionCard({
         async (key, row) => {
             if (isEditingDisabled) return null;
 
-            const historyId = historyEntry?._id;
-            const isLiveEntry = String(historyId || '').startsWith('live-');
+            let historyId = historyEntry?._id;
+            if (String(historyId || '').startsWith('live-')) {
+                const resolved = resolveHandoverDeleteHistoryId(historyEntry, vehicle, assetHistory);
+                if (resolved) historyId = resolved;
+            }
+            const isLiveEntry = !historyId || String(historyId).startsWith('live-');
             const payload = {
                 [key]: {
                     comment: String(row?.comment || '').trim(),
@@ -443,7 +455,7 @@ export default function VehicleHandoverBodyConditionCard({
                 },
             };
 
-            if (isLiveEntry || !historyId) {
+            if (isLiveEntry) {
                 const merged = mergeBodyConditionRowIntoEntry(displayEntry, key, row);
                 setLocalEntry(merged);
                 skipFormResetRef.current = true;
@@ -478,7 +490,7 @@ export default function VehicleHandoverBodyConditionCard({
                 setSavingKey((current) => (current === key ? null : current));
             }
         },
-        [displayEntry, historyEntry?._id, isEditingDisabled, onSaved, toast],
+        [assetHistory, displayEntry, historyEntry, isEditingDisabled, onSaved, toast, vehicle],
     );
 
     const handleCommentBlur = async (key, comment) => {
@@ -515,7 +527,8 @@ export default function VehicleHandoverBodyConditionCard({
 
         const previousRow = form[key] || { comment: '', photo: null, photoSource: null };
         const nextRow = normalizeBodyConditionFormRow({
-            comment: previousRow.comment || baseline.comment || '',
+            // Add from previous: copy image only — never pull previous comments.
+            comment: previousRow.comment || '',
             photo: baseline.photo,
             photoSource: BODY_CONDITION_PHOTO_SOURCE.PREVIOUS,
             userSelected: true,
@@ -594,17 +607,14 @@ export default function VehicleHandoverBodyConditionCard({
         }
 
         if (!accessoriesManagedSeparately && !isReceiverAssessmentMarkedDone(displayEntry)) {
-            const assessmentForm = buildAssessmentFormState(displayEntry, vehicle, { assetHistory });
-            if (!isAssessmentFormComplete(assessmentForm)) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Vehicle Accessories required',
-                    description:
-                        'Complete all Yes/No items and required photos in Vehicle Accessories first.',
-                });
-                onGoToAssessment?.();
-                return;
-            }
+            toast({
+                variant: 'destructive',
+                title: 'Vehicle Accessories required',
+                description:
+                    'Finish Vehicle Accessories and click Process Next before Go to Approval.',
+            });
+            onGoToAssessment?.();
+            return;
         }
 
         const serverForm = buildBodyConditionEditableFormState(displayEntry, formOptions);
@@ -635,31 +645,38 @@ export default function VehicleHandoverBodyConditionCard({
             return;
         }
 
-        const historyId = historyEntry?._id;
-        const isLiveEntry = String(historyId || '').startsWith('live-');
+        const historyIdRaw = historyEntry?._id;
+        let historyId = historyIdRaw;
+        if (String(historyId || '').startsWith('live-')) {
+            const resolved = resolveHandoverDeleteHistoryId(historyEntry, vehicle, assetHistory);
+            if (resolved) historyId = resolved;
+        }
+        const isLiveEntry = !historyId || String(historyId).startsWith('live-');
 
         setCompleting(true);
         try {
             const payload = buildBodyConditionPayload(mergedForSubmit);
 
-            if (isLiveEntry || !historyId) {
-                const merged = mergeBodyConditionCompletedIntoEntry(
-                    mergeBodyConditionIntoEntry(displayEntry, payload),
-                );
-                setLocalEntry(merged);
-                onSaved?.(merged);
-            } else {
-                await axiosInstance.put(
-                    `/AssetItem/history-record/${historyId}/body-condition`,
-                    { bodyConditionReport: payload, bodyConditionCompleted: true },
-                    BODY_MUTATION_CONFIG,
-                );
-                const merged = mergeBodyConditionCompletedIntoEntry(
-                    mergeBodyConditionIntoEntry(displayEntry, payload),
-                );
-                setLocalEntry(merged);
-                onSaved?.(merged);
+            if (isLiveEntry) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Handover record missing',
+                    description:
+                        'Open this assignment from the handover history row (not Live) so photos can be saved for HR.',
+                });
+                return;
             }
+
+            await axiosInstance.put(
+                `/AssetItem/history-record/${historyId}/body-condition`,
+                { bodyConditionReport: payload, bodyConditionCompleted: true },
+                BODY_MUTATION_CONFIG,
+            );
+            const merged = mergeBodyConditionCompletedIntoEntry(
+                mergeBodyConditionIntoEntry(displayEntry, payload),
+            );
+            setLocalEntry(merged);
+            onSaved?.(merged);
 
             if (inspectionHandover) {
                 toast({
@@ -716,6 +733,13 @@ export default function VehicleHandoverBodyConditionCard({
                                           'body',
                                           view.key,
                                       );
+                                const isIncluded = skipFineFlow
+                                    ? false
+                                    : isHandoverItemFineIncluded(
+                                          handoverItemFineInclusions,
+                                          'body',
+                                          view.key,
+                                      );
                                 const existingFine = skipFineFlow
                                     ? null
                                     : resolveHandoverItemFineForCard({
@@ -735,6 +759,7 @@ export default function VehicleHandoverBodyConditionCard({
                                           comparison,
                                           hasFine: Boolean(existingFine),
                                           isWaived,
+                                          isIncluded,
                                           acceptedWithoutFine: comparison?.acceptedWithoutFine,
                                           hasPhoto: hasAssessmentPhoto(formRow.photo),
                                       });
@@ -745,11 +770,13 @@ export default function VehicleHandoverBodyConditionCard({
                                           changed: comparison?.changed || visualStatus === 'changed',
                                           hasFine: Boolean(existingFine),
                                           isWaived,
+                                          isIncluded,
                                       });
                                 const showRemoveFromFine =
                                     showFineAction &&
                                     !isWaived &&
                                     (Boolean(existingFine) ||
+                                        isIncluded ||
                                         comparison?.changed ||
                                         visualStatus === 'changed');
 
@@ -767,11 +794,12 @@ export default function VehicleHandoverBodyConditionCard({
                                         inspectionHandover={inspectionHandover}
                                         visualStatus={visualStatus}
                                         hasFine={Boolean(existingFine)}
+                                        isIncluded={isIncluded}
                                         isWaived={isWaived}
                                         showFineAction={showFineAction}
                                         showRemoveFromFine={showRemoveFromFine}
                                         onAddFine={
-                                            showFineAction
+                                            showFineAction && !isIncluded && !existingFine
                                                 ? () => {
                                                       const prevRow = previousBaseline[view.key] || {};
                                                       onOpenItemFine?.({
@@ -788,7 +816,15 @@ export default function VehicleHandoverBodyConditionCard({
                                                           photoChanged: comparison?.photoChanged,
                                                       });
                                                   }
-                                                : undefined
+                                                : existingFine
+                                                  ? () =>
+                                                        onOpenItemFine?.({
+                                                            itemType: 'body',
+                                                            itemKey: view.key,
+                                                            itemLabel: view.label,
+                                                            existingFine,
+                                                        })
+                                                  : undefined
                                         }
                                         onRemoveFromFine={
                                             showRemoveFromFine

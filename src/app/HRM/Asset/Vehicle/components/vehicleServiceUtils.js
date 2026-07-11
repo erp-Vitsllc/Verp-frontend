@@ -104,13 +104,26 @@ export function buildVehicleServiceListRows(services, asset, { serviceTypeFilter
         .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 }
 
-export function serviceCountByType(services) {
+export function serviceCountByType(services, asset = null) {
     const counts = Object.fromEntries(VEHICLE_SERVICE_TYPES.map((t) => [t, 0]));
     for (const s of services || []) {
         const key = vehicleServiceTypeKey(s);
-        if (key && counts[key] != null) counts[key] += 1;
+        if (!key || counts[key] == null) continue;
+        if (isVehicleServiceCompletedForTabCount(s, asset)) continue;
+        counts[key] += 1;
     }
     return counts;
+}
+
+/** True when the service row is finished — excluded from subtab incomplete counts. */
+function isVehicleServiceCompletedForTabCount(service, asset) {
+    const key = vehicleServiceTypeKey(service);
+    if (key === 'Car Wash') {
+        const remark = parseVehicleServiceRemark(service) || {};
+        return String(remark.carWashPaymentStatus || '').toLowerCase() === 'paid';
+    }
+    const { label } = resolveOilServiceTableStatusLabel(service, asset);
+    return String(label || '').trim().toLowerCase() === 'complete';
 }
 
 /** Latest services for a type, newest first (vehicle detail Service tab helpers). */
@@ -542,4 +555,80 @@ export function formatNextChangeMonthDisplay(ym) {
     const mo = parseInt(m[2], 10);
     if (!y || !mo) return str;
     return new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+/** Normalize car-wash month values to `yyyy-MM`. */
+export function normalizeCarWashMonthKey(ym) {
+    const m = String(ym || '').trim().match(/^(\d{4})-(\d{1,2})/);
+    if (!m) return '';
+    const month = parseInt(m[2], 10);
+    if (!month || month < 1 || month > 12) return '';
+    return `${m[1]}-${String(month).padStart(2, '0')}`;
+}
+
+export function addMonthsToCarWashMonth(ym, delta = 1) {
+    const key = normalizeCarWashMonthKey(ym);
+    if (!key) return '';
+    const [year, month] = key.split('-').map(Number);
+    const next = new Date(year, month - 1 + Number(delta || 0), 1);
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function isRejectedCarWashService(service, asset) {
+    const serviceId = normalizeMongoId(service?._id);
+    const stage = String(
+        service?.workflowSnapshot?.stage ||
+            (serviceId &&
+            normalizeMongoId(asset?.activeServiceWorkflow?.serviceRecordId) === serviceId
+                ? asset?.activeServiceWorkflow?.stage
+                : '') ||
+            '',
+    ).toLowerCase();
+    return stage === 'rejected';
+}
+
+/** Occupied wash months for a vehicle (rejected requests do not block the month). */
+export function listOccupiedCarWashMonths(asset, { excludeServiceId = null } = {}) {
+    const excludeId = normalizeMongoId(excludeServiceId);
+    const occupied = new Set();
+    const services = Array.isArray(asset?.services) ? asset.services : [];
+    for (const service of services) {
+        if (vehicleServiceTypeKey(service) !== 'Car Wash') continue;
+        if (excludeId && normalizeMongoId(service?._id) === excludeId) continue;
+        if (isRejectedCarWashService(service, asset)) continue;
+        const remark = parseVehicleServiceRemark(service) || {};
+        const monthKey = normalizeCarWashMonthKey(remark.carWashMonth);
+        if (monthKey) occupied.add(monthKey);
+    }
+    return occupied;
+}
+
+export function isCarWashMonthOccupied(asset, month, { excludeServiceId = null } = {}) {
+    const monthKey = normalizeCarWashMonthKey(month);
+    if (!monthKey) return false;
+    return listOccupiedCarWashMonths(asset, { excludeServiceId }).has(monthKey);
+}
+
+/**
+ * Next wash month = latest existing wash month + 1.
+ * If none exist, use the current calendar month (or the next free month if current is somehow taken).
+ */
+export function resolveNextCarWashMonth(asset, { excludeServiceId = null } = {}) {
+    const occupied = listOccupiedCarWashMonths(asset, { excludeServiceId });
+    const sorted = [...occupied].sort();
+    const latest = sorted[sorted.length - 1];
+    let candidate = latest
+        ? addMonthsToCarWashMonth(latest, 1)
+        : normalizeCarWashMonthKey(
+              `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+          );
+    while (candidate && occupied.has(candidate)) {
+        candidate = addMonthsToCarWashMonth(candidate, 1);
+    }
+    return (
+        candidate ||
+        normalizeCarWashMonthKey(
+            `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+        )
+    );
 }

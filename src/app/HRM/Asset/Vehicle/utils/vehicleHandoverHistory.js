@@ -216,7 +216,10 @@ function resolveFleetHandoverLifecycle(entry, vehicle) {
 function readFrozenHandoverLabel(entry, field, fallback) {
     const frozen = entry?.details?.[field];
     if (frozen !== undefined && frozen !== null && String(frozen).trim() !== '') {
-        return String(frozen).trim();
+        const value = String(frozen).trim();
+        // Treat placeholder dash as missing so older inspection rows can fall back.
+        if (value === '—' || value === '-') return fallback;
+        return value;
     }
     return fallback;
 }
@@ -315,6 +318,7 @@ export function getHandoverByLabel(entry, vehicle = null) {
     }
 
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        // Inspection / reinspection: Handover By is always empty.
         return '—';
     }
 
@@ -367,12 +371,15 @@ export function getHandoverToLabel(entry, vehicle = null) {
     }
 
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        // Inspection / reinspection: To = assigned owner, else Admin Officer.
+        const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
+        if (frozenTo) return frozenTo;
         const assignee = fmtHandoverPerson(entry?.assignedTo);
         if (assignee) return assignee;
         const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
         const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
         if (fromStage !== '—') return fromStage;
-        return readFrozenHandoverLabel(entry, 'handoverToDisplay', '—');
+        return '—';
     }
 
     if (action === 'Assigned' || action === 'Accepted') {
