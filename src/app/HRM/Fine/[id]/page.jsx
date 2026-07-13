@@ -16,7 +16,6 @@ import { jsPDF } from 'jspdf';
 import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
-import { canAccessAddFine } from '@/app/HRM/Fine/utils/finePermissionAccess';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import AddFineModal from '../components/AddFineModal';
@@ -1067,24 +1066,24 @@ function FineDetailsPageContent() {
         } : null);
     }, [showGroupPlaceholder, employeeDetails, fine, mainEmployee]);
 
-    // Permission Logic — only the assignee on the current workflow step may act (+ Admin)
+    // Permission Logic — only the assignee on the current workflow step may act (+ portal admin)
     const canPerformAction = () => {
         if (!currentUser || !fine) return false;
 
-        const isAdminUser = isAdmin() || canAccessAddFine();
+        const isPortalAdmin = isAdmin();
         const status = fine.fineStatus;
 
         if (status === 'Draft') {
             const creatorId = fine.createdBy?._id || fine.createdBy;
             const currentUserId = currentUser.id || currentUser._id;
             if (String(creatorId) === String(currentUserId)) return true;
-            return isAdminUser;
+            return isPortalAdmin;
         }
 
         return canUserActOnFineStage({
             user: currentUser,
             fine,
-            isAdmin: isAdminUser,
+            isAdmin: isPortalAdmin,
         });
     };
 
@@ -1104,8 +1103,8 @@ function FineDetailsPageContent() {
             return approvedScheduleOnlyEdit || approvedAssetControllerOnlyEdit;
         }
         if (fine.fineStatus === 'Rejected' && canResubmit) return true;
-        const isAdminUser = isAdmin() || canAccessAddFine();
-        return canPerformAction() || isAdminUser;
+        // Edit on in-progress fines: assignee (or portal admin), not every Add Fine user
+        return canPerformAction() || isAdmin();
     }, [currentUser, fine, canResubmit, approvedScheduleOnlyEdit, approvedAssetControllerOnlyEdit]);
 
     const isCompanyFine =

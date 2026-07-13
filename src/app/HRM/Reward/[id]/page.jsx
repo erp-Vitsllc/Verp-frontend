@@ -9,7 +9,6 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { useToast } from "@/hooks/use-toast";
 import { isAdmin } from '@/utils/permissions';
-import { canAccessCreateReward } from '@/app/HRM/Reward/utils/rewardPermissionAccess';
 import { format } from 'date-fns';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -262,10 +261,8 @@ export default function RewardDetailsPage({ params }) {
     const canPerformAction = () => {
         if (!currentUser || !employee || !reward) return false;
 
-        const isAdminUser =
-            isAdmin() ||
-            canAccessCreateReward() ||
-            (currentUser.permissions && currentUser.permissions.HRM?.Reward?.edit);
+        // Portal super user only — Create Reward must NOT unlock Approve for every stage.
+        const isPortalAdmin = isAdmin();
         const dept = (currentUser.department || '').toLowerCase();
         const desig = (currentUser.designation || '').toLowerCase();
 
@@ -277,22 +274,25 @@ export default function RewardDetailsPage({ params }) {
         const assignedUserId = reward.submittedTo ? String(reward.submittedTo._id || reward.submittedTo) : null;
         const currentEmpObjectId = currentUser.employeeObjectId ? String(currentUser.employeeObjectId) : null;
 
-        console.log(`[PermissionDebug] User: ${currentUser.firstName}, Status: ${status}, AssignedTo: ${assignedUserId}`);
-
-        // Handle Draft State: Creator can edit/cancel
+        // Draft: creator (or portal admin) can send / edit — not every Create Reward user.
         if (status === 'Draft') {
             const creatorId = typeof reward.createdBy === 'object' ? reward.createdBy._id : reward.createdBy;
-            // Creator or Admin
-            return currentUserId === String(creatorId) || (currentUser.employeeId && reward.employeeId === currentUser.employeeId) || isAdminUser;
+            return (
+                isPortalAdmin ||
+                currentUserId === String(creatorId) ||
+                (currentUser.employeeId && reward.employeeId === currentUser.employeeId)
+            );
         }
 
-        if (isAdminUser) return true;
+        if (isPortalAdmin) return true;
 
-        // 1. Strict Assignment Check
+        // 1. Strict Assignment Check (current submittedTo)
         if (assignedUserId) {
             if (assignedUserId === currentUserId || (currentEmpObjectId && assignedUserId === currentEmpObjectId)) {
                 return true;
             }
+            // Someone else is assigned — do not fall through to role shortcuts.
+            return false;
         }
 
         // 2. Strict Workflow Check
@@ -303,12 +303,12 @@ export default function RewardDetailsPage({ params }) {
                 if (assignedWfId === currentUserId || (currentEmpObjectId && assignedWfId === currentEmpObjectId)) {
                     return true;
                 }
+                return false;
             }
         }
 
-        // 3. Status/Role Fallbacks
+        // 3. Status/Role Fallbacks only when no explicit assignee is set
         if (status === 'Pending') {
-            // Fallback: Reportee Check
             const reportee = employee.primaryReportee;
             const userEmail = (currentUser.companyEmail || currentUser.email || '').trim().toLowerCase();
 
@@ -316,7 +316,6 @@ export default function RewardDetailsPage({ params }) {
                 if (typeof reportee === 'object' && reportee.companyEmail) {
                     if (reportee.companyEmail.trim().toLowerCase() === userEmail) return true;
                 } else if (typeof reportee === 'string') {
-                    // If it's a string, we might not have the email, but let's check currentEmpObjectId
                     if (currentEmpObjectId && String(reportee) === currentEmpObjectId) return true;
                 }
             }
