@@ -36,6 +36,9 @@ async function fetchEntityPayments({ entityType, referenceId }) {
     if (entityType === 'Fine') {
         params.referenceId = referenceId;
         params.relatedEntityType = 'Fine';
+    } else if (entityType === 'Reward') {
+        params.referenceId = referenceId;
+        params.relatedEntityType = 'Reward';
     } else {
         params.referenceId = referenceId;
         params.relatedEntityType = 'Loan';
@@ -172,6 +175,26 @@ function buildLoanPrefill(loan, balance, pathname) {
     };
 }
 
+function buildRewardPrefill(reward, balance, pathname) {
+    return {
+        employeeId: reward.employeeId,
+        returnTo: pathname,
+        balance,
+        paymentSource: 'Cash',
+        reward: {
+            _id: reward._id,
+            id: reward._id,
+            rewardId: reward.rewardId,
+            amount: reward.amount,
+            paidAmount: reward.paidAmount || 0,
+            rewardType: reward.rewardType,
+            employeeId: reward.employeeId,
+            employeeName: reward.employeeName,
+            title: reward.title,
+        },
+    };
+}
+
 export default function EntityPaymentDetailsCard({
     entityType = 'Loan',
     referenceId,
@@ -251,6 +274,8 @@ export default function EntityPaymentDetailsCard({
 
         if (entityType === 'Fine') {
             setPaymentPrefill(buildFinePrefill(entityRecord, employeeId, remaining, pathname));
+        } else if (entityType === 'Reward') {
+            setPaymentPrefill(buildRewardPrefill(entityRecord, remaining, pathname));
         } else {
             setPaymentPrefill(buildLoanPrefill(entityRecord, remaining, pathname));
         }

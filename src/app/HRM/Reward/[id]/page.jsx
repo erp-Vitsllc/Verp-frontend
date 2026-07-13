@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use, useRef, useMemo } from 'react';
+import { useState, useEffect, use, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
@@ -24,10 +24,13 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
-import EmploymentSummary from '../../../emp/[employeeId]/components/EmploymentSummary';
 import { calculateDaysUntilExpiry, calculateTenure, formatDurationParts, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
-import { Download, Check, X, Edit, Loader2, ChevronDown, Award, FileText, Lock } from 'lucide-react';
+import { Download, Check, X, Edit, Loader2, Lock, Send, Trash2, FileText, Paperclip } from 'lucide-react';
 import CertificateEditModal from '../components/CertificateEditModal';
+import RewardFormCards from '../components/RewardFormCards';
+import RewardAttachmentTab from '../components/RewardAttachmentTab';
+import { formatRewardStatusLabel, isRewardPaymentEligible } from '../utils/rewardStatusDisplay';
+import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 
 export default function RewardDetailsPage({ params }) {
     const { id } = use(params);
@@ -45,22 +48,9 @@ export default function RewardDetailsPage({ params }) {
     const [imageError, setImageError] = useState(false);
     const [allEmployees, setAllEmployees] = useState([]);
     const [certLoading, setCertLoading] = useState(true);
-
-    // New State for Certificate Edit
+    const [activeTab, setActiveTab] = useState('rewardDetails'); // 'rewardDetails' | 'attachments'
     const [showCertEditModal, setShowCertEditModal] = useState(false);
-    const [showEditDropdown, setShowEditDropdown] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
-    // Ref for dropdown click outside
-    const dropdownRef = useRef(null);
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-                setShowEditDropdown(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
 
     // Inline Editing State - Initialized from Reward object
     // Inline Editing State - Initialized from Reward object
@@ -144,7 +134,9 @@ export default function RewardDetailsPage({ params }) {
         totalCount: 0,
         cashCount: 0,
         giftCount: 0,
-        certificateCount: 0
+        certificateCount: 0,
+        otherCount: 0,
+        totalAmount: 0,
     });
 
     // Fetch Data
@@ -169,12 +161,14 @@ export default function RewardDetailsPage({ params }) {
                     if (Array.isArray(allRewards)) {
                         const stats = allRewards.reduce((acc, r) => {
                             acc.totalCount++;
+                            acc.totalAmount += Number(r.amount) || 0;
                             const type = (r.rewardType || '').toLowerCase();
-                            if (type === 'cash') acc.cashCount++;
-                            else if (type === 'gift') acc.giftCount++;
-                            else if (type === 'certificate' || type === 'appreciation') acc.certificateCount++;
+                            if (type.includes('cash') || type.includes('bonus')) acc.cashCount++;
+                            else if (type.includes('gift')) acc.giftCount++;
+                            else if (type.includes('certificate') || type.includes('appreciation')) acc.certificateCount++;
+                            else acc.otherCount++;
                             return acc;
-                        }, { totalCount: 0, cashCount: 0, giftCount: 0, certificateCount: 0 });
+                        }, { totalCount: 0, cashCount: 0, giftCount: 0, certificateCount: 0, otherCount: 0, totalAmount: 0 });
                         setRewardStats(stats);
                     }
 
@@ -196,7 +190,7 @@ export default function RewardDetailsPage({ params }) {
 
     const waitingForName = useMemo(() => {
         if (!reward) return null;
-        if (['Approved', 'Rejected', 'Completed', 'Draft', 'Cancelled', 'Withdrawn'].includes(reward.rewardStatus)) return null;
+        if (['Approved', 'Approved (Paid)', 'Rejected', 'Completed', 'Draft', 'Cancelled', 'Withdrawn'].includes(reward.rewardStatus)) return null;
 
         const workflow = reward.workflow || [];
         const type = (reward.rewardType || '').toLowerCase();
@@ -559,6 +553,15 @@ export default function RewardDetailsPage({ params }) {
         return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
     };
 
+    const formatDate = (value) => {
+        if (!value) return '—';
+        try {
+            return format(new Date(value), 'dd MMM yyyy');
+        } catch {
+            return '—';
+        }
+    };
+
     // Sync state with fetching data
     // Sync state with fetching data
     useEffect(() => {
@@ -707,610 +710,299 @@ export default function RewardDetailsPage({ params }) {
                         <ListReturnBackButton onNavigate={handleListReturnBack} />
                     </div>
 
-                    {/* Profile Cards */}
-                    {employee && (
-                        <div className="flex flex-row gap-6 mb-8 print:hidden w-full items-stretch">
-                            <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
-                                <div className="bg-white rounded-[20px] shadow-sm p-3 sm:p-4 h-full flex flex-col relative overflow-y-auto custom-scrollbar border border-gray-100">
-                                    {/* Top Section */}
-                                    <div className="flex gap-4 items-start shrink-0">
-                                        {/* Image & ID */}
-                                        <div className="flex flex-col items-center gap-1.5 shrink-0 pt-1">
-                                            <div className="w-[80px] h-[80px] sm:w-[130px] sm:h-[130px] mx-auto overflow-hidden relative border border-gray-200 rounded-[14px] sm:rounded-[20px] bg-[#E8F6FA] flex items-center justify-center">
-                                                {!imageError && (employee?.image || employee?.employeeDetails?.photo) ? (
-                                                    <img
-                                                        src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}`.replace('/api', '') + (employee.image || employee.employeeDetails.photo)}
-                                                        onError={() => setImageError(true)}
-                                                        className="w-full h-full object-cover"
-                                                        alt={employee?.firstName || 'Employee'}
-                                                    />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600 text-white text-3xl sm:text-5xl font-black uppercase tracking-tighter">
-                                                        {employee?.firstName ? employee.firstName[0].toUpperCase() : (employee?.fullName ? employee.fullName[0].toUpperCase() : 'U')}
-                                                        {employee?.lastName ? employee.lastName[0].toUpperCase() : ''}
+                    {/* Top Grid: Profile + Action Card — Fine-style header */}
+                    <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
+                        {/* Left Column: Profile & Stats */}
+                        <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+                            {employee && (
+                                <div className="w-full h-full min-h-0">
+                                    <ProfileHeader
+                                        employee={employee}
+                                        hideProgressBar={true}
+                                        hideStatusToggle={true}
+                                        hideRole={true}
+                                        hideContactNumber={true}
+                                        hideEmail={true}
+                                        enlargeProfilePic={false}
+                                        showNameUnderProfilePic={true}
+                                        hideEmployeeStatus={true}
+                                        imageError={imageError}
+                                        setImageError={setImageError}
+                                        subtitle={reward?.rewardId}
+                                        statusLabel={null}
+                                        stackProfileWithExtra={false}
+                                        extraContent={(
+                                            <div className="mt-3 space-y-3 w-full">
+                                                <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0">
+                                                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
+                                                        <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Total Count</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-blue-800 shrink-0 tabular-nums">{rewardStats.totalCount || 0}</span>
                                                     </div>
-                                                )}
-                                            </div>
-                                            <span className="text-red-500 font-bold text-[10px] sm:text-[11px] uppercase mt-1 tracking-widest">{reward?.rewardId}</span>
-                                        </div>
-
-                                        {/* Info */}
-                                        <div className="flex-1 flex flex-col pt-1 min-w-0 h-full">
-                                            <h2 className="text-[18px] sm:text-[22px] font-black text-black leading-tight mb-2 truncate">
-                                                {employee ? `${employee.firstName} ${employee.lastName}` : (reward?.employeeName || 'Employee Name')}
-                                            </h2>
-
-                                            <div className="flex flex-wrap gap-2 mb-2">
-                                                <span className="bg-[#4ECEF9] text-white px-3 py-1 sm:px-4 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold shadow-sm text-center">
-                                                    {reward?.rewardStatus || 'Status'}
-                                                </span>
-                                                {(() => {
-                                                    let tenure = 'New Starter';
-                                                    if (employee?.employeeDetails?.joiningDate) {
-                                                        const joined = new Date(employee.employeeDetails.joiningDate);
-                                                        const now = new Date();
-                                                        let years = now.getFullYear() - joined.getFullYear();
-                                                        let months = now.getMonth() - joined.getMonth();
-                                                        if (months < 0 || (months === 0 && now.getDate() < joined.getDate())) { years--; months += 12; }
-                                                        tenure = (years > 0 ? years + " Year " : "") + (months > 0 ? months + " Month" : "");
-                                                        tenure = tenure.trim() || 'New Starter';
-                                                    }
-                                                    return (
-                                                        <span className="bg-[#4ECEF9] text-white px-3 py-1 sm:px-4 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold shadow-sm text-center">
-                                                            {tenure}
-                                                        </span>
-                                                    );
-                                                })()}
-                                            </div>
-
-                                            {/* Waiting Badge (Right aligned) */}
-                                            {(() => {
-                                                const s = reward?.rewardStatus;
-                                                let label = '';
-                                                if (s === 'Draft') label = 'Waiting for Requester';
-                                                else if (waitingForName) label = "Waiting " + waitingForName.split(' ')[0] + " to Approve";
-                                                else if (!['Approved', 'Rejected', 'Cancelled'].includes(s)) label = "Waiting for " + s;
-
-                                                if (!label) return null;
-
-                                                return (
-                                                    <div className="mt-auto self-end pt-2">
-                                                        <span className="bg-[#F0F2F5] text-red-500 border border-gray-200 px-4 py-1.5 sm:px-6 sm:py-2 rounded-full text-[11px] sm:text-[13px] font-black shadow-sm whitespace-nowrap block text-center truncate max-w-[160px] sm:max-w-[200px] hover:max-w-none">
-                                                            {label}
-                                                        </span>
+                                                    <div className="bg-green-50 p-2 rounded-lg border border-green-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
+                                                        <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Cash</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-green-800 shrink-0 tabular-nums">{rewardStats.cashCount || 0}</span>
                                                     </div>
-                                                );
-                                            })()}
-                                        </div>
-                                    </div>
-
-                                    {/* Divider */}
-                                    <div className="w-[95%] mx-auto h-[3px] bg-gray-300 rounded-full mt-3 sm:mt-4 mb-1 sm:mb-2 shrink-0"></div>
-
-                                    {/* Tracking Timeline Component */}
-                                    <div className="flex-1 flex flex-col justify-end items-center px-1 pb-1 shrink-0">
-
-                                        {/* Tracking Timeline */}
-                                        {reward && (
-                                            <div className="w-full flex-shrink-0">
-
+                                                    <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
+                                                        <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Gift</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-purple-800 shrink-0 tabular-nums">{rewardStats.giftCount || 0}</span>
+                                                    </div>
+                                                    <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
+                                                        <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Certificate</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-amber-800 shrink-0 tabular-nums">{rewardStats.certificateCount || 0}</span>
+                                                    </div>
+                                                    <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
+                                                        <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Other</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-gray-800 shrink-0 tabular-nums">{rewardStats.otherCount || 0}</span>
+                                                    </div>
+                                                    <div className="bg-teal-50 p-2 rounded-lg border border-teal-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
+                                                        <span className="text-[10px] text-teal-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Total Amount</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-teal-800 shrink-0 tabular-nums">{(rewardStats.totalAmount || 0).toLocaleString()}</span>
+                                                    </div>
+                                                </div>
 
                                                 {(() => {
-                                                    const workflow = reward.workflow || [];
-                                                    const type = (reward.rewardType || '').toLowerCase();
-                                                    const isCashOrGift = type.includes('cash') || type.includes('gift');
+                                                    const s = reward?.rewardStatus;
+                                                    if (['Approved', 'Approved (Paid)', 'Rejected', 'Cancelled'].includes(s)) return null;
 
-                                                    // Define the dynamic steps
-                                                    const steps = [
-                                                        { id: 1, label: 'Created', role: 'Created' },
-                                                        { id: 2, label: 'Requester', role: 'Requester' },
-                                                        { id: 3, label: 'Reportee', role: 'Manager' },
-                                                    ];
+                                                    let label = '';
+                                                    if (s === 'Draft') label = 'Waiting for Requester';
+                                                    else if (waitingForName) label = `Waiting for ${waitingForName}`;
+                                                    else if (s) label = `Waiting for ${s}`;
 
-                                                    if (isCashOrGift) {
-                                                        steps.push({ id: 4, label: 'Accounts', role: 'Accounts' });
-                                                        steps.push({ id: 5, label: 'Management', role: 'Management' });
-                                                    } else {
-                                                        steps.push({ id: 4, label: 'Management', role: 'Management' });
-                                                    }
-
-                                                    // Map internal approvalStatus to step IDs
-                                                    // Draft -> 2 (Requester)
-                                                    // Pending (Manager) -> 3 (Reportee)
-                                                    // Pending Accounts -> 4 (if cash/gift)
-                                                    // Pending Authorization -> 4 (if cert) or 5 (if cash/gift)
-                                                    const internalStatus = reward.approvalStatus || reward.rewardStatus;
-                                                    const statusMap = {
-                                                        'Draft': 2,
-                                                        'Pending': 3,
-                                                        'Pending HR': 3,
-                                                        'Pending Accounts': 4,
-                                                        'Pending Authorization': isCashOrGift ? 5 : 4,
-                                                        'Approved': isCashOrGift ? 6 : 5
-                                                    };
-
-                                                    const currentActive = statusMap[internalStatus] || 1;
-                                                    const isRejected = internalStatus === 'Rejected';
-                                                    const isCancelled = internalStatus === 'Cancelled';
+                                                    if (!label) return null;
 
                                                     return (
-                                                        <div className="flex items-center w-full px-4 mb-10 mt-4">
-                                                            {steps.map((step, idx) => {
-                                                                const isLast = idx === steps.length - 1;
-                                                                const isStepCurrent = currentActive === step.id && !isRejected && !isCancelled;
-
-                                                                // CIRCLE COLOR: Green only if the specific role has actually approved
-                                                                const isStepApproved = (() => {
-                                                                    if (reward.rewardStatus === 'Approved') return true;
-                                                                    if (step.id === 1) return true; // Created always green
-                                                                    if (step.id === 2) return (reward.rewardStatus || '').toLowerCase() !== 'draft'; // Requester green only after sending
-
-                                                                    // Manager/Reportee step
-                                                                    if (step.id === 3) return workflow.some(w => w.role === 'Manager' && w.status === 'Approved');
-
-                                                                    // Accounts step (only for cash/gift)
-                                                                    if (isCashOrGift && step.id === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
-
-                                                                    // Management step
-                                                                    const managementId = isCashOrGift ? 5 : 4;
-                                                                    if (step.id === managementId) {
-                                                                        return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || reward.rewardStatus === 'Approved';
-                                                                    }
-
-                                                                    return false;
-                                                                })();
-
-                                                                const isGreen = isStepApproved;
-
-                                                                // LINE COLOR: Green only if the destination step has already approved
-                                                                const isNextStepGreen = (() => {
-                                                                    if (reward.rewardStatus === 'Approved') return true;
-                                                                    const nextId = step.id + 1;
-                                                                    if (nextId === 2) return reward.rewardStatus !== 'Draft';
-                                                                    if (nextId === 3) return workflow.some(w => w.role === 'Manager' && w.status === 'Approved');
-                                                                    if (isCashOrGift && nextId === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
-
-                                                                    const managementId = isCashOrGift ? 5 : 4;
-                                                                    if (nextId === managementId) {
-                                                                        return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || reward.rewardStatus === 'Approved';
-                                                                    }
-                                                                    return false;
-                                                                })();
-
-                                                                // Helper to get name for subtext
-                                                                const getStepName = () => {
-                                                                    if (step.id === 1) return 'System';
-                                                                    if (step.id === 2) {
-                                                                        const creator = reward.createdBy;
-                                                                        if (!creator) return 'Unknown';
-                                                                        return creator.name || (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester');
-                                                                    }
-                                                                    if (step.id === 3) {
-                                                                        // Check for Manager/Reportee in workflow first
-                                                                        const managerStep = workflow.find(w => w.role === 'Manager');
-                                                                        if (managerStep?.assignedTo?.firstName) return `${managerStep.assignedTo.firstName} ${managerStep.assignedTo.lastName || ''}`.trim();
-                                                                        if (managerStep?.assignedTo?.name) return managerStep.assignedTo.name;
-
-                                                                        // Fallback to employee profile
-                                                                        if (employee?.primaryReportee?.firstName) return `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}`.trim();
-                                                                        return 'Reportee';
-                                                                    }
-                                                                    if (step.id === 4 && isCashOrGift) {
-                                                                        const accountsStep = workflow.find(w => w.role === 'Accounts');
-                                                                        if (accountsStep?.assignedTo?.firstName) return `${accountsStep.assignedTo.firstName} ${accountsStep.assignedTo.lastName || ''}`.trim();
-                                                                        if (accountsStep?.assignedTo?.name) return accountsStep.assignedTo.name;
-
-                                                                        // Fallback to pre-fetched HOD name from backend response
-                                                                        if (reward.accountsHODName && reward.accountsHODName !== 'Unknown') return reward.accountsHODName;
-                                                                        return 'Accounts HOD';
-                                                                    }
-                                                                    if (step.id === (isCashOrGift ? 5 : 4)) {
-                                                                        // Management Step
-                                                                        const managementStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
-                                                                        if (managementStep?.assignedTo?.firstName) return `${managementStep.assignedTo.firstName} ${managementStep.assignedTo.lastName || ''}`.trim();
-
-                                                                        if (reward.approvedBy) return reward.approvedBy.name || (reward.approvedBy.firstName ? `${reward.approvedBy.firstName} ${reward.approvedBy.lastName || ''}`.trim() : '');
-                                                                        if (reward.ceoName && reward.ceoName !== 'Unknown') return reward.ceoName;
-                                                                        return 'Management';
-                                                                    }
-
-                                                                    const wfStep = workflow.find(w => w.role === step.role);
-                                                                    if (wfStep?.assignedTo?.name) return wfStep.assignedTo.name;
-
-                                                                    return '';
-                                                                };
-
-                                                                const getStepDate = () => {
-                                                                    let dateValue = null;
-                                                                    if (step.id <= 2) {
-                                                                        dateValue = reward.createdAt;
-                                                                    } else {
-                                                                        const targetRole = step.role;
-                                                                        const wfStep = workflow.find(w => w.role === targetRole && w.status === 'Approved');
-                                                                        dateValue = wfStep?.actionedAt;
-                                                                    }
-
-                                                                    if (dateValue) {
-                                                                        try {
-                                                                            return format(new Date(dateValue), 'MMM d, yyyy');
-                                                                        } catch (e) {
-                                                                            return null;
-                                                                        }
-                                                                    }
-                                                                    return null;
-                                                                };
-
-                                                                const stepDate = getStepDate();
-
-                                                                const getStepDisplay = () => {
-                                                                    if ((isRejected || isCancelled) && isStepCurrent) return <X size={20} strokeWidth={3} />;
-                                                                    if (isGreen) return <Check size={20} strokeWidth={3} />;
-                                                                    return step.id;
-                                                                };
-
-                                                                const stepName = getStepName();
-
-                                                                return (
-                                                                    <div key={step.id} className={`flex items-center ${isLast ? 'flex-none' : 'flex-1'}`}>
-                                                                        {/* Circle Component */}
-                                                                        <div className="relative flex flex-col items-center">
-                                                                            <div
-                                                                                className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base font-black transition-all duration-500 shadow-[0_4px_10px_rgba(0,0,0,0.15)] z-10
-                                                                                ${isGreen
-                                                                                        ? 'bg-green-500 text-white shadow-md shadow-green-200'
-                                                                                        : 'bg-red-50 text-red-300 border-2 border-red-100'
-                                                                                    }
-                                                                                ${isStepCurrent ? '!bg-white !text-green-600 !border-2 !border-green-500 shadow-none scale-110 ring-4 ring-green-50' : ''}
-                                                                                ${isRejected && isStepCurrent ? '!bg-white !text-red-600 !border-red-500 !ring-red-50' : ''}
-                                                                            `}
-                                                                            >
-                                                                                {getStepDisplay()}
-                                                                            </div>
-
-                                                                            {/* Subtext labels */}
-                                                                            <div className="absolute top-[36px] md:top-[44px] flex flex-col items-center min-w-[70px] text-center">
-                                                                                <span className={`text-[9px] font-black uppercase tracking-[0.05em] mb-0.5 whitespace-nowrap ${isGreen ? 'text-green-600' : 'text-gray-400'}`}>
-                                                                                    {step.label}
-                                                                                </span>
-                                                                                {stepName && (
-                                                                                    <span className="text-[8px] md:text-[9px] text-gray-500 font-bold max-w-[65px] truncate leading-tight opacity-80">
-                                                                                        {stepName}
-                                                                                    </span>
-                                                                                )}
-                                                                                {stepDate && (
-                                                                                    <span className="text-[8px] md:text-[9px] text-gray-400 font-medium max-w-[65px] truncate leading-tight mt-0.5">
-                                                                                        {stepDate}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-
-                                                                        {/* Connecting Line Segment */}
-                                                                        {!isLast && (
-                                                                            <div className="flex-1 relative flex items-center">
-                                                                                <div className={`h-[2px] w-full transition-all duration-500 z-0 shadow-sm ${isNextStepGreen ? 'bg-green-500' : 'bg-red-50'}`} />
-
-                                                                                {/* Duration Badge */}
-                                                                                {(() => {
-                                                                                    let start = null;
-                                                                                    let end = null;
-                                                                                    let isLive = false;
-
-                                                                                    if (step.id === 1) {
-                                                                                        // Leg 0: Created to Requester
-                                                                                        start = reward.createdAt;
-                                                                                        if (reward.rewardStatus !== 'Draft') {
-                                                                                            end = reward.updatedAt;
-                                                                                        }
-                                                                                        if (reward.rewardStatus === 'Draft') isLive = true;
-                                                                                    } else if (step.id === 2) {
-                                                                                        // Leg 1: From Requester Action to Manager (Reportee) Action
-                                                                                        start = (reward.rewardStatus !== 'Draft') ? reward.updatedAt : reward.createdAt;
-                                                                                        const managerStep = workflow.find(w => w.role === 'Manager');
-                                                                                        end = managerStep?.actionedAt;
-                                                                                        if (start && !end && currentActive === 3) isLive = true;
-                                                                                    } else if (step.id === 3) {
-                                                                                        // Leg 2: Manager Action -> Accounts Action (if exists) OR Management Action
-                                                                                        const managerStep = workflow.find(w => w.role === 'Manager');
-                                                                                        start = managerStep?.actionedAt;
-                                                                                        if (isCashOrGift) {
-                                                                                            const accountsStep = workflow.find(w => w.role === 'Accounts');
-                                                                                            end = accountsStep?.actionedAt;
-                                                                                            if (start && !end && currentActive === 4) isLive = true;
-                                                                                        } else {
-                                                                                            const managementStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
-                                                                                            end = managementStep?.actionedAt;
-                                                                                            if (start && !end && currentActive === 4) isLive = true;
-                                                                                        }
-                                                                                    } else if (step.id === 4 && isCashOrGift) {
-                                                                                        // Leg 3: Accounts Action -> Management Action
-                                                                                        const accountsStep = workflow.find(w => w.role === 'Accounts');
-                                                                                        start = accountsStep?.actionedAt;
-                                                                                        const managementStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
-                                                                                        end = managementStep?.actionedAt;
-                                                                                        if (start && !end && currentActive === 5) isLive = true;
-                                                                                    }
-
-                                                                                    const effectiveEnd = end || (isLive ? new Date() : null);
-
-                                                                                    if (start && effectiveEnd) {
-                                                                                        // FIX: Ensure diff is not negative due to client/server sync issues
-                                                                                        const diff = Math.max(0, new Date(effectiveEnd) - new Date(start));
-                                                                                        const totalMinutes = Math.floor(diff / (1000 * 60));
-                                                                                        const days = Math.floor(totalMinutes / (60 * 24));
-                                                                                        const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
-                                                                                        const mins = totalMinutes % 60;
-
-                                                                                        let durationText = '';
-                                                                                        if (days > 0) durationText = `${days}d ${hours}h`;
-                                                                                        else if (hours > 0) durationText = `${hours}h ${mins}m`;
-                                                                                        else if (mins > 0) durationText = `${mins}m`;
-                                                                                        else durationText = `< 1m`;
-
-                                                                                        return (
-                                                                                            <div className={`absolute left-1/2 -translate-x-1/2 bottom-3 z-20 flex items-center gap-1 ${isLive ? 'animate-pulse' : ''}`}>
-                                                                                                {isLive && <div className="w-1.5 h-1.5 rounded-full bg-green-500" />}
-                                                                                                <span className={`text-[9px] md:text-[10px] font-black whitespace-nowrap uppercase tracking-tight ${isLive ? 'text-green-600' : 'text-gray-500'}`}>
-                                                                                                    {durationText}
-                                                                                                </span>
-                                                                                            </div>
-                                                                                        );
-                                                                                    }
-                                                                                    return null;
-                                                                                })()}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            })}
+                                                        <div className="w-full">
+                                                            <span className="text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center bg-amber-50 text-amber-700 border-amber-200">
+                                                                {label}
+                                                            </span>
                                                         </div>
                                                     );
                                                 })()}
                                             </div>
                                         )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
-                                {/* Reward Action Card */}
-                                <div className="bg-white rounded-lg shadow-sm p-5 h-full flex flex-col relative overflow-y-auto custom-scrollbar">
-                                    <div className="grid grid-cols-2 gap-3 mb-6">
-                                        {/* 1. Status Box */}
-                                        <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-1.5 ${reward?.rewardStatus === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
-                                            reward?.rewardStatus === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
-                                                reward?.rewardStatus === 'Cancelled' ? 'bg-gray-50 border-gray-100 text-gray-700' :
-                                                    'bg-yellow-50 border-yellow-100 text-yellow-700'
-                                            }`}>
-                                            <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">Current Status</span>
-                                            <span className="text-lg font-black leading-tight">
-                                                {reward?.rewardStatus || 'Unknown'}
-                                            </span>
-                                        </div>
-
-                                        {/* 2. Download Action */}
-                                        <button
-                                            onClick={handleDownloadCertificate}
-                                            className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2"
-                                        >
-                                            <Download className="w-6 h-6" />
-                                            <span className="text-sm font-bold">Download PDF</span>
-                                        </button>
-
-                                        {/* 3. Approve/Action Button & 4. Reject/Cancel Button */}
-                                        {(() => {
-                                            const status = reward?.rewardStatus;
-                                            if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
-                                                const isDraft = status === 'Draft';
-
-                                                return (
-                                                    <>
-                                                        {status === 'Rejected' && canResubmit ? (
-                                                            <button
-                                                                onClick={() => setIsResubmittingModal(true)}
-                                                                className="p-4 rounded-xl border border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all flex flex-col items-center justify-center gap-2"
-                                                            >
-                                                                <Edit className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Edit & Resubmit</span>
-                                                            </button>
-                                                        ) : (
-                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                                <Check className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Completed</span>
-                                                            </div>
-                                                        )}
-
-                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50">
-                                                            <X className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">{status}</span>
-                                                        </div>
-                                                    </>
-                                                );
-                                            }
-
-                                            const isDraft = status === 'Draft';
-
-                                            if (canPerformAction()) {
-                                                const btnLabel = getBtnLabel();
-                                                const targetStatus = getTargetStatus();
-
-                                                return (
-                                                    <>
-                                                        <button
-                                                            onClick={() => handleUpdateStatus(targetStatus)}
-                                                            disabled={actionLoading}
-                                                            className="p-4 rounded-xl border transition-all flex flex-col items-center justify-center gap-2 bg-green-50 border-green-100 text-green-600 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                        >
-                                                            <Check className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">{btnLabel}</span>
-                                                        </button>
-
-                                                        <button
-                                                            onClick={() => handleUpdateStatus(isDraft ? 'Cancelled' : 'Rejected')}
-                                                            disabled={actionLoading}
-                                                            className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-50"
-                                                        >
-                                                            <X className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">{isDraft ? 'Cancel Request' : 'Reject'}</span>
-                                                        </button>
-                                                    </>
-                                                );
-                                            }
-
-                                            return (
-                                                <>
-                                                    <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
-                                                        <Lock className="w-6 h-6" />
-                                                        <span className="text-sm font-bold text-center">Locked: {getBtnLabel()}</span>
-                                                    </div>
-                                                    <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50">
-                                                        <Lock className="w-6 h-6" />
-                                                        <span className="text-sm font-bold text-center">Locked: {isDraft ? 'Cancel' : 'Reject'}</span>
-                                                    </div>
-                                                </>
-                                            );
-                                        })()}
-                                    </div>
-
-                                    {/* Edit Dropdown - Full Width */}
-                                    {(canPerformAction()) && (
-                                        <div className="mt-auto relative" ref={dropdownRef}>
-                                            <button
-                                                onClick={() => setShowEditDropdown(!showEditDropdown)}
-                                                className="w-full py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
-                                            >
-                                                <Edit className="w-5 h-5" />
-                                                <span className="font-bold">Edit Options</span>
-                                                <ChevronDown className={`w-4 h-4 transition-transform ${showEditDropdown ? 'rotate-180' : ''}`} />
-                                            </button>
-
-                                            {/* Dropdown Menu */}
-                                            {showEditDropdown && (
-                                                <div className="absolute bottom-full left-0 w-full mb-2 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-50">
-                                                    <button
-                                                        onClick={() => {
-                                                            setShowEditModal(true);
-                                                            setShowEditDropdown(false);
-                                                        }}
-                                                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 text-gray-700 transition-colors text-left border-b border-gray-50"
-                                                    >
-                                                        <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                                                            <Award size={18} />
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-sm font-semibold">Edit Reward Details</p>
-                                                            <p className="text-xs text-gray-500">Update amount, title, type</p>
-                                                        </div>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            setShowCertEditModal(true);
-                                                            setShowEditDropdown(false);
-                                                        }}
-                                                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 text-gray-700 transition-colors text-left"
-                                                    >
-                                                        <div className="p-2 bg-orange-50 text-orange-600 rounded-lg">
-                                                            <FileText size={18} />
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-sm font-semibold">Edit Certificate</p>
-                                                            <p className="text-xs text-gray-500">Update signers & designations</p>
-                                                        </div>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Certificate Section */}
-                    <div className="pt-10">
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-4">
-                                <ListReturnBackButton onNavigate={handleListReturnBack} />
-                                <h1 className="text-2xl font-bold text-gray-900">Reward Details - {toTitleCase(rawName)}</h1>
-                            </div>
-                        </div>
-
-                        <div className="flex justify-center overflow-auto pb-10">
-                            <div
-                                id="certificate-container"
-                                className="bg-white relative w-full max-w-[900px] aspect-[1.414] shadow-2xl overflow-hidden flex flex-col justify-between"
-                            >
-                                <button
-                                    onClick={handleDownloadCertificate}
-                                    disabled={actionLoading}
-                                    className="absolute top-6 right-6 z-50 p-3 bg-white/90 text-gray-700 border border-gray-200/50 rounded-full hover:bg-white hover:text-blue-600 hover:shadow-md transition-all backdrop-blur-sm print:hidden"
-                                    title="Download PDF"
-                                    data-html2canvas-ignore="true"
-                                >
-                                    <Download className="w-5 h-5" />
-                                </button>
-
-                                <div className="absolute inset-0 z-0">
-                                    <img
-                                        src="/assets/certificate-bg-new.png"
-                                        alt="Certificate Background"
-                                        className="w-full h-full object-fill"
-                                        crossOrigin="anonymous"
                                     />
                                 </div>
+                            )}
+                        </div>
 
-                                <div className="relative z-20 flex-1 flex flex-col items-center justify-center px-24 pt-20 pb-0 text-center">
-                                    <h1 className="text-4xl md:text-5xl font-semibold text-[#1a2e35] tracking-[0.1em] mb-2 uppercase font-sans" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                        {headerText}
-                                    </h1>
-                                    <h2 className="text-xl md:text-2xl text-[#1a2e35] font-normal mb-4 tracking-wide" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                        {subHeaderText}
-                                    </h2>
-                                    <p className="text-xs text-black uppercase tracking-widest mb-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                        {presentationText}
-                                    </p>
-                                    <div className="mb-6 w-full px-10">
-                                        <h3 className="text-4xl md:text-5xl text-[#1a2e35] font-normal break-words leading-tight" style={{ fontFamily: '"Great Vibes", cursive' }}>
-                                            {toTitleCase(`${prefix}${rawName}`)}
-                                        </h3>
-                                    </div>
-                                    <div className="max-w-2xl mx-auto space-y-3">
-                                        <p className="text-sm md:text-base text-gray-600 leading-relaxed px-4 break-words" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                            {reward?.title || ''}
-                                        </p>
-                                        <div className="mt-2 space-y-1">
-                                            {reward?.rewardType === 'Gift' && reward?.giftName && (
-                                                <p className="text-lg font-medium text-[#1a2e35]" style={{ fontFamily: '"Montserrat", sans-serif' }}>Gift: {reward.giftName}</p>
-                                            )}
-                                            {(reward?.rewardType === 'Cash' || reward?.rewardType === 'Gift') && reward?.amount && (
-                                                <p className="text-lg font-medium text-[#1a2e35]" style={{ fontFamily: '"Montserrat", sans-serif' }}>Amount: {reward.currency} {reward.amount}</p>
-                                            )}
+                        {/* Right Column: Action Card — Fine-style compact boxes */}
+                        <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+                            <div className="bg-white rounded-lg shadow-sm p-4 w-full h-full flex flex-col overflow-hidden">
+                                {(() => {
+                                    const status = reward?.rewardStatus;
+                                    const isDraft = status === 'Draft';
+                                    const isApprovedState = ['Approved', 'Approved (Paid)', 'Paid', 'Completed'].includes(status);
+                                    const isFinalized = isApprovedState || status === 'Rejected' || status === 'Cancelled';
+                                    const totalAmount = Number(reward?.amount || 0);
+                                    const paidAmount = Number(reward?.paidAmount || 0);
+                                    const remainingAmount = Math.max(0, totalAmount - paidAmount);
+                                    const awaitingPay = isRewardPaymentEligible(reward);
+                                    const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
+                                    const statusLabel = formatRewardStatusLabel(status, reward?.rewardType);
+
+                                    const statusBoxClass =
+                                        isApprovedState ? 'bg-green-50 border-green-100 text-green-700' :
+                                        status === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
+                                        status === 'Cancelled' ? 'bg-gray-50 border-gray-100 text-gray-700' :
+                                        'bg-yellow-50 border-yellow-100 text-yellow-700';
+
+                                    const cells = [];
+
+                                    if (!isApprovedState) {
+                                        cells.push(
+                                            <div key="status" className={`${compactBox} ${statusBoxClass}`}>
+                                                <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Current Status</span>
+                                                <span className="text-sm font-bold truncate ml-2">{statusLabel || 'Unknown'}</span>
+                                            </div>
+                                        );
+                                    }
+
+                                    cells.push(
+                                        <button
+                                            key="download"
+                                            type="button"
+                                            onClick={handleDownloadCertificate}
+                                            className={`${compactBox} border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100`}
+                                        >
+                                            <span className="text-[10px] font-medium uppercase tracking-wide truncate">Download PDF</span>
+                                            <Download className="w-5 h-5 shrink-0" />
+                                        </button>
+                                    );
+
+                                    if (isApprovedState) {
+                                        if (totalAmount > 0) {
+                                            cells.push(
+                                                <div key="total" className={`${compactBox} bg-red-50 border-red-100`}>
+                                                    <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">Total</span>
+                                                    <span className="text-lg font-bold text-red-800 tabular-nums ml-2">{totalAmount.toLocaleString()}</span>
+                                                </div>,
+                                                <div key="paid" className={`${compactBox} bg-green-50 border-green-100`}>
+                                                    <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">Paid</span>
+                                                    <span className="text-lg font-bold text-green-800 tabular-nums ml-2">{paidAmount.toLocaleString()}</span>
+                                                </div>,
+                                                <div key="remaining" className={`${compactBox} bg-amber-50 border-amber-100`}>
+                                                    <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide truncate">Remaining</span>
+                                                    <span className="text-lg font-bold text-amber-800 tabular-nums ml-2">{remainingAmount.toLocaleString()}</span>
+                                                </div>
+                                            );
+                                        }
+                                        cells.push(
+                                            <div key="done" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
+                                                <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>
+                                                <span className="text-sm font-bold flex items-center gap-1 ml-2">
+                                                    <Check className="w-4 h-4" /> {awaitingPay ? 'Awaiting Pay' : 'Completed'}
+                                                </span>
+                                            </div>
+                                        );
+                                    } else if (status === 'Rejected' && canResubmit) {
+                                        cells.push(
+                                            <button key="resubmit" type="button" onClick={() => setIsResubmittingModal(true)} className={`${compactBox} border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100`}>
+                                                <span className="text-[10px] font-medium uppercase tracking-wide">Edit & Resubmit</span>
+                                                <Edit className="w-5 h-5 shrink-0" />
+                                            </button>
+                                        );
+                                    } else if (canPerformAction()) {
+                                        if (isDraft) {
+                                            cells.push(
+                                                <button key="submit" type="button" onClick={() => handleUpdateStatus(getTargetStatus())} className={`${compactBox} border-green-100 bg-green-50 text-green-600 hover:bg-green-100`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Send for Approval</span>
+                                                    <Send className="w-5 h-5 shrink-0" />
+                                                </button>,
+                                                <button key="cancel" type="button" onClick={() => handleUpdateStatus('Cancelled')} className={`${compactBox} border-red-100 bg-red-50 text-red-600 hover:bg-red-100`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Cancel</span>
+                                                    <Trash2 className="w-5 h-5 shrink-0" />
+                                                </button>
+                                            );
+                                        } else {
+                                            cells.push(
+                                                <button key="approve" type="button" onClick={() => handleUpdateStatus(getTargetStatus())} className={`${compactBox} border-green-100 bg-green-50 text-green-600 hover:bg-green-100`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">{getBtnLabel()}</span>
+                                                    <Check className="w-5 h-5 shrink-0" />
+                                                </button>,
+                                                <button key="reject" type="button" onClick={() => handleUpdateStatus('Rejected')} className={`${compactBox} border-red-100 bg-red-50 text-red-600 hover:bg-red-100`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Reject</span>
+                                                    <X className="w-5 h-5 shrink-0" />
+                                                </button>
+                                            );
+                                        }
+                                        while (cells.length < 6) {
+                                            cells.push(
+                                                <div key={`lock-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-50`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Pending</span>
+                                                    <Lock className="w-4 h-4 shrink-0" />
+                                                </div>
+                                            );
+                                        }
+                                    } else if (isFinalized) {
+                                        cells.push(
+                                            <div key="done-a" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
+                                                <span className="text-[10px] font-medium uppercase tracking-wide">Workflow</span>
+                                                <span className="text-sm font-bold flex items-center gap-1"><Check className="w-4 h-4" /> Completed</span>
+                                            </div>
+                                        );
+                                    } else {
+                                        while (cells.length < 6) {
+                                            cells.push(
+                                                <div key={`lock-all-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-50`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Locked</span>
+                                                    <Lock className="w-4 h-4 shrink-0" />
+                                                </div>
+                                            );
+                                        }
+                                    }
+
+                                    while (cells.length < 6) {
+                                        cells.push(
+                                            <div key={`pad-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-300 opacity-40`}>
+                                                <span className="text-[10px]">—</span>
+                                                <span>—</span>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 shrink-0">
+                                            {cells.slice(0, 6)}
                                         </div>
-                                    </div>
-                                </div>
-
-                                <div className="relative z-20 flex items-end justify-between px-36 pb-28 w-full">
-                                    <div className="text-center">
-                                        <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>{signer1Name}</p>
-                                        <p className="text-lg font-medium uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>{signer1Title}</p>
-                                    </div>
-                                    <div className="flex items-center justify-center -mb-4">
-                                        <img src="/assets/certificate-logo-v2.png" alt="Company Seal" className="w-60 h-32 object-contain" crossOrigin="anonymous" />
-                                    </div>
-                                    <div className="text-center">
-                                        <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>{signer2Name}</p>
-                                        <p className="text-lg uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>{signer2Title}</p>
-                                    </div>
-                                </div>
+                                    );
+                                })()}
                             </div>
                         </div>
+                    </div>
+
+                    {/* Tabs: Reward Details | Edit Certificate | Attachment */}
+                    <div className="w-full flex items-center border-b border-gray-200 mb-6 print:hidden">
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('rewardDetails')}
+                            className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
+                                activeTab === 'rewardDetails'
+                                    ? 'border-blue-600 text-blue-600'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                        >
+                            Reward Details
+                        </button>
+                        {canPerformAction() && (
+                            <button
+                                type="button"
+                                onClick={() => setShowCertEditModal(true)}
+                                className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
+                            >
+                                <FileText className="w-4 h-4" />
+                                Edit Certificate
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('attachments')}
+                            className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 flex items-center gap-1.5 ${
+                                activeTab === 'attachments'
+                                    ? 'border-blue-600 text-blue-600'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                        >
+                            <Paperclip className="w-4 h-4" />
+                            Attachment
+                        </button>
+                    </div>
+
+                    <div className={`w-full ${activeTab === 'rewardDetails' ? 'block' : 'hidden'}`}>
+                        <RewardFormCards
+                            reward={reward}
+                            employee={employee}
+                            formatDate={formatDate}
+                            onPaymentSuccess={() => fetchData()}
+                        />
+                    </div>
+
+                    <div
+                        className={
+                            activeTab === 'attachments'
+                                ? 'w-full block'
+                                : 'fixed -left-[9999px] top-0 opacity-0 pointer-events-none w-[900px]'
+                        }
+                        aria-hidden={activeTab !== 'attachments'}
+                    >
+                        <RewardAttachmentTab
+                            reward={reward}
+                            employeeDisplayName={toTitleCase(`${prefix}${rawName}`)}
+                            headerText={headerText}
+                            subHeaderText={subHeaderText}
+                            presentationText={presentationText}
+                            signer1Name={signer1Name}
+                            signer1Title={signer1Title}
+                            signer2Name={signer2Name}
+                            signer2Title={signer2Title}
+                            onDownloadCertificate={handleDownloadCertificate}
+                            downloading={actionLoading}
+                        />
                     </div>
                 </div>
             </div>
 
-            {/* Edit Modal */}
+            {/* Edit Modal (resubmit from header) */}
             <AddRewardModal
                 isOpen={showEditModal || isResubmittingModal}
                 onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
@@ -1321,7 +1013,6 @@ export default function RewardDetailsPage({ params }) {
                 isResubmitting={isResubmittingModal}
             />
 
-            {/* Certificate Edit Modal */}
             <CertificateEditModal
                 isOpen={showCertEditModal}
                 onClose={() => setShowCertEditModal(false)}

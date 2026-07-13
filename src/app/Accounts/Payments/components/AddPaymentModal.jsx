@@ -74,6 +74,20 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             return;
         }
 
+        if (prefill?.reward) {
+            const reward = prefill.reward;
+            setPaymentType('Reward');
+            setSelectedEntity(reward);
+            setSelectedLoanId(reward.rewardId || reward._id || '');
+            const balance =
+                prefill.balance != null
+                    ? parseFloat(prefill.balance)
+                    : Math.max(0, (parseFloat(reward.amount) || 0) - (parseFloat(reward.paidAmount) || 0));
+            setPaymentAmount(balance.toFixed(2));
+            setPaymentSource(prefill.paymentSource || 'Cash');
+            return;
+        }
+
         const fetchData = async () => {
             if (paymentType === 'Fine') {
                 setFetching(true);
@@ -129,12 +143,19 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         const fetchExistingPayments = async () => {
             try {
                 let params = {
-                    relatedEntityType: paymentType === 'Loan' || paymentType === 'Advance' ? 'Loan' : 'Fine',
+                    relatedEntityType:
+                        paymentType === 'Loan' || paymentType === 'Advance'
+                            ? 'Loan'
+                            : paymentType === 'Reward'
+                              ? 'Reward'
+                              : 'Fine',
                 };
 
                 // For Fine, filter by fineId (referenceId) to ensure we only get payments for this specific fine
                 if (paymentType === 'Fine') {
                     params.referenceId = selectedEntity.fineId;
+                } else if (paymentType === 'Reward') {
+                    params.referenceId = selectedEntity.rewardId;
                 } else {
                     // For Loan/Advance, use relatedEntityId
                     params.relatedEntityId = selectedEntity._id || selectedEntity.id;
@@ -440,21 +461,28 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 if (type === 'Fine') {
                     employeeId = prefill?.employeeId || fineOrLoan.assignedEmployees?.[0]?.employeeId;
                 } else {
-                    employeeId = fineOrLoan.employeeId;
+                    employeeId = fineOrLoan.employeeId || prefill?.employeeId;
                 }
 
                 if (!employeeId) {
                     throw new Error('Employee ID not found');
                 }
 
+                const entityRef =
+                    type === 'Fine'
+                        ? fineOrLoan.fineId
+                        : type === 'Reward'
+                          ? fineOrLoan.rewardId
+                          : (fineOrLoan.loanId || fineOrLoan.id);
+
                 const paymentData = {
-                    paymentType: type === 'Loan' || type === 'Advance' ? type : 'Fine',
+                    paymentType: type === 'Loan' || type === 'Advance' || type === 'Reward' ? type : 'Fine',
                     paidBy: employeeId,
                     amount: parseFloat(amount),
                     status: 'Completed',
-                    description: `Payment for ${type === 'Fine' ? fineOrLoan.fineId : (fineOrLoan.loanId || fineOrLoan.id)}`,
-                    referenceId: type === 'Fine' ? fineOrLoan.fineId : (fineOrLoan.loanId || fineOrLoan.id),
-                    relatedEntityType: type === 'Loan' || type === 'Advance' ? 'Loan' : 'Fine',
+                    description: `Payment for ${entityRef}`,
+                    referenceId: entityRef,
+                    relatedEntityType: type === 'Loan' || type === 'Advance' ? 'Loan' : type === 'Reward' ? 'Reward' : 'Fine',
                     relatedEntityId: fineOrLoan._id || fineOrLoan.id,
                     paymentSource,
                     attachment: attachment || null,
@@ -489,11 +517,18 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 // Refresh existing payments and entity data to show updated colors and total amount
                 try {
                     let params = {
-                        relatedEntityType: paymentType === 'Loan' || paymentType === 'Advance' ? 'Loan' : 'Fine',
+                        relatedEntityType:
+                            paymentType === 'Loan' || paymentType === 'Advance'
+                                ? 'Loan'
+                                : paymentType === 'Reward'
+                                  ? 'Reward'
+                                  : 'Fine',
                     };
 
                     if (paymentType === 'Fine') {
                         params.referenceId = selectedEntity.fineId;
+                    } else if (paymentType === 'Reward') {
+                        params.referenceId = selectedEntity.rewardId;
                     } else {
                         params.relatedEntityId = selectedEntity._id || selectedEntity.id;
                     }
@@ -569,13 +604,14 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                 setSelectedCardIndex(null);
                                 setBulkFines([]);
                             }}
-                            disabled={isBulkFinePayment}
+                            disabled={isBulkFinePayment || Boolean(prefill?.loan || prefill?.reward || prefill?.fines?.length)}
                             className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors disabled:opacity-70"
                         >
                             <option value="">Select Payment Type</option>
                             <option value="Fine">Fine</option>
                             <option value="Loan">Loan</option>
                             <option value="Advance">Advance</option>
+                            <option value="Reward">Reward</option>
                         </select>
                     </div>
 
@@ -664,7 +700,8 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                 <select
                                     value={selectedLoanId}
                                     onChange={(e) => handleLoanSelect(e.target.value)}
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors"
+                                    disabled={Boolean(prefill?.loan)}
+                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors disabled:opacity-70"
                                 >
                                     <option value="">Select {paymentType} ID</option>
                                     {loans.map((loan) => (
@@ -674,6 +711,21 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     ))}
                                 </select>
                             )}
+                        </div>
+                    )}
+
+                    {/* Reward Selection (prefill from reward details) */}
+                    {paymentType === 'Reward' && selectedEntity && (
+                        <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Reward ID <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={selectedEntity.rewardId || ''}
+                                disabled
+                                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-gray-50/50 opacity-70"
+                            />
                         </div>
                     )}
 
@@ -694,7 +746,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     <p className="text-sm font-semibold text-gray-800 mt-1">
                                         {paymentType === 'Fine'
                                             ? selectedEntity.fineType || selectedEntity.category || 'N/A'
-                                            : selectedEntity.type || 'N/A'}
+                                            : paymentType === 'Reward'
+                                              ? selectedEntity.rewardType || 'Reward'
+                                              : selectedEntity.type || 'N/A'}
                                     </p>
                                 </div>
                                 <div className="p-4 bg-red-50/50 rounded-xl border border-red-100">
@@ -724,12 +778,18 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                 })()}
                                 <div className="p-4 bg-gray-50/50 rounded-xl border border-gray-100">
                                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                                        {paymentType === 'Fine' ? 'Payment Duration' : 'Loan Duration'}
+                                        {paymentType === 'Fine'
+                                            ? 'Payment Duration'
+                                            : paymentType === 'Reward'
+                                              ? 'Disbursement'
+                                              : 'Loan Duration'}
                                     </span>
                                     <p className="text-sm font-semibold text-gray-800 mt-1">
-                                        {paymentType === 'Fine'
-                                            ? selectedEntity.payableDuration || 'N/A'
-                                            : selectedEntity.duration || 'N/A'} months
+                                        {paymentType === 'Reward'
+                                            ? 'Lump sum'
+                                            : `${paymentType === 'Fine'
+                                                ? selectedEntity.payableDuration || 'N/A'
+                                                : selectedEntity.duration || 'N/A'} months`}
                                     </p>
                                 </div>
                                 <div className="p-4 bg-gray-50/50 rounded-xl border border-gray-100">

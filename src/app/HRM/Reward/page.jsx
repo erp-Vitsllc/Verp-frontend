@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import { canAccessCreateReward } from '@/app/HRM/Reward/utils/rewardPermissionAccess';
+import { formatRewardStatusLabel } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import {
     BarChart,
     Bar,
@@ -207,14 +208,14 @@ function RewardContent() {
 
     // Calculate Statistics
     const stats = {
-        total: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Active').length,
-        pending: rewards.filter(r => r.rewardStatus === 'Pending').length,
-        approved: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Active').length,
+        total: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active').length,
+        pending: rewards.filter(r => r.rewardStatus === 'Pending' || r.rewardStatus === 'Pending Accounts' || r.rewardStatus === 'Pending Authorization').length,
+        approved: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active').length,
         rejected: rewards.filter(r => r.rewardStatus === 'Rejected').length,
         draft: rewards.filter(r => r.rewardStatus === 'Draft').length,
-        cash: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'cash').length,
-        gift: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'gift').length,
-        certificate: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'certificate').length
+        cash: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'cash').length,
+        gift: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'gift').length,
+        certificate: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'certificate').length
     };
 
     // Calculate Bar Chart Data (Rewards per employee)
@@ -249,7 +250,7 @@ function RewardContent() {
         const type = (r.rewardType || '').toLowerCase();
 
         if (selectedStatus === 'Pending') return status.includes('pending') || status === 'draft'; // Include all pending statuses and draft
-        if (selectedStatus === 'Approved') return status === 'approved' || status === 'active';
+        if (selectedStatus === 'Approved') return status === 'approved' || status === 'approved (paid)' || status === 'active';
         if (selectedStatus === 'Rejected') return status === 'rejected';
         if (selectedStatus === 'Draft') return status === 'draft';
         if (selectedStatus === 'Cash') return type === 'cash';
@@ -536,16 +537,16 @@ function RewardContent() {
                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                         <div className="relative z-10 pointer-events-none">
                                                             <span
-                                                                className={`px-3 py-1 rounded-full text-xs font-medium ${reward.rewardStatus === 'Active' || reward.rewardStatus === 'Approved'
+                                                                className={`px-3 py-1 rounded-full text-xs font-medium ${reward.rewardStatus === 'Active' || reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)'
                                                                     ? 'bg-green-100 text-green-800'
-                                                                    : reward.rewardStatus === 'Pending'
+                                                                    : reward.rewardStatus === 'Pending' || reward.rewardStatus === 'Pending Accounts' || reward.rewardStatus === 'Pending Authorization'
                                                                         ? 'bg-yellow-100 text-yellow-800'
                                                                         : reward.rewardStatus === 'Rejected' || reward.rewardStatus === 'Cancelled'
                                                                             ? 'bg-red-100 text-red-800'
                                                                             : 'bg-gray-100 text-gray-700'
                                                                     }`}
                                                             >
-                                                                {reward.rewardStatus || 'N/A'}
+                                                                {formatRewardStatusLabel(reward.rewardStatus, reward.rewardType) || 'N/A'}
                                                             </span>
                                                         </div>
                                                     </td>
@@ -638,13 +639,13 @@ function RewardContent() {
                                         </div>
                                     </div>
                                     <div className="relative z-10 pointer-events-none flex flex-col items-end gap-1.5">
-                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Active'
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)' || reward.rewardStatus === 'Active'
                                             ? 'bg-green-100 text-green-700'
-                                            : reward.rewardStatus === 'Pending'
+                                            : reward.rewardStatus === 'Pending' || reward.rewardStatus === 'Pending Accounts' || reward.rewardStatus === 'Pending Authorization'
                                                 ? 'bg-yellow-100 text-yellow-700'
                                                 : 'bg-gray-100 text-gray-600'
                                             }`}>
-                                            {reward.rewardStatus}
+                                            {formatRewardStatusLabel(reward.rewardStatus, reward.rewardType)}
                                         </span>
                                         {reward.amount && (
                                             <span className="text-sm font-bold text-gray-800">

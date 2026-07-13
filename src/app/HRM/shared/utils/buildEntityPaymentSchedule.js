@@ -170,6 +170,10 @@ export function buildEntityPaymentSchedule({
         duration = entity.duration || 1;
         startMonth = entity.monthStart || '';
         totalAmount = parseFloat(entity.amount || 0) || 0;
+    } else if (entityType === 'Reward') {
+        duration = 1;
+        startMonth = entity.awardedDate || entity.createdAt || '';
+        totalAmount = parseFloat(entity.amount || 0) || 0;
     } else {
         return [];
     }
