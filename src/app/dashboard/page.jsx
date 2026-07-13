@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useMemo, memo } from 'react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -12,6 +12,29 @@ import axiosInstance from '@/utils/axios';
 
 import { mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
 import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
+import { fetchEmployeeDashboardStats } from '@/utils/employeeDashboardStatsFetch';
+import {
+    mergeCommandCenterWithModuleInboxes,
+    groupCommandCenterByModule,
+    formatCommandCenterSubtype,
+    isCommandCenterHiddenType,
+} from '@/utils/dashboardCommandCenterInbox';
+import {
+    fetchAssetPendingInbox,
+    fetchFinePendingInbox,
+    fetchPaymentPendingInbox,
+    fetchRewardPendingInbox,
+} from '@/utils/pendingInboxFetch';
+import { loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
+import {
+    getViewerEmployeeObjectIdFromStorage,
+    isFlowchartHrForExpiryTasks,
+} from '@/utils/flowchartHrExpiryVisibility';
+import { isAdmin } from '@/utils/permissions';
+import { ASSET_PENDING_INBOX_CHANGED } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
+import { FINE_PENDING_INBOX_CHANGED } from '@/app/HRM/Fine/utils/finePendingInboxCount';
+import { PAYMENT_PENDING_INBOX_CHANGED } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
+import { REWARD_PENDING_INBOX_CHANGED } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 
 import {
     isDashboardPendingItem,
@@ -99,6 +122,81 @@ const companyTaskBelongsInInbox = (item) => {
 };
 
 // Wrapper component to handle useSearchParams with Suspense
+
+const ActivityPieChart = memo(function ActivityPieChart({ data, currentFilter = 'Total' }) {
+    const displayValue = currentFilter === 'Total' ? (data.total || 0) : (data[currentFilter.toLowerCase()] || 0);
+    const displayLabel = currentFilter;
+    const isEmpty = (data.total || 0) === 0;
+
+    const chartData = useMemo(() => ({
+        labels: ['Pending', 'Approved', 'Rejected'],
+        datasets: [{
+            data: [data.pending || 0, data.approved || 0, data.rejected || 0],
+            backgroundColor: ['#fbbf24', '#10b981', '#ef4444'],
+            borderWidth: 0,
+            hoverOffset: 8,
+            cutout: '75%',
+        }],
+    }), [data.pending, data.approved, data.rejected]);
+
+    const emptyData = useMemo(() => ({
+        labels: ['No Data'],
+        datasets: [{ data: [1], backgroundColor: ['#f1f5f9'], borderWidth: 0, cutout: '75%' }],
+    }), []);
+
+    const options = useMemo(() => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+            datalabels: false,
+            legend: { display: false },
+            tooltip: {
+                enabled: true,
+                backgroundColor: '#0f172a',
+                padding: 12,
+                cornerRadius: 8,
+                titleFont: { family: 'inherit', size: 13 },
+                bodyFont: { family: 'inherit', size: 13, weight: 'bold' },
+                callbacks: {
+                    label(context) {
+                        const label = context.label || '';
+                        const value = context.raw || 0;
+                        return ' ' + label + ': ' + value;
+                    },
+                },
+            },
+        },
+        layout: { padding: 10 },
+    }), []);
+
+    return (
+        <div className="flex flex-col items-center justify-center">
+            <div className="relative w-48 h-48 min-w-[12rem] min-h-[12rem] shrink-0">
+                <Doughnut data={isEmpty ? emptyData : chartData} options={options} />
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-3xl font-black text-slate-800 leading-none tracking-tight">{displayValue}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{displayLabel}</span>
+                </div>
+            </div>
+            <div className="flex gap-4 mt-6">
+                <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-200"></div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Approved</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-200"></div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rejected</span>
+                </div>
+            </div>
+        </div>
+    );
+});
+
 function DashboardContent() {
     const router = useRouter();
 
@@ -267,11 +365,78 @@ function DashboardContent() {
 
 
 
-                const res = await axiosInstance.get('/Employee/dashboard/user-stats', { params });
+                const res = selectedUser
+                    ? await axiosInstance.get('/Employee/dashboard/user-stats', { params })
+                    : await fetchEmployeeDashboardStats(axiosInstance, { skipToast: true });
 
                 const payload = res?.data && typeof res.data === 'object' ? res.data : {};
                 const rawItems = payload.items;
-                const items = mergeExpiryNotificationDedupe(Array.isArray(rawItems) ? rawItems : [], []);
+                let items = mergeExpiryNotificationDedupe(Array.isArray(rawItems) ? rawItems : [], []);
+
+                // Exact copies of sidebar / module-page notification bells, grouped by module.
+                if (!selectedUser) {
+                    try {
+                        const viewerId =
+                            typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+                        const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
+
+                        const [toolsItems, vehicleItems, fineItems, paymentItems, rewardItems, notificationBundle] =
+                            await Promise.all([
+                                fetchAssetPendingInbox(axiosInstance, {
+                                    inboxScope: 'tools',
+                                    skipSync: true,
+                                    skipToast: true,
+                                }),
+                                fetchAssetPendingInbox(axiosInstance, {
+                                    inboxScope: 'vehicle',
+                                    skipSync: true,
+                                    skipToast: true,
+                                }),
+                                fetchFinePendingInbox(axiosInstance, { skipToast: true }),
+                                fetchPaymentPendingInbox(axiosInstance, { skipToast: true }),
+                                fetchRewardPendingInbox(axiosInstance, { skipToast: true }),
+                                loadCompanyNotificationBundle(axiosInstance, {
+                                    hrLive: hrLiveGuess,
+                                    cachedCompanies: [],
+                                    skipExpirySync: true,
+                                }),
+                            ]);
+
+                        const flowchartHrId = payload?.flowchartHrEmployeeObjectId ?? null;
+                        const liveExpiryHrView =
+                            isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+                        const mandatoryCardsHrLive = isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+
+                        let employeesList = [];
+                        if (liveExpiryHrView || mandatoryCardsHrLive) {
+                            try {
+                                const empRes = await axiosInstance
+                                    .get('/Employee', { params: { limit: 1000 }, skipToast: true })
+                                    .catch(() => ({ data: {} }));
+                                const empPayload = empRes?.data?.employees ?? empRes?.data;
+                                employeesList = Array.isArray(empPayload) ? empPayload : [];
+                            } catch {
+                                employeesList = [];
+                            }
+                        }
+
+                        items = mergeCommandCenterWithModuleInboxes(items, {
+                            toolsItems,
+                            vehicleItems,
+                            fineItems,
+                            paymentItems,
+                            rewardItems,
+                            companiesList: notificationBundle?.companiesList || [],
+                            employeesList,
+                            liveExpiryHrView,
+                            mandatoryCardsHrLive,
+                        });
+                    } catch (inboxErr) {
+                        console.error('Failed to merge module pending inboxes', inboxErr);
+                    }
+                }
+
+                items = items.filter((item) => !isCommandCenterHiddenType(item?.type));
 
 
 
@@ -341,6 +506,31 @@ function DashboardContent() {
 
         fetchUserStats();
 
+        let refreshTimer = null;
+        const refreshFromModuleInbox = () => {
+            if (selectedUser) return;
+            if (refreshTimer) clearTimeout(refreshTimer);
+            refreshTimer = setTimeout(() => {
+                fetchUserStats();
+            }, 400);
+        };
+        if (typeof window !== 'undefined') {
+            window.addEventListener(ASSET_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+            window.addEventListener(FINE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+            window.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+            window.addEventListener(REWARD_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+        }
+
+        return () => {
+            if (refreshTimer) clearTimeout(refreshTimer);
+            if (typeof window !== 'undefined') {
+                window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+                window.removeEventListener(FINE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+                window.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+                window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+            }
+        };
+
     }, [router, selectedUser]);
 
 
@@ -385,80 +575,63 @@ function DashboardContent() {
 
     // Derived Scoped Items Calculation
 
-    const scopedItems = userStats.items ? userStats.items.filter(item => {
-
-        if (viewMode === 'teams') return true;
-
-
-
-        // Use backend provided scope
-
-        if (item.scope) {
-            if (requestScope === 'outgoing') {
-                return item.scope === 'outgoing';
+    const scopedItems = useMemo(() => {
+        if (!userStats.items) return [];
+        return userStats.items.filter((item) => {
+            if (isCommandCenterHiddenType(item?.type)) return false;
+            if (viewMode === 'teams') return true;
+            if (item.scope) {
+                if (requestScope === 'outgoing') return item.scope === 'outgoing';
+                if (item.scope === 'inbox') return true;
+                if (companyTaskBelongsInInbox(item)) return true;
+                return false;
             }
-            if (item.scope === 'inbox') return true;
-            if (companyTaskBelongsInInbox(item)) return true;
-            return false;
+            const myId = currentUserId;
+            if (!myId) return true;
+            const requesterId = item.employeeId?._id || item.employeeId || item.requestedById || item.targetEmployeeId;
+            const isRequester = String(requesterId) === String(myId) || (currentUserEmpId && String(requesterId) === String(currentUserEmpId));
+            return requestScope === 'outgoing' ? isRequester : !isRequester;
+        });
+    }, [userStats.items, viewMode, requestScope, currentUserId, currentUserEmpId]);
+
+
+
+    const homeAttentionItems = useMemo(
+        () => filterActionableDashboardItems(userStats.items || []),
+        [userStats.items],
+    );
+
+    const scopedStats = useMemo(() => {
+        let completed = 0;
+        let approved = 0;
+        let rejected = 0;
+        let overdue = 0;
+        const pendingItems = [];
+        for (const i of scopedItems) {
+            if (i.status === 'Approved') {
+                approved += 1;
+                completed += 1;
+            } else if (i.status === 'Rejected') {
+                rejected += 1;
+                if (!isSubmitterRejectedFollowup(i)) completed += 1;
+            }
+            if (isDashboardPendingItem(i)) pendingItems.push(i);
+            if (isOverdue(i.requestedDate, i.status, i.type)) overdue += 1;
         }
-
-
-
-        // Fallback for any items missing scope
-
-        const myId = currentUserId;
-
-        if (!myId) return true;
-
-
-
-        const requesterId = item.employeeId?._id || item.employeeId || item.requestedById || item.targetEmployeeId;
-
-        const isRequester = String(requesterId) === String(myId) || (currentUserEmpId && String(requesterId) === String(currentUserEmpId));
-
-
-
-        if (requestScope === 'outgoing') {
-
-            return isRequester;
-
-        } else {
-
-            return !isRequester;
-
-        }
-
-    }) : [];
-
-
-
-    const homeAttentionItems = filterActionableDashboardItems(userStats.items || []);
-
-
-
-    // Recalculate stats based on scope  
-
-    const scopedStats = {
-
-        total: scopedItems.length,
-
-        completed: scopedItems.filter(
-            (i) =>
-                i.status === 'Approved' ||
-                (i.status === 'Rejected' && !isSubmitterRejectedFollowup(i)),
-        ).length,
-
-        pending: scopedItems.filter((i) => isDashboardPendingItem(i)).length,
-
-        approved: scopedItems.filter(i => i.status === 'Approved').length,
-
-        rejected: scopedItems.filter(i => i.status === 'Rejected').length,
-
-        // Overdue not strictly needed if removed, but keeping calculation valid
-
-        overdue: scopedItems.filter(i => isOverdue(i.requestedDate, i.status, i.type)).length
-
-    };
+        // Same rows the Pending module sections render (sidebar module categories only).
+        const pending = groupCommandCenterByModule(pendingItems).reduce(
+            (sum, group) => sum + (group.items?.length || 0),
+            0,
+        );
+        return {
+            total: scopedItems.length,
+            completed,
+            pending,
+            approved,
+            rejected,
+            overdue,
+        };
+    }, [scopedItems]);
 
 
 
@@ -472,25 +645,23 @@ function DashboardContent() {
 
             case 'Total':
 
-                return source.slice(0, 20);
+                return source;
 
             case 'Completed':
 
-                return source.filter(item => item.status === 'Approved' || item.status === 'Rejected').slice(0, 20);
+                return source.filter(item => item.status === 'Approved' || item.status === 'Rejected');
 
             case 'Overdue':
 
-                return source.filter(item => isOverdue(item.requestedDate, item.status, item.type)).slice(0, 20);
+                return source.filter(item => isOverdue(item.requestedDate, item.status, item.type));
 
             case 'Pending':
 
-                return source
-                    .filter((item) => isDashboardPendingItem(item))
-                    .slice(0, 20);
+                return source.filter((item) => isDashboardPendingItem(item));
 
             default:
 
-                return source.filter(item => item.status === filter).slice(0, 20);
+                return source.filter(item => item.status === filter);
 
         }
 
@@ -529,203 +700,7 @@ function DashboardContent() {
 
 
 
-    // Chart.js Doughnut Component
 
-    const ActivityPieChart = ({ data, currentFilter = 'Total' }) => {
-        const [chartMounted, setChartMounted] = useState(false);
-
-        useEffect(() => {
-            setChartMounted(true);
-        }, []);
-
-        const displayValue = currentFilter === 'Total' ? (data.total || 0) : (data[currentFilter.toLowerCase()] || 0);
-
-        const displayLabel = currentFilter;
-
-
-
-        // Data for the chart
-
-        const chartData = {
-
-            labels: ['Pending', 'Approved', 'Rejected'],
-
-            datasets: [
-
-                {
-
-                    data: [data.pending || 0, data.approved || 0, data.rejected || 0],
-
-                    backgroundColor: [
-
-                        '#fbbf24', // Amber-400 (Pending)
-
-                        '#10b981', // Emerald-500 (Approved)
-
-                        '#ef4444', // Red-500 (Rejected)
-
-                    ],
-
-                    borderWidth: 0,
-
-                    hoverOffset: 15,
-
-                    cutout: '75%', // Donut thickness
-
-                },
-
-            ],
-
-        };
-
-
-
-        const options = {
-
-            responsive: true,
-
-            maintainAspectRatio: false,
-
-            plugins: {
-                datalabels: false,
-
-                legend: {
-
-                    display: false, // Custom legend below
-
-                },
-
-                tooltip: {
-
-                    enabled: true,
-
-                    backgroundColor: '#0f172a',
-
-                    padding: 12,
-
-                    cornerRadius: 8,
-
-                    titleFont: { family: 'inherit', size: 13 },
-
-                    bodyFont: { family: 'inherit', size: 13, weight: 'bold' },
-
-                    callbacks: {
-
-                        label: function (context) {
-
-                            const label = context.label || '';
-
-                            const value = context.raw || 0;
-
-                            return ` ${label}: ${value}`;
-
-                        }
-
-                    }
-
-                }
-
-            },
-
-            animation: {
-
-                animateScale: true,
-
-                animateRotate: true,
-
-                duration: 2000,
-
-                easing: 'easeOutQuart'
-
-            },
-
-            layout: {
-
-                padding: 10
-
-            }
-
-        };
-
-
-
-        // If no data, show empty state
-
-        const isEmpty = (data.total || 0) === 0;
-
-        const emptyData = {
-
-            labels: ['No Data'],
-
-            datasets: [{ data: [1], backgroundColor: ['#f1f5f9'], borderWidth: 0, cutout: '75%' }]
-
-        };
-
-
-
-        return (
-
-            <div className="flex flex-col items-center justify-center">
-
-                <div className="relative w-48 h-48 min-w-[12rem] min-h-[12rem] shrink-0">
-
-                    {chartMounted ? (
-                        <Doughnut data={isEmpty ? emptyData : chartData} options={options} />
-                    ) : (
-                        <div className="w-full h-full rounded-full bg-slate-100 animate-pulse" aria-hidden />
-                    )}
-
-
-
-                    {/* Centered Value */}
-
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-
-                        <span className="text-3xl font-black text-slate-800 leading-none tracking-tight">{displayValue}</span>
-
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{displayLabel}</span>
-
-                    </div>
-
-                </div>
-
-
-
-                {/* Legend */}
-
-                <div className="flex gap-4 mt-6 animate-in fade-in duration-1000">
-
-                    <div className="flex items-center gap-1.5">
-
-                        <div className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-200"></div>
-
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending</span>
-
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></div>
-
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Approved</span>
-
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-
-                        <div className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-200"></div>
-
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rejected</span>
-
-                    </div>
-
-                </div>
-
-            </div>
-
-        );
-
-    };
 
 
 
@@ -1340,37 +1315,18 @@ function DashboardContent() {
 
 
 
-                                                    // Group by Type
+                                                    // Group by sidebar modules (Company, Employees, Fine, Reward, Vehicle Asset, Tools Asset, …)
+                                                    const moduleGroups = groupCommandCenterByModule(items);
 
-                                                    const groupedItems = items.reduce((acc, item) => {
+                                                    return moduleGroups.map(({ category, items: groupItems }) => (
 
-                                                        const rawType =
-                                                            item.type === 'Employee Document Expiry Reminder'
-                                                                ? 'Document Expiry Reminder'
-                                                                : item.type === 'Asset Overdue'
-                                                                    ? 'Asset Service overdue'
-                                                                    : item.type;
-                                                        const type = rawType?.replace(/_/g, ' ') || 'Other';
-
-                                                        if (!acc[type]) acc[type] = [];
-
-                                                        acc[type].push(item);
-
-                                                        return acc;
-
-                                                    }, {});
-
-
-
-                                                    return Object.entries(groupedItems).map(([type, groupItems]) => (
-
-                                                        <div key={type} className="mb-8 last:mb-0">
+                                                        <div key={category} className="mb-8 last:mb-0">
 
                                                             <div className="flex items-center gap-2 mb-4">
 
                                                                 <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
 
-                                                                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">{type} Requests <span className="text-slate-300 ml-1">({groupItems.length})</span></h3>
+                                                                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">{category} <span className="text-slate-300 ml-1">({groupItems.length})</span></h3>
 
                                                             </div>
 
@@ -1401,6 +1357,7 @@ function DashboardContent() {
                                                                         {groupItems.map((item, index) => {
 
                                                                             const isMe = item.requestedBy === 'Me';
+                                                                            const subtype = formatCommandCenterSubtype(item);
 
 
 
@@ -1408,7 +1365,7 @@ function DashboardContent() {
 
                                                                                 <tr
 
-                                                                                    key={`${item.id}_${index}`}
+                                                                                    key={`${item.actionId || item.id}_${index}`}
 
                                                                                     onClick={() => handleRowClick(item)}
 
@@ -1438,41 +1395,11 @@ function DashboardContent() {
 
                                                                                                     </span>
 
-                                                                                                    {item.type?.startsWith('Asset') && item.type !== 'Asset' && (() => {
-
-                                                                                                        const sub =
-                                                                                                            item.type === 'Asset Overdue'
-                                                                                                                ? 'Service overdue'
-                                                                                                                : item.type.replace('Asset ', '').replace('Loss Damage', 'Loss & Damage');
-
-                                                                                                        const colors = {
-
-                                                                                                            'Approval': 'bg-amber-50 text-amber-700 border-amber-200',
-
-                                                                                                            'Assignment': 'bg-blue-50 text-blue-700 border-blue-200',
-
-                                                                                                            'Transfer': 'bg-violet-50 text-violet-700 border-violet-200',
-
-                                                                                                            'Loss & Damage': 'bg-red-50 text-red-700 border-red-200',
-
-                                                                                                            'End of Life': 'bg-gray-100 text-gray-600 border-gray-300',
-
-                                                                                                            'Accessory': 'bg-teal-50 text-teal-700 border-teal-200',
-
-                                                                                                            'Accessory Approval': 'bg-teal-50 text-teal-700 border-teal-200',
-
-                                                                                                            'Service overdue': 'bg-rose-50 text-rose-700 border-rose-200',
-
-                                                                                                        };
-
-                                                                                                        const subClass =
-                                                                                                            item.type === 'Asset Overdue'
-                                                                                                                ? 'text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded border'
-                                                                                                                : 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border';
-
-                                                                                                        return <span className={`${subClass} ${colors[sub] || 'bg-slate-50 text-slate-500 border-slate-100'}`}>{sub}</span>;
-
-                                                                                                    })()}
+                                                                                                    {subtype ? (
+                                                                                                        <span className="text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-100">
+                                                                                                            {subtype}
+                                                                                                        </span>
+                                                                                                    ) : null}
 
                                                                                                 </div>
 

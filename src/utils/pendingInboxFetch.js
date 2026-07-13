@@ -82,6 +82,7 @@ export async function fetchPendingInbox(
 export const FINE_PENDING_INBOX_ENDPOINT = '/Fine/dashboard/pending-inbox';
 export const PAYMENT_PENDING_INBOX_ENDPOINT = '/Payment/dashboard/pending-inbox';
 export const ASSET_PENDING_INBOX_ENDPOINT = '/AssetItem/dashboard/pending-inbox';
+export const REWARD_PENDING_INBOX_ENDPOINT = '/Reward/dashboard/pending-inbox';
 
 export function fetchFinePendingInbox(axiosInstance, options = {}) {
     return fetchPendingInbox(axiosInstance, FINE_PENDING_INBOX_ENDPOINT, options);
@@ -89,6 +90,10 @@ export function fetchFinePendingInbox(axiosInstance, options = {}) {
 
 export function fetchPaymentPendingInbox(axiosInstance, options = {}) {
     return fetchPendingInbox(axiosInstance, PAYMENT_PENDING_INBOX_ENDPOINT, options);
+}
+
+export function fetchRewardPendingInbox(axiosInstance, options = {}) {
+    return fetchPendingInbox(axiosInstance, REWARD_PENDING_INBOX_ENDPOINT, options);
 }
 
 export function fetchAssetPendingInbox(axiosInstance, { inboxScope = 'all', skipSync, ...options } = {}) {

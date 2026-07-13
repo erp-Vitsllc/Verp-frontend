@@ -150,6 +150,7 @@ function pendingInboxIconVariant(row) {
     if (requestType === 'Payment Approval') return 'payment-card';
     if (requestType === 'Group Fine Request') return 'fine-group';
     if (requestType.includes('Fine')) return 'fine-book';
+    if (requestType === 'Reward') return 'reward-award';
     return assetIconVariant(row);
 }
 
@@ -253,6 +254,7 @@ export function mapPendingInboxToRow(row, index = 0) {
         row?.fine?.fineId ||
         row?.payment?.paymentId ||
         row?.asset?.assetId ||
+        row?.reward?.rewardId ||
         row?.requestObjectId ||
         null;
 
@@ -260,6 +262,7 @@ export function mapPendingInboxToRow(row, index = 0) {
     if (title === 'Group Fine Request') title = 'Group Fine Request';
     if (title === 'Fine') title = 'Fine Request';
     if (title === 'Payment Approval') title = 'Payment Approval';
+    if (title === 'Reward') title = 'Reward Request';
 
     const iconVariant = pendingInboxIconVariant(row);
 

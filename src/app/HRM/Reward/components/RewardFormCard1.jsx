@@ -7,7 +7,7 @@ import {
     FineFormCard,
     formatMoney,
 } from '../../Fine/components/FineFormCardShared';
-import { formatRewardStatusLabel } from '../utils/rewardStatusDisplay';
+import { formatRewardStatusLabel, formatRewardPaymentLabel } from '../utils/rewardStatusDisplay';
 
 export default function RewardFormCard1({ reward, employee, formatDate }) {
     if (!reward) return null;
@@ -25,6 +25,7 @@ export default function RewardFormCard1({ reward, employee, formatDate }) {
         reward.rewardStatus || reward.approvalStatus,
         reward.rewardType
     );
+    const paymentLabel = formatRewardPaymentLabel(reward);
 
     return (
         <FineFormCard
@@ -50,6 +51,17 @@ export default function RewardFormCard1({ reward, employee, formatDate }) {
                     valueClassName="font-bold text-blue-600"
                 />
                 <DetailField label="Title" value={reward.title || '—'} />
+                <DetailField
+                    label="Payment"
+                    value={paymentLabel}
+                    valueClassName={
+                        paymentLabel === 'Paid'
+                            ? 'font-semibold text-green-700'
+                            : paymentLabel === 'Not Paid'
+                              ? 'font-semibold text-amber-700'
+                              : undefined
+                    }
+                />
             </DetailGrid>
 
             <div className="mt-4">

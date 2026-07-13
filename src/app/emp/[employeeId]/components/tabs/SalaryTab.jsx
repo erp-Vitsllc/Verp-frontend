@@ -66,6 +66,7 @@ import {
     shouldShowPaymentInHistory,
 } from '@/utils/paymentStatusDisplay';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
+import { formatRewardPaymentLabel, formatRewardStatusLabel } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 
 
 /** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
@@ -1108,6 +1109,14 @@ export default function SalaryTab({
         if (!fineRouteId) return;
         saveListReturnState(`${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`);
         router.push(`/HRM/Fine/${encodeURIComponent(fineRouteId)}`);
+    };
+
+    const openRewardDetails = (reward, e) => {
+        e?.stopPropagation();
+        const rewardRouteId = reward?.rewardId || reward?._id;
+        if (!rewardRouteId) return;
+        saveListReturnState(`${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`);
+        router.push(`/HRM/Reward/rewrd.${encodeURIComponent(rewardRouteId)}`);
     };
 
     const toggleFineExpansion = async (fineId, referenceId) => {
@@ -2674,6 +2683,8 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
                                     </>
                                 )}
@@ -3407,9 +3418,21 @@ export default function SalaryTab({
                             )}
 
                             {selectedSalaryAction === 'Rewards' && (
-                                rewards && rewards.filter(r => r.rewardStatus === 'Approved').length > 0 ? (
-                                    rewards.filter(r => r.rewardStatus === 'Approved').map((reward, index) => (
-                                        <tr key={reward._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                (() => {
+                                    const profileRewards = rewards || [];
+                                    return profileRewards.length > 0 ? (
+                                        profileRewards.map((reward, index) => {
+                                            const paymentLabel = formatRewardPaymentLabel(reward);
+                                            const statusLabel = formatRewardStatusLabel(
+                                                reward.rewardStatus,
+                                                reward.rewardType,
+                                            );
+                                            return (
+                                        <tr
+                                            key={reward._id || index}
+                                            onClick={(e) => openRewardDetails(reward, e)}
+                                            className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
+                                        >
                                             <td className="py-3 px-4 text-sm text-gray-500">
                                                 {reward.awardedDate ? formatDate(reward.awardedDate) : '—'}
                                             </td>
@@ -3422,8 +3445,25 @@ export default function SalaryTab({
                                             <td className="py-3 px-4 text-sm text-gray-500">
                                                 AED {reward.amount?.toFixed(2) || '0.00'}
                                             </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                            <td className="py-3 px-4 text-sm text-gray-700 font-medium">
+                                                {statusLabel}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm">
+                                                <span
+                                                    className={
+                                                        paymentLabel === 'Paid'
+                                                            ? 'font-medium text-green-700'
+                                                            : paymentLabel === 'Not Paid'
+                                                              ? 'font-medium text-amber-700'
+                                                              : 'text-gray-500'
+                                                    }
+                                                >
+                                                    {paymentLabel}
+                                                </span>
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                 <button
+                                                    type="button"
                                                     onClick={() => {
                                                         setSelectedCertificate(reward);
                                                         setShowCertificate(true);
@@ -3435,14 +3475,16 @@ export default function SalaryTab({
                                                 </button>
                                             </td>
                                         </tr>
-                                    ))
-                                ) : (
+                                            );
+                                        })
+                                    ) : (
                                     <tr>
-                                        <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
+                                        <td colSpan={7} className="py-16 text-center text-gray-400 text-sm">
                                             No Rewards to display
                                         </td>
                                     </tr>
-                                )
+                                    );
+                                })()
                             )}
 
                             {/* Handling other tabs that are not yet implemented with data */}

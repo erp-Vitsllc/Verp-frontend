@@ -82,19 +82,9 @@ export function filterActionableDashboardItems(items) {
     });
 }
 
-/** Dashboard "Pending" stat/filter: same rules as sidebar notifications. */
+/** Dashboard "Pending" stat/filter: same rules as sidebar / module bells. */
 export function isDashboardPendingItem(item) {
-    if (ACTIVATION_NOTIFICATION_TYPES.has(item?.type)) {
-        return isActivationNotificationActionable(item);
-    }
-    if (item?.type === 'Asset Approval') {
-        return isAssetApprovalActionable(item);
-    }
-    if (item?.type === 'Asset Loss Damage') {
-        if (item.status === 'Pending') return true;
-        return isSubmitterRejectedLossDamageFollowup(item);
-    }
-    return item?.status === 'Pending' || item?.status === 'On Hold';
+    return filterActionableDashboardItems([item]).length > 0;
 }
 
 /** Rejected activation for the submitter — still needs follow-up, not "completed" in dashboard totals. */

@@ -19,6 +19,7 @@ const EMPLOYEE_NOTIFICATION_TYPES = new Set([
     'Employee Document Expiry Reminder',
     'Probation Change',
     'Employee Document Not Renew',
+    'Notice Request',
     CARD_DELETED_PROGRESS_TYPE,
 ]);
 

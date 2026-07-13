@@ -9,12 +9,18 @@ import PermissionGuard from '@/components/PermissionGuard';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import axiosInstance from '@/utils/axios';
 import AddRewardModal from './components/AddRewardModal';
-import { Trash2, X } from 'lucide-react';
+import PendingRewardRequestsModal from './components/PendingRewardRequestsModal';
+import { Trash2, X, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import { canAccessCreateReward } from '@/app/HRM/Reward/utils/rewardPermissionAccess';
 import { formatRewardStatusLabel } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
+import { fetchRewardPendingInbox } from '@/utils/pendingInboxFetch';
+import {
+    countVisibleRewardPendingInbox,
+    notifyRewardPendingInboxChanged,
+} from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 import {
     BarChart,
     Bar,
@@ -85,6 +91,8 @@ function RewardContent() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedEmployeeRewards, setSelectedEmployeeRewards] = useState(null);
     const [isEmpModalOpen, setIsEmpModalOpen] = useState(false);
+    const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
+    const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const fetchingRef = useRef(false);
 
     const listReturnParams = useMemo(() => ({
@@ -156,12 +164,24 @@ function RewardContent() {
         }
     }, [filterType]);
 
+    const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
+        try {
+            const items = await fetchRewardPendingInbox(axiosInstance, { skipToast: true, force });
+            setPendingInboxCount(countVisibleRewardPendingInbox(items));
+            notifyRewardPendingInboxChanged();
+        } catch {
+            setPendingInboxCount(0);
+            notifyRewardPendingInboxChanged();
+        }
+    }, []);
+
     useEffect(() => {
         if (mounted) {
             fetchRewards();
             fetchEmployees();
+            fetchPendingInboxCount();
         }
-    }, [mounted, fetchRewards, fetchEmployees]);
+    }, [mounted, fetchRewards, fetchEmployees, fetchPendingInboxCount]);
 
     const handleAddReward = () => {
         setShowAddModal(true);
@@ -169,6 +189,7 @@ function RewardContent() {
 
     const handleModalSuccess = () => {
         fetchRewards();
+        fetchPendingInboxCount({ force: true });
     };
 
     const handleDeleteClick = (reward) => {
@@ -279,6 +300,19 @@ function RewardContent() {
 
                             {/* Right Side - Actions Bar */}
                             <div className="flex items-center gap-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingInboxModalOpen(true)}
+                                    className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
+                                    title="Reward notifications assigned to you"
+                                >
+                                    <Bell size={20} />
+                                    {pendingInboxCount > 0 ? (
+                                        <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
+                                            {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
+                                        </span>
+                                    ) : null}
+                                </button>
                                 {mounted && canAccessCreateReward() && (
                                     <button
                                         onClick={handleAddReward}
@@ -585,6 +619,16 @@ function RewardContent() {
                 onClose={() => setShowAddModal(false)}
                 onSuccess={handleModalSuccess}
                 employees={employees}
+            />
+
+            <PendingRewardRequestsModal
+                isOpen={pendingInboxModalOpen}
+                onClose={() => setPendingInboxModalOpen(false)}
+                onRefreshParent={() => {
+                    fetchRewards();
+                    fetchPendingInboxCount({ force: true });
+                }}
+                onPendingInboxCount={setPendingInboxCount}
             />
 
             {/* Employee Reward List Modal */}

@@ -39,33 +39,30 @@ import {
 } from '@/utils/assetFlowchartModuleAccess';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
 import { performLogout } from '@/utils/authSession';
-import {
-    collectEmployeeLiveExpiryNotifications,
-    mergeExpiryNotificationDedupe,
-} from '@/utils/expiryNotificationFallbacks';
-import { buildCompanyPageNotifications, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
+import { loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
-import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
+import { countModulePendingInboxBundles } from '@/utils/dashboardCommandCenterInbox';
 import {
     ASSET_PENDING_INBOX_CHANGED,
-    countVisibleAssetPendingInbox,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import {
-    fetchAssetPendingInbox,
-    getCachedPendingInbox,
-    ASSET_PENDING_INBOX_ENDPOINT,
-} from '@/utils/pendingInboxFetch';
-import {
     FINE_PENDING_INBOX_CHANGED,
-    countVisibleFinePendingInbox,
 } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import {
     PAYMENT_PENDING_INBOX_CHANGED,
-    countVisiblePaymentPendingInbox,
 } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
+import {
+    REWARD_PENDING_INBOX_CHANGED,
+} from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
+import {
+    fetchAssetPendingInbox,
+    fetchFinePendingInbox,
+    fetchPaymentPendingInbox,
+    fetchRewardPendingInbox,
+} from '@/utils/pendingInboxFetch';
 import { handleLinkContextMenu } from '@/utils/linkContextMenu';
 
 const logoPath = '/assets/employee/sidebar-logo.png';
@@ -237,6 +234,8 @@ export default function Sidebar() {
         company: 0,
         employee: 0,
         fine: 0,
+        reward: 0,
+        loan: 0,
         toolsAsset: 0,
         vehicleAsset: 0,
         payments: 0,
@@ -309,7 +308,7 @@ export default function Sidebar() {
                 const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
                 const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
 
-                const [toolsItems, vehicleItems, fineRes, paymentInboxRes, notificationBundle] = await Promise.all([
+                const [toolsItems, vehicleItems, fineItems, rewardItems, paymentItems, notificationBundle] = await Promise.all([
                     fetchAssetPendingInbox(axiosInstance, {
                         inboxScope: 'tools',
                         skipSync: true,
@@ -320,8 +319,9 @@ export default function Sidebar() {
                         skipSync: true,
                         skipToast: true,
                     }),
-                    axiosInstance.get('/Fine/dashboard/pending-inbox', { skipToast: true }),
-                    axiosInstance.get('/Payment/dashboard/pending-inbox', { skipToast: true }),
+                    fetchFinePendingInbox(axiosInstance, { skipToast: true }),
+                    fetchRewardPendingInbox(axiosInstance, { skipToast: true }),
+                    fetchPaymentPendingInbox(axiosInstance, { skipToast: true }),
                     loadCompanyNotificationBundle(axiosInstance, {
                         hrLive: hrLiveGuess,
                         cachedCompanies: [],
@@ -331,38 +331,40 @@ export default function Sidebar() {
 
                 const { statsRes, companiesList } = notificationBundle;
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
-                const pendingItems = filterActionableDashboardItems(items);
-
-                const toolsAsset = countVisibleAssetPendingInbox(toolsItems);
-                const vehicleAsset = countVisibleAssetPendingInbox(vehicleItems);
-                const fine = countVisibleFinePendingInbox(fineRes?.data?.items);
-                const payments = countVisiblePaymentPendingInbox(paymentInboxRes?.data?.items);
 
                 const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
                 const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+                const mandatoryCardsHrLive = isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
 
-                const companyCount = buildCompanyPageNotifications(
-                    pendingItems,
-                    companiesList,
-                    liveExpiryHrView,
-                ).length;
+                const applyCounts = (employeesList = []) => {
+                    const counts = countModulePendingInboxBundles({
+                        userStatsItems: items,
+                        companiesList,
+                        employeesList,
+                        liveExpiryHrView,
+                        mandatoryCardsHrLive,
+                        fineItems,
+                        paymentItems,
+                        toolsItems,
+                        vehicleItems,
+                        rewardItems,
+                    });
+                    setSidebarCounts({
+                        company: counts.company,
+                        employee: counts.employee,
+                        fine: counts.fine,
+                        reward: counts.reward,
+                        loan: counts.loan || 0,
+                        toolsAsset: counts.toolsAsset,
+                        vehicleAsset: counts.vehicleAsset,
+                        payments: counts.payment,
+                    });
+                };
 
-                const employeeFiltered = pendingItems
-                    .filter((item) =>
-                        ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type),
-                    );
-                const employeeCountBase = mergeExpiryNotificationDedupe(employeeFiltered, []).length;
+                // Base counts without waiting on the full employee list (company + module inboxes).
+                applyCounts([]);
 
-                setSidebarCounts({
-                    company: companyCount,
-                    employee: employeeCountBase,
-                    fine,
-                    toolsAsset,
-                    vehicleAsset,
-                    payments,
-                });
-
-                if (liveExpiryHrView) {
+                if (liveExpiryHrView || mandatoryCardsHrLive) {
                     if (cancelIdleEmployeeFetch) cancelIdleEmployeeFetch();
                     cancelIdleEmployeeFetch = scheduleWhenIdle(async () => {
                         try {
@@ -371,11 +373,7 @@ export default function Sidebar() {
                                 .catch(() => ({ data: {} }));
                             const empPayload = empRes?.data?.employees ?? empRes?.data;
                             const employeesList = Array.isArray(empPayload) ? empPayload : [];
-                            const employeeCount = mergeExpiryNotificationDedupe(
-                                employeeFiltered,
-                                collectEmployeeLiveExpiryNotifications(employeesList),
-                            ).length;
-                            setSidebarCounts((prev) => ({ ...prev, employee: employeeCount }));
+                            applyCounts(employeesList);
                         } catch {
                             /* keep base count from dashboard stats */
                         }
@@ -391,6 +389,8 @@ export default function Sidebar() {
                     company: 0,
                     employee: 0,
                     fine: 0,
+                    reward: 0,
+                    loan: 0,
                     toolsAsset: 0,
                     vehicleAsset: 0,
                     payments: 0,
@@ -430,11 +430,15 @@ export default function Sidebar() {
         const handlePaymentInboxChanged = () => {
             loadSidebarCounts();
         };
+        const handleRewardInboxChanged = () => {
+            loadSidebarCounts();
+        };
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', handleVisibility);
             document.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
             document.addEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
             document.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
+            document.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
         }
         return () => {
             if (cancelInitialIdle) cancelInitialIdle();
@@ -449,6 +453,7 @@ export default function Sidebar() {
                 document.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
                 document.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
                 document.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
+                document.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
             }
         };
     }, [mounted]);
@@ -458,6 +463,8 @@ export default function Sidebar() {
             if (label === 'Company') return sidebarCounts.company;
             if (label === 'Employees') return sidebarCounts.employee;
             if (label === 'Fine') return sidebarCounts.fine;
+            if (label === 'Reward') return sidebarCounts.reward;
+            if (label === 'Loan and Advance' || label === 'Loan/Advance') return sidebarCounts.loan || 0;
             if (label === 'Asset') return (sidebarCounts.vehicleAsset || 0) + (sidebarCounts.toolsAsset || 0);
             if (isVehicleSidebarItem(label)) return sidebarCounts.vehicleAsset;
             if (isToolsAssetSidebarItem(label)) return sidebarCounts.toolsAsset;
@@ -473,6 +480,8 @@ export default function Sidebar() {
         (sidebarCounts.company || 0) +
         (sidebarCounts.employee || 0) +
         (sidebarCounts.fine || 0) +
+        (sidebarCounts.reward || 0) +
+        (sidebarCounts.loan || 0) +
         (sidebarCounts.toolsAsset || 0) +
         (sidebarCounts.vehicleAsset || 0);
 

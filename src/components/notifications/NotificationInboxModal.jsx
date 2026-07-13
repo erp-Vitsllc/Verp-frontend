@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
+    Award,
     BadgeCheck,
     Bell,
     BookUser,
@@ -92,6 +93,10 @@ const NOTIFICATION_ICON_STYLES = {
     'fine-group': {
         Icon: BadgeCheck,
         shell: 'bg-gradient-to-br from-fuchsia-50 via-rose-50 to-pink-50 border-fuchsia-200/80 text-fuchsia-700 shadow-sm shadow-fuchsia-100/60',
+    },
+    'reward-award': {
+        Icon: Award,
+        shell: 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 border-amber-200/80 text-amber-700 shadow-sm shadow-amber-100/60',
     },
     'asset-settings': {
         Icon: Settings2,
@@ -336,7 +341,7 @@ export default function NotificationInboxModal({
                                                                         <>
                                                                             {' '}
                                                                             · Exp{' '}
-                                                                            <span className="font-bold text-red-600">
+                                                                            <span className="font-semibold text-[11px] text-red-600">
                                                                                 {row.highlight}
                                                                             </span>
                                                                         </>

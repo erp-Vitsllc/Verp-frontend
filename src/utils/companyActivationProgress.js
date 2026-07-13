@@ -9,15 +9,6 @@ import { validateOwnerEmiratesIdFields } from '@/utils/ownerEmiratesIdValidation
 
 const hasValue = (v) => !(v === undefined || v === null || (typeof v === 'string' && v.trim() === ''));
 
-const isExpiredDate = (value) => {
-    if (!hasValue(value)) return false;
-    const exp = new Date(value);
-    if (Number.isNaN(exp.getTime())) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return exp < today;
-};
-
 const hasOwnerDocAttachment = (att) => {
     if (!hasValue(att)) return false;
     if (typeof att === 'object' && att !== null) {
@@ -30,7 +21,7 @@ const companyOwnersList = (company = {}) => (Array.isArray(company.owners) ? com
 
 const isOwnerPassportActivationComplete = (passport, owners, ownerIndex) => {
     if (!passport || typeof passport !== 'object') return false;
-    if (isExpiredDate(passport.expiryDate)) return false;
+    // Expiry is handled by separate expiry notifications — not activation progress.
     const errors = validateOwnerPassportFields(passport, {
         owners,
         ownerIndex,
@@ -42,7 +33,7 @@ const isOwnerPassportActivationComplete = (passport, owners, ownerIndex) => {
 
 const isOwnerEmiratesIdActivationComplete = (emiratesId, owners, ownerIndex) => {
     if (!emiratesId || typeof emiratesId !== 'object') return false;
-    if (isExpiredDate(emiratesId.expiryDate)) return false;
+    // Expiry is handled by separate expiry notifications — not activation progress.
     const errors = validateOwnerEmiratesIdFields(emiratesId, {
         owners,
         ownerIndex,
@@ -161,15 +152,13 @@ const areOwnerDetailsActivationComplete = (owners = []) => {
 
 /**
  * Mirrors backend `calculateCompanyActivationProgress` for optimistic UI before API refresh.
+ * Expiry does not reduce progress — renewals are covered by dedicated expiry notifications.
  */
 export function calculateCompanyActivationProgress(company = {}) {
     const co = mergePendingReactivationForActivationSnapshot(company, {
         includeAllQueuedOwnerDocs: true,
     });
     const owners = companyOwnersList(co);
-
-    const tradeLicenseExpired = isExpiredDate(co.tradeLicenseExpiry);
-    const establishmentCardExpired = isExpiredDate(co.establishmentCardExpiry);
 
     const checks = [
         {
@@ -186,17 +175,15 @@ export function calculateCompanyActivationProgress(company = {}) {
         },
         {
             key: 'tradeLicense',
-            label: tradeLicenseExpired ? 'Renew Trade License' : 'Trade License',
+            label: 'Trade License',
             completed:
-                !tradeLicenseExpired &&
                 [co.tradeLicenseNumber, co.tradeLicenseIssueDate, co.tradeLicenseExpiry].every(hasValue) &&
                 !!co.tradeLicenseAttachment,
         },
         {
             key: 'establishmentCard',
-            label: establishmentCardExpired ? 'Renew Establishment Card' : 'Establishment Card Details',
+            label: 'Establishment Card Details',
             completed:
-                !establishmentCardExpired &&
                 [co.establishmentCardNumber, co.establishmentCardExpiry].every(hasValue) &&
                 !!co.establishmentCardAttachment,
         },
@@ -215,9 +202,7 @@ export function calculateCompanyActivationProgress(company = {}) {
         },
         {
             key: 'ownerPassport',
-            label: owners.some((owner) => isExpiredDate(owner?.passport?.expiryDate))
-                ? 'Renew Passport of Owner'
-                : 'Passport of Owner',
+            label: 'Passport of Owner',
             completed: areOwnersPassportsActivationComplete(owners),
             blockers: areOwnersPassportsActivationComplete(owners)
                 ? []
@@ -225,9 +210,7 @@ export function calculateCompanyActivationProgress(company = {}) {
         },
         {
             key: 'ownerEmiratesId',
-            label: owners.some((owner) => isExpiredDate(owner?.emiratesId?.expiryDate))
-                ? 'Renew EID of Owner'
-                : 'EID of Owner',
+            label: 'EID of Owner',
             completed: areOwnersEmiratesIdsActivationComplete(owners),
             blockers: areOwnersEmiratesIdsActivationComplete(owners)
                 ? []

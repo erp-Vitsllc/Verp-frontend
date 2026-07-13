@@ -29,7 +29,7 @@ import { Download, Check, X, Edit, Loader2, Lock, Send, Trash2, FileText, Paperc
 import CertificateEditModal from '../components/CertificateEditModal';
 import RewardFormCards from '../components/RewardFormCards';
 import RewardAttachmentTab from '../components/RewardAttachmentTab';
-import { formatRewardStatusLabel, isRewardPaymentEligible } from '../utils/rewardStatusDisplay';
+import { formatRewardStatusLabel, isRewardPaymentEligible, formatRewardPaymentLabel } from '../utils/rewardStatusDisplay';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 
 export default function RewardDetailsPage({ params }) {
@@ -325,6 +325,18 @@ export default function RewardDetailsPage({ params }) {
         }
 
         return false;
+    };
+
+    const isRewardFullyApproved = () => {
+        const status = String(reward?.rewardStatus || '').trim();
+        return ['Approved', 'Approved (Paid)', 'Paid', 'Completed', 'Active'].includes(status);
+    };
+
+    /** After approval, only portal super user / system admin may edit the certificate. */
+    const canEditCertificate = () => {
+        if (!reward) return false;
+        if (isRewardFullyApproved()) return isAdmin();
+        return canPerformAction();
     };
 
     const getBtnLabel = () => {
@@ -714,7 +726,7 @@ export default function RewardDetailsPage({ params }) {
                     <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
                         {/* Left Column: Profile & Stats */}
                         <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
-                            {employee && (
+                    {employee && (
                                 <div className="w-full h-full min-h-0">
                                     <ProfileHeader
                                         employee={employee}
@@ -741,11 +753,11 @@ export default function RewardDetailsPage({ params }) {
                                                     <div className="bg-green-50 p-2 rounded-lg border border-green-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
                                                         <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Cash</span>
                                                         <span className="text-sm sm:text-lg font-bold text-green-800 shrink-0 tabular-nums">{rewardStats.cashCount || 0}</span>
-                                                    </div>
+                                            </div>
                                                     <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
                                                         <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Gift</span>
                                                         <span className="text-sm sm:text-lg font-bold text-purple-800 shrink-0 tabular-nums">{rewardStats.giftCount || 0}</span>
-                                                    </div>
+                                        </div>
                                                     <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0">
                                                         <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Certificate</span>
                                                         <span className="text-sm sm:text-lg font-bold text-amber-800 shrink-0 tabular-nums">{rewardStats.certificateCount || 0}</span>
@@ -758,38 +770,38 @@ export default function RewardDetailsPage({ params }) {
                                                         <span className="text-[10px] text-teal-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Total Amount</span>
                                                         <span className="text-sm sm:text-lg font-bold text-teal-800 shrink-0 tabular-nums">{(rewardStats.totalAmount || 0).toLocaleString()}</span>
                                                     </div>
-                                                </div>
+                                            </div>
 
-                                                {(() => {
-                                                    const s = reward?.rewardStatus;
+                                            {(() => {
+                                                const s = reward?.rewardStatus;
                                                     if (['Approved', 'Approved (Paid)', 'Rejected', 'Cancelled'].includes(s)) return null;
 
-                                                    let label = '';
-                                                    if (s === 'Draft') label = 'Waiting for Requester';
+                                                let label = '';
+                                                if (s === 'Draft') label = 'Waiting for Requester';
                                                     else if (waitingForName) label = `Waiting for ${waitingForName}`;
                                                     else if (s) label = `Waiting for ${s}`;
 
-                                                    if (!label) return null;
+                                                if (!label) return null;
 
-                                                    return (
+                                                return (
                                                         <div className="w-full">
                                                             <span className="text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center bg-amber-50 text-amber-700 border-amber-200">
-                                                                {label}
-                                                            </span>
-                                                        </div>
-                                                    );
-                                                })()}
-                                            </div>
+                                                            {label}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
                                         )}
                                     />
                                 </div>
                             )}
-                        </div>
+                                    </div>
 
                         {/* Right Column: Action Card — Fine-style compact boxes */}
                         <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
                             <div className="bg-white rounded-lg shadow-sm p-4 w-full h-full flex flex-col overflow-hidden">
-                                {(() => {
+                                                {(() => {
                                     const status = reward?.rewardStatus;
                                     const isDraft = status === 'Draft';
                                     const isApprovedState = ['Approved', 'Approved (Paid)', 'Paid', 'Completed'].includes(status);
@@ -800,6 +812,7 @@ export default function RewardDetailsPage({ params }) {
                                     const awaitingPay = isRewardPaymentEligible(reward);
                                     const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
                                     const statusLabel = formatRewardStatusLabel(status, reward?.rewardType);
+                                    const paymentLabel = formatRewardPaymentLabel(reward);
 
                                     const statusBoxClass =
                                         isApprovedState ? 'bg-green-50 border-green-100 text-green-700' :
@@ -844,7 +857,7 @@ export default function RewardDetailsPage({ params }) {
                                                 <div key="remaining" className={`${compactBox} bg-amber-50 border-amber-100`}>
                                                     <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide truncate">Remaining</span>
                                                     <span className="text-lg font-bold text-amber-800 tabular-nums ml-2">{remainingAmount.toLocaleString()}</span>
-                                                </div>
+                                                                            </div>
                                             );
                                         }
                                         cells.push(
@@ -852,9 +865,21 @@ export default function RewardDetailsPage({ params }) {
                                                 <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>
                                                 <span className="text-sm font-bold flex items-center gap-1 ml-2">
                                                     <Check className="w-4 h-4" /> {awaitingPay ? 'Awaiting Pay' : 'Completed'}
-                                                </span>
-                                            </div>
+                                                                                                </span>
+                                                                                            </div>
                                         );
+                                        if (paymentLabel !== '—') {
+                                            const paymentPaid = paymentLabel === 'Paid';
+                                            cells.push(
+                                                <div
+                                                    key="payment-status"
+                                                    className={`${compactBox} ${paymentPaid ? 'bg-green-50 border-green-100 text-green-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}
+                                                >
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Payment</span>
+                                                    <span className="text-sm font-bold truncate ml-2">{paymentLabel}</span>
+                                                </div>
+                                            );
+                                        }
                                     } else if (status === 'Rejected' && canResubmit) {
                                         cells.push(
                                             <button key="resubmit" type="button" onClick={() => setIsResubmittingModal(true)} className={`${compactBox} border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100`}>
@@ -891,23 +916,23 @@ export default function RewardDetailsPage({ params }) {
                                                 <div key={`lock-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-50`}>
                                                     <span className="text-[10px] font-medium uppercase tracking-wide truncate">Pending</span>
                                                     <Lock className="w-4 h-4 shrink-0" />
-                                                </div>
-                                            );
+                                                                    </div>
+                                                                );
                                         }
                                     } else if (isFinalized) {
                                         cells.push(
                                             <div key="done-a" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
                                                 <span className="text-[10px] font-medium uppercase tracking-wide">Workflow</span>
                                                 <span className="text-sm font-bold flex items-center gap-1"><Check className="w-4 h-4" /> Completed</span>
-                                            </div>
-                                        );
+                                                        </div>
+                                                    );
                                     } else {
                                         while (cells.length < 6) {
                                             cells.push(
                                                 <div key={`lock-all-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-50`}>
                                                     <span className="text-[10px] font-medium uppercase tracking-wide truncate">Locked</span>
                                                     <Lock className="w-4 h-4 shrink-0" />
-                                                </div>
+                                            </div>
                                             );
                                         }
                                     }
@@ -918,22 +943,22 @@ export default function RewardDetailsPage({ params }) {
                                                 <span className="text-[10px]">—</span>
                                                 <span>—</span>
                                             </div>
-                                        );
-                                    }
+                                                );
+                                            }
 
-                                    return (
+                                            return (
                                         <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 shrink-0">
                                             {cells.slice(0, 6)}
-                                        </div>
-                                    );
-                                })()}
+                                                    </div>
+                                            );
+                                        })()}
                             </div>
                         </div>
-                    </div>
+                                    </div>
 
                     {/* Tabs: Reward Details | Edit Certificate | Attachment */}
                     <div className="w-full flex items-center border-b border-gray-200 mb-6 print:hidden">
-                        <button
+                                            <button
                             type="button"
                             onClick={() => setActiveTab('rewardDetails')}
                             className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
@@ -943,18 +968,18 @@ export default function RewardDetailsPage({ params }) {
                             }`}
                         >
                             Reward Details
-                        </button>
-                        {canPerformAction() && (
-                            <button
+                                            </button>
+                        {canEditCertificate() && (
+                                                    <button
                                 type="button"
                                 onClick={() => setShowCertEditModal(true)}
                                 className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
                             >
                                 <FileText className="w-4 h-4" />
                                 Edit Certificate
-                            </button>
+                                                    </button>
                         )}
-                        <button
+                                                    <button
                             type="button"
                             onClick={() => setActiveTab('attachments')}
                             className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 flex items-center gap-1.5 ${
@@ -965,8 +990,8 @@ export default function RewardDetailsPage({ params }) {
                         >
                             <Paperclip className="w-4 h-4" />
                             Attachment
-                        </button>
-                    </div>
+                                                    </button>
+                                                </div>
 
                     <div className={`w-full ${activeTab === 'rewardDetails' ? 'block' : 'hidden'}`}>
                         <RewardFormCards
@@ -975,7 +1000,7 @@ export default function RewardDetailsPage({ params }) {
                             formatDate={formatDate}
                             onPaymentSuccess={() => fetchData()}
                         />
-                    </div>
+                                </div>
 
                     <div
                         className={
@@ -997,10 +1022,10 @@ export default function RewardDetailsPage({ params }) {
                             signer2Title={signer2Title}
                             onDownloadCertificate={handleDownloadCertificate}
                             downloading={actionLoading}
-                        />
-                    </div>
-                </div>
-            </div>
+                                    />
+                                </div>
+                                    </div>
+                                </div>
 
             {/* Edit Modal (resubmit from header) */}
             <AddRewardModal

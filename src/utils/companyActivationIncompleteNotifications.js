@@ -43,7 +43,7 @@ export function formatCompanyActivationIncompleteDisplay(item = {}) {
     };
 }
 
-/** One HR task per active company below 100% activation progress. */
+/** One HR task per active company below 100% activation progress (same as Profile Status bar). */
 export function collectCompanyActivationIncompleteNotifications(companies = []) {
     const items = [];
     const nowIso = new Date().toISOString();
@@ -52,8 +52,12 @@ export function collectCompanyActivationIncompleteNotifications(companies = []) 
     for (const company of companies || []) {
         if (!company?._id || !isCompanyFullyActivated(company)) continue;
 
-        const progress = calculateCompanyActivationProgress(company);
-        const percentage = Number(progress?.percentage);
+        // Prefer API progress (same source as the Profile Status bar). Expiry is ignored —
+        // dedicated expiry notifications cover renewals.
+        const apiPct = Number(company?.activationProgress?.percentage);
+        const percentage = Number.isFinite(apiPct)
+            ? apiPct
+            : Number(calculateCompanyActivationProgress(company)?.percentage);
         if (!Number.isFinite(percentage) || percentage >= 100) continue;
 
         const companyKey = String(company.companyId || company._id);

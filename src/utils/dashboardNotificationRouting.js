@@ -20,6 +20,7 @@ import {
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { buildAssetNotificationPath, buildVehicleDetailPath, parseAssetNotificationMeta, resolveVehicleExpiryFocusFromLabel, resolveVehicleExpiryTabFromLabel } from '@/utils/assetNotificationRouting';
 import { buildFineNotificationPath } from '@/utils/fineNotificationRouting';
+import { buildRewardNotificationPath } from '@/utils/rewardNotificationRouting';
 
 /** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
 export function myRequestNotificationSecondaryText(item) {
@@ -418,7 +419,10 @@ export const buildDashboardNotificationPath = (item) => {
     }
 
     if (type.includes('loan')) return item.id ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(item.id))}` : '';
-    if (type.includes('reward')) return item.id ? `/HRM/Reward/${encodeURIComponent(String(item.id))}` : '';
+    if (type.includes('reward')) {
+        const path = buildRewardNotificationPath(item);
+        return path || '';
+    }
     if (type.includes('fine')) {
         const path = buildFineNotificationPath(item);
         return path || '';
