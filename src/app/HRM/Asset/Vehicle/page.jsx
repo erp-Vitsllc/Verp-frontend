@@ -131,6 +131,28 @@ function isSoldOrTotalLossDisposition(v) {
     return d === 'sold' || d === 'total loss';
 }
 
+/** Tools assets (VEGA-ASSET-*) must not appear on the Vehicle fleet list. */
+function isToolsAssetNotFleetVehicle(v) {
+    const id = String(v?.assetId || '').trim().toUpperCase();
+    if (!id.startsWith('VEGA-ASSET-')) return false;
+    if (String(v?.plateNumber || '').trim()) return false;
+    if (v?.locatorDeviceId != null && v.locatorDeviceId !== '') return false;
+    if (v?.locator?.deviceId != null && v.locator.deviceId !== '') return false;
+    if (String(v?.plateEmirate || '').trim()) return false;
+    if (String(v?.vehicleBrand || '').trim()) return false;
+    if (String(v?.vehicleCode || '').trim()) return false;
+    const typeName = String(v?.typeId?.name || v?.type || '').toLowerCase();
+    if (
+        typeName.includes('vehicle') ||
+        typeName.includes('car') ||
+        typeName.includes('fleet') ||
+        typeName.includes('truck')
+    ) {
+        return false;
+    }
+    return true;
+}
+
 function vehiclePassesDraftVisibilityForFleetList(v, ctx) {
     if (!isVehicleDraft(v)) return true;
     const creatorRef = v?.createdBy && typeof v.createdBy === 'object' ? v.createdBy._id : v?.createdBy;
@@ -317,7 +339,7 @@ export default function VehicleAssetPage() {
                 });
                 const payload = locatorRes.data?.data;
                 if (payload?.configured && Array.isArray(payload.vehicles) && payload.vehicles.length > 0) {
-                    setVehicles(payload.vehicles);
+                    setVehicles(payload.vehicles.filter((row) => !isToolsAssetNotFleetVehicle(row)));
                     return;
                 }
             } catch {
@@ -329,7 +351,7 @@ export default function VehicleAssetPage() {
                 timeout: 30000,
             });
             const fleetVehicles = Array.isArray(fleetRes.data?.vehicles) ? fleetRes.data.vehicles : [];
-            setVehicles(fleetVehicles);
+            setVehicles(fleetVehicles.filter((row) => !isToolsAssetNotFleetVehicle(row)));
         } catch (error) {
             toast({
                 variant: "destructive",
