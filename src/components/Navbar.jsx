@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useIdleSession } from '@/contexts/IdleSessionProvider';
 import { formatIdleCountdown, performLogout } from '@/utils/authSession';
+import ErpBackButton from '@/components/ErpBackButton';
 
 export default function Navbar() {
     const [userName, setUserName] = useState('Admin');
@@ -56,8 +57,9 @@ export default function Navbar() {
     return (
         <>
             <div className="bg-white border-b border-gray-200 px-8 py-6">
-                <div className="flex items-center justify-end">
-                    <div className="text-right">
+                <div className="flex items-start gap-4">
+                    <ErpBackButton className="shrink-0 mt-1" />
+                    <div className="text-right ml-auto">
                         <h1 className="text-2xl font-bold text-gray-800">
                             Hello, {userName}
                         </h1>

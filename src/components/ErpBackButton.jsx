@@ -1,21 +1,28 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { useErpBackNavigation } from '@/hooks/useErpBackNavigation';
+import { useErpBackHandlerRegistry } from '@/contexts/ErpBackHandlerContext';
 
 const HIDDEN_PREFIXES = ['/login', '/dashboard'];
 
-/** List-page header back control — same UI as profile/detail pages. */
+/** Global ERP back control — shown in Navbar on every authenticated page. */
 export default function ErpBackButton({ className = '', onFallback, label = 'Back' }) {
     const pathname = usePathname() || '';
-    const handleBack = useErpBackNavigation(onFallback);
+    const defaultBack = useErpBackNavigation(onFallback);
+    const { runOverride, hasOverride } = useErpBackHandlerRegistry();
 
     const hidden = useMemo(
         () => HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`)),
         [pathname],
     );
+
+    const handleBack = useCallback(() => {
+        if (runOverride()) return;
+        defaultBack();
+    }, [runOverride, defaultBack]);
 
     if (hidden) return null;
 
@@ -25,6 +32,14 @@ export default function ErpBackButton({ className = '', onFallback, label = 'Bac
             onFallback={onFallback}
             label={label}
             className={className}
+            // Navbar owns the visible control; page buttons only register overrides.
+            inline
+            skipRegister
+            title={
+                hasOverride
+                    ? 'Back (page navigation)'
+                    : 'Back (restores filters, tabs, and list view)'
+            }
         />
     );
 }

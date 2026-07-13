@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense, startTransition } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import { useDetailNavigationState } from '@/hooks/useDetailNavigationState';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Image from 'next/image';
@@ -366,6 +367,7 @@ function VehicleDetailsPageContent() {
     const handleListReturnBack = useListReturnBack();
     const params = useParams();
     const searchParams = useSearchParams();
+    const { navigateDetailState, replaceDetailState } = useDetailNavigationState();
     const assetId = params.id;
     const { toast } = useToast();
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
@@ -395,7 +397,11 @@ function VehicleDetailsPageContent() {
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [docToNotRenew, setDocToNotRenew] = useState(null);
     const [notRenewLoading, setNotRenewLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState('basic'); // basic | permit | mortgage | petrolToll | service | fine | handover | history | document
+    const [activeTab, setActiveTab] = useState(() => {
+        const tab = String(searchParams.get('tab') || 'basic').trim();
+        const allowed = ['basic', 'permit', 'mortgage', 'petrolToll', 'service', 'fine', 'accessoriesList', 'handover', 'history', 'document'];
+        return allowed.includes(tab) ? tab : 'basic';
+    }); // basic | permit | mortgage | petrolToll | service | fine | handover | history | document
     // Registration / Insurance / Warranty are shown as cards (employee profile style).
     const [assetHistory, setAssetHistory] = useState([]);
     const [loadingHandoverHistory, setLoadingHandoverHistory] = useState(false);
@@ -447,7 +453,13 @@ function VehicleDetailsPageContent() {
     const [isProcessingMortgageCloseApproval, setIsProcessingMortgageCloseApproval] = useState(false);
     const [vehicleServiceModalOpen, setVehicleServiceModalOpen] = useState(false);
     const [vehicleServicePresetType, setVehicleServicePresetType] = useState('');
-    const [serviceInnerTab, setServiceInnerTab] = useState(VEHICLE_SERVICE_TYPES[0]);
+    const [serviceInnerTab, setServiceInnerTab] = useState(() => {
+        const fromUrl = String(searchParams.get('serviceTab') || '').trim();
+        if (fromUrl && VEHICLE_SERVICE_TYPES.includes(fromUrl)) return fromUrl;
+        if (searchParams.get('carWashServiceId')) return 'Car Wash';
+        if (searchParams.get('focusCard') === 'vehicleService') return 'Oil Service';
+        return VEHICLE_SERVICE_TYPES[0];
+    });
     const [documentAttachmentsLoaded, setDocumentAttachmentsLoaded] = useState(false);
     const [creatingOilServiceRequest, setCreatingOilServiceRequest] = useState(false);
     const [creatingVehicleServiceTabRequest, setCreatingVehicleServiceTabRequest] = useState(false);
@@ -457,7 +469,10 @@ function VehicleDetailsPageContent() {
     const [serviceDeleteTarget, setServiceDeleteTarget] = useState(null);
     const [deletingServiceId, setDeletingServiceId] = useState('');
 
-    const [documentInnerTab, setDocumentInnerTab] = useState('live');
+    const [documentInnerTab, setDocumentInnerTab] = useState(() => {
+        const fromUrl = String(searchParams.get('docTab') || 'live').trim().toLowerCase();
+        return fromUrl === 'old' ? 'old' : 'live';
+    });
     const [docTabRegistrationOverride, setDocTabRegistrationOverride] = useState(null);
     const [docTabInsuranceDoc, setDocTabInsuranceDoc] = useState(null);
     const [docTabWarrantyDoc, setDocTabWarrantyDoc] = useState(null);
@@ -475,26 +490,73 @@ function VehicleDetailsPageContent() {
     const [isCreatingReinspection, setIsCreatingReinspection] = useState(false);
     const [isProcessingInspectionApproval, setIsProcessingInspectionApproval] = useState(false);
 
+    const vehicleTabOmitDefaults = useMemo(
+        () => ({ tab: 'basic', docTab: 'live', serviceTab: VEHICLE_SERVICE_TYPES[0] }),
+        [],
+    );
+
+    const buildVehicleTabUpdates = useCallback((tab, { docTab, serviceTab } = {}) => {
+        const nextDoc = tab === 'document' ? (docTab ?? documentInnerTab) : null;
+        const nextService = tab === 'service' ? (serviceTab ?? serviceInnerTab) : null;
+        return {
+            tab,
+            docTab: nextDoc,
+            serviceTab: nextService,
+        };
+    }, [documentInnerTab, serviceInnerTab]);
+
+    const navigateToVehicleTab = useCallback((tab) => {
+        if (!tab || tab === activeTab) return;
+        navigateDetailState(buildVehicleTabUpdates(tab), vehicleTabOmitDefaults);
+        setActiveTab(tab);
+    }, [activeTab, navigateDetailState, buildVehicleTabUpdates, vehicleTabOmitDefaults]);
+
+    const navigateToDocumentInnerTab = useCallback((docTab) => {
+        if (activeTab !== 'document' || !docTab || docTab === documentInnerTab) return;
+        navigateDetailState(buildVehicleTabUpdates('document', { docTab }), vehicleTabOmitDefaults);
+        setDocumentInnerTab(docTab);
+    }, [activeTab, documentInnerTab, navigateDetailState, buildVehicleTabUpdates, vehicleTabOmitDefaults]);
+
+    const navigateToServiceInnerTab = useCallback((serviceTab) => {
+        if (activeTab !== 'service' || !serviceTab || serviceTab === serviceInnerTab) return;
+        navigateDetailState(buildVehicleTabUpdates('service', { serviceTab }), vehicleTabOmitDefaults);
+        setServiceInnerTab(serviceTab);
+    }, [activeTab, serviceInnerTab, navigateDetailState, buildVehicleTabUpdates, vehicleTabOmitDefaults]);
+
+    /** Programmatic tab change (workflows) — sync URL without stacking. */
+    const setVehicleTabSilent = useCallback((tab, extras = {}) => {
+        if (!tab) return;
+        setActiveTab(tab);
+        if (extras.docTab) setDocumentInnerTab(extras.docTab);
+        if (extras.serviceTab) setServiceInnerTab(extras.serviceTab);
+        replaceDetailState(
+            buildVehicleTabUpdates(tab, extras),
+            vehicleTabOmitDefaults,
+        );
+    }, [replaceDetailState, buildVehicleTabUpdates, vehicleTabOmitDefaults]);
+
     useEffect(() => {
-        const tab = searchParams.get('tab');
-        if (tab === 'service') {
-            setActiveTab('service');
-            if (searchParams.get('carWashServiceId')) {
-                setServiceInnerTab('Car Wash');
+        const allowed = ['basic', 'permit', 'mortgage', 'petrolToll', 'service', 'fine', 'accessoriesList', 'handover', 'history', 'document'];
+        const tab = String(searchParams.get('tab') || 'basic').trim();
+        const nextTab = allowed.includes(tab) ? tab : 'basic';
+        setActiveTab((prev) => (prev === nextTab ? prev : nextTab));
+
+        if (nextTab === 'service') {
+            const serviceTab = String(searchParams.get('serviceTab') || '').trim();
+            if (serviceTab && VEHICLE_SERVICE_TYPES.includes(serviceTab)) {
+                setServiceInnerTab((prev) => (prev === serviceTab ? prev : serviceTab));
+            } else if (searchParams.get('carWashServiceId')) {
+                setServiceInnerTab((prev) => (prev === 'Car Wash' ? prev : 'Car Wash'));
             } else if (searchParams.get('focusCard') === 'vehicleService') {
-                setServiceInnerTab('Oil Service');
+                setServiceInnerTab((prev) => (prev === 'Oil Service' ? prev : 'Oil Service'));
             }
         }
-        if (tab === 'handover') {
-            setActiveTab('handover');
+
+        if (nextTab === 'document') {
+            const docTab = String(searchParams.get('docTab') || 'live').trim().toLowerCase();
+            const nextDoc = docTab === 'old' ? 'old' : 'live';
+            setDocumentInnerTab((prev) => (prev === nextDoc ? prev : nextDoc));
         }
-        if (tab === 'accessoriesList') {
-            setActiveTab('accessoriesList');
-        }
-        if (tab === 'basic') setActiveTab('basic');
-        if (tab === 'document') setActiveTab('document');
-        if (tab === 'permit') setActiveTab('permit');
-        if (tab === 'service') setActiveTab('service');
     }, [searchParams]);
 
     useEffect(() => {
@@ -1402,9 +1464,9 @@ function VehicleDetailsPageContent() {
     useEffect(() => {
         if (!permissionsMounted || visibleVehicleDetailTabs.length === 0) return;
         if (!visibleVehicleDetailTabs.some((t) => t.id === activeTab)) {
-            setActiveTab(visibleVehicleDetailTabs[0].id);
+            setVehicleTabSilent(visibleVehicleDetailTabs[0].id);
         }
-    }, [permissionsMounted, visibleVehicleDetailTabs, activeTab]);
+    }, [permissionsMounted, visibleVehicleDetailTabs, activeTab, setVehicleTabSilent]);
 
     const permitTabAccess = useMemo(() => vehiclePermitCardCrud(), [permissionsMounted]);
     const fineTabAccess = useMemo(() => vehicleTabCrud('fine'), [permissionsMounted]);
@@ -1463,13 +1525,12 @@ function VehicleDetailsPageContent() {
                 (r) => normalizeMongoId(r.serviceId || r.id) === normalizeMongoId(serviceId),
             );
             if (!row) return false;
-            setActiveTab('service');
-            setServiceInnerTab('Car Wash');
+            setVehicleTabSilent('service', { serviceTab: 'Car Wash' });
             setCarWashModalService(row.serviceRecord || null);
             setCarWashModalOpen(true);
             return true;
         },
-        [carWashRequestRows],
+        [carWashRequestRows, setVehicleTabSilent],
     );
 
     useEffect(() => {
@@ -2151,7 +2212,7 @@ function VehicleDetailsPageContent() {
         if (isCreatingReinspection || !assetId || !canCreateVehicleReinspection) return;
 
         if (vehicleInspectionStatus === 'draft' || vehicleInspectionStatus === 'pending_hr') {
-            setActiveTab('handover');
+            setVehicleTabSilent('handover');
             toast({
                 title:
                     vehicleInspectionStatus === 'draft'
@@ -2181,7 +2242,7 @@ function VehicleDetailsPageContent() {
                 title: 'Reinspection created',
                 description: 'A new handover row was added. Open View to complete the inspection.',
             });
-            setActiveTab('handover');
+            setVehicleTabSilent('handover');
             await fetchAssetDetails({ deferServiceSigning: true, silent: false });
             invalidateAssetPendingInbox('vehicle');
             await fetchAssetHistory({ forHandover: true });
@@ -2311,7 +2372,7 @@ function VehicleDetailsPageContent() {
             });
             return;
         }
-        setActiveTab('handover');
+        setVehicleTabSilent('handover');
         setShowAssignModal(true);
     };
 
@@ -2525,7 +2586,7 @@ function VehicleDetailsPageContent() {
             if (isCreatingInspection || !assetId || !canCreateVehicleInspection) return;
 
             if (vehicleInspectionStatus === 'draft' || vehicleInspectionStatus === 'pending_hr') {
-                setActiveTab('handover');
+                setVehicleTabSilent('handover');
                 toast({
                     title:
                         vehicleInspectionStatus === 'draft'
@@ -2546,7 +2607,7 @@ function VehicleDetailsPageContent() {
                     title: 'Inspection created',
                     description: 'A handover row was added. Open View to complete the vehicle accessories.',
                 });
-                setActiveTab('handover');
+                setVehicleTabSilent('handover');
                 await fetchAssetDetails({ deferServiceSigning: true, silent: false });
                 invalidateAssetPendingInbox('vehicle');
                 await fetchAssetHistory({ forHandover: true });
@@ -3341,7 +3402,7 @@ function VehicleDetailsPageContent() {
                                         <button
                                             key={tab.id}
                                             type="button"
-                                            onClick={() => setActiveTab(tab.id)}
+                                            onClick={() => navigateToVehicleTab(tab.id)}
                                             className={`relative px-1 py-3 whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
                                                 ? 'text-blue-600 border-blue-500'
                                                 : 'text-slate-500 border-transparent hover:text-slate-700'
@@ -4407,7 +4468,7 @@ function VehicleDetailsPageContent() {
                                                         <button
                                                             key={type}
                                                             type="button"
-                                                            onClick={() => setServiceInnerTab(type)}
+                                                            onClick={() => navigateToServiceInnerTab(type)}
                                                             className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${serviceInnerTab === type
                                                                 ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
                                                                 : 'text-slate-500 hover:text-slate-700'
@@ -4660,7 +4721,7 @@ function VehicleDetailsPageContent() {
                                                 {vehicleDocumentInnerTabVisible('live') && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => setDocumentInnerTab('live')}
+                                                        onClick={() => navigateToDocumentInnerTab('live')}
                                                         className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${documentInnerTab === 'live'
                                                             ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
                                                             : 'text-gray-400 hover:text-gray-600'
@@ -4672,7 +4733,7 @@ function VehicleDetailsPageContent() {
                                                 {vehicleDocumentInnerTabVisible('old') && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => setDocumentInnerTab('old')}
+                                                        onClick={() => navigateToDocumentInnerTab('old')}
                                                         className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${documentInnerTab === 'old'
                                                             ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
                                                             : 'text-gray-400 hover:text-gray-600'

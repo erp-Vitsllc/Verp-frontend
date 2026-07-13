@@ -110,7 +110,6 @@ export default function PurchasesVendorsPage() {
                         <ErpPageHeader
                             title="Vendors"
                             subtitle="Vendor list from local database (sync from Zoho on Refresh)"
-                            showBack={false}
                         >
                             <button
                                 type="button"

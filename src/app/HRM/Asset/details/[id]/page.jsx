@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, Suspense, useCallback } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import { useDetailNavigationState } from '@/hooks/useDetailNavigationState';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -377,6 +378,7 @@ function AssetDetailsPageContent() {
     const handleListReturnBack = useListReturnBack();
     const params = useParams();
     const searchParams = useSearchParams();
+    const { navigateDetailState, replaceDetailState } = useDetailNavigationState();
     const assetId = params.id;
     const { toast } = useToast();
 
@@ -430,7 +432,25 @@ function AssetDetailsPageContent() {
     const [isDownloadingHistory, setIsDownloadingHistory] = useState(false);
     const [assetHistory, setAssetHistory] = useState([]);
     const [expandedHistory, setExpandedHistory] = useState({});
-    const [activeTab, setActiveTab] = useState('document');
+    const [activeTab, setActiveTab] = useState(() => {
+        const allowed = ['document', 'history', 'accessories', 'images', 'edit'];
+        const tab = String(searchParams.get('tab') || 'document').trim();
+        return allowed.includes(tab) ? tab : 'document';
+    });
+
+    const assetTabOmitDefaults = useMemo(() => ({ tab: 'document' }), []);
+
+    const navigateToAssetTab = useCallback((tab) => {
+        if (!tab || tab === activeTab) return;
+        navigateDetailState({ tab }, assetTabOmitDefaults);
+        setActiveTab(tab);
+    }, [activeTab, navigateDetailState, assetTabOmitDefaults]);
+
+    const setAssetTabSilent = useCallback((tab) => {
+        if (!tab) return;
+        setActiveTab(tab);
+        replaceDetailState({ tab }, assetTabOmitDefaults);
+    }, [replaceDetailState, assetTabOmitDefaults]);
     // Bulk selection for approval/rejection of pending actions marked as bulk.
     // Asset Controller can remove individual assets from the processing set.
     const [bulkSelectedAssetIds, setBulkSelectedAssetIds] = useState([]);
@@ -1402,27 +1422,18 @@ function AssetDetailsPageContent() {
                 setShowDamageModal(true);
             } else if (authAction === 'accessory') {
                 // Keep deep link behavior for accessory approval pages.
-                setActiveTab('accessories');
+                setAssetTabSilent('accessories');
             }
         }
-    }, [authAction, asset]);
+    }, [authAction, asset, setAssetTabSilent]);
 
-    // Handle tab parameter from URL (e.g., ?tab=accessories)
+    // Restore tab from URL (Back / deep links) — keep tab in the query string for history.
     useEffect(() => {
-        if (tabParam && ['document', 'history', 'accessories', 'images', 'edit'].includes(tabParam)) {
-            // Use a small timeout to ensure it runs after other state updates
-            setTimeout(() => {
-                setActiveTab(tabParam);
-            }, 100);
-
-            // Clear the tab parameter from URL after setting it (but keep other params like authAction)
-            const newSearchParams = new URLSearchParams(searchParams.toString());
-            newSearchParams.delete('tab');
-            const newQuery = newSearchParams.toString();
-            const newUrl = newQuery ? `/HRM/Asset/details/${assetId}?${newQuery}` : `/HRM/Asset/details/${assetId}`;
-            router.replace(newUrl, { scroll: false });
-        }
-    }, [tabParam, assetId, router, searchParams]);
+        const allowed = ['document', 'history', 'accessories', 'images', 'edit'];
+        const tab = String(tabParam || 'document').trim();
+        const nextTab = allowed.includes(tab) ? tab : 'document';
+        setActiveTab((prev) => (prev === nextTab ? prev : nextTab));
+    }, [tabParam]);
 
     useNotificationFocusScroll({
         loading,
@@ -2953,7 +2964,7 @@ function AssetDetailsPageContent() {
                                             </div>
                                             <button
                                                 type="button"
-                                                onClick={() => setActiveTab('accessories')}
+                                                onClick={() => navigateToAssetTab('accessories')}
                                                 className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                                             >
                                                 Review accessory
@@ -3252,7 +3263,7 @@ function AssetDetailsPageContent() {
                                                             key={tab.id}
                                                             onClick={() => {
                                                                 if (tab.id === 'history' && activeTab !== 'history') fetchAssetHistory();
-                                                                setActiveTab(tab.id);
+                                                                navigateToAssetTab(tab.id);
                                                             }}
                                                             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[11px] font-bold transition-all ${activeTab === tab.id
                                                                 ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50'
@@ -3335,7 +3346,7 @@ function AssetDetailsPageContent() {
                                                                 disabled={isAccessoryTabLocked}
                                                                 onClick={() => {
                                                                     if (isAccessoryTabLocked) return;
-                                                                    setActiveTab('accessories');
+                                                                    navigateToAssetTab('accessories');
                                                                 }}
                                                                 className={`px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-[10px] font-black transition-all shadow-sm ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-600 hover:text-white'}`}
                                                             >

@@ -1,9 +1,11 @@
 'use client';
 
+import { useCallback, useEffect } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
+import { useErpBackHandlerRegistry } from '@/contexts/ErpBackHandlerContext';
 
 /** Standard ERP back control — use on every page header across the app. */
 export const ERP_BACK_BUTTON_CLASS =
@@ -11,7 +13,8 @@ export const ERP_BACK_BUTTON_CLASS =
 
 /**
  * Global back button: navigation stack first, then optional fallback, then dashboard.
- * Always shows chevron + "Back" label for consistent ERP UI.
+ * By default only registers a page override for the Navbar Back control (no duplicate UI).
+ * Pass `inline` to render a local button (e.g. Navbar itself).
  */
 export default function ListReturnBackButton({
     className,
@@ -26,10 +29,15 @@ export default function ListReturnBackButton({
     type = 'button',
     ariaLabel = 'Go back to previous page',
     title = 'Back (restores filters, tabs, and list view)',
+    /** Render the button locally. Default false — Navbar shows the global Back control. */
+    inline = false,
+    /** Skip registering with the global Navbar back (used by Navbar itself). */
+    skipRegister = false,
 }) {
     const router = useRouter();
+    const { registerHandler } = useErpBackHandlerRegistry();
 
-    const handleClick = () => {
+    const handleClick = useCallback(() => {
         if (onNavigate) {
             onNavigate();
             return;
@@ -41,7 +49,14 @@ export default function ListReturnBackButton({
             return;
         }
         router.push('/dashboard');
-    };
+    }, [onNavigate, onBeforeNavigate, onFallback, router]);
+
+    useEffect(() => {
+        if (skipRegister || inline) return undefined;
+        return registerHandler(handleClick);
+    }, [skipRegister, inline, registerHandler, handleClick]);
+
+    if (!inline) return null;
 
     return (
         <button

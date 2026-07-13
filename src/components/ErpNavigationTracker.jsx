@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
+    captureNavigationScroll,
     consumeNavigationPushSuppression,
     consumeSkipTrackerPushOnce,
     getBrowserPathWithSearch,
@@ -37,28 +38,36 @@ export default function ErpNavigationTracker() {
         if (!readyRef.current) {
             readyRef.current = true;
             prevHrefRef.current = resolved;
+            captureNavigationScroll(resolved);
             return;
         }
 
         if (prevHrefRef.current && prevHrefRef.current !== resolved) {
+            // Scroll for the previous page was captured while the user was still there.
             pushNavigationReturnState(prevHrefRef.current);
         }
         prevHrefRef.current = resolved;
+        captureNavigationScroll(resolved);
     }, [pathname, searchParams]);
 
     useEffect(() => {
         const syncFromBar = () => {
             syncNavigationStackOnBrowserPop();
             prevHrefRef.current = getBrowserPathWithSearch();
+            captureNavigationScroll(prevHrefRef.current);
         };
         const onLocationSync = () => {
             prevHrefRef.current = getBrowserPathWithSearch();
+            captureNavigationScroll(prevHrefRef.current);
         };
+        const onScroll = () => captureNavigationScroll();
         window.addEventListener('popstate', syncFromBar);
         window.addEventListener(getLocationSyncEventName(), onLocationSync);
+        window.addEventListener('scroll', onScroll, { passive: true });
         return () => {
             window.removeEventListener('popstate', syncFromBar);
             window.removeEventListener(getLocationSyncEventName(), onLocationSync);
+            window.removeEventListener('scroll', onScroll);
         };
     }, []);
 

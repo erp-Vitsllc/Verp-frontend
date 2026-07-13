@@ -1,6 +1,7 @@
 const LIST_RETURN_KEY = 'verp:list-return-href';
 const NAV_STACK_KEY = 'verp:nav-return-stack';
-const MAX_NAV_STACK = 50;
+const SCROLL_MAP_KEY = 'verp:nav-scroll-map';
+const MAX_NAV_STACK = 200;
 
 let suppressNextNavigationPush = false;
 let skipTrackerPushOnce = false;
@@ -23,6 +24,48 @@ function writeStack(stack) {
     } catch {
         // ignore quota / private mode
     }
+}
+
+function readScrollMap() {
+    if (typeof window === 'undefined') return {};
+    try {
+        const raw = sessionStorage.getItem(SCROLL_MAP_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function writeScrollMap(map) {
+    if (typeof window === 'undefined') return;
+    try {
+        sessionStorage.setItem(SCROLL_MAP_KEY, JSON.stringify(map));
+    } catch {
+        // ignore quota / private mode
+    }
+}
+
+function rememberScrollForHref(href) {
+    const path = normalizeHref(href);
+    if (!path || typeof window === 'undefined') return;
+    const map = readScrollMap();
+    map[path] = window.scrollY || 0;
+    writeScrollMap(map);
+}
+
+function restoreScrollForHref(href) {
+    const path = normalizeHref(href);
+    if (!path || typeof window === 'undefined') return;
+    const map = readScrollMap();
+    const y = map[path];
+    if (typeof y !== 'number') return;
+    const apply = () => window.scrollTo(0, y);
+    requestAnimationFrame(() => {
+        apply();
+        setTimeout(apply, 50);
+        setTimeout(apply, 200);
+    });
 }
 
 function normalizeHref(href) {
@@ -64,7 +107,7 @@ export function employeeProfileTabKey(href) {
     }
 }
 
-function hrefsEquivalent(a, b) {
+export function hrefsEquivalent(a, b) {
     const na = normalizeHref(a);
     const nb = normalizeHref(b);
     if (!na || !nb) return na === nb;
@@ -95,6 +138,11 @@ export function pushNavigationReturnState(href) {
     if (hrefsEquivalent(last, path)) return;
     stack.push(path);
     writeStack(stack);
+}
+
+/** Persist scroll for the current (or given) href — call while still on that page. */
+export function captureNavigationScroll(href = getBrowserPathWithSearch()) {
+    rememberScrollForHref(href);
 }
 
 export function popNavigationReturnState() {
@@ -185,7 +233,20 @@ export function tryNavigateListReturn(router) {
     suppressNextNavigationStackPush();
     skipTrackerPushOnce = true;
     router.push(href);
+    restoreScrollForHref(href);
     return true;
+}
+
+/**
+ * Update the address bar without pushing the previous URL onto the back stack.
+ * Use for programmatic tab sync / deep-link cleanup.
+ */
+export function replaceNavigationUrl(href) {
+    if (typeof window === 'undefined') return;
+    const next = normalizeHref(href);
+    if (!next) return;
+    skipTrackerPushOnce = true;
+    syncBrowserUrl(next);
 }
 
 const LOCATION_SYNC_EVENT = 'verp:location-sync';
@@ -227,6 +288,7 @@ export function rememberListFilterStepFrom(fromHref, nextHref) {
     const next = normalizeHref(nextHref);
     if (!next) return;
     if (from && !hrefsEquivalent(from, next)) {
+        captureNavigationScroll(from);
         skipTrackerPushOnce = true;
         pushNavigationReturnState(from);
     }
@@ -250,6 +312,7 @@ export function navigateFromList(router, targetHref, listReturnHref) {
     if (!target) return;
     const list = normalizeHref(listReturnHref || getBrowserPathWithSearch());
     if (list && !hrefsEquivalent(list, target)) {
+        captureNavigationScroll(list);
         saveListReturnState(list);
         pushNavigationReturnState(list);
     }
