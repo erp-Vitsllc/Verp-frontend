@@ -457,7 +457,7 @@ export default function VehicleAssetProfileHeader({
                 </div>
             </div>
 
-            <div className="px-4 sm:px-6 pb-4 pt-3 mt-auto shrink-0 border-t border-slate-100">
+            <div className="px-4 sm:px-6 pb-4 pt-3 mt-auto shrink-0">
                 <div className="flex items-center justify-between gap-3 mb-2.5">
                     <div className="flex items-center gap-2 min-w-0 text-[13px] font-medium text-slate-700">
                         <span>{isDisposedFleet ? 'Fleet disposition' : 'Profile Status'}</span>
