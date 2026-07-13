@@ -2,6 +2,46 @@
 
 import { Download } from 'lucide-react';
 
+/** Scale font down for longer text so the full string stays visible. */
+function autoFontSizePx(text, { base = 18, min = 10, charSoft = 14, charHard = 28 } = {}) {
+    const len = String(text || '').trim().length;
+    if (len <= charSoft) return base;
+    if (len >= charHard) return min;
+    const t = (len - charSoft) / (charHard - charSoft);
+    return Math.round(base - t * (base - min));
+}
+
+function SignerBlock({ name, title, align = 'left' }) {
+    const nameSize = autoFontSizePx(name, { base: 18, min: 11, charSoft: 12, charHard: 26 });
+    const titleSize = autoFontSizePx(title, { base: 15, min: 9, charSoft: 14, charHard: 32 });
+
+    return (
+        <div className={`text-center flex-1 min-w-0 max-w-[32%] px-1 ${align === 'right' ? '' : ''}`}>
+            <p
+                className="font-semibold text-[#1a2e35] mb-1 leading-tight break-words whitespace-normal"
+                style={{
+                    fontFamily: '"Playfair Display", serif',
+                    fontSize: `${nameSize}px`,
+                }}
+                title={name}
+            >
+                {name}
+            </p>
+            <p
+                className="font-medium uppercase tracking-wide text-[#1a2e35] leading-tight break-words whitespace-normal"
+                style={{
+                    fontFamily: '"Playfair Display", serif',
+                    fontSize: `${titleSize}px`,
+                    letterSpacing: titleSize < 12 ? '0.02em' : '0.08em',
+                }}
+                title={title}
+            >
+                {title}
+            </p>
+        </div>
+    );
+}
+
 /**
  * Live certificate preview — always built from current reward / signer data.
  */
@@ -25,7 +65,17 @@ export default function RewardCertificatePreview({
 }) {
     const typeLower = String(rewardType || '').toLowerCase();
     const showGift = typeLower.includes('gift') && giftName;
-    const showAmount = (typeLower.includes('cash') || typeLower.includes('gift') || typeLower.includes('bonus')) && amount != null && amount !== '';
+    const showAmount =
+        (typeLower.includes('cash') || typeLower.includes('gift') || typeLower.includes('bonus')) &&
+        amount != null &&
+        amount !== '';
+
+    const employeeNameSize = autoFontSizePx(employeeDisplayName, {
+        base: 44,
+        min: 26,
+        charSoft: 18,
+        charHard: 40,
+    });
 
     return (
         <div className="flex justify-center overflow-auto w-full">
@@ -76,8 +126,11 @@ export default function RewardCertificatePreview({
                     </p>
                     <div className="mb-6 w-full px-4 sm:px-10">
                         <h3
-                            className="text-3xl sm:text-4xl md:text-5xl text-[#1a2e35] font-normal break-words leading-tight"
-                            style={{ fontFamily: '"Great Vibes", cursive' }}
+                            className="text-[#1a2e35] font-normal break-words leading-tight"
+                            style={{
+                                fontFamily: '"Great Vibes", cursive',
+                                fontSize: `${employeeNameSize}px`,
+                            }}
                         >
                             {employeeDisplayName}
                         </h3>
@@ -110,43 +163,17 @@ export default function RewardCertificatePreview({
                     </div>
                 </div>
 
-                <div className="relative z-20 flex items-end justify-between px-10 sm:px-24 md:px-36 pb-20 sm:pb-28 w-full">
-                    <div className="text-center min-w-0">
-                        <p
-                            className="text-base sm:text-lg font-semibold text-[#1a2e35] mb-1 truncate"
-                            style={{ fontFamily: '"Playfair Display", serif' }}
-                        >
-                            {signer1Name}
-                        </p>
-                        <p
-                            className="text-sm sm:text-lg font-medium uppercase tracking-wider text-[#1a2e35] truncate"
-                            style={{ fontFamily: '"Playfair Display", serif' }}
-                        >
-                            {signer1Title}
-                        </p>
-                    </div>
-                    <div className="flex items-center justify-center -mb-4 shrink-0">
+                <div className="relative z-20 flex items-end justify-between gap-2 px-8 sm:px-16 md:px-24 pb-20 sm:pb-28 w-full">
+                    <SignerBlock name={signer1Name} title={signer1Title} />
+                    <div className="flex items-center justify-center -mb-4 shrink-0 w-[28%] max-w-[220px]">
                         <img
                             src="/assets/certificate-logo-v2.png"
                             alt="Company Seal"
-                            className="w-40 h-20 sm:w-60 sm:h-32 object-contain"
+                            className="w-full max-w-[180px] h-auto object-contain"
                             crossOrigin="anonymous"
                         />
                     </div>
-                    <div className="text-center min-w-0">
-                        <p
-                            className="text-base sm:text-lg font-semibold text-[#1a2e35] mb-1 truncate"
-                            style={{ fontFamily: '"Playfair Display", serif' }}
-                        >
-                            {signer2Name}
-                        </p>
-                        <p
-                            className="text-sm sm:text-lg uppercase tracking-wider text-[#1a2e35] truncate"
-                            style={{ fontFamily: '"Playfair Display", serif' }}
-                        >
-                            {signer2Title}
-                        </p>
-                    </div>
+                    <SignerBlock name={signer2Name} title={signer2Title} align="right" />
                 </div>
             </div>
         </div>
