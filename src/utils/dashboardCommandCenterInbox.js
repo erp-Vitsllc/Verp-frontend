@@ -64,9 +64,13 @@ export const EMPLOYEE_MODULE_TYPES = new Set(
 
 export const SIDEBAR_MODULE_CATEGORY_ORDER = [...MODULE_ORDER, 'Other'];
 
-export function isCommandCenterHiddenType() {
-    // Keep page-bell and dashboard lists identical — nothing hidden.
-    return false;
+export function isCommandCenterHiddenType(typeOrItem) {
+    const type =
+        typeof typeOrItem === 'string'
+            ? typeOrItem
+            : String(typeOrItem?.type || typeOrItem?.requestType || '').trim();
+    // Flowchart responsibility acceptance lives on Settings → FlowChart, not Command Center.
+    return type === 'Responsibility Approval';
 }
 
 export function resolveDashboardModuleCategory(item = {}) {
@@ -176,6 +180,7 @@ export function countModulePendingInboxBundles(args = {}) {
 export function groupCommandCenterByModule(items = []) {
     const groups = new Map();
     for (const item of items) {
+        if (isCommandCenterHiddenType(item)) continue;
         const category = resolveDashboardModuleCategory(item);
         if (!category) continue;
         if (!groups.has(category)) groups.set(category, []);

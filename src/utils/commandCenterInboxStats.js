@@ -7,7 +7,10 @@ import {
     isDashboardPendingItem,
     isSubmitterRejectedFollowup,
 } from '@/utils/activationNotificationFilters';
-import { groupCommandCenterByModule } from '@/utils/dashboardCommandCenterInbox';
+import {
+    groupCommandCenterByModule,
+    isCommandCenterHiddenType,
+} from '@/utils/dashboardCommandCenterInbox';
 import { isEmployeeNotificationHiddenType } from '@/utils/employeePageNotifications';
 import { mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
 import { fetchEmployeeDashboardStats } from '@/utils/employeeDashboardStatsFetch';
@@ -110,6 +113,7 @@ export const isIncomingCommandCenterItem = (
     { allowModuleCopies = true } = {},
 ) => {
     if (!item) return false;
+    if (isCommandCenterHiddenType(item)) return false;
     if (isEmployeeNotificationHiddenType(item.type)) return false;
 
     if (isModuleNotificationCopy(item)) {

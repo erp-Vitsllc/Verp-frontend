@@ -63,6 +63,7 @@ import {
 } from './utils/assetPendingInboxCount';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import BulkAssignmentAcknowledgeModal from './components/BulkAssignmentAcknowledgeModal';
+import AssetListExportDialog from './components/AssetListExportDialog';
 import { AssetListSummaryPanels } from './components/ListPageSummaryCards';
 import {
     buildAssetActionUser,
@@ -739,7 +740,7 @@ function AssetPageContent() {
         () => searchParams.get('assignedTo') || '',
     );
     const [downloadingAssetList, setDownloadingAssetList] = useState(false);
-    const [assetListOwnerModalOpen, setAssetListOwnerModalOpen] = useState(false);
+    const [assetListExportModalOpen, setAssetListExportModalOpen] = useState(false);
 
     const [assetListPage, setAssetListPage] = useState(() => {
         const parsed = parseInt(searchParams.get('page') || '1', 10);
@@ -1540,7 +1541,11 @@ function AssetPageContent() {
         lossDamageDownloadAssets,
     ]);
 
-    const handleDownloadAssetList = useCallback(async (groupByOwner = false) => {
+    const handleDownloadAssetList = useCallback(async ({
+        format = 'pdf',
+        columns = [],
+        groupByOwner = false,
+    } = {}) => {
         const downloadRows = activeTabDownloadAssets;
         const assetIds = downloadRows.map((row) => row?._id || row?.id).filter(Boolean);
         if (!assetIds.length) {
@@ -1555,10 +1560,21 @@ function AssetPageContent() {
             return;
         }
 
+        if (!columns.length) {
+            toast({
+                variant: 'destructive',
+                title: 'No columns selected',
+                description: 'Select at least one column to include in the download.',
+            });
+            return;
+        }
+
+        const exportFormat = format === 'excel' ? 'excel' : 'pdf';
         const params = {
             assetIds: assetIds.join(','),
+            columns: columns.join(','),
         };
-        if (groupByOwner) {
+        if (exportFormat === 'pdf' && groupByOwner) {
             params.groupByOwner = 'true';
         }
         let fileSuffix = 'AssetList';
@@ -1618,13 +1634,17 @@ function AssetPageContent() {
             fileSuffix = String(params.scope).replace(/[^\w.-]+/g, '_');
         }
 
-        if (groupByOwner && params.listTitle) {
+        if (params.groupByOwner === 'true' && params.listTitle) {
             fileSuffix = `${fileSuffix}-ByOwner`;
         }
 
+        const endpoint =
+            exportFormat === 'excel' ? '/AssetItem/asset-list/excel' : '/AssetItem/asset-list/pdf';
+        const extension = exportFormat === 'excel' ? 'xls' : 'pdf';
+
         try {
             setDownloadingAssetList(true);
-            const response = await axiosInstance.get('/AssetItem/asset-list/pdf', {
+            const response = await axiosInstance.get(endpoint, {
                 params,
                 responseType: 'blob',
             });
@@ -1632,14 +1652,18 @@ function AssetPageContent() {
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', `AssetList-${fileSuffix}.pdf`);
+            link.setAttribute('download', `AssetList-${fileSuffix}.${extension}`);
             document.body.appendChild(link);
             link.click();
             link.remove();
             window.URL.revokeObjectURL(url);
+            setAssetListExportModalOpen(false);
         } catch (error) {
-            console.error('Asset list PDF download failed:', error);
-            let description = 'Could not generate asset list PDF.';
+            console.error(`Asset list ${exportFormat} download failed:`, error);
+            let description =
+                exportFormat === 'excel'
+                    ? 'Could not generate asset list Excel.'
+                    : 'Could not generate asset list PDF.';
             const responseData = error?.response?.data;
             if (responseData instanceof Blob) {
                 try {
@@ -1661,7 +1685,6 @@ function AssetPageContent() {
             });
         } finally {
             setDownloadingAssetList(false);
-            setAssetListOwnerModalOpen(false);
         }
     }, [
         activeTab,
@@ -1675,15 +1698,27 @@ function AssetPageContent() {
         toast,
     ]);
 
+    const assetListExportHasMultipleOwners = useMemo(
+        () => countUniqueAssetOwners(activeTabDownloadAssets) > 1,
+        [activeTabDownloadAssets],
+    );
+
     const handleDownloadAssetListClick = useCallback(() => {
         const downloadRows = activeTabDownloadAssets;
-        const ownerCount = countUniqueAssetOwners(downloadRows);
-        if (ownerCount > 1) {
-            setAssetListOwnerModalOpen(true);
+        const assetIds = downloadRows.map((row) => row?._id || row?.id).filter(Boolean);
+        if (!assetIds.length) {
+            toast({
+                variant: 'destructive',
+                title: 'No assets',
+                description:
+                    activeTab === 'accessories'
+                        ? 'No attached assets in this accessories list to download.'
+                        : 'There are no assets in this list to download.',
+            });
             return;
         }
-        void handleDownloadAssetList(false);
-    }, [activeTabDownloadAssets, handleDownloadAssetList]);
+        setAssetListExportModalOpen(true);
+    }, [activeTab, activeTabDownloadAssets, toast]);
 
     const toolsListStats = useMemo(() => {
         const rows = assetTypes.filter(
@@ -4437,41 +4472,13 @@ function AssetPageContent() {
 
 
 
-                <AlertDialog
-                    open={assetListOwnerModalOpen}
-                    onOpenChange={(open) => {
-                        if (!downloadingAssetList) setAssetListOwnerModalOpen(open);
-                    }}
-                >
-                    <AlertDialogContent className="bg-white rounded-[24px] max-w-lg">
-                        <AlertDialogHeader>
-                            <AlertDialogTitle className="text-xl font-bold">Download Asset List</AlertDialogTitle>
-                            <AlertDialogDescription className="text-sm text-gray-500">
-                                This list contains assets assigned to multiple owners. Do you want to see the owner
-                                details of every asset categorized by employee?
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter className="gap-2 sm:gap-2">
-                            <AlertDialogCancel
-                                disabled={downloadingAssetList}
-                                className="rounded-xl border-gray-100 font-bold"
-                                onClick={() => void handleDownloadAssetList(false)}
-                            >
-                                No
-                            </AlertDialogCancel>
-                            <AlertDialogAction
-                                disabled={downloadingAssetList}
-                                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 font-bold"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    void handleDownloadAssetList(true);
-                                }}
-                            >
-                                {downloadingAssetList ? 'Generating…' : 'Yes'}
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
+                <AssetListExportDialog
+                    open={assetListExportModalOpen}
+                    onOpenChange={setAssetListExportModalOpen}
+                    downloading={downloadingAssetList}
+                    showGroupByOwner={assetListExportHasMultipleOwners}
+                    onDownload={(opts) => void handleDownloadAssetList(opts)}
+                />
 
                 <AlertDialog
 
