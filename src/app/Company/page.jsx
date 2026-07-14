@@ -9,14 +9,14 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import { buildDashboardNotificationPath, buildCompanyExpiryModalRowPath } from '@/utils/dashboardNotificationRouting';
-import { buildCompanyPageNotifications, clearCompanyNotificationBundleCache, getCachedCompanyNotificationBundle, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
+import { clearCompanyNotificationBundleCache, getCachedCompanyNotificationBundle, loadCompanyNotificationBundle, buildCompanyPageNotifications } from '@/utils/companyPageNotifications';
+import { buildCompanyListBellFromStats } from '@/utils/moduleNotifications';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
-import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import { collectCompanyExpiryDocuments } from '@/utils/companyExpiryScanUtils';
 import { isAdmin, crudAccess } from '@/utils/permissions';
 import { COMPANY_LIST_MODULE, COMPANY_ADD_MODULE, notifyNoPermission } from '@/utils/companyPermissionModules';
@@ -27,6 +27,7 @@ import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import ErpPageHeader from '@/components/ErpPageHeader';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell,
     LabelList
@@ -199,21 +200,9 @@ function CompanyContent() {
 
     const buildNotificationsFromBundle = useCallback(
         (statsRes, companiesList) => {
-            const items = Array.isArray(statsRes?.data?.items) ? statsRes.data.items : [];
-            const pendingItems = filterActionableDashboardItems(items);
-            const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
-            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive =
-                typeof window !== 'undefined' &&
-                (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-            const mandatoryCardsHrLive =
-                typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-
-            const companyNotifications = buildCompanyPageNotifications(
-                pendingItems,
+            const companyNotifications = buildCompanyListBellFromStats(
+                statsRes?.data || { items: [] },
                 companiesList,
-                hrLive,
-                mandatoryCardsHrLive,
             );
 
             prefetchedNotificationsRef.current = companyNotifications;
@@ -657,7 +646,7 @@ function CompanyContent() {
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
                 <Navbar />
-                <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
                     <ErpPageHeader
                         title="Companies"
@@ -666,7 +655,7 @@ function CompanyContent() {
                             <button
                                 type="button"
                                 onClick={() => setShowNotificationsModal(true)}
-                                className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20"
+                                className="relative p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20"
                                 title="My request notifications"
                             >
                                 <Bell size={18} />
@@ -677,7 +666,7 @@ function CompanyContent() {
                                 )}
                             </button>
                             {/* Search */}
-                            <div className="relative flex-1 max-w-md w-64">
+                            <div className="relative flex-1 min-w-[140px] sm:min-w-[180px] max-w-md w-full sm:w-64">
                                 <Search
                                     size={16}
                                     className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -687,7 +676,7 @@ function CompanyContent() {
                                     placeholder="Search companies..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                                    className="w-full pl-9 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white"
                                 />
                             </div>
 
@@ -695,6 +684,7 @@ function CompanyContent() {
                             {clientMounted && (isAdmin() || addCompanyAccess.view) && (
                             <button
                                 type="button"
+                                {...navHrefProps('/Company/add-company')}
                                 onClick={() => {
                                     if (!isAdmin() && !addCompanyAccess.create) {
                                         notifyNoPermission(toast, 'add companies');
@@ -702,7 +692,7 @@ function CompanyContent() {
                                     }
                                     router.push('/Company/add-company');
                                 }}
-                                className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
                             >
                                 <Plus size={18} />
                                 Add Company
@@ -710,11 +700,11 @@ function CompanyContent() {
                             )}
                     </ErpPageHeader>
                     {/* Profile Head Section */}
-                    <div className="flex gap-6 mb-8 h-[320px]">
+                    <div className="flex flex-col xl:flex-row gap-4 sm:gap-6 mb-4 sm:mb-6 lg:mb-8 h-auto xl:h-[320px]">
                         {/* Left Card: Stats + Document Expiry Bar Chart (50%) */}
-                        <div className="flex-[1] bg-white rounded-xl shadow-sm border border-gray-100 flex p-6 gap-6 overflow-hidden">
+                        <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row p-3 sm:p-4 lg:p-6 gap-3 sm:gap-4 lg:gap-6 overflow-hidden min-h-0 min-w-0">
                             {/* Vertical Stats Column */}
-                            <div className="w-[140px] flex flex-col gap-4">
+                            <div className="w-full sm:w-[120px] lg:w-[140px] flex flex-row sm:flex-col gap-2 sm:gap-4 shrink-0">
                                 {[
                                     { label: 'COMPANY', value: stats.total },
                                     {
@@ -726,10 +716,10 @@ function CompanyContent() {
                                     <div
                                         key={idx}
                                         onClick={item.onClick}
-                                        className={`flex-1 bg-gray-50 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center p-2 hover:bg-white hover:shadow-md transition-all duration-300 ${item.onClick ? 'cursor-pointer active:scale-95' : ''}`}
+                                        className={`flex-1 bg-gray-50 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center p-2 min-h-[72px] sm:min-h-0 hover:bg-white hover:shadow-md transition-all duration-300 ${item.onClick ? 'cursor-pointer active:scale-95' : ''}`}
                                     >
-                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{item.label}</span>
-                                        <span className="text-4xl font-black" style={{ color: '#dc2626' }}>
+                                        <span className="text-[8px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{item.label}</span>
+                                        <span className="text-2xl sm:text-3xl lg:text-4xl font-black" style={{ color: '#dc2626' }}>
                                             <AnimatedCounter value={item.value || 0} />
                                         </span>
                                     </div>
@@ -738,8 +728,8 @@ function CompanyContent() {
 
                             {/* Document Expiry Bar Chart */}
                             <div className="flex-1 flex flex-col min-w-0">
-                                <h3 className="text-[11px] font-bold text-gray-400 text-center uppercase tracking-[0.2em] mb-4">Document Expiry</h3>
-                                <RechartsBox height={200} minHeight={160} className="flex-1">
+                                <h3 className="text-[10px] sm:text-[11px] font-bold text-gray-400 text-center uppercase tracking-[0.2em] mb-2 sm:mb-4">Document Expiry</h3>
+                                <RechartsBox height={200} minHeight={140} className="flex-1">
                                         <BarChart
                                             data={stats.docExpiryChartData || []}
                                             margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
@@ -803,11 +793,11 @@ function CompanyContent() {
                         </div>
 
                         {/* Right Card: Nationality Dashboard (50%) */}
-                        <div className="flex-[1] bg-white rounded-xl shadow-sm border border-gray-100 flex p-6 gap-6 overflow-hidden">
+                        <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row p-3 sm:p-4 lg:p-6 gap-3 sm:gap-4 lg:gap-6 overflow-hidden min-h-0 min-w-0">
                             {/* Grouped Bar Chart: Nationality by Company */}
-                            <div className="flex-[2] flex flex-col pt-2 min-w-0">
-                                <h3 className="text-[11px] font-bold text-gray-500 text-center uppercase tracking-[0.3em] mb-4 border-b border-gray-50 pb-2">NATIONALITY</h3>
-                                <RechartsBox height={200} minHeight={160} className="flex-1">
+                            <div className="flex-1 md:flex-[2] flex flex-col pt-1 sm:pt-2 min-w-0">
+                                <h3 className="text-[10px] sm:text-[11px] font-bold text-gray-500 text-center uppercase tracking-[0.3em] mb-2 sm:mb-4 border-b border-gray-50 pb-2">NATIONALITY</h3>
+                                <RechartsBox height={200} minHeight={140} className="flex-1">
                                         <BarChart
                                             data={stats.nationalityBarData || []}
                                             margin={{ top: 20, right: 10, left: -20, bottom: 5 }}
@@ -880,20 +870,20 @@ function CompanyContent() {
                                         </BarChart>
                                 </RechartsBox>
                                 {/* Legend */}
-                                <div className="flex justify-center gap-3 mt-4">
+                                <div className="flex justify-center gap-2 sm:gap-3 mt-3 sm:mt-4 flex-wrap">
                                     {(stats.uniqueCompanyNames || []).map((name, i) => (
                                         <div key={name} className="flex items-center gap-1">
                                             <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ['#7C4DFF', '#22C55E', '#3B82F6', '#EF4444', '#14B8A6', '#6366F1'][i % 6] }}></div>
-                                            <span className="text-[10px] font-extrabold text-gray-500 uppercase">{name}</span>
+                                            <span className="text-[9px] sm:text-[10px] font-extrabold text-gray-500 uppercase">{name}</span>
                                         </div>
                                     ))}
                                 </div>
                             </div>
 
                             {/* Pie Chart: Nationality Distribution */}
-                            <div className="flex-[0.6] flex flex-col items-center justify-center min-w-[160px]">
-                                <h3 className="text-[11px] font-bold text-[#1E293B] uppercase tracking-[0.2em] mb-4">Nationality</h3>
-                                <div className="flex-1 w-full max-h-[190px] flex items-center justify-center">
+                            <div className="w-full md:flex-[0.6] flex flex-col items-center justify-center min-w-0 md:min-w-[140px] lg:min-w-[160px] shrink-0">
+                                <h3 className="text-[10px] sm:text-[11px] font-bold text-[#1E293B] uppercase tracking-[0.2em] mb-2 sm:mb-4">Nationality</h3>
+                                <div className="flex-1 w-full min-h-[160px] max-h-[190px] flex items-center justify-center">
                                     <Pie
                                         data={stats.nationalityPieData}
                                         plugins={[ChartDataLabels]}
@@ -931,15 +921,16 @@ function CompanyContent() {
 
                     {/* Companies Grid/Table */}
                     <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                        <table className="w-full text-left">
+                        <div className="overflow-x-auto w-full">
+                        <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 text-left text-xs sm:text-sm">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Sl No</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Company ID</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Company Name</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Employees</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider">Sl No</th>
+                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider">Company ID</th>
+                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider">Company Name</th>
+                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider">Employees</th>
+                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
@@ -967,27 +958,27 @@ function CompanyContent() {
                                         <tr
                                             className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
                                         >
-                                            <td className="px-6 py-4 text-sm text-gray-600 font-medium">
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-xs sm:text-sm text-gray-600 font-medium">
                                                 {String(index + 1).padStart(2, '0')}
                                             </td>
-                                            <td className="px-6 py-4">
-                                                <div className="text-sm font-mono font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded inline-block">
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
+                                                <div className="text-[10px] sm:text-sm font-mono font-bold text-teal-600 bg-teal-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded inline-block">
                                                     {company.companyId}
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200 shadow-sm">
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
+                                                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200 shadow-sm shrink-0">
                                                         {company.logo ? (
                                                             <Image src={company.logo} alt={company.name} width={40} height={40} className="object-cover" />
                                                         ) : (
                                                             <Building className="text-gray-400" size={20} />
                                                         )}
                                                     </div>
-                                                    <div className="font-bold text-gray-800">{company.name}</div>
+                                                    <div className="font-bold text-gray-800 text-xs sm:text-sm break-words min-w-0">{company.name}</div>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4" onClick={(e) => e.stopPropagation()}>
                                                 <Link
                                                     href={`/emp?company=${company._id}`}
                                                     className="flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors hover:underline font-bold"
@@ -996,16 +987,18 @@ function CompanyContent() {
                                                     <span className="text-sm">{company.employeeCount || 0}</span>
                                                 </Link>
                                             </td>
-                                            <td className="px-6 py-4">
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
                                                 <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${company.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
                                                     }`}>
                                                     {company.status || 'Active'}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 text-right">
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2">
                                                     {(company.status !== 'Active' && (isAdmin() || listAccess.edit)) && (
                                                         <button
+                                                            type="button"
+                                                            {...navHrefProps(`/Company/add-company/${company.companyId}`)}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 router.push(`/Company/add-company/${company.companyId}`);
@@ -1037,6 +1030,7 @@ function CompanyContent() {
                                 )}
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1091,10 +1085,10 @@ function CompanyContent() {
                             <table className="w-full text-left border-collapse">
                                 <thead className="sticky top-0 bg-white z-10 shadow-sm">
                                     <tr>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Sl No</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Employee Name</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Company</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Designation</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Sl No</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Employee Name</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Company</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Designation</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50">
@@ -1102,21 +1096,22 @@ function CompanyContent() {
                                         <tr
                                             key={emp._id}
                                             className="hover:bg-blue-50/50 cursor-pointer transition-all border-l-4 border-l-transparent hover:border-l-blue-500 group"
+                                            {...navHrefProps(emp.employeeId ? `/emp/${emp.employeeId}` : '')}
                                             onClick={() => navigateFromList(router, `/emp/${emp.employeeId}`)}
                                         >
-                                            <td className="px-6 py-4 text-xs font-bold text-gray-400">{String(idx + 1).padStart(2, '0')}</td>
-                                            <td className="px-6 py-4">
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-xs font-bold text-gray-400">{String(idx + 1).padStart(2, '0')}</td>
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
                                                 <div className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">
                                                     {emp.firstName} {emp.lastName}
                                                 </div>
                                                 <div className="text-[10px] text-gray-400 font-mono">{emp.employeeId}</div>
                                             </td>
-                                            <td className="px-6 py-4">
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
                                                 <span className="inline-flex items-center px-2 py-1 rounded-md bg-teal-50 text-teal-700 text-[10px] font-black uppercase tracking-wider">
                                                     {emp.companyName || emp.companyNickName || companyMap[emp.company?._id || emp.company] || 'N/A'}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 text-sm font-bold text-gray-600 italic">
+                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-xs sm:text-sm font-bold text-gray-600 italic">
                                                 {emp.designation || '---'}
                                             </td>
                                         </tr>
@@ -1154,71 +1149,78 @@ function CompanyContent() {
                             <table className="w-full text-left border-collapse">
                                 <thead className="sticky top-0 bg-white z-10 shadow-sm">
                                     <tr>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Sl No</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Company Name</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Doc Type</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-center">Expiry Date</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Remaining</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Sl No</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Company Name</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Doc Type</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-center">Expiry Date</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Remaining</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50">
-                                    {sortCompanyDocExpiryModalRows(selectedDocBucket.docs || []).map((doc, idx) => (
+                                    {sortCompanyDocExpiryModalRows(selectedDocBucket.docs || []).map((doc, idx) => {
+                                        const docPath = buildCompanyExpiryModalRowPath(doc) || '';
+                                        const companyPath = doc.compId
+                                            ? `/Company/${encodeURIComponent(String(doc.compId))}?tab=basic`
+                                            : '';
+                                        return (
                                         <tr
                                             key={`${doc.compId}-${idx}-${String(doc.date)}-${doc.name}`}
                                             className="hover:bg-orange-50/50 transition-all border-l-4 border-l-transparent hover:border-l-orange-500 group"
                                         >
                                             <td
-                                                className="px-6 py-4 text-xs font-bold text-gray-400 cursor-pointer"
+                                                className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-xs font-bold text-gray-400 cursor-pointer"
+                                                {...navHrefProps(docPath)}
                                                 onClick={() => {
-                                                    const path = buildCompanyExpiryModalRowPath(doc);
-                                                    if (!path) return;
+                                                    if (!docPath) return;
                                                     setIsDocModalOpen(false);
-                                                    navigateFromList(router, path);
+                                                    navigateFromList(router, docPath);
                                                 }}
                                             >
                                                 {String(idx + 1).padStart(2, '0')}
                                             </td>
                                             <td
-                                                className="px-6 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors cursor-pointer"
+                                                className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 font-bold text-xs sm:text-sm text-gray-800 group-hover:text-orange-600 transition-colors cursor-pointer"
+                                                {...navHrefProps(companyPath)}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    if (!companyPath) return;
                                                     setIsDocModalOpen(false);
-                                                    navigateFromList(router, `/Company/${encodeURIComponent(String(doc.compId))}?tab=basic`);
+                                                    navigateFromList(router, companyPath);
                                                 }}
                                                 title="Open company — Basic details"
                                             >
                                                 {doc.compName}
                                             </td>
                                             <td
-                                                className="px-6 py-4 cursor-pointer"
+                                                className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 cursor-pointer"
+                                                {...navHrefProps(docPath)}
                                                 onClick={() => {
-                                                    const path = buildCompanyExpiryModalRowPath(doc);
-                                                    if (!path) return;
+                                                    if (!docPath) return;
                                                     setIsDocModalOpen(false);
-                                                    navigateFromList(router, path);
+                                                    navigateFromList(router, docPath);
                                                 }}
                                                 title="Open company — tab for this document"
                                             >
                                                 <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">{doc.name}</span>
                                             </td>
                                             <td
-                                                className="px-6 py-4 text-sm font-medium text-gray-600 text-center cursor-pointer"
+                                                className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-xs sm:text-sm font-medium text-gray-600 text-center cursor-pointer"
+                                                {...navHrefProps(docPath)}
                                                 onClick={() => {
-                                                    const path = buildCompanyExpiryModalRowPath(doc);
-                                                    if (!path) return;
+                                                    if (!docPath) return;
                                                     setIsDocModalOpen(false);
-                                                    navigateFromList(router, path);
+                                                    navigateFromList(router, docPath);
                                                 }}
                                             >
                                                 {new Date(doc.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                                             </td>
                                             <td
-                                                className="px-6 py-4 text-right cursor-pointer"
+                                                className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right cursor-pointer"
+                                                {...navHrefProps(docPath)}
                                                 onClick={() => {
-                                                    const path = buildCompanyExpiryModalRowPath(doc);
-                                                    if (!path) return;
+                                                    if (!docPath) return;
                                                     setIsDocModalOpen(false);
-                                                    navigateFromList(router, path);
+                                                    navigateFromList(router, docPath);
                                                 }}
                                             >
                                                 <span className={`text-[11px] font-black px-2 py-1 rounded-full ${doc.daysRemaining < 0 ? 'bg-red-600 text-white shadow-sm' : doc.daysRemaining <= 7 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
@@ -1229,7 +1231,8 @@ function CompanyContent() {
                                                 </span>
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -1258,10 +1261,10 @@ function CompanyContent() {
                             <table className="w-full text-left border-collapse">
                                 <thead className="sticky top-0 bg-white z-10 shadow-sm">
                                     <tr>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Sl No</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Employee Name</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Company</th>
-                                        <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Designation</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Sl No</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Employee Name</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Company</th>
+                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Designation</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50">
@@ -1276,19 +1279,20 @@ function CompanyContent() {
                                             <tr
                                                 key={emp._id}
                                                 className="hover:bg-teal-50/50 cursor-pointer transition-all border-l-4 border-l-transparent hover:border-l-teal-500 group"
+                                                {...navHrefProps(emp.employeeId ? `/emp/${emp.employeeId}` : '')}
                                                 onClick={() => navigateFromList(router, `/emp/${emp.employeeId}`)}
                                             >
-                                                <td className="px-6 py-4 text-xs font-bold text-gray-400">{String(idx + 1).padStart(2, '0')}</td>
-                                                <td className="px-6 py-4">
+                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-xs font-bold text-gray-400">{String(idx + 1).padStart(2, '0')}</td>
+                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
                                                     <div className="font-bold text-gray-800 group-hover:text-teal-600 transition-colors">{emp.firstName} {emp.lastName}</div>
                                                     <div className="text-[10px] text-gray-400 font-mono">{emp.employeeId}</div>
                                                 </td>
-                                                <td className="px-6 py-4">
+                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
                                                     <span className="inline-flex items-center px-2 py-1 rounded-md bg-teal-50 text-teal-700 text-[10px] font-black uppercase tracking-wider">
                                                         {emp.companyName || emp.companyNickName || 'N/A'}
                                                     </span>
                                                 </td>
-                                                <td className="px-6 py-4 text-sm font-bold text-gray-600 italic">{emp.designation || '---'}</td>
+                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-xs sm:text-sm font-bold text-gray-600 italic">{emp.designation || '---'}</td>
                                             </tr>
                                         ))}
                                 </tbody>
@@ -1313,6 +1317,7 @@ function CompanyContent() {
                         setShowNotificationsModal(false);
                     }
                 }}
+                getItemHref={(item) => buildDashboardNotificationPath(item) || ''}
                 onDelete={isAdmin() ? handleDeleteNotification : undefined}
             />
         </div>

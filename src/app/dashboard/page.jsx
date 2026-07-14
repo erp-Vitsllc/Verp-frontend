@@ -14,23 +14,9 @@ import { mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbac
 import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
 import { fetchEmployeeDashboardStats } from '@/utils/employeeDashboardStatsFetch';
 import {
-    mergeCommandCenterWithModuleInboxes,
     groupCommandCenterByModule,
-    formatCommandCenterSubtype,
-    isCommandCenterHiddenType,
+    formatCommandCenterNotificationMessage,
 } from '@/utils/dashboardCommandCenterInbox';
-import {
-    fetchAssetPendingInbox,
-    fetchFinePendingInbox,
-    fetchPaymentPendingInbox,
-    fetchRewardPendingInbox,
-} from '@/utils/pendingInboxFetch';
-import { loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
-import {
-    getViewerEmployeeObjectIdFromStorage,
-    isFlowchartHrForExpiryTasks,
-} from '@/utils/flowchartHrExpiryVisibility';
-import { isAdmin } from '@/utils/permissions';
 import { ASSET_PENDING_INBOX_CHANGED } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { FINE_PENDING_INBOX_CHANGED } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { PAYMENT_PENDING_INBOX_CHANGED } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
@@ -38,11 +24,21 @@ import { REWARD_PENDING_INBOX_CHANGED } from '@/app/HRM/Reward/utils/rewardPendi
 
 import {
     isDashboardPendingItem,
-    isSubmitterRejectedFollowup,
     filterActionableDashboardItems,
 } from '@/utils/activationNotificationFilters';
-
-import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
+import {
+    isCommandCenterOverdue,
+    isIncomingCommandCenterItem,
+    isViewingOwnCommandCenter,
+    stripModuleNotificationCopies,
+    computeIncomingCommandCenterStats,
+    countCommandCenterInboxStats,
+    fetchCommandCenterInboxStatsForUser,
+    loadPreparedCommandCenterItems,
+    flattenHierarchyNodes,
+    sumCommandCenterInboxStats,
+} from '@/utils/commandCenterInboxStats';
+import { navHrefProps } from '@/utils/linkContextMenu';
 
 import {
 
@@ -84,42 +80,7 @@ import { Doughnut } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-
-
-const isOverdue = (date, status, type = '') => {
-    if (!date || (status !== 'Pending' && status !== 'On Hold')) return false;
-
-    const requested = new Date(date);
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    requested.setHours(0, 0, 0, 0);
-
-    const typeLow = String(type || '').toLowerCase();
-    const isExpiryReminder = typeLow.includes('expiry') || typeLow.includes('reminder');
-
-    if (isExpiryReminder) {
-        // For expiry reminders, it's overdue if the date (expiry date) is today or in the past
-        return requested <= now;
-    }
-
-    // For other requests, use the 3-day rule
-    const diffTime = now - requested;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 3;
-};
-
-const COMPANY_DASHBOARD_ACTION_TYPES = new Set([
-    'Company Activation',
-    'Company Document Not Renew',
-    'Document Expiry Reminder',
-]);
-
-/** Company tasks assigned to the user must appear under Inbox (bell already counts them). */
-const companyTaskBelongsInInbox = (item) => {
-    if (!item || !COMPANY_DASHBOARD_ACTION_TYPES.has(item.type)) return false;
-    const st = String(item.status || '');
-    return st === 'Pending' || st === 'On Hold' || (st === 'Rejected' && item.type === 'Company Activation');
-};
+const isOverdue = isCommandCenterOverdue;
 
 // Wrapper component to handle useSearchParams with Suspense
 
@@ -171,26 +132,26 @@ const ActivityPieChart = memo(function ActivityPieChart({ data, currentFilter = 
     }), []);
 
     return (
-        <div className="flex flex-col items-center justify-center">
-            <div className="relative w-48 h-48 min-w-[12rem] min-h-[12rem] shrink-0">
+        <div className="flex flex-col items-center justify-center w-full">
+            <div className="relative w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 lg:w-48 lg:h-48 shrink-0">
                 <Doughnut data={isEmpty ? emptyData : chartData} options={options} />
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-3xl font-black text-slate-800 leading-none tracking-tight">{displayValue}</span>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{displayLabel}</span>
+                    <span className="text-xl sm:text-2xl md:text-3xl font-black text-slate-800 leading-none tracking-tight">{displayValue}</span>
+                    <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 sm:mt-1">{displayLabel}</span>
                 </div>
             </div>
-            <div className="flex gap-4 mt-6">
-                <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-200"></div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending</span>
+            <div className="flex flex-wrap justify-center gap-2 sm:gap-4 mt-3 sm:mt-6">
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-200"></div>
+                    <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Approved</span>
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></div>
+                    <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Approved</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-200"></div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rejected</span>
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-200"></div>
+                    <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rejected</span>
                 </div>
             </div>
         </div>
@@ -213,8 +174,6 @@ function DashboardContent() {
     const [userStats, setUserStats] = useState({ pending: 0, approved: 0, rejected: 0, accepted: 0, total: 0, items: [] });
 
     const [derivedStats, setDerivedStats] = useState({ completed: 0, overdue: 0 });
-
-    const [aggregatedStats, setAggregatedStats] = useState({ total: 0, completed: 0, overdue: 0, pending: 0, approved: 0, rejected: 0 });
 
     const [isExpanded, setIsExpanded] = useState(false);
 
@@ -324,20 +283,21 @@ function DashboardContent() {
 
 
         const userData = localStorage.getItem('user');
+        let sessionUser = null;
 
         if (userData) {
 
             try {
 
-                const user = JSON.parse(userData);
+                sessionUser = JSON.parse(userData);
 
-                setUserName(user.name || user.firstName || 'User');
+                setUserName(sessionUser.name || sessionUser.firstName || 'User');
 
                 // Prefer employeeObjectId (Employee Model ID), fallback to _id (User Model ID)
 
-                setCurrentUserId(user.employeeObjectId || user._id);
+                setCurrentUserId(sessionUser.employeeObjectId || sessionUser._id);
 
-                setCurrentUserEmpId(user.employeeId); // String ID
+                setCurrentUserEmpId(sessionUser.employeeId); // String ID
 
             } catch (e) {
 
@@ -347,6 +307,13 @@ function DashboardContent() {
 
         }
 
+        let cancelled = false;
+        const viewingOwnInbox = isViewingOwnCommandCenter(selectedUser, sessionUser);
+
+        // Drop previous person's (or own merged) list immediately so logged-in pending never flashes in.
+        setUserStats({ pending: 0, approved: 0, rejected: 0, accepted: 0, total: 0, items: [] });
+        setDerivedStats({ completed: 0, overdue: 0 });
+
 
 
         const fetchUserStats = async () => {
@@ -355,123 +322,86 @@ function DashboardContent() {
 
                 setLoading(true);
 
+                const targetUserId = viewingOwnInbox ? null : selectedUser?._id;
 
-
-                // Add targetUserId param if viewing someone else
-
+                // Paint raw user-stats first (fast), then prepare with that employee's live module bells.
                 const params = {};
+                if (targetUserId) params.targetUserId = targetUserId;
 
-                if (selectedUser) params.targetUserId = selectedUser._id;
-
-
-
-                const res = selectedUser
-                    ? await axiosInstance.get('/Employee/dashboard/user-stats', { params })
+                const res = targetUserId
+                    ? await axiosInstance.get('/Employee/dashboard/user-stats', { params, skipToast: true })
                     : await fetchEmployeeDashboardStats(axiosInstance, { skipToast: true });
 
+                if (cancelled) return;
+
                 const payload = res?.data && typeof res.data === 'object' ? res.data : {};
-                const rawItems = payload.items;
-                let items = mergeExpiryNotificationDedupe(Array.isArray(rawItems) ? rawItems : [], []);
-
-                // Exact copies of sidebar / module-page notification bells, grouped by module.
-                if (!selectedUser) {
-                    try {
-                        const viewerId =
-                            typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-                        const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
-
-                        const [toolsItems, vehicleItems, fineItems, paymentItems, rewardItems, notificationBundle] =
-                            await Promise.all([
-                                fetchAssetPendingInbox(axiosInstance, {
-                                    inboxScope: 'tools',
-                                    skipSync: true,
-                                    skipToast: true,
-                                }),
-                                fetchAssetPendingInbox(axiosInstance, {
-                                    inboxScope: 'vehicle',
-                                    skipSync: true,
-                                    skipToast: true,
-                                }),
-                                fetchFinePendingInbox(axiosInstance, { skipToast: true }),
-                                fetchPaymentPendingInbox(axiosInstance, { skipToast: true }),
-                                fetchRewardPendingInbox(axiosInstance, { skipToast: true }),
-                                loadCompanyNotificationBundle(axiosInstance, {
-                                    hrLive: hrLiveGuess,
-                                    cachedCompanies: [],
-                                    skipExpirySync: true,
-                                }),
-                            ]);
-
-                        const flowchartHrId = payload?.flowchartHrEmployeeObjectId ?? null;
-                        const liveExpiryHrView =
-                            isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-                        const mandatoryCardsHrLive = isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-
-                        let employeesList = [];
-                        if (liveExpiryHrView || mandatoryCardsHrLive) {
-                            try {
-                                const empRes = await axiosInstance
-                                    .get('/Employee', { params: { limit: 1000 }, skipToast: true })
-                                    .catch(() => ({ data: {} }));
-                                const empPayload = empRes?.data?.employees ?? empRes?.data;
-                                employeesList = Array.isArray(empPayload) ? empPayload : [];
-                            } catch {
-                                employeesList = [];
-                            }
-                        }
-
-                        items = mergeCommandCenterWithModuleInboxes(items, {
-                            toolsItems,
-                            vehicleItems,
-                            fineItems,
-                            paymentItems,
-                            rewardItems,
-                            companiesList: notificationBundle?.companiesList || [],
-                            employeesList,
-                            liveExpiryHrView,
-                            mandatoryCardsHrLive,
-                        });
-                    } catch (inboxErr) {
-                        console.error('Failed to merge module pending inboxes', inboxErr);
-                    }
-                }
-
-                items = items.filter((item) => !isCommandCenterHiddenType(item?.type));
-
-
-
-                // Calculate derived stats
-
-                const completedCount = items.filter(i => i.status === 'Approved' || i.status === 'Rejected').length;
-
-                const overdueCount = items.filter(i => isOverdue(i.requestedDate, i.status, i.type)).length;
-
-
+                const rawItems = mergeExpiryNotificationDedupe(
+                    Array.isArray(payload.items) ? payload.items : [],
+                    [],
+                );
+                const paintItems = stripModuleNotificationCopies(rawItems);
 
                 setUserStats({
-
                     ...payload,
-
-                    items: items
-
+                    items: paintItems,
                 });
-
                 setDerivedStats({
-
-                    completed: completedCount,
-
-                    overdue: overdueCount
-
+                    completed: paintItems.filter((i) => i.status === 'Approved' || i.status === 'Rejected').length,
+                    overdue: paintItems.filter((i) => isOverdue(i.requestedDate, i.status, i.type)).length,
                 });
+                setLoading(false);
 
+                // Same prepare path for own Dashboard and for a team member's Command Center.
+                try {
+                    const prepared = await loadPreparedCommandCenterItems(axiosInstance, {
+                        targetUserId,
+                        statsPayload: { ...payload, items: paintItems },
+                        skipEmployees: true,
+                    });
+                    if (cancelled) return;
 
+                    let merged = prepared.items;
+                    setUserStats((prev) => ({
+                        ...prev,
+                        ...payload,
+                        items: merged,
+                    }));
+                    setDerivedStats({
+                        completed: merged.filter((i) => i.status === 'Approved' || i.status === 'Rejected').length,
+                        overdue: merged.filter((i) => isOverdue(i.requestedDate, i.status, i.type)).length,
+                    });
+
+                    // Own inbox only: optional second pass with employee roster for HR live expiry.
+                    if (
+                        viewingOwnInbox &&
+                        (prepared.feeds?.liveExpiryHrView || prepared.feeds?.mandatoryCardsHrLive)
+                    ) {
+                        const full = await loadPreparedCommandCenterItems(axiosInstance, {
+                            targetUserId: null,
+                            statsPayload: { ...payload, items: paintItems },
+                            skipEmployees: false,
+                            force: true,
+                        });
+                        if (cancelled) return;
+                        merged = full.items;
+                        setUserStats((prev) => ({
+                            ...prev,
+                            ...payload,
+                            items: merged,
+                        }));
+                        setDerivedStats({
+                            completed: merged.filter((i) => i.status === 'Approved' || i.status === 'Rejected').length,
+                            overdue: merged.filter((i) => isOverdue(i.requestedDate, i.status, i.type)).length,
+                        });
+                    }
+                } catch (inboxErr) {
+                    console.error('Failed to prepare Command Center inbox', inboxErr);
+                }
 
             } catch (error) {
 
+                if (cancelled) return;
                 console.error("Failed to fetch user activity stats", error);
-
-            } finally {
-
                 setLoading(false);
 
             }
@@ -508,7 +438,8 @@ function DashboardContent() {
 
         let refreshTimer = null;
         const refreshFromModuleInbox = () => {
-            if (selectedUser) return;
+            // Never refresh / re-merge when inspecting another employee.
+            if (!viewingOwnInbox) return;
             if (refreshTimer) clearTimeout(refreshTimer);
             refreshTimer = setTimeout(() => {
                 fetchUserStats();
@@ -522,6 +453,7 @@ function DashboardContent() {
         }
 
         return () => {
+            cancelled = true;
             if (refreshTimer) clearTimeout(refreshTimer);
             if (typeof window !== 'undefined') {
                 window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
@@ -537,62 +469,61 @@ function DashboardContent() {
 
     // Helper: Check if an item is overdue based on 2 PM rule
 
-    // Fetch hierarchy data for Team View
+    // Derived Scoped Items — when viewing another user, use THEIR id and never keep session module bells.
 
-    useEffect(() => {
-
-        if (isExpanded && viewMode === 'teams') {
-
-            const fetchTeamStats = async () => {
-
-                try {
-
-                    const params = {};
-
-                    if (selectedUser) params.targetUserId = selectedUser._id;
-
-                    const res = await axiosInstance.get('/Employee/dashboard/team-stats', { params });
-
-                    setAggregatedStats(res.data);
-
-                } catch (e) {
-
-                    console.error("Failed to fetch team stats", e);
-
-                }
-
+    const inboxViewerIds = useMemo(() => {
+        if (selectedUser) {
+            return {
+                objectId: selectedUser._id,
+                empCode: selectedUser.employeeId,
             };
-
-            fetchTeamStats();
-
         }
+        return {
+            objectId: currentUserId,
+            empCode: currentUserEmpId,
+        };
+    }, [selectedUser, currentUserId, currentUserEmpId]);
 
-    }, [isExpanded, viewMode, selectedUser]);
-
-
-
-
-
-    // Derived Scoped Items Calculation
+    const viewingOwnInbox = useMemo(() => {
+        if (!selectedUser) return true;
+        return (
+            (currentUserId && String(selectedUser._id) === String(currentUserId)) ||
+            (currentUserEmpId &&
+                selectedUser.employeeId &&
+                String(selectedUser.employeeId) === String(currentUserEmpId))
+        );
+    }, [selectedUser, currentUserId, currentUserEmpId]);
 
     const scopedItems = useMemo(() => {
         if (!userStats.items) return [];
         return userStats.items.filter((item) => {
-            if (isCommandCenterHiddenType(item?.type)) return false;
             if (viewMode === 'teams') return true;
-            if (item.scope) {
-                if (requestScope === 'outgoing') return item.scope === 'outgoing';
-                if (item.scope === 'inbox') return true;
-                if (companyTaskBelongsInInbox(item)) return true;
-                return false;
+
+            if (requestScope === 'outgoing') {
+                // Module-bell copies are inbox-only for the logged-in user; never My Requests.
+                if (
+                    item?._fromModuleNotifications ||
+                    item?._fromModulePageNotifications ||
+                    item?._fromModulePendingInbox
+                ) {
+                    return false;
+                }
+                if (item.scope) return item.scope === 'outgoing';
+                const myId = inboxViewerIds.objectId;
+                if (!myId) return true;
+                const requesterId = item.employeeId?._id || item.employeeId || item.requestedById || item.targetEmployeeId;
+                const isRequester =
+                    String(requesterId) === String(myId) ||
+                    (inboxViewerIds.empCode && String(requesterId) === String(inboxViewerIds.empCode));
+                return isRequester;
             }
-            const myId = currentUserId;
-            if (!myId) return true;
-            const requesterId = item.employeeId?._id || item.employeeId || item.requestedById || item.targetEmployeeId;
-            const isRequester = String(requesterId) === String(myId) || (currentUserEmpId && String(requesterId) === String(currentUserEmpId));
-            return requestScope === 'outgoing' ? isRequester : !isRequester;
+
+            return isIncomingCommandCenterItem(item, inboxViewerIds, {
+                // Prepared items (own live merge or remote stats-merge) both use module copies.
+                allowModuleCopies: true,
+            });
         });
-    }, [userStats.items, viewMode, requestScope, currentUserId, currentUserEmpId]);
+    }, [userStats.items, viewMode, requestScope, inboxViewerIds]);
 
 
 
@@ -601,37 +532,10 @@ function DashboardContent() {
         [userStats.items],
     );
 
-    const scopedStats = useMemo(() => {
-        let completed = 0;
-        let approved = 0;
-        let rejected = 0;
-        let overdue = 0;
-        const pendingItems = [];
-        for (const i of scopedItems) {
-            if (i.status === 'Approved') {
-                approved += 1;
-                completed += 1;
-            } else if (i.status === 'Rejected') {
-                rejected += 1;
-                if (!isSubmitterRejectedFollowup(i)) completed += 1;
-            }
-            if (isDashboardPendingItem(i)) pendingItems.push(i);
-            if (isOverdue(i.requestedDate, i.status, i.type)) overdue += 1;
-        }
-        // Same rows the Pending module sections render (sidebar module categories only).
-        const pending = groupCommandCenterByModule(pendingItems).reduce(
-            (sum, group) => sum + (group.items?.length || 0),
-            0,
-        );
-        return {
-            total: scopedItems.length,
-            completed,
-            pending,
-            approved,
-            rejected,
-            overdue,
-        };
-    }, [scopedItems]);
+    const scopedStats = useMemo(
+        () => computeIncomingCommandCenterStats(scopedItems),
+        [scopedItems],
+    );
 
 
 
@@ -708,51 +612,88 @@ function DashboardContent() {
 
 
 
-    // Fetch hierarchy data for Team View
-
+    // Fetch hierarchy data for Team View (only employees with portal User accounts)
     useEffect(() => {
 
-        if (isExpanded && viewMode === 'teams' && hierarchyData.length === 0) {
+        if (!isExpanded || viewMode !== 'teams') return;
 
-            const loadHierarchy = async () => {
+        let cancelled = false;
 
-                try {
+        const loadHierarchy = async () => {
 
-                    const res = await axiosInstance.get('/Employee/dashboard/hierarchy');
+            try {
 
-                    const flatList = res.data.hierarchy || [];
+                const res = await axiosInstance.get('/Employee/dashboard/hierarchy');
 
-                    const manager = res.data.manager;
+                if (cancelled) return;
 
+                const flatList = res.data.hierarchy || [];
 
+                const manager = res.data.manager;
 
-                    if (manager) {
+                if (manager) {
 
-                        const tree = buildTree(manager, flatList);
+                    const tree = buildTree(manager, flatList);
 
-                        setHierarchyData(tree);
+                    setHierarchyData(tree);
 
-                        // Fetch stats for the manager (root) and direct reports immediately
+                    setTeamStats({});
 
-                        fetchEmployeeStats(manager._id);
+                    // Exact dashboard Inbox counts for every person in the tree (no team-stats mix-in).
+                    flattenHierarchyNodes(tree).forEach((person) => {
+                        fetchEmployeeStats(person._id, person.employeeId, { force: true });
+                    });
 
-                        tree[0]?.children?.forEach(child => fetchEmployeeStats(child._id));
+                } else {
 
-                    }
-
-                } catch (error) {
-
-                    console.error("Failed to load hierarchy", error);
+                    setHierarchyData([]);
 
                 }
 
-            };
+            } catch (error) {
 
-            loadHierarchy();
+                console.error("Failed to load hierarchy", error);
 
-        }
+            }
 
-    }, [isExpanded, viewMode, hierarchyData.length]);
+        };
+
+        loadHierarchy();
+
+        return () => {
+
+            cancelled = true;
+
+        };
+
+    }, [isExpanded, viewMode]);
+
+    // Keep the logged-in user's Team Performance row identical to their Inbox cards.
+    // Only when Command Center is actually showing *our* items (never when drilling into someone else).
+    useEffect(() => {
+        if (viewMode !== 'teams' || !currentUserId) return;
+        if (!viewingOwnInbox) return;
+        if (!Array.isArray(userStats.items)) return;
+
+        const stats = countCommandCenterInboxStats(
+            userStats.items,
+            {
+                objectId: currentUserId,
+                empCode: currentUserEmpId,
+            },
+            { allowModuleCopies: true },
+        );
+        setTeamStats((prev) => ({
+            ...prev,
+            [currentUserId]: stats,
+        }));
+    }, [viewMode, currentUserId, currentUserEmpId, userStats.items, viewingOwnInbox]);
+
+    // Team overview cards = sum of each person's exact dashboard Inbox counts (same as table rows).
+    const aggregatedStats = useMemo(() => {
+        const people = flattenHierarchyNodes(hierarchyData);
+        return sumCommandCenterInboxStats(people.map((p) => teamStats[p._id]));
+    }, [hierarchyData, teamStats]);
 
 
 
@@ -760,92 +701,65 @@ function DashboardContent() {
 
         if (!manager) return [];
 
-        const getChildren = (parentId, visited = new Set()) => {
+        const list = Array.isArray(allEmployees) ? allEmployees : [];
+        const seenIds = new Set();
 
-            if (visited.has(parentId)) return [];
+        const getChildren = (parentId, visited = new Set()) => {
+            const parentKey = String(parentId);
+            if (visited.has(parentKey)) return [];
 
             const currentVisited = new Set(visited);
+            currentVisited.add(parentKey);
 
-            currentVisited.add(parentId);
-
-            return allEmployees
-
-                .filter(e => e.primaryReportee === parentId && !currentVisited.has(e._id))
-
-                .map(child => ({
-
-                    ...child,
-
-                    children: getChildren(child._id, currentVisited)
-
-                }));
-
+            return list
+                .filter((e) => {
+                    const id = String(e._id);
+                    if (seenIds.has(id) || currentVisited.has(id)) return false;
+                    return String(e.primaryReportee) === parentKey;
+                })
+                .map((child) => {
+                    const id = String(child._id);
+                    seenIds.add(id);
+                    return {
+                        ...child,
+                        _id: child._id,
+                        children: getChildren(child._id, currentVisited),
+                    };
+                });
         };
 
         return [{
-
             ...manager,
-
-            children: getChildren(manager._id, new Set())
-
+            children: getChildren(manager._id, new Set()),
         }];
 
     };
 
 
 
-    const fetchEmployeeStats = async (userId) => {
+    const fetchEmployeeStats = async (userId, empCode = null, { force = false } = {}) => {
 
-        if (teamStats[userId]) return; // Already fetched
+        if (!userId) return;
+        if (!force && teamStats[userId]) return; // Already fetched
 
         try {
+            // Self: reuse already-merged Command Center items (exact live dashboard Inbox).
+            const isSelf =
+                (currentUserId && String(userId) === String(currentUserId)) ||
+                (currentUserEmpId && empCode && String(empCode) === String(currentUserEmpId));
 
-            const res = await axiosInstance.get('/Employee/dashboard/user-stats', { params: { targetUserId: userId } });
+            const stats = await fetchCommandCenterInboxStatsForUser(axiosInstance, {
+                targetUserId: userId,
+                empCode,
+                isOwnDashboard: isSelf,
+                preloadedItems: isSelf && Array.isArray(userStats.items) && viewingOwnInbox
+                    ? userStats.items
+                    : null,
+            });
 
-            const items = res.data.items || [];
-
-
-
-            // Strictly track items in THEIR INBOX (tasks assigned to them)
-
-            const inboxItems = items.filter(i => i.scope === 'inbox');
-
-
-
-            const pendingCount = inboxItems.filter(i => i.status === 'Pending').length;
-
-            const approvedCount = inboxItems.filter(i => i.status === 'Approved').length;
-
-            const rejectedCount = inboxItems.filter(i => i.status === 'Rejected').length;
-
-            const completedCount = approvedCount + rejectedCount;
-
-            const overdueCount = inboxItems.filter(i => (i.status === 'Pending' || i.status === 'On Hold') && isOverdue(i.requestedDate, i.status, i.type)).length;
-
-
-
-            setTeamStats(prev => ({
-
+            setTeamStats((prev) => ({
                 ...prev,
-
-                [userId]: {
-
-                    ...res.data,
-
-                    total: pendingCount + completedCount,
-
-                    pending: pendingCount,
-
-                    approved: approvedCount,
-
-                    rejected: rejectedCount,
-
-                    completed: completedCount,
-
-                    overdue: overdueCount
-
-                }
-
+                [userId]: stats,
             }));
 
         } catch (error) {
@@ -884,7 +798,9 @@ function DashboardContent() {
 
             if (isExpanded && hasChildren) {
 
-                node.children.forEach(child => fetchEmployeeStats(child._id));
+                node.children.forEach((child) =>
+                    fetchEmployeeStats(child._id, child.employeeId),
+                );
 
             }
 
@@ -1008,21 +924,21 @@ function DashboardContent() {
 
 
 
-                <div className="flex-1 overflow-y-auto w-full p-6 lg:p-10 scrollbar-hide">
+                <div className="flex-1 overflow-y-auto w-full p-3 sm:p-5 lg:p-10 scrollbar-hide">
 
-                    <div className="max-w-7xl mx-auto space-y-10">
+                    <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 lg:space-y-10">
 
 
 
                         {/* New Header Section */}
 
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
 
-                            <div>
+                            <div className="min-w-0">
 
-                                <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Hi, welcome back!</h1>
+                                <h1 className="text-lg sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight leading-tight">Hi, welcome back!</h1>
 
-                                <p className="text-slate-500 font-medium mt-1">Your HR performance and monitoring dashboard template.</p>
+                                <p className="text-slate-500 font-medium mt-0.5 sm:mt-1 text-xs sm:text-sm leading-snug">Your HR performance and monitoring dashboard template.</p>
 
                             </div>
 
@@ -1040,7 +956,7 @@ function DashboardContent() {
 
                         {/* Dashboard Content Grid - Interactive Mode */}
 
-                        <div className="grid grid-cols-12 gap-6">
+                        <div className="grid grid-cols-12 gap-3 sm:gap-4 lg:gap-6">
 
 
 
@@ -1070,7 +986,7 @@ function DashboardContent() {
 
                                                 {viewMode === 'teams'
 
-                                                    ? `Aggregated stats for ${selectedUser ? selectedUser.firstName + ' and their team' : 'you and your team'}.`
+                                                    ? 'Each row uses that user’s exact dashboard Inbox counts; cards above are the sum of those rows.'
 
                                                     : `Manage and track ${selectedUser ? selectedUser.firstName + "'s" : 'your'} requests in one place.`
 
@@ -1357,7 +1273,7 @@ function DashboardContent() {
                                                                         {groupItems.map((item, index) => {
 
                                                                             const isMe = item.requestedBy === 'Me';
-                                                                            const subtype = formatCommandCenterSubtype(item);
+                                                                            const notice = formatCommandCenterNotificationMessage(item);
 
 
 
@@ -1366,6 +1282,8 @@ function DashboardContent() {
                                                                                 <tr
 
                                                                                     key={`${item.actionId || item.id}_${index}`}
+
+                                                                                    {...navHrefProps(buildDashboardNotificationPath(item) || '')}
 
                                                                                     onClick={() => handleRowClick(item)}
 
@@ -1383,7 +1301,7 @@ function DashboardContent() {
 
                                                                                             </div>
 
-                                                                                            <div className="flex flex-col gap-0.5">
+                                                                                            <div className="flex flex-col gap-0.5 min-w-0">
 
                                                                                                 <div className="flex items-center gap-1.5 flex-wrap">
 
@@ -1395,15 +1313,22 @@ function DashboardContent() {
 
                                                                                                     </span>
 
-                                                                                                    {subtype ? (
+                                                                                                    {notice.chip ? (
                                                                                                         <span className="text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-100">
-                                                                                                            {subtype}
+                                                                                                            {notice.chip}
                                                                                                         </span>
                                                                                                     ) : null}
 
                                                                                                 </div>
 
-                                                                                                {item.extra1 && <span className="text-[10px] text-slate-400 font-bold tracking-tight line-clamp-1">{shortenUrlsForDisplay(item.extra1)}</span>}
+                                                                                                <span className="text-[11px] text-slate-700 font-semibold tracking-tight line-clamp-1">
+                                                                                                    {notice.title}
+                                                                                                </span>
+                                                                                                {notice.detail ? (
+                                                                                                    <span className="text-[10px] text-slate-400 font-bold tracking-tight line-clamp-1">
+                                                                                                        {notice.detail}
+                                                                                                    </span>
+                                                                                                ) : null}
 
                                                                                             </div>
 
@@ -1571,33 +1496,33 @@ function DashboardContent() {
 
                                         onClick={() => setIsExpanded(true)}
 
-                                        className="col-span-12 md:col-span-6 lg:col-span-3 bg-white rounded-[20px] p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[300px] cursor-pointer hover:shadow-md hover:border-blue-100 transition-all group relative overflow-hidden"
+                                        className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[200px] sm:min-h-[240px] lg:min-h-[300px] cursor-pointer hover:shadow-md hover:border-blue-100 transition-all group relative overflow-hidden"
 
                                     >
 
-                                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="absolute top-0 right-0 p-2 sm:p-4 opacity-0 group-hover:opacity-100 transition-opacity">
 
-                                            <ArrowUpRight className="w-5 h-5 text-blue-500" />
-
-                                        </div>
-
-
-
-                                        <div className="w-full mb-4">
-
-                                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider group-hover:text-blue-600 transition-colors">Request Activity</h3>
-
-                                            <p className="text-slate-400 text-xs mt-2 leading-relaxed">Status Overview</p>
+                                            <ArrowUpRight className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500" />
 
                                         </div>
 
-                                        <div className="flex-1 flex flex-col items-center justify-center w-full">
+
+
+                                        <div className="w-full mb-2 sm:mb-4">
+
+                                            <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider group-hover:text-blue-600 transition-colors">Request Activity</h3>
+
+                                            <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">Status Overview</p>
+
+                                        </div>
+
+                                        <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0">
 
                                             <ActivityPieChart data={scopedStats} currentFilter={filter} size={45} />
 
                                         </div>
 
-                                        <div className="mt-4 text-xs font-bold text-center text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all">
+                                        <div className="mt-2 sm:mt-4 text-[9px] sm:text-xs font-bold text-center text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all">
 
                                             Click to view details
 
@@ -1609,23 +1534,23 @@ function DashboardContent() {
 
                                     {/* Card 2: Net Profit Margin (Dummy) */}
 
-                                    <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white rounded-[20px] p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[300px]">
+                                    <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[200px] sm:min-h-[240px] lg:min-h-[300px]">
 
                                         <div>
 
-                                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Net Profit Margin</h3>
+                                            <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">Net Profit Margin</h3>
 
-                                            <p className="text-slate-400 text-xs mt-2 leading-relaxed">Measures your business at generating prof... <span className="text-blue-500 cursor-pointer hover:underline">Learn more</span></p>
+                                            <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">Measures your business at generating prof... <span className="text-blue-500 cursor-pointer hover:underline">Learn more</span></p>
 
                                         </div>
 
-                                        <div className="flex items-center justify-center py-4">
+                                        <div className="flex items-center justify-center py-2 sm:py-4">
 
-                                            <div className="relative w-40 h-40 rounded-full flex items-center justify-center">
+                                            <div className="relative w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 rounded-full flex items-center justify-center">
 
                                                 {/* Background Circle */}
 
-                                                <svg className="absolute w-full h-full transform -rotate-90">
+                                                <svg className="absolute w-full h-full transform -rotate-90" viewBox="0 0 160 160">
 
                                                     <circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="12" fill="transparent" />
 
@@ -1633,7 +1558,7 @@ function DashboardContent() {
 
                                                 </svg>
 
-                                                <span className="text-4xl font-black text-blue-600">68%</span>
+                                                <span className="text-2xl sm:text-3xl lg:text-4xl font-black text-blue-600">68%</span>
 
                                             </div>
 
@@ -1645,29 +1570,29 @@ function DashboardContent() {
 
                                     {/* Card 3: Your Balance (Dummy) */}
 
-                                    <div className="col-span-12 lg:col-span-6 bg-white rounded-[20px] p-8 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[300px] relative overflow-hidden">
+                                    <div className="col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-5 lg:p-8 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[180px] sm:min-h-[240px] lg:min-h-[300px] relative overflow-hidden">
 
-                                        <div className="flex justify-between items-start z-10">
+                                        <div className="flex justify-between items-start z-10 gap-2">
 
-                                            <div>
+                                            <div className="min-w-0">
 
-                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Your Balance</p>
+                                                <p className="text-[9px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1">Your Balance</p>
 
-                                                <h3 className="text-4xl font-black text-slate-900 tracking-tight">$780,560<span className="text-2xl text-slate-400">.00</span></h3>
+                                                <h3 className="text-xl sm:text-3xl lg:text-4xl font-black text-slate-900 tracking-tight break-words">$780,560<span className="text-base sm:text-xl lg:text-2xl text-slate-400">.00</span></h3>
 
                                             </div>
 
-                                            <div className="bg-blue-600 text-white px-3 py-1 rounded font-black italic tracking-tighter text-lg">VISA</div>
+                                            <div className="bg-blue-600 text-white px-2 sm:px-3 py-0.5 sm:py-1 rounded font-black italic tracking-tighter text-xs sm:text-lg shrink-0">VISA</div>
 
                                         </div>
 
 
 
-                                        <div className="z-10">
+                                        <div className="z-10 mt-3 sm:mt-0">
 
-                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Your Account Number</p>
+                                            <p className="text-[9px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 sm:mb-2">Your Account Number</p>
 
-                                            <div className="flex items-center gap-4 text-slate-900 text-xl font-black tracking-widest">
+                                            <div className="flex items-center gap-2 sm:gap-4 text-slate-900 text-sm sm:text-lg lg:text-xl font-black tracking-widest flex-wrap">
 
                                                 <span>••••</span>
 
@@ -1717,23 +1642,23 @@ function DashboardContent() {
 
                                     {/* NEW: Pending Approvals Quick List (Always visible in Default View) */}
 
-                                    <div className="col-span-12 bg-white rounded-[20px] p-8 shadow-sm border border-slate-100 min-h-[400px]">
+                                    <div className="col-span-12 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-5 lg:p-8 shadow-sm border border-slate-100 min-h-0 sm:min-h-[280px] lg:min-h-[400px]">
 
-                                        <div className="flex items-center justify-between mb-8">
+                                        <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6 lg:mb-8">
 
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
 
-                                                <div className="w-10 h-10 rounded-2xl bg-orange-50 flex items-center justify-center">
+                                                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-orange-50 flex items-center justify-center shrink-0">
 
-                                                    <Clock className="w-5 h-5 text-orange-600" />
+                                                    <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
 
                                                 </div>
 
-                                                <div>
+                                                <div className="min-w-0">
 
-                                                    <h3 className="text-lg font-black text-slate-900 tracking-tight">Pending Approvals</h3>
+                                                    <h3 className="text-sm sm:text-base lg:text-lg font-black text-slate-900 tracking-tight">Pending Approvals</h3>
 
-                                                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-0.5">Needs Your Attention</p>
+                                                    <p className="text-slate-400 text-[9px] sm:text-xs font-bold uppercase tracking-widest mt-0.5">Needs Your Attention</p>
 
                                                 </div>
 
@@ -1743,7 +1668,7 @@ function DashboardContent() {
 
                                                 onClick={() => { setFilter('Pending'); setIsExpanded(true); }}
 
-                                                className="text-blue-600 text-xs font-black uppercase tracking-widest hover:text-blue-700 transition-colors bg-blue-50 px-4 py-2 rounded-full"
+                                                className="text-blue-600 text-[9px] sm:text-xs font-black uppercase tracking-widest hover:text-blue-700 transition-colors bg-blue-50 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full shrink-0"
 
                                             >
 
@@ -1755,54 +1680,60 @@ function DashboardContent() {
 
 
 
-                                        <div className="space-y-4">
+                                        <div className="space-y-2 sm:space-y-4">
 
                                             {homeAttentionItems.length > 0 ? (
 
-                                                homeAttentionItems.slice(0, 5).map((item, idx) => (
+                                                homeAttentionItems.slice(0, 5).map((item, idx) => {
+                                                    const notice = formatCommandCenterNotificationMessage(item);
+
+                                                    return (
 
                                                     <div
 
                                                         key={`${item.id}-${item.actionId || ''}-${idx}`}
 
+                                                        {...navHrefProps(buildDashboardNotificationPath(item) || '')}
+
                                                         onClick={() => handleRowClick(item)}
 
-                                                        className="group flex items-center justify-between p-4 rounded-2xl border border-slate-50 hover:border-blue-100 hover:bg-blue-50/30 transition-all cursor-pointer"
+                                                        className="group flex items-center justify-between gap-2 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-50 hover:border-blue-100 hover:bg-blue-50/30 transition-all cursor-pointer"
 
                                                     >
 
-                                                        <div className="flex items-center gap-4">
+                                                        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
 
-                                                            <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                                                            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-slate-100 flex items-center justify-center group-hover:bg-blue-100 transition-colors shrink-0">
 
-                                                                <span className="text-slate-900 font-black text-xs">{(item.requestedBy || 'E').charAt(0)}</span>
+                                                                <span className="text-slate-900 font-black text-[10px] sm:text-xs">{(item.requestedBy || 'E').charAt(0)}</span>
 
                                                             </div>
 
-                                                            <div>
+                                                            <div className="min-w-0">
 
-                                                                <p className="text-sm font-black text-slate-800 tracking-tight">
-                                                                    {item.type === 'Employee Document Expiry Reminder'
-                                                                        ? 'Document Expiry Reminder'
-                                                                        : item.type === 'Asset Overdue'
-                                                                            ? 'Asset Service overdue'
-                                                                            : item.type || 'Request'}
+                                                                <p className="text-xs sm:text-sm font-black text-slate-800 tracking-tight truncate">
+                                                                    {notice.title}
                                                                 </p>
+                                                                {notice.detail ? (
+                                                                    <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold tracking-tight line-clamp-1 mt-0.5">
+                                                                        {notice.detail}
+                                                                    </p>
+                                                                ) : null}
 
                                                             </div>
 
                                                         </div>
 
-                                                        <div className="text-right">
+                                                        <div className="text-right shrink-0">
 
-                                                            <p className="text-xs font-bold text-slate-900">{new Date(item.requestedDate).toLocaleDateString()}</p>
+                                                            <p className="text-[10px] sm:text-xs font-bold text-slate-900">{new Date(item.requestedDate).toLocaleDateString()}</p>
 
                                                         </div>
 
                                                     </div>
 
-                                                ))
-
+                                                    );
+                                                })
                                             ) : (
 
                                                 <div className="flex flex-col items-center justify-center py-12 text-center bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
@@ -1835,25 +1766,25 @@ function DashboardContent() {
 
                         {!isExpanded && (
 
-                            <div className="grid grid-cols-12 gap-6 mt-6">
+                            <div className="grid grid-cols-12 gap-3 sm:gap-4 lg:gap-6 mt-3 sm:mt-4 lg:mt-6">
 
 
 
                                 {/* Col 1: Ratios Card - Span 6 */}
 
-                                <div className="col-span-12 lg:col-span-6 bg-white rounded-[20px] p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[300px]">
+                                <div className="col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-0 sm:min-h-[240px] lg:min-h-[300px]">
 
-                                    <div className="space-y-8">
+                                    <div className="space-y-4 sm:space-y-6 lg:space-y-8">
 
                                         {/* Quick Ratio */}
 
                                         <div>
 
-                                            <div className="flex justify-between items-baseline mb-2">
+                                            <div className="flex justify-between items-baseline gap-2 mb-1.5 sm:mb-2">
 
-                                                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Quick Ratio</h3>
+                                                <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">Quick Ratio</h3>
 
-                                                <span className="text-2xl font-black text-slate-900">0.9:8</span>
+                                                <span className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900">0.9:8</span>
 
                                             </div>
 
@@ -1879,11 +1810,11 @@ function DashboardContent() {
 
                                         <div>
 
-                                            <div className="flex justify-between items-baseline mb-2">
+                                            <div className="flex justify-between items-baseline gap-2 mb-1.5 sm:mb-2">
 
-                                                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Current Ratio</h3>
+                                                <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">Current Ratio</h3>
 
-                                                <span className="text-2xl font-black text-slate-900">2.8</span>
+                                                <span className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900">2.8</span>
 
                                             </div>
 
@@ -1913,37 +1844,37 @@ function DashboardContent() {
 
                                 {/* Col 2 & 3: 4-Card Grid Stats - Span 6 */}
 
-                                <div className="col-span-12 lg:col-span-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="col-span-12 lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-6">
 
                                     {/* Total Income */}
 
-                                    <div className="bg-white rounded-[20px] p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
+                                    <div className="bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
 
                                         <div>
 
-                                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Total Income</h3>
+                                            <h3 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sm:mb-4">Total Income</h3>
 
                                             {/* Dummy Mini Bar Chart */}
 
-                                            <div className="flex items-end gap-1 h-8 mb-4">
+                                            <div className="flex items-end gap-1 h-6 sm:h-8 mb-2 sm:mb-4">
 
-                                                <div className="w-2 bg-blue-600 rounded-t-sm h-[40%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-blue-600 rounded-t-sm h-[40%]"></div>
 
-                                                <div className="w-2 bg-blue-600 rounded-t-sm h-[70%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-blue-600 rounded-t-sm h-[70%]"></div>
 
-                                                <div className="w-2 bg-blue-600 rounded-t-sm h-[50%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-blue-600 rounded-t-sm h-[50%]"></div>
 
-                                                <div className="w-2 bg-purple-600 rounded-t-sm h-[100%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-purple-600 rounded-t-sm h-[100%]"></div>
 
-                                                <div className="w-2 bg-purple-600 rounded-t-sm h-[60%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-purple-600 rounded-t-sm h-[60%]"></div>
 
-                                                <div className="w-2 bg-purple-600 rounded-t-sm h-[80%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-purple-600 rounded-t-sm h-[80%]"></div>
 
                                             </div>
 
-                                            <h4 className="text-2xl font-black text-slate-900 mb-1">$ 83,320<span className="text-lg text-slate-400">.50</span></h4>
+                                            <h4 className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900 mb-1">$ 83,320<span className="text-sm sm:text-base lg:text-lg text-slate-400">.50</span></h4>
 
-                                            <p className="text-xs font-bold text-emerald-500">18.2% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
+                                            <p className="text-[10px] sm:text-xs font-bold text-emerald-500">18.2% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
 
                                         </div>
 
@@ -1953,31 +1884,31 @@ function DashboardContent() {
 
                                     {/* Total Expenses */}
 
-                                    <div className="bg-white rounded-[20px] p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
+                                    <div className="bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
 
                                         <div>
 
-                                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Total Expenses</h3>
+                                            <h3 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sm:mb-4">Total Expenses</h3>
 
                                             {/* Dummy Mini Bar Chart */}
 
-                                            <div className="flex items-end gap-1 h-8 mb-4">
+                                            <div className="flex items-end gap-1 h-6 sm:h-8 mb-2 sm:mb-4">
 
-                                                <div className="w-2 bg-blue-400 rounded-t-sm h-[60%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[60%]"></div>
 
-                                                <div className="w-2 bg-blue-400 rounded-t-sm h-[30%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[30%]"></div>
 
-                                                <div className="w-2 bg-blue-400 rounded-t-sm h-[50%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[50%]"></div>
 
-                                                <div className="w-2 bg-blue-400 rounded-t-sm h-[40%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[40%]"></div>
 
-                                                <div className="w-2 bg-blue-400 rounded-t-sm h-[80%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[80%]"></div>
 
                                             </div>
 
-                                            <h4 className="text-2xl font-black text-slate-900 mb-1">$ 32,370<span className="text-lg text-slate-400">.00</span></h4>
+                                            <h4 className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900 mb-1">$ 32,370<span className="text-sm sm:text-base lg:text-lg text-slate-400">.00</span></h4>
 
-                                            <p className="text-xs font-bold text-red-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
+                                            <p className="text-[10px] sm:text-xs font-bold text-red-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
 
                                         </div>
 
@@ -1987,31 +1918,31 @@ function DashboardContent() {
 
                                     {/* Accounts Receivable */}
 
-                                    <div className="bg-white rounded-[20px] p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
+                                    <div className="bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
 
                                         <div>
 
-                                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Accounts Receivable</h3>
+                                            <h3 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sm:mb-4">Accounts Receivable</h3>
 
                                             {/* Dummy Mini Bar Chart */}
 
-                                            <div className="flex items-end gap-1 h-8 mb-4">
+                                            <div className="flex items-end gap-1 h-6 sm:h-8 mb-2 sm:mb-4">
 
-                                                <div className="w-2 bg-emerald-400 rounded-t-sm h-[50%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[50%]"></div>
 
-                                                <div className="w-2 bg-emerald-400 rounded-t-sm h-[70%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[70%]"></div>
 
-                                                <div className="w-2 bg-emerald-400 rounded-t-sm h-[40%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[40%]"></div>
 
-                                                <div className="w-2 bg-emerald-400 rounded-t-sm h-[80%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[80%]"></div>
 
-                                                <div className="w-2 bg-emerald-400 rounded-t-sm h-[60%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[60%]"></div>
 
                                             </div>
 
-                                            <h4 className="text-2xl font-black text-slate-900 mb-1">$ 9,112<span className="text-lg text-slate-400">.00</span></h4>
+                                            <h4 className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900 mb-1">$ 9,112<span className="text-sm sm:text-base lg:text-lg text-slate-400">.00</span></h4>
 
-                                            <p className="text-xs font-bold text-emerald-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
+                                            <p className="text-[10px] sm:text-xs font-bold text-emerald-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
 
                                         </div>
 
@@ -2021,31 +1952,31 @@ function DashboardContent() {
 
                                     {/* Accounts Payable */}
 
-                                    <div className="bg-white rounded-[20px] p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
+                                    <div className="bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
 
                                         <div>
 
-                                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Accounts Payable</h3>
+                                            <h3 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sm:mb-4">Accounts Payable</h3>
 
                                             {/* Dummy Mini Bar Chart */}
 
-                                            <div className="flex items-end gap-1 h-8 mb-4">
+                                            <div className="flex items-end gap-1 h-6 sm:h-8 mb-2 sm:mb-4">
 
-                                                <div className="w-2 bg-pink-500 rounded-t-sm h-[40%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[40%]"></div>
 
-                                                <div className="w-2 bg-pink-500 rounded-t-sm h-[60%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[60%]"></div>
 
-                                                <div className="w-2 bg-pink-500 rounded-t-sm h-[30%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[30%]"></div>
 
-                                                <div className="w-2 bg-pink-500 rounded-t-sm h-[90%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[90%]"></div>
 
-                                                <div className="w-2 bg-pink-500 rounded-t-sm h-[50%]"></div>
+                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[50%]"></div>
 
                                             </div>
 
-                                            <h4 className="text-2xl font-black text-slate-900 mb-1">$ 8,216<span className="text-lg text-slate-400">.00</span></h4>
+                                            <h4 className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900 mb-1">$ 8,216<span className="text-sm sm:text-base lg:text-lg text-slate-400">.00</span></h4>
 
-                                            <p className="text-xs font-bold text-emerald-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
+                                            <p className="text-[10px] sm:text-xs font-bold text-emerald-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
 
                                         </div>
 

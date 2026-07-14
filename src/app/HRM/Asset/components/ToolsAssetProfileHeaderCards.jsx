@@ -5,7 +5,7 @@ import { HEADER_PAIR_CARD, HEADER_PAIR_CARD_BODY, HEADER_PAIR_GRID } from '@/uti
 import { resolveAssetPrimaryPhoto } from '../utils/resolveAssetPrimaryPhoto';
 
 const ACTION_BTN_BASE =
-    'min-h-[52px] rounded-2xl px-3 py-3 text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all break-words';
+    'min-h-[44px] sm:min-h-[52px] rounded-xl sm:rounded-2xl px-2 sm:px-3 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all break-words';
 
 /**
  * Tools asset detail header — reference layout: profile card + blue Asset History action panel.
@@ -38,28 +38,28 @@ export default function ToolsAssetProfileHeaderCards({
     const primaryPhoto = resolveAssetPrimaryPhoto(asset);
 
     return (
-        <div className={`${HEADER_PAIR_GRID} gap-5`}>
+        <div className={`${HEADER_PAIR_GRID}`}>
             {/* Left — asset summary (reference card) */}
             <div className={`bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-200 ${HEADER_PAIR_CARD}`}>
-                <div className={`p-4 sm:p-5 flex flex-col ${HEADER_PAIR_CARD_BODY}`}>
-                    <div className="flex flex-row gap-5 flex-1 min-h-0">
-                        <div className="flex flex-col items-center shrink-0 w-[148px] sm:w-[156px]">
-                            <div className="w-full aspect-square max-w-[156px] rounded-2xl bg-sky-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-sm">
+                <div className={`p-3 sm:p-4 lg:p-5 flex flex-col ${HEADER_PAIR_CARD_BODY}`}>
+                    <div className="flex flex-row gap-3 sm:gap-4 lg:gap-5 flex-1 min-h-0">
+                        <div className="flex flex-col items-center shrink-0 w-[112px] sm:w-[140px] lg:w-[156px]">
+                            <div className="w-full aspect-square max-w-[112px] sm:max-w-[140px] lg:max-w-[156px] rounded-xl sm:rounded-2xl bg-sky-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-sm">
                                 {primaryPhoto ? (
                                     <img src={primaryPhoto} alt={asset.name} className="w-full h-full object-cover" />
                                 ) : (
-                                    <span className="text-blue-400 font-black text-4xl uppercase">
+                                    <span className="text-blue-400 font-black text-2xl sm:text-3xl lg:text-4xl uppercase">
                                         {asset?.name?.substring(0, 1) || 'A'}
                                     </span>
                                 )}
                             </div>
-                            <p className="mt-3 text-[13px] font-black text-red-500 tracking-[0.15em] uppercase text-center leading-tight">
+                            <p className="mt-2 sm:mt-3 text-[11px] sm:text-[13px] font-black text-red-500 tracking-[0.15em] uppercase text-center leading-tight">
                                 {asset?.assetId}
                             </p>
                         </div>
 
                         <div className="flex-1 min-w-0 flex flex-col break-words">
-                            <h1 className="text-xl sm:text-[22px] font-black text-slate-900 leading-tight tracking-tight mb-2 break-words">
+                            <h1 className="text-lg sm:text-xl lg:text-[22px] font-black text-slate-900 leading-tight tracking-tight mb-1.5 sm:mb-2 break-words">
                                 {asset?.name}
                             </h1>
 
@@ -173,16 +173,16 @@ export default function ToolsAssetProfileHeaderCards({
                 className={`rounded-2xl overflow-hidden shadow-md text-white border-2 border-white/30 ${HEADER_PAIR_CARD}`}
                 style={{ backgroundColor: '#29b6f6' }}
             >
-                <div className={`flex flex-row p-4 sm:p-5 gap-4 sm:gap-5 ${HEADER_PAIR_CARD_BODY}`}>
-                    <div className="flex flex-col justify-evenly gap-6 shrink-0 w-[40%] min-w-[130px] py-2">
-                        <h3 className="text-[28px] sm:text-[34px] font-black text-white leading-none tracking-tight">
+                <div className={`flex flex-col sm:flex-row p-3 sm:p-4 lg:p-5 gap-3 sm:gap-4 lg:gap-5 ${HEADER_PAIR_CARD_BODY}`}>
+                    <div className="flex flex-col justify-evenly gap-3 sm:gap-4 lg:gap-6 shrink-0 sm:w-[40%] min-w-0 sm:min-w-[110px] lg:min-w-[130px] py-1 sm:py-2">
+                        <h3 className="text-xl sm:text-2xl lg:text-[34px] font-black text-white leading-none tracking-tight">
                             Asset History
                         </h3>
-                        <div className="flex flex-col gap-6 sm:gap-7">
-                            <p className="text-[17px] sm:text-[19px] font-bold text-white leading-snug">
+                        <div className="flex flex-col gap-3 sm:gap-5 lg:gap-7">
+                            <p className="text-sm sm:text-base lg:text-[19px] font-bold text-white leading-snug">
                                 Number of User = {userHistoryCount}
                             </p>
-                            <p className="text-[17px] sm:text-[19px] font-bold text-white leading-snug">
+                            <p className="text-sm sm:text-base lg:text-[19px] font-bold text-white leading-snug">
                                 Number of Service = {serviceHistoryCount}
                             </p>
                         </div>

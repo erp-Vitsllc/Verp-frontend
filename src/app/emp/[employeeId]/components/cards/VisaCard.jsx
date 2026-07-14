@@ -747,10 +747,10 @@ const VisaCard = forwardRef(function VisaCard({
         if (!canCreate && !canEdit) {
             return (
                 <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
-                    <div className="flex items-center px-6 py-4 border-b border-gray-100">
-                        <h3 className="text-xl font-semibold text-gray-800">Visa</h3>
+                    <div className="flex items-center px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
+                        <h3 className="text-base sm:text-xl font-semibold text-gray-800">Visa</h3>
                     </div>
-                    <p className="px-6 py-4 text-sm text-gray-500">No visa on file.</p>
+                    <p className="px-3 sm:px-6 py-2.5 sm:py-4 text-sm text-gray-500">No visa on file.</p>
                 </div>
             );
         }
@@ -791,9 +791,9 @@ const VisaCard = forwardRef(function VisaCard({
                     isCardExpired ? 'bg-red-50/70 border-red-200' : 'bg-white border-gray-100'
                 }`}
             >
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
                     <div className="flex items-center">
-                        <h3 className="text-xl font-semibold text-gray-800">{activeVisaLabel}</h3>
+                        <h3 className="text-base sm:text-xl font-semibold text-gray-800">{activeVisaLabel}</h3>
                         {isPendingApproval && (
                             <span
                                 className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
@@ -1025,7 +1025,7 @@ const VisaCard = forwardRef(function VisaCard({
                         return (
                             <>
                                 {rows.map((row) => (
-                                    <div key={row.label} className="flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600">
+                                    <div key={row.label} className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 text-sm font-medium text-gray-600">
                                         <span className="text-gray-500">{row.label}</span>
                                         <span className={isCardExpired && /expiry/i.test(row.label) ? 'text-red-600 font-semibold' : 'text-gray-500'}>
                                             {row.value}

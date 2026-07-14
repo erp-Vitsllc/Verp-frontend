@@ -32,9 +32,9 @@ export default function EmergencyContactCard({
         if (!canCreate && !canEdit) {
             return (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                    <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
                         <div className="flex items-center">
-                            <h3 className="text-xl font-semibold text-gray-800">Emergency Contact</h3>
+                            <h3 className="text-base sm:text-xl font-semibold text-gray-800">Emergency Contact</h3>
                             {isPendingApproval && (
                                 <span
                                     className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
@@ -45,7 +45,7 @@ export default function EmergencyContactCard({
                             )}
                         </div>
                     </div>
-                    <p className="px-6 py-4 text-sm text-gray-500">No emergency contacts on file.</p>
+                    <p className="px-3 sm:px-6 py-2.5 sm:py-4 text-sm text-gray-500">No emergency contacts on file.</p>
                 </div>
             );
         }
@@ -54,9 +54,9 @@ export default function EmergencyContactCard({
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
                 <div className="flex items-center">
-                    <h3 className="text-xl font-semibold text-gray-800">Emergency Contact</h3>
+                    <h3 className="text-base sm:text-xl font-semibold text-gray-800">Emergency Contact</h3>
                     {isPendingApproval && (
                         <span
                             className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
@@ -79,7 +79,7 @@ export default function EmergencyContactCard({
             </div>
             <div>
                 {contacts.length === 0 ? (
-                    <p className="px-6 py-4 text-sm text-gray-500">No emergency contacts yet.</p>
+                    <p className="px-3 sm:px-6 py-2.5 sm:py-4 text-sm text-gray-500">No emergency contacts yet.</p>
                 ) : (
                     contacts.map((contact, contactIndex) => {
                         const contactFields = [
@@ -92,7 +92,7 @@ export default function EmergencyContactCard({
                         return contactFields.map((field, fieldIndex, arr) => (
                             <div
                                 key={`${contact.id || contactIndex}-${field.label}`}
-                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${fieldIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                className={`flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 text-sm font-medium text-gray-600 ${fieldIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                             >
                                 {field.isHeader ? (
                                     <>

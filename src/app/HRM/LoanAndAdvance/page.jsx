@@ -226,13 +226,13 @@ function LoanPageContent() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
                         {/* Header and Actions */}
-                        <div className="flex items-center justify-between mb-6">
-                            <div>
-                                <h1 className="text-3xl font-bold text-gray-800 mb-2">Loan and Advance Management</h1>
-                                <p className="text-gray-600">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
+                            <div className="min-w-0">
+                                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">Loan and Advance Management</h1>
+                                <p className="text-sm sm:text-base text-gray-600">
                                     Manage employee loans and advances
                                 </p>
                             </div>
@@ -240,7 +240,7 @@ function LoanPageContent() {
                             {canAdd ? (
                             <button
                                 onClick={handleAddLoan}
-                                className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <path d="M12 5v14M5 12h14"></path>
@@ -251,70 +251,70 @@ function LoanPageContent() {
                         </div>
 
                         {/* Stats Dashboard */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6 mb-4 sm:mb-6 lg:mb-8 items-stretch">
                             {/* Loan Stats */}
                             {showLoanTab ? (
-                            <div className={`bg-white rounded-xl p-6 border ${activeTab === 'Loan' && selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden`} style={{ height: '320px' }}>
-                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex justify-between items-center">
+                            <div className={`bg-white rounded-xl p-3 sm:p-4 lg:p-6 border ${activeTab === 'Loan' && selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden h-auto min-h-[220px] sm:min-h-[280px] lg:h-[320px]`}>
+                                <h3 className="text-sm sm:text-base lg:text-lg font-bold text-gray-800 mb-2 sm:mb-4 flex justify-between items-center gap-2">
                                     Loan Statistics
                                     {activeTab === 'Loan' && selectedStatus !== 'All' && (
                                         <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
                                     )}
                                 </h3>
-                                <div className="grid grid-cols-3 gap-4">
+                                <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
                                     {/* Row 1 */}
                                     <div
                                         onClick={() => { setActiveTab('Loan'); setSelectedStatus('All'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'All' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'All' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Loans</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Total Loans</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.loan.count} />
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => { setActiveTab('Loan'); setSelectedStatus('Approved'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Loan Amount</span>
-                                        <span className="text-xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Amount</span>
+                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.loan.amount} /> AED
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => { setActiveTab('Loan'); setSelectedStatus('Pending'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Pending' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Pending' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Loan Pending</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Pending</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.loan.pending} />
                                         </span>
                                     </div>
                                     {/* Row 2 */}
                                     <div
                                         onClick={() => { setActiveTab('Loan'); setSelectedStatus('Outstanding'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Outstanding' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Outstanding' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Loan Outstanding</span>
-                                        <span className="text-xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Outstanding</span>
+                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.loan.outstanding} /> AED
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => { setActiveTab('Loan'); setSelectedStatus('Recovered'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Recovered' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Recovered' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Loan Recovered</span>
-                                        <span className="text-xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Loan Recovered</span>
+                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.loan.recovered} /> AED
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => { setActiveTab('Loan'); setSelectedStatus('Approved'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Approved Loan</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Approved Loan</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.loan.approved} />
                                         </span>
                                     </div>
@@ -324,67 +324,67 @@ function LoanPageContent() {
 
                             {/* Advance Stats */}
                             {showAdvanceTab ? (
-                            <div className={`bg-white rounded-xl p-6 border ${activeTab === 'Advance' && selectedStatus !== 'All' ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden`} style={{ height: '320px' }}>
-                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex justify-between items-center">
+                            <div className={`bg-white rounded-xl p-3 sm:p-4 lg:p-6 border ${activeTab === 'Advance' && selectedStatus !== 'All' ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden h-auto min-h-[220px] sm:min-h-[280px] lg:h-[320px]`}>
+                                <h3 className="text-sm sm:text-base lg:text-lg font-bold text-gray-800 mb-2 sm:mb-4 flex justify-between items-center gap-2">
                                     Advance Statistics
                                     {activeTab === 'Advance' && selectedStatus !== 'All' && (
                                         <span className="text-xs font-medium text-teal-600 bg-teal-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
                                     )}
                                 </h3>
-                                <div className="grid grid-cols-3 gap-4">
+                                <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
                                     {/* Row 1 */}
                                     <div
                                         onClick={() => { setActiveTab('Advance'); setSelectedStatus('All'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'All' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'All' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Advances</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Total Advances</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.advance.count} />
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => { setActiveTab('Advance'); setSelectedStatus('Approved'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Approved' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Approved' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">ADV Amount</span>
-                                        <span className="text-xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Amount</span>
+                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.advance.amount} /> AED
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => { setActiveTab('Advance'); setSelectedStatus('Pending'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Pending' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Pending' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">ADV Pending</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Pending</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.advance.pending} />
                                         </span>
                                     </div>
                                     {/* Row 2 */}
                                     <div
                                         onClick={() => { setActiveTab('Advance'); setSelectedStatus('Outstanding'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Outstanding' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Outstanding' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">ADV Outstanding</span>
-                                        <span className="text-xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Outstanding</span>
+                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.advance.outstanding} /> AED
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => { setActiveTab('Advance'); setSelectedStatus('Recovered'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Recovered' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Recovered' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">ADV Recovered</span>
-                                        <span className="text-xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">ADV Recovered</span>
+                                        <span className="text-sm sm:text-base lg:text-xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.advance.recovered} /> AED
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => { setActiveTab('Advance'); setSelectedStatus('Approved'); }}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Approved' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'Approved' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Approved Advance</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Approved Advance</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.advance.approved} />
                                         </span>
                                     </div>
@@ -394,12 +394,12 @@ function LoanPageContent() {
                         </div>
 
                         {/* Tabs */}
-                        <div className="flex items-center justify-between mb-6">
-                            <div className="flex gap-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+                            <div className="flex flex-wrap gap-2 sm:gap-4">
                                 {showLoanTab ? (
                                 <button
                                     onClick={() => { setActiveTab('Loan'); setSelectedStatus('All'); }}
-                                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'Loan'
+                                    className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${activeTab === 'Loan'
                                         ? 'bg-blue-600 text-white shadow-md'
                                         : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
                                         }`}
@@ -410,7 +410,7 @@ function LoanPageContent() {
                                 {showAdvanceTab ? (
                                 <button
                                     onClick={() => { setActiveTab('Advance'); setSelectedStatus('All'); }}
-                                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'Advance'
+                                    className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${activeTab === 'Advance'
                                         ? 'bg-teal-600 text-white shadow-md'
                                         : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
                                         }`}
@@ -437,28 +437,28 @@ function LoanPageContent() {
                         {/* Table */}
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
-                                <table className="w-full min-w-0 table-auto">
+                                <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 {activeTab === 'Advance' ? 'Salary Advance' : activeTab} ID
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Emp ID
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 User Name
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 {activeTab === 'Advance' ? 'Salary Advance' : activeTab} Amount
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 {activeTab === 'Advance' ? 'Salary Advance' : activeTab} Status
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Application Status
                                             </th>
-                                            <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Actions
                                             </th>
                                         </tr>
@@ -466,13 +466,13 @@ function LoanPageContent() {
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="7" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     Loading...
                                                 </td>
                                             </tr>
                                         ) : filteredData.length === 0 ? (
                                             <tr>
-                                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="7" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     No {activeTab === 'Advance' ? 'salary advance' : activeTab.toLowerCase()}s found.
                                                 </td>
                                             </tr>
@@ -488,21 +488,21 @@ function LoanPageContent() {
                                                 <tr
                                                     className="relative hover:bg-gray-50 transition-colors group cursor-pointer"
                                                 >
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900">
                                                         <div className="relative z-10 pointer-events-none">
                                                             {item.loanId ? item.loanId.toUpperCase() : item.id.substring(item.id.length - 6).toUpperCase()}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                         <div className="relative z-10 pointer-events-none">{item.employeeId}</div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-900 font-medium">
                                                         <div className="relative z-10 pointer-events-none">{item.employeeName}</div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700 font-semibold">
                                                         AED {Number(item.amount).toLocaleString()}
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                         <span
                                                             className={`px-3 py-1 rounded-full text-xs font-medium ${item.activeStatus === 'Open'
                                                                 ? 'bg-green-100 text-green-800'
@@ -512,7 +512,7 @@ function LoanPageContent() {
                                                             {item.activeStatus || 'Open'}
                                                         </span>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                         <span
                                                             className={`px-3 py-1 rounded-full text-xs font-medium ${item.applicationStatus === 'Approved'
                                                                 ? 'bg-blue-100 text-blue-800'
@@ -524,7 +524,7 @@ function LoanPageContent() {
                                                             {item.applicationStatus || 'Pending'}
                                                         </span>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
                                                         <div className="relative z-20 flex items-center justify-end gap-2">
                                                             {isAdmin() && (
                                                                 <button

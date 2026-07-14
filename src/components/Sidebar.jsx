@@ -39,12 +39,7 @@ import {
 } from '@/utils/assetFlowchartModuleAccess';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
 import { performLogout } from '@/utils/authSession';
-import { loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
-import {
-    getViewerEmployeeObjectIdFromStorage,
-    isFlowchartHrForExpiryTasks,
-} from '@/utils/flowchartHrExpiryVisibility';
-import { countModulePendingInboxBundles } from '@/utils/dashboardCommandCenterInbox';
+import { loadModuleNotificationBundle, clearModuleNotificationFeedsCache, MODULE_NOTIFICATIONS_UPDATED, getCachedModuleNotificationBundle } from '@/utils/moduleNotifications';
 import {
     ASSET_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
@@ -57,12 +52,6 @@ import {
 import {
     REWARD_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
-import {
-    fetchAssetPendingInbox,
-    fetchFinePendingInbox,
-    fetchPaymentPendingInbox,
-    fetchRewardPendingInbox,
-} from '@/utils/pendingInboxFetch';
 import { handleLinkContextMenu } from '@/utils/linkContextMenu';
 
 const logoPath = '/assets/employee/sidebar-logo.png';
@@ -298,103 +287,45 @@ export default function Sidebar() {
 
         let inFlight = false;
         let debounceTimer = null;
-        let cancelIdleEmployeeFetch = null;
+
+        const applySidebarCounts = (counts = {}) => {
+            setSidebarCounts({
+                company: counts.company || 0,
+                employee: counts.employee || 0,
+                fine: counts.fine || 0,
+                reward: counts.reward || 0,
+                loan: counts.loan || 0,
+                toolsAsset: counts.toolsAsset || 0,
+                vehicleAsset: counts.vehicleAsset || 0,
+                payments: counts.payment || 0,
+            });
+        };
 
         const loadSidebarCounts = async () => {
             if (shouldSkipSidebarPolling()) return;
             if (inFlight) return;
             inFlight = true;
             try {
-                const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-                const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
-
-                const [toolsItems, vehicleItems, fineItems, rewardItems, paymentItems, notificationBundle] = await Promise.all([
-                    fetchAssetPendingInbox(axiosInstance, {
-                        inboxScope: 'tools',
-                        skipSync: true,
-                        skipToast: true,
-                    }),
-                    fetchAssetPendingInbox(axiosInstance, {
-                        inboxScope: 'vehicle',
-                        skipSync: true,
-                        skipToast: true,
-                    }),
-                    fetchFinePendingInbox(axiosInstance, { skipToast: true }),
-                    fetchRewardPendingInbox(axiosInstance, { skipToast: true }),
-                    fetchPaymentPendingInbox(axiosInstance, { skipToast: true }),
-                    loadCompanyNotificationBundle(axiosInstance, {
-                        hrLive: hrLiveGuess,
-                        cachedCompanies: [],
-                        skipExpirySync: true,
-                    }),
-                ]);
-
-                const { statsRes, companiesList } = notificationBundle;
-                const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
-
-                const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
-                const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-                const mandatoryCardsHrLive = isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-
-                const applyCounts = (employeesList = []) => {
-                    const counts = countModulePendingInboxBundles({
-                        userStatsItems: items,
-                        companiesList,
-                        employeesList,
-                        liveExpiryHrView,
-                        mandatoryCardsHrLive,
-                        fineItems,
-                        paymentItems,
-                        toolsItems,
-                        vehicleItems,
-                        rewardItems,
-                    });
-                    setSidebarCounts({
-                        company: counts.company,
-                        employee: counts.employee,
-                        fine: counts.fine,
-                        reward: counts.reward,
-                        loan: counts.loan || 0,
-                        toolsAsset: counts.toolsAsset,
-                        vehicleAsset: counts.vehicleAsset,
-                        payments: counts.payment,
-                    });
-                };
-
-                // Base counts without waiting on the full employee list (company + module inboxes).
-                applyCounts([]);
-
-                if (liveExpiryHrView || mandatoryCardsHrLive) {
-                    if (cancelIdleEmployeeFetch) cancelIdleEmployeeFetch();
-                    cancelIdleEmployeeFetch = scheduleWhenIdle(async () => {
-                        try {
-                            const empRes = await axiosInstance
-                                .get('/Employee', { params: { limit: 1000 }, skipToast: true })
-                                .catch(() => ({ data: {} }));
-                            const empPayload = empRes?.data?.employees ?? empRes?.data;
-                            const employeesList = Array.isArray(empPayload) ? empPayload : [];
-                            applyCounts(employeesList);
-                        } catch {
-                            /* keep base count from dashboard stats */
-                        }
-                    });
+                // Prefer shared bundle already built by dashboard (exact same counts).
+                const cachedBundle = getCachedModuleNotificationBundle();
+                if (cachedBundle?.counts) {
+                    applySidebarCounts(cachedBundle.counts);
+                    inFlight = false;
+                    return;
                 }
+
+                const { bundle } = await loadModuleNotificationBundle(axiosInstance, {
+                    skipExpirySync: true,
+                    skipEmployees: true,
+                });
+                applySidebarCounts(bundle.counts);
             } catch (err) {
                 if (isSessionAuthError(err)) {
                     blockSidebarPollingForAuth();
                 } else if (!err?.response) {
                     pauseSidebarPolling(30000);
                 }
-                setSidebarCounts({
-                    company: 0,
-                    employee: 0,
-                    fine: 0,
-                    reward: 0,
-                    loan: 0,
-                    toolsAsset: 0,
-                    vehicleAsset: 0,
-                    payments: 0,
-                });
+                applySidebarCounts({});
             } finally {
                 inFlight = false;
             }
@@ -422,15 +353,27 @@ export default function Sidebar() {
             window.addEventListener('focus', handleFocus);
         }
         const handleAssetInboxChanged = () => {
+            clearModuleNotificationFeedsCache();
             loadSidebarCounts();
         };
         const handleFineInboxChanged = () => {
+            clearModuleNotificationFeedsCache();
             loadSidebarCounts();
         };
         const handlePaymentInboxChanged = () => {
+            clearModuleNotificationFeedsCache();
             loadSidebarCounts();
         };
         const handleRewardInboxChanged = () => {
+            clearModuleNotificationFeedsCache();
+            loadSidebarCounts();
+        };
+        const handleModuleNotificationsUpdated = (event) => {
+            const counts = event?.detail?.counts;
+            if (counts) {
+                applySidebarCounts(counts);
+                return;
+            }
             loadSidebarCounts();
         };
         if (typeof document !== 'undefined') {
@@ -440,13 +383,16 @@ export default function Sidebar() {
             document.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
             document.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
         }
+        if (typeof window !== 'undefined') {
+            window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
+        }
         return () => {
             if (cancelInitialIdle) cancelInitialIdle();
-            if (cancelIdleEmployeeFetch) cancelIdleEmployeeFetch();
             clearInterval(intervalId);
             if (debounceTimer) clearTimeout(debounceTimer);
             if (typeof window !== 'undefined') {
                 window.removeEventListener('focus', handleFocus);
+                window.removeEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
             }
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', handleVisibility);
@@ -485,7 +431,7 @@ export default function Sidebar() {
         (sidebarCounts.toolsAsset || 0) +
         (sidebarCounts.vehicleAsset || 0);
 
-    // Load sidebar state from localStorage on mount
+    // Load sidebar state from localStorage on mount; keep closed on phone/tablet so content fits.
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const savedIsOpen = localStorage.getItem('sidebar_isOpen');
@@ -495,6 +441,14 @@ export default function Sidebar() {
             if (savedIsOpen !== null) setIsOpen(savedIsOpen === 'true');
             if (savedOpenMenu) setOpenMenu(savedOpenMenu);
             if (savedOpenSubmenu) setOpenSubmenu(savedOpenSubmenu);
+
+            const narrow = window.matchMedia('(max-width: 1023px)');
+            const closeOnNarrow = () => {
+                if (narrow.matches) setIsOpen(false);
+            };
+            closeOnNarrow();
+            narrow.addEventListener('change', closeOnNarrow);
+            return () => narrow.removeEventListener('change', closeOnNarrow);
         }
     }, []);
 

@@ -11,6 +11,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import {
     Camera,
     Edit2,
@@ -181,11 +182,11 @@ export default function UserProfilePage() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col">
                     <Navbar />
-                    <div className="p-8">
-                        <div className="bg-red-50 text-red-600 p-4 rounded-lg">
+                    <div className="p-3 sm:p-5 lg:p-8">
+                        <div className="bg-red-50 text-red-600 p-3 sm:p-4 rounded-lg text-xs sm:text-sm">
                             {error || 'User not found'}
                         </div>
-                        <ListReturnBackButton onNavigate={handleUserListBack} className="mt-4" />
+                        <ListReturnBackButton onNavigate={handleUserListBack} className="mt-3 sm:mt-4" />
                     </div>
                 </div>
             </div>
@@ -199,14 +200,16 @@ export default function UserProfilePage() {
                 <div className="flex-1 flex flex-col min-w-0">
                     <Navbar />
 
-                    <div className="p-8 max-w-5xl mx-auto w-full">
+                    <div className="p-3 sm:p-5 lg:p-8 max-w-5xl mx-auto w-full">
                         {/* Header Actions */}
-                        <div className="flex items-center justify-between mb-8">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
                             <ListReturnBackButton onNavigate={handleUserListBack} />
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                                 <button
+                                    type="button"
+                                    {...navHrefProps(`/Settings/User/edit/${userId}`)}
                                     onClick={() => router.push(`/Settings/User/edit/${userId}`)}
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                    className="px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
                                 >
                                     <Edit2 size={16} />
                                     Edit Profile
@@ -214,7 +217,7 @@ export default function UserProfilePage() {
                                 <button
                                     onClick={handleStatusChange}
                                     disabled={isUpdatingStatus}
-                                    className={`px-4 py-2 rounded-lg font-medium transition-colors shadow-sm ${user.status === 'Active'
+                                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap ${user.status === 'Active'
                                         ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
                                         : 'bg-green-100 text-green-700 hover:bg-green-200'
                                         }`}
@@ -225,13 +228,13 @@ export default function UserProfilePage() {
                         </div>
 
                         {/* Profile Content */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                            <div className="p-8 md:p-12 flex flex-col md:flex-row gap-12">
+                        <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div className="p-4 sm:p-6 md:p-8 lg:p-12 flex flex-col md:flex-row gap-6 sm:gap-8 lg:gap-12">
 
                                 {/* Left Column: Avatar */}
-                                <div className="flex flex-col items-center bg-gray-50/50 p-8 rounded-3xl border border-gray-100">
-                                    <div className="text-center mb-8">
-                                        <h2 className="text-3xl font-bold text-gray-900">{user.name}</h2>
+                                <div className="flex flex-col items-center bg-gray-50/50 p-4 sm:p-6 lg:p-8 rounded-2xl sm:rounded-3xl border border-gray-100">
+                                    <div className="text-center mb-4 sm:mb-6 lg:mb-8">
+                                        <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">{user.name}</h2>
                                         <p className="text-blue-600 font-semibold mt-1 flex items-center justify-center gap-2">
                                             <span className="w-2 h-2 rounded-full bg-blue-600"></span>
                                             {user.group?.name || 'No Group'}

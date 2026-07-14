@@ -1,6 +1,8 @@
 'use client';
 
 import { ChevronRight, ClipboardList, Trash2 } from 'lucide-react';
+import { navHrefProps } from '@/utils/linkContextMenu';
+import { buildVehicleServiceListRowHref } from './vehicleServiceUtils';
 
 function formatDate(value) {
     if (!value) return '—';
@@ -34,6 +36,7 @@ export default function VehicleOilServiceRequestTable({
     emptyMessage = 'No oil service requests yet',
     emptyHint = 'Use Request Oil Service to add a pending line.',
     onRowClick,
+    getRowHref,
     canDelete = false,
     onDelete,
     deletingServiceId = '',
@@ -70,11 +73,15 @@ export default function VehicleOilServiceRequestTable({
                     {rows.map((row) => {
                         const serviceId = String(row.serviceId || row.id || '');
                         const isDeleting = deletingServiceId && deletingServiceId === serviceId;
+                        const rowHref =
+                            (typeof getRowHref === 'function' ? getRowHref(row) : '') ||
+                            (onRowClick ? buildVehicleServiceListRowHref({ ...row, serviceType: 'Oil Service' }) : '');
                         return (
                         <tr
                             key={row.id}
                             role={onRowClick ? 'button' : undefined}
                             tabIndex={onRowClick ? 0 : undefined}
+                            {...navHrefProps(rowHref)}
                             onClick={onRowClick ? () => onRowClick(row) : undefined}
                             onKeyDown={
                                 onRowClick

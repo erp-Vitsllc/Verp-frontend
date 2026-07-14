@@ -3,8 +3,9 @@
 import { useState, useEffect, useMemo, useRef, Suspense, useCallback } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
-import { useDetailNavigationState } from '@/hooks/useDetailNavigationState';
+import { useDetailNavigationState, buildDetailNavigationHref } from '@/hooks/useDetailNavigationState';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import Link from 'next/link';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
@@ -378,7 +379,7 @@ function AssetDetailsPageContent() {
     const handleListReturnBack = useListReturnBack();
     const params = useParams();
     const searchParams = useSearchParams();
-    const { navigateDetailState, replaceDetailState } = useDetailNavigationState();
+    const { navigateDetailState, replaceDetailState, pathname } = useDetailNavigationState();
     const assetId = params.id;
     const { toast } = useToast();
 
@@ -3261,6 +3262,15 @@ function AssetDetailsPageContent() {
                                                     ].map((tab) => (
                                                         <button
                                                             key={tab.id}
+                                                            type="button"
+                                                            {...navHrefProps(
+                                                                buildDetailNavigationHref(
+                                                                    pathname,
+                                                                    searchParams,
+                                                                    { tab: tab.id },
+                                                                    assetTabOmitDefaults,
+                                                                ),
+                                                            )}
                                                             onClick={() => {
                                                                 if (tab.id === 'history' && activeTab !== 'history') fetchAssetHistory();
                                                                 navigateToAssetTab(tab.id);

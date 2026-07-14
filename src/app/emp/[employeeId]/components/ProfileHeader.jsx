@@ -500,7 +500,7 @@ function ProfileHeader({
         <div
             className={`lg:col-span-1 relative h-full w-full min-w-0 ${className} ${heroShell
                     ? 'flex flex-col overflow-hidden rounded-2xl shadow-md text-white'
-                    : `rounded-xl bg-white shadow-sm ${enlargeProfilePic ? 'flex flex-row p-0' : `flex flex-col ${compactHeader ? 'p-4' : 'p-6'}`} ${compactHeader ? 'overflow-hidden' : 'overflow-y-auto'}`
+                    : `rounded-xl bg-white shadow-sm ${enlargeProfilePic ? 'flex flex-row p-0' : `flex flex-col ${compactHeader ? 'p-3 sm:p-4' : 'p-4 sm:p-6'}`} ${compactHeader ? 'overflow-hidden' : 'overflow-y-auto'}`
                 }`}
         >
             {heroShell ? <EmployeeHeroCardBackground /> : null}
@@ -513,13 +513,13 @@ function ProfileHeader({
                 }
             >
                 {/* Main Content Container: Flex row if enlarge, else standard block inside flex-col */}
-                <div className={`flex w-full min-w-0 ${useStackedFineLayout ? 'flex-col items-stretch gap-3' : enlargeProfilePic ? 'flex-row items-stretch' : compactHeader ? 'items-start gap-3' : 'items-start gap-4 sm:gap-6'}`}>
+                <div className={`flex w-full min-w-0 ${useStackedFineLayout ? 'flex-col items-stretch gap-3' : enlargeProfilePic ? 'flex-row items-stretch' : compactHeader ? 'flex-col sm:flex-row items-start gap-3' : 'flex-col sm:flex-row items-start gap-4 sm:gap-6'}`}>
 
                     {/* Profile Picture Section */}
                     <div className={`flex flex-col items-center gap-3 flex-shrink-0 ${enlargeProfilePic ? 'w-1/4 bg-gray-50 border-r border-gray-100' : ''}`}>
                         {/* ... existing profile pic code ... */}
                         <div className="relative group w-full h-full">
-                            <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : `${compactHeader ? 'w-28 h-32' : 'w-40 h-45'} rounded-2xl border-4 border-gray-200 shadow-xl`} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
+                            <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : `${compactHeader ? 'w-24 h-28 sm:w-28 sm:h-32' : 'w-32 h-36 sm:w-40 sm:h-45'} rounded-2xl border-4 border-gray-200 shadow-xl`} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
                                 {(() => {
                                     const safeUrl = toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee));
                                     const pendingProfilePic = hasPendingProfilePictureChange(employee);
@@ -648,11 +648,11 @@ function ProfileHeader({
                     </div>
 
                     <div className={`flex-1 min-w-0 w-full ${enlargeProfilePic ? 'p-6 flex flex-col justify-center' : ''}`}>
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                            <div className="flex flex-col gap-2">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3 mb-2">
+                            <div className="flex flex-col gap-2 min-w-0 w-full sm:flex-1">
                                 {!showNameUnderProfilePic && (
                                     <>
-                                        <h1 className={`${compactHeader ? 'text-xl' : 'text-2xl'} font-black text-gray-800`}>
+                                        <h1 className={`${compactHeader ? 'text-lg sm:text-xl' : 'text-xl sm:text-2xl'} font-black text-gray-800 break-words`}>
                                             {employee.firstName} {employee.lastName}
                                         </h1>
                                         <div className="flex flex-col gap-1.5">
@@ -713,7 +713,7 @@ function ProfileHeader({
                                 )}
                             </div>
                             {/* Approval Button near Status — shrink-0 / wrap so a second pill never sits on top of the green action */}
-                            <div className="flex flex-wrap items-center justify-end gap-2 min-w-0 shrink-0">
+                            <div className="flex flex-wrap items-center justify-start sm:justify-end gap-1.5 sm:gap-2 min-w-0 w-full sm:w-auto sm:shrink-0">
                                 {isAdmin() && isEmployeeLeftUser(employee) ? (
                                     <button
                                         type="button"
@@ -722,7 +722,7 @@ function ProfileHeader({
                                             if (onReturnUser) onReturnUser();
                                         }}
                                         disabled={returnUserLoading}
-                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                                        className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
                                     >
                                         {returnUserLoading ? 'Processing...' : 'Return User'}
                                     </button>
@@ -735,7 +735,7 @@ function ProfileHeader({
                                             if (onReviewProbation) onReviewProbation();
                                         }}
                                         disabled={probationActionLoading}
-                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
                                         {probationActionLoading ? 'Processing...' : probationActionLabel}
                                     </button>
@@ -762,7 +762,7 @@ function ProfileHeader({
                                                         handleSubmitForApproval();
                                                     }}
                                                     disabled={sendingApproval || !canCreateActivation}
-                                                    className={`relative z-10 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0`}
+                                                    className={`relative z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0`}
                                                     title={!canCreateActivation ? "You are restricted to create activations" : ""}
                                                 >
                                                     {sendingApproval
@@ -793,7 +793,7 @@ function ProfileHeader({
                                                             openActivationReview(false);
                                                         }}
                                                         disabled={activatingProfile}
-                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                        className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
                                                     >
                                                         {activatingProfile
                                                             ? 'Processing...'
@@ -819,7 +819,7 @@ function ProfileHeader({
                                                             onOpenHeldPendingsReview();
                                                         }}
                                                         disabled={activatingProfile || !canCreateActivation}
-                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                        className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed"
                                                         title={!canCreateActivation ? "You are restricted to create activations" : "Open the list of changes HR kept on hold for this employee."}
                                                     >
                                                         {activatingProfile ? 'Processing...' : 'Review pendings · on hold'}
@@ -843,7 +843,7 @@ function ProfileHeader({
                                                             onOpenActivationHoldReview();
                                                         }}
                                                         disabled={activatingProfile || !canCreateActivation}
-                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-amber-500 text-white hover:bg-amber-600 border border-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                        className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-amber-500 text-white hover:bg-amber-600 border border-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
                                                         title={
                                                             !canCreateActivation
                                                                 ? "You are restricted to create activations"
@@ -862,7 +862,7 @@ function ProfileHeader({
                                                     <button
                                                         type="button"
                                                         disabled
-                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed max-w-[11rem] truncate shrink-0"
+                                                        className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed max-w-[11rem] truncate shrink-0"
                                                         title="Only the assigned HR reviewer or the employee who submitted for activation sees actions while awaiting activation."
                                                     >
                                                         Waiting for HR

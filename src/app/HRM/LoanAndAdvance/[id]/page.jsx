@@ -754,12 +754,12 @@ export default function LoanRequestDetails() {
                 <div className="print:hidden"><Sidebar /></div>
                 <div className="flex-1 flex flex-col min-w-0">
                     <div className="print:hidden shrink-0"><Navbar /></div>
-                    <div className="flex-1 flex flex-col items-stretch justify-start py-8 print:py-0 relative overflow-y-auto w-full px-6 md:px-8">
+                    <div className="flex-1 flex flex-col items-stretch justify-start py-4 sm:py-6 lg:py-8 print:py-0 relative overflow-y-auto w-full px-3 sm:px-5 lg:px-8">
                         <div className="w-full flex items-center justify-between mb-2 print:hidden">
                             <ListReturnBackButton onNavigate={handleListReturnBack} />
                         </div>
 
-                        <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
+                        <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 lg:gap-6 w-full mb-4 sm:mb-6 lg:mb-8 print:hidden items-stretch">
                             <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
                                 {employeeForCard && (
                                     <div className="w-full h-full min-h-0">

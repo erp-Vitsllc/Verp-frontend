@@ -578,8 +578,8 @@ export default function EditGroupPage() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8 w-full max-w-full overflow-x-hidden">
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center text-gray-500">
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 lg:p-6 text-center text-xs sm:text-sm text-gray-500">
                             Loading group data...
                         </div>
                     </div>
@@ -593,15 +593,15 @@ export default function EditGroupPage() {
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="p-8 w-full max-w-full overflow-x-hidden">
+                <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden">
                     {/* Header */}
-                    <div className="mb-6">
-                        <h1 className="text-3xl font-bold text-gray-800 mb-2">Edit Group</h1>
-                        <p className="text-gray-600">Update group information, users and permissions.</p>
+                    <div className="mb-4 sm:mb-6">
+                        <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">Edit Group</h1>
+                        <p className="text-sm sm:text-base text-gray-600">Update group information, users and permissions.</p>
                     </div>
 
                     {/* Main Form Card */}
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 lg:p-6">
                         <form onSubmit={handleSubmit}>
                             <div className="space-y-8">
                                 {/* Group Name */}
@@ -652,17 +652,17 @@ export default function EditGroupPage() {
                                     <label className="block text-sm font-medium text-gray-700 mb-3">
                                         Module Permissions
                                     </label>
-                                    <div className="border border-gray-300 rounded-lg overflow-hidden">
-                                        <table className="w-full">
+                                    <div className="border border-gray-300 rounded-lg overflow-x-auto">
+                                        <table className="w-full min-w-[560px] text-xs sm:text-sm">
                                             <thead className="bg-gray-50 border-b border-gray-200">
                                                 <tr>
-                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">
+                                                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-700 uppercase">
                                                         Module
                                                     </th>
                                                     {PERMISSION_TYPES.map((perm) => (
                                                         <th
                                                             key={perm.id}
-                                                            className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase"
+                                                            className="px-3 sm:px-4 py-2 sm:py-3 text-center text-[10px] sm:text-xs font-medium text-gray-700 uppercase"
                                                         >
                                                             {perm.label}
                                                         </th>

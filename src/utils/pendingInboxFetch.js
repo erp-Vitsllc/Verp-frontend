@@ -85,20 +85,27 @@ export const ASSET_PENDING_INBOX_ENDPOINT = '/AssetItem/dashboard/pending-inbox'
 export const REWARD_PENDING_INBOX_ENDPOINT = '/Reward/dashboard/pending-inbox';
 
 export function fetchFinePendingInbox(axiosInstance, options = {}) {
-    return fetchPendingInbox(axiosInstance, FINE_PENDING_INBOX_ENDPOINT, options);
+    const { targetUserId, ...rest } = options;
+    const params = targetUserId ? { targetUserId } : undefined;
+    return fetchPendingInbox(axiosInstance, FINE_PENDING_INBOX_ENDPOINT, { ...rest, params });
 }
 
 export function fetchPaymentPendingInbox(axiosInstance, options = {}) {
-    return fetchPendingInbox(axiosInstance, PAYMENT_PENDING_INBOX_ENDPOINT, options);
+    const { targetUserId, ...rest } = options;
+    const params = targetUserId ? { targetUserId } : undefined;
+    return fetchPendingInbox(axiosInstance, PAYMENT_PENDING_INBOX_ENDPOINT, { ...rest, params });
 }
 
 export function fetchRewardPendingInbox(axiosInstance, options = {}) {
-    return fetchPendingInbox(axiosInstance, REWARD_PENDING_INBOX_ENDPOINT, options);
+    const { targetUserId, ...rest } = options;
+    const params = targetUserId ? { targetUserId } : undefined;
+    return fetchPendingInbox(axiosInstance, REWARD_PENDING_INBOX_ENDPOINT, { ...rest, params });
 }
 
-export function fetchAssetPendingInbox(axiosInstance, { inboxScope = 'all', skipSync, ...options } = {}) {
+export function fetchAssetPendingInbox(axiosInstance, { inboxScope = 'all', skipSync, targetUserId, ...options } = {}) {
     const params = {};
     if (inboxScope === 'tools' || inboxScope === 'vehicle') params.scope = inboxScope;
     if (skipSync) params.skipSync = '1';
+    if (targetUserId) params.targetUserId = targetUserId;
     return fetchPendingInbox(axiosInstance, ASSET_PENDING_INBOX_ENDPOINT, { ...options, params });
 }

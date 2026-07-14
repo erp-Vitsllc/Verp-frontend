@@ -24,6 +24,7 @@ import {
     notificationStatusClass,
 } from '@/utils/notificationInboxPresentation';
 import { sortNotificationPresentationRows } from '@/utils/notificationSortOrder';
+import { navHrefProps } from '@/utils/linkContextMenu';
 
 const NOTIFICATION_ICON_STYLES = {
     'expiry-plane': {
@@ -200,6 +201,7 @@ export default function NotificationInboxModal({
     error = '',
     emptyMessage = 'No notifications found.',
     onItemClick,
+    getItemHref,
     onDelete,
     hideItemTitle = false,
     listMaxHeight,
@@ -291,10 +293,17 @@ export default function NotificationInboxModal({
                                                 row.requestedDate,
                                                 row.raw,
                                             );
+                                            const itemHref =
+                                                row.href ||
+                                                (typeof getItemHref === 'function'
+                                                    ? getItemHref(row.raw ?? row, row)
+                                                    : '') ||
+                                                '';
                                             return (
                                                 <li key={row.key} className="flex items-stretch gap-0 group">
                                                     <button
                                                         type="button"
+                                                        {...navHrefProps(itemHref)}
                                                         onClick={() => {
                                                             markRead(row.key);
                                                             onItemClick?.(row.raw ?? row);

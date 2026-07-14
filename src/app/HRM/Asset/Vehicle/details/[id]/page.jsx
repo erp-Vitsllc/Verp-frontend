@@ -3,9 +3,10 @@
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense, startTransition } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
-import { useDetailNavigationState } from '@/hooks/useDetailNavigationState';
+import { useDetailNavigationState, buildDetailNavigationHref } from '@/hooks/useDetailNavigationState';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -367,7 +368,7 @@ function VehicleDetailsPageContent() {
     const handleListReturnBack = useListReturnBack();
     const params = useParams();
     const searchParams = useSearchParams();
-    const { navigateDetailState, replaceDetailState } = useDetailNavigationState();
+    const { navigateDetailState, replaceDetailState, pathname } = useDetailNavigationState();
     const assetId = params.id;
     const { toast } = useToast();
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
@@ -3336,7 +3337,7 @@ function VehicleDetailsPageContent() {
                     </div>
 
 
-                    <div className="mt-10 flex flex-col gap-10">
+                    <div className="mt-4 sm:mt-6 lg:mt-8 flex flex-col gap-4 sm:gap-6">
                         <div className={HEADER_PAIR_GRID}>
                             <div className={HEADER_PAIR_CARD_FIXED}>
                                 <VehicleAssetProfileHeader
@@ -3402,6 +3403,14 @@ function VehicleDetailsPageContent() {
                                         <button
                                             key={tab.id}
                                             type="button"
+                                            {...navHrefProps(
+                                                buildDetailNavigationHref(
+                                                    pathname,
+                                                    searchParams,
+                                                    buildVehicleTabUpdates(tab.id),
+                                                    vehicleTabOmitDefaults,
+                                                ),
+                                            )}
                                             onClick={() => navigateToVehicleTab(tab.id)}
                                             className={`relative px-1 py-3 whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
                                                 ? 'text-blue-600 border-blue-500'
@@ -4339,6 +4348,7 @@ function VehicleDetailsPageContent() {
                                                         <tr
                                                             key={fine._id}
                                                             className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
+                                                            data-nav-href={`/HRM/Fine/${fine._id}`}
                                                             onClick={() => router.push(`/HRM/Fine/${fine._id}`)}
                                                         >
                                                             <td className="px-6 py-4 text-sm font-bold text-blue-600">{fine.fineId || '—'}</td>

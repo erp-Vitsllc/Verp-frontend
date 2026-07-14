@@ -5301,21 +5301,21 @@ function CompanyProfilePageContent() {
 
                 <Navbar />
 
-                <div className="p-8">
+                <div className="p-3 sm:p-5 lg:p-8">
 
                     {/* Header Controls */}
 
-                    <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
 
                         <ListReturnBackButton onNavigate={handleBackNavigation} />
 
                     </div>
 
                     {showActivationStatusBanner && (
-                        <div className={`mb-4 rounded-xl border px-4 py-3 flex items-center justify-between gap-3 ${
+                        <div className={`mb-3 sm:mb-4 rounded-xl border px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 ${
                             onCompanyActivationHoldUi ? 'border-amber-200 bg-amber-50' : 'border-blue-200 bg-blue-50'
                         }`}>
-                            <div className={`text-sm ${onCompanyActivationHoldUi ? 'text-amber-900' : 'text-blue-900'}`}>
+                            <div className={`text-xs sm:text-sm ${onCompanyActivationHoldUi ? 'text-amber-900' : 'text-blue-900'}`}>
                                 <span className="font-semibold">
                                     {onCompanyActivationHoldUi ? 'Activation on hold — HR needs corrections.' : 'Activation request pending HR action.'}
                                 </span>
@@ -5369,20 +5369,20 @@ function CompanyProfilePageContent() {
 
                     {/* Header Grid (Equal Width) */}
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 sm:gap-3 lg:gap-5 mb-3 sm:mb-5 lg:mb-8 items-stretch">
 
                         {/* Profile Card (Left - col-span-1) */}
 
-                        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-4 sm:p-5 flex flex-col items-start gap-2 relative overflow-hidden break-words min-w-0 w-full h-full">
+                        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-2.5 sm:p-3.5 lg:p-5 flex flex-col items-start gap-1.5 sm:gap-2 relative overflow-hidden break-words min-w-0 w-full h-full">
 
-                            <div className="flex items-start justify-between gap-6 w-full">
-                                <div className="flex items-start gap-6 flex-1">
+                            <div className="flex flex-col xl:flex-row items-start justify-between gap-2 sm:gap-3 w-full">
+                                <div className="flex flex-row items-start gap-2.5 sm:gap-4 flex-1 min-w-0 w-full">
 
                                 {/* Logo Section */}
 
                                 <div className="relative group flex-shrink-0">
 
-                                    <div className="w-32 h-36 rounded-lg border border-gray-200 overflow-hidden shadow-sm bg-blue-500 relative">
+                                    <div className="w-14 h-16 sm:w-20 sm:h-24 lg:w-28 lg:h-32 rounded-md sm:rounded-lg border border-gray-200 overflow-hidden shadow-sm bg-blue-500 relative">
 
                                         {company.logo && !imageError ? (
 
@@ -5402,7 +5402,7 @@ function CompanyProfilePageContent() {
 
                                         ) : (
 
-                                            <div className="w-full h-full flex items-center justify-center text-white text-3xl font-semibold">
+                                            <div className="w-full h-full flex items-center justify-center text-white text-base sm:text-xl lg:text-3xl font-semibold">
 
                                                 {getInitials(company.name)}
 
@@ -5412,9 +5412,9 @@ function CompanyProfilePageContent() {
 
                                     </div>
 
-                                    <button className="absolute -top-2 -right-2 w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100 z-10 border-2 border-white">
+                                    <button className="absolute -top-1.5 -right-1.5 w-6 h-6 sm:w-8 sm:h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100 z-10 border-2 border-white">
 
-                                        <Camera size={14} />
+                                        <Camera size={12} />
 
                                     </button>
 
@@ -5424,53 +5424,100 @@ function CompanyProfilePageContent() {
 
                                 {/* Name Section */}
 
-                                <div className="flex-1 pt-2">
+                                <div className="flex-1 min-w-0 pt-0.5 sm:pt-1">
 
-                                    <h1 className="text-2xl font-bold text-gray-800 leading-tight mb-1 break-words">
+                                    <div className="flex items-start justify-between gap-2 mb-0.5 sm:mb-1">
+                                        <div className="min-w-0 flex-1">
+                                            <h1 className="text-[11px] sm:text-sm md:text-base lg:text-lg xl:text-xl font-bold text-gray-800 leading-snug break-words min-w-0">
+                                                {company.name}
+                                            </h1>
+                                            {company.nickName ? (
+                                                <p className="text-[10px] sm:text-xs text-gray-400 font-medium mt-0.5 break-words">
+                                                    ({company.nickName})
+                                                </p>
+                                            ) : null}
+                                        </div>
 
-                                        {company.name} {company.nickName && <span className="text-gray-400 font-medium ml-2">({company.nickName})</span>}
+                                        {/* Badge beside name on small/medium so name keeps width and wraps cleanly */}
+                                        <div className="xl:hidden shrink-0 max-w-[40%]">
+                                            {isCompanyActivationComplete && (
+                                                <span className="inline-block px-1.5 sm:px-2 py-0.5 rounded-md text-[8px] sm:text-[10px] font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-normal text-right leading-tight">
+                                                    Profile activated
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
 
-                                    </h1>
+                                    <div className="flex flex-col gap-1.5 sm:gap-2">
 
-                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center flex-wrap gap-1.5">
 
-                                        <div className="flex items-center">
-
-                                            <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-wider">
+                                            <span className="px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-[8px] sm:text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-wider">
                                                 Registered Company
                                             </span>
 
+                                            {showDirectInactiveActivationButton && (
+                                                <button
+                                                    type="button"
+                                                    disabled={activationSubmitting}
+                                                    onClick={openActivationSubmitModal}
+                                                    className="xl:hidden px-2 py-0.5 rounded-md text-[8px] sm:text-[10px] font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                                >
+                                                    {activationSubmitting ? 'Activating...' : 'Activate company'}
+                                                </button>
+                                            )}
+                                            {showUserInactiveActivationButton && (
+                                                <button
+                                                    type="button"
+                                                    disabled={activationSubmitting}
+                                                    onClick={openActivationSubmitModal}
+                                                    className="xl:hidden px-2 py-0.5 rounded-md text-[8px] sm:text-[10px] font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                                >
+                                                    {activationSubmitting ? 'Submitting...' : activationSubmitLabel}
+                                                </button>
+                                            )}
+                                            {showActiveCompanyPendingSubmitButton && (
+                                                <button
+                                                    type="button"
+                                                    disabled={activationSubmitting}
+                                                    onClick={openActivationSubmitModal}
+                                                    className="xl:hidden px-2 py-0.5 rounded-md text-[8px] sm:text-[10px] font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                                >
+                                                    {activationSubmitting ? 'Submitting...' : activationSubmitLabel}
+                                                </button>
+                                            )}
+
                                         </div>
 
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-gray-500 text-[11px] font-medium mt-1">
-                                            <div className="flex items-center gap-1.5 min-w-0">
-                                                <Mail size={12} className="text-blue-500 flex-shrink-0" />
-                                                <span className="break-words">{company.email || '---'}</span>
+                                        <div className="grid grid-cols-1 gap-y-1 text-gray-500 text-[9px] sm:text-[10px] lg:text-[11px] font-medium mt-0.5">
+                                            <div className="flex items-start gap-1 sm:gap-1.5 min-w-0">
+                                                <Mail size={11} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                                                <span className="break-words min-w-0">{company.email || '---'}</span>
                                             </div>
 
-                                            <div className="flex items-center gap-1.5">
-                                                <Calendar size={12} className="text-blue-500 flex-shrink-0" />
-                                                <span>Established: {company.establishedDate ? new Date(company.establishedDate).toLocaleDateString('en-GB') : '---'}</span>
+                                            <div className="flex items-start gap-1 sm:gap-1.5 min-w-0">
+                                                <Calendar size={11} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                                                <span className="break-words min-w-0">Established: {company.establishedDate ? new Date(company.establishedDate).toLocaleDateString('en-GB') : '---'}</span>
                                             </div>
 
-                                            <div className="flex items-center gap-1.5">
-                                                <Phone size={12} className="text-blue-500 flex-shrink-0" />
-                                                <span>{company.phoneCountryCode ? `${company.phoneCountryCode} ${company.phone}` : (company.phone || '---')}</span>
+                                            <div className="flex items-start gap-1 sm:gap-1.5 min-w-0">
+                                                <Phone size={11} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                                                <span className="break-words min-w-0">{company.phoneCountryCode ? `${company.phoneCountryCode} ${company.phone}` : (company.phone || '---')}</span>
                                             </div>
 
-                                            <div className="flex items-center gap-1.5">
-                                                <User size={12} className="text-blue-500 flex-shrink-0" />
-                                                <span>Total Employees: {employeeCount}</span>
+                                            <div className="flex items-start gap-1 sm:gap-1.5 min-w-0">
+                                                <User size={11} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                                                <span className="break-words min-w-0">Total Employees: {employeeCount}</span>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                                 </div>
 
-                                {/* Activation actions / badge (top right) */}
-                                <div className="shrink-0 pt-2 flex flex-col items-end gap-2">
+                                {/* Activation actions / badge (top right) — xl+ only (small screens use inline badge above) */}
+                                <div className="hidden xl:flex shrink-0 pt-1 flex-col items-end gap-1.5">
                                     {isCompanyActivationComplete && (
-                                        <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap shadow-sm">
+                                        <span className="px-2 sm:px-3 py-0.5 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] sm:text-xs font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap shadow-sm">
                                             Profile activated
                                         </span>
                                     )}
@@ -5479,7 +5526,7 @@ function CompanyProfilePageContent() {
                                             type="button"
                                             disabled={activationSubmitting}
                                             onClick={openActivationSubmitModal}
-                                            className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                            className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] sm:text-xs font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
                                         >
                                             {activationSubmitting ? 'Activating...' : 'Activate company'}
                                         </button>
@@ -5489,7 +5536,7 @@ function CompanyProfilePageContent() {
                                             type="button"
                                             disabled={activationSubmitting}
                                             onClick={openActivationSubmitModal}
-                                            className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                            className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] sm:text-xs font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
                                         >
                                             {activationSubmitting ? 'Submitting...' : activationSubmitLabel}
                                         </button>
@@ -5499,7 +5546,7 @@ function CompanyProfilePageContent() {
                                             type="button"
                                             disabled={activationSubmitting}
                                             onClick={openActivationSubmitModal}
-                                            className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                            className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] sm:text-xs font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
                                         >
                                             {activationSubmitting ? 'Submitting...' : activationSubmitLabel}
                                         </button>
@@ -5509,10 +5556,10 @@ function CompanyProfilePageContent() {
 
 
 
-                            <div className="w-full pt-2 mt-auto">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-gray-700">Profile Status</span>
-                                    <span className="text-sm font-semibold text-gray-800">{companyActivationProgress?.percentage || 0}%</span>
+                            <div className="w-full pt-1.5 sm:pt-2 mt-auto">
+                                <div className="flex items-center justify-between mb-1 sm:mb-2">
+                                    <span className="text-[11px] sm:text-sm font-medium text-gray-700">Profile Status</span>
+                                    <span className="text-[11px] sm:text-sm font-semibold text-gray-800">{companyActivationProgress?.percentage || 0}%</span>
                                 </div>
                                 <div
                                     ref={progressBarRef}
@@ -5526,9 +5573,9 @@ function CompanyProfilePageContent() {
                                         setShowProgressTooltip(true);
                                     }}
                                 >
-                                    <div className="w-full bg-gray-200 rounded-full h-2.5 cursor-default">
+                                    <div className="w-full bg-gray-200 rounded-full h-1.5 sm:h-2.5 cursor-default">
                                         <div
-                                            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                            className="bg-blue-600 h-1.5 sm:h-2.5 rounded-full transition-all duration-300"
                                             style={{ width: `${companyActivationProgress?.percentage || 0}%` }}
                                         />
                                     </div>
@@ -5594,15 +5641,15 @@ function CompanyProfilePageContent() {
 
 
 
-                            <div className="relative p-5 sm:p-6 flex-1 flex flex-col overflow-hidden break-words">
+                            <div className="relative p-3 sm:p-4 lg:p-6 flex-1 flex flex-col overflow-hidden break-words">
 
-                                <h2 className="text-2xl font-semibold text-white mb-6">Company Summary</h2>
+                                <h2 className="text-base sm:text-lg lg:text-2xl font-semibold text-white mb-3 sm:mb-4 lg:mb-6">Company Summary</h2>
 
-                                <div className="flex items-start gap-12 flex-1">
+                                <div className="flex items-start gap-4 sm:gap-6 lg:gap-10 flex-1 min-w-0">
 
                                     {/* Icon Image */}
 
-                                    <div className="relative flex-shrink-0 w-[114px] h-[177px]">
+                                    <div className="relative flex-shrink-0 w-12 h-[76px] sm:w-16 sm:h-[100px] lg:w-[114px] lg:h-[177px]">
 
                                         <Image
 
@@ -5614,7 +5661,7 @@ function CompanyProfilePageContent() {
 
                                             height={177}
 
-                                            className="object-contain"
+                                            className="object-contain w-full h-full"
 
                                         />
 
@@ -5625,32 +5672,32 @@ function CompanyProfilePageContent() {
                                     {/* Status List */}
 
                                     <div
-                                        className="flex-1 pt-2"
+                                        className="flex-1 pt-0.5 sm:pt-2 min-w-0"
                                         onMouseEnter={() => setIsSummaryHovered(true)}
                                         onMouseLeave={() => setIsSummaryHovered(false)}
                                     >
                                         <div
-                                            className={`space-y-3 min-h-[180px] pr-2 transition-all duration-500 ease-in-out ${
+                                            className={`space-y-1.5 sm:space-y-2.5 lg:space-y-3 min-h-[100px] sm:min-h-[140px] lg:min-h-[180px] pr-1 sm:pr-2 transition-all duration-500 ease-in-out ${
                                                 summaryPageVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
                                             }`}
                                         >
                                             {statusItems.length > 0 ? (
                                                 (summaryPages[summaryPageIndex] || []).map((item, index) => (
-                                                    <div key={`${item.text}-${index}`} className="flex items-center gap-3">
-                                                        <div className={`w-5 h-2 rounded-full ${item.color} shadow-sm shrink-0`} />
-                                                        <p className="text-white text-[13px] font-medium leading-tight">{item.text}</p>
+                                                    <div key={`${item.text}-${index}`} className="flex items-start gap-2 sm:gap-3 min-w-0">
+                                                        <div className={`w-3.5 sm:w-5 h-1.5 sm:h-2 rounded-full ${item.color} shadow-sm shrink-0 mt-1`} />
+                                                        <p className="text-white text-[11px] sm:text-xs lg:text-[13px] font-medium leading-snug break-words">{item.text}</p>
                                                     </div>
                                                 ))
                                             ) : (
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-5 h-2 rounded-full bg-white/20 shadow-sm shrink-0" />
-                                                    <p className="text-white/60 text-[13px] font-medium">No expiring documents found</p>
+                                                <div className="flex items-center gap-2 sm:gap-3">
+                                                    <div className="w-3.5 sm:w-5 h-1.5 sm:h-2 rounded-full bg-white/20 shadow-sm shrink-0" />
+                                                    <p className="text-white/60 text-[11px] sm:text-xs lg:text-[13px] font-medium">No expiring documents found</p>
                                                 </div>
                                             )}
                                         </div>
 
                                         {summaryPages.length > 1 ? (
-                                            <div className="mt-3 flex items-center justify-center gap-2">
+                                            <div className="mt-2 sm:mt-3 flex items-center justify-center gap-2">
                                                 {summaryPages.map((_, idx) => (
                                                     <button
                                                         key={`summary-dot-${idx}`}
@@ -5680,12 +5727,12 @@ function CompanyProfilePageContent() {
 
                     {/* Tab Navigation (Matched to Employee Profile) */}
 
-                    <div className="flex items-center gap-8 mb-6 border-b border-gray-200 px-6">
+                    <div className="flex items-center gap-3 sm:gap-5 lg:gap-8 mb-4 sm:mb-6 border-b border-gray-200 px-2 sm:px-4 lg:px-6 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
                         {coTabVis('basic') && (
                         <button
                             onClick={() => setActiveTab('basic')}
-                            className={`pb-3 text-sm font-bold transition-all relative ${activeTab === 'basic' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                            className={`pb-2 sm:pb-3 text-xs sm:text-sm font-bold transition-all relative whitespace-nowrap ${activeTab === 'basic' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                         >
                             <div className="flex items-center">
                                 Basic Details
@@ -5713,7 +5760,7 @@ function CompanyProfilePageContent() {
                         {coTabVis('owner') && (
                         <button
                             onClick={() => setActiveTab('owner')}
-                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'owner' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                            className={`pb-2 sm:pb-3 text-xs sm:text-sm font-semibold transition-all relative whitespace-nowrap ${activeTab === 'owner' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                         >
                             <div className="flex items-center">
                                 Owner Information
@@ -5737,7 +5784,7 @@ function CompanyProfilePageContent() {
 
                             onClick={() => setActiveTab('assets')}
 
-                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'assets' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
+                            className={`pb-2 sm:pb-3 text-xs sm:text-sm font-semibold transition-all relative whitespace-nowrap ${activeTab === 'assets' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
 
                                 }`}
 
@@ -5759,7 +5806,7 @@ function CompanyProfilePageContent() {
 
                             onClick={() => setActiveTab('fine')}
 
-                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'fine' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
+                            className={`pb-2 sm:pb-3 text-xs sm:text-sm font-semibold transition-all relative whitespace-nowrap ${activeTab === 'fine' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
 
                                 }`}
 
@@ -5779,7 +5826,7 @@ function CompanyProfilePageContent() {
                         {coTabVis('documents') && (
                         <button
                             onClick={() => setActiveTab('others')}
-                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'others' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                            className={`pb-2 sm:pb-3 text-xs sm:text-sm font-semibold transition-all relative whitespace-nowrap ${activeTab === 'others' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                         >
                             <div className="flex items-center">
                                 Documents
@@ -5815,7 +5862,7 @@ function CompanyProfilePageContent() {
 
                                     onClick={() => setActiveTab(tab)}
 
-                                    className={`pb-3 text-sm font-semibold transition-all relative capitalize ${activeTab === tab ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                                    className={`pb-2 sm:pb-3 text-xs sm:text-sm font-semibold transition-all relative whitespace-nowrap capitalize ${activeTab === tab ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
 
                                 >
 
@@ -5883,10 +5930,10 @@ function CompanyProfilePageContent() {
 
                                     <div id="activation-basicDetails" className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
 
-                                        <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                        <div className="flex items-center justify-between px-3 sm:px-6 lg:px-3 sm:px-6 lg:px-8 py-2 sm:py-3 sm:py-4 lg:py-5 border-b border-gray-100">
 
                                             <div className="flex items-center">
-                                                <h4 className="text-xl font-semibold text-gray-800">Basic Details</h4>
+                                                <h4 className="text-base sm:text-xl font-semibold text-gray-800">Basic Details</h4>
                                                 {viewerHasPendingMatch(c => {
                                                     const s = String(c?.section || '').toLowerCase();
                                                     const cd = String(c?.card || '').toLowerCase();
@@ -5921,7 +5968,7 @@ function CompanyProfilePageContent() {
 
                                         <div className="divide-y divide-gray-100">
 
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                 <span className="text-sm font-medium text-gray-500">Company ID</span>
 
@@ -5929,7 +5976,7 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                 <span className="text-sm font-medium text-gray-500">Company Name</span>
 
@@ -5937,7 +5984,7 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                 <span className="text-sm font-medium text-gray-500">Nick Name</span>
 
@@ -5945,7 +5992,7 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                 <span className="text-sm font-medium text-gray-500">Email Address</span>
 
@@ -5953,7 +6000,7 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                 <span className="text-sm font-medium text-gray-500">Contact Number</span>
 
@@ -5961,7 +6008,7 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                 <span className="text-sm font-medium text-gray-500">Establishment Date</span>
 
@@ -5973,7 +6020,7 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                 <span className="text-sm font-medium text-gray-500">Expiry Date</span>
 
@@ -5988,7 +6035,7 @@ function CompanyProfilePageContent() {
                                         {isCompanyActivationComplete &&
                                         hasPendingBasicDetailsChange &&
                                         hasUnsubmittedPendingCompanyChanges ? (
-                                            <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                            <div className="px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                 <p className="text-xs text-amber-900 leading-snug">
                                                     Basic details are saved in the temporary queue. The card above shows the
                                                     current approved values until HR approves. Use{' '}
@@ -6009,9 +6056,9 @@ function CompanyProfilePageContent() {
 
                                     {companyAddressCanView && companyAddressFilled && (
                                         <div className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-3 sm:px-6 lg:px-8 py-2 sm:py-3 sm:py-4 lg:py-5 border-b border-gray-100">
                                                 <div className="flex items-center">
-                                                    <h4 className="text-xl font-semibold text-gray-800">Company Address</h4>
+                                                    <h4 className="text-base sm:text-xl font-semibold text-gray-800">Company Address</h4>
                                                     {viewerHasPendingMatch((c) => {
                                                         const s = String(c?.section || '').toLowerCase();
                                                         const cd = String(c?.card || '').toLowerCase();
@@ -6037,23 +6084,23 @@ function CompanyProfilePageContent() {
                                                 )}
                                             </div>
                                             <div className="divide-y divide-gray-100">
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Address</span>
                                                     <span className="text-sm font-medium text-gray-500 text-right max-w-[60%]">{company.address || '---'}</span>
                                                 </div>
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Country</span>
                                                     <span className="text-sm font-medium text-gray-500">{company.country || '---'}</span>
                                                 </div>
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">State / Emirates</span>
                                                     <span className="text-sm font-medium text-gray-500">{company.state || '---'}</span>
                                                 </div>
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">City</span>
                                                     <span className="text-sm font-medium text-gray-500">{company.city || '---'}</span>
                                                 </div>
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">PO Box</span>
                                                     <span className="text-sm font-medium text-gray-500">{company.postalCode || '---'}</span>
                                                 </div>
@@ -6086,10 +6133,10 @@ function CompanyProfilePageContent() {
                                             }`}
                                         >
 
-                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-3 sm:px-6 lg:px-8 py-2 sm:py-3 sm:py-4 lg:py-5 border-b border-gray-100">
 
                                                 <div className="flex items-center">
-                                                    <h4 className="text-xl font-semibold text-gray-800">Trade License Details</h4>
+                                                    <h4 className="text-base sm:text-xl font-semibold text-gray-800">Trade License Details</h4>
                                                     {viewerHasPendingMatch(c => {
                                                         const s = String(c?.section || '').toLowerCase();
                                                         const cd = String(c?.card || '').toLowerCase();
@@ -6184,7 +6231,7 @@ function CompanyProfilePageContent() {
                                             </div>
 
                                             {findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
-                                                <div className="px-8 py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
+                                                <div className="px-3 sm:px-6 lg:px-8 py-2 sm:py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
                                                     <div className="min-w-0 flex-1">
                                                         <span className="font-semibold block">Pending HR approval</span>
                                                         {findPendingNotRenew({ kind: 'tradeLicense' })?.reason ? (
@@ -6229,7 +6276,7 @@ function CompanyProfilePageContent() {
 
                                             <div className="divide-y divide-gray-100">
 
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                     <span className="text-sm font-medium text-gray-500">License Number</span>
 
@@ -6237,7 +6284,7 @@ function CompanyProfilePageContent() {
 
                                                 </div>
 
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                     <span className="text-sm font-medium text-gray-500">Issue Date</span>
 
@@ -6249,7 +6296,7 @@ function CompanyProfilePageContent() {
 
                                                 </div>
 
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                     <span className="text-sm font-medium text-gray-500">Expiry Date</span>
 
@@ -6259,7 +6306,7 @@ function CompanyProfilePageContent() {
 
                                                 </div>
 
-                                                <div className="px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                <div className="px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-slate-50/50 transition-colors">
 
                                                     <span className="text-sm font-bold text-slate-500 block mb-2">Owners</span>
 
@@ -6299,7 +6346,7 @@ function CompanyProfilePageContent() {
 
                                                 {company.tradeLicenseAttachment && tradeLicenseCanDownload && (
 
-                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                    <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-slate-50/50 transition-colors">
 
                                                         <span className="text-sm font-medium text-gray-500">Attachment</span>
 
@@ -6324,7 +6371,7 @@ function CompanyProfilePageContent() {
                                             {isCompanyActivationComplete &&
                                             hasPendingTradeLicenseChange &&
                                             hasUnsubmittedPendingCompanyChanges ? (
-                                                <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                                <div className="px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                     <p className="text-xs text-amber-900 leading-snug">
                                                         Trade license changes are saved in the temporary queue. The card
                                                         above shows the current approved values until HR approves. Use{' '}
@@ -6358,10 +6405,10 @@ function CompanyProfilePageContent() {
                                             }`}
                                         >
 
-                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                            <div className="flex items-center justify-between px-3 sm:px-6 lg:px-3 sm:px-6 lg:px-8 py-2 sm:py-3 sm:py-4 lg:py-5 border-b border-gray-100">
 
                                                 <div className="flex items-center">
-                                                    <h4 className="text-xl font-semibold text-gray-800">Establishment Card Details</h4>
+                                                    <h4 className="text-base sm:text-xl font-semibold text-gray-800">Establishment Card Details</h4>
                                                     {viewerHasPendingMatch(c => {
                                                         const s = String(c?.section || '').toLowerCase();
                                                         const cd = String(c?.card || '').toLowerCase();
@@ -6456,7 +6503,7 @@ function CompanyProfilePageContent() {
                                             </div>
 
                                             {findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
-                                                <div className="px-8 py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
+                                                <div className="px-3 sm:px-6 lg:px-8 py-2 sm:py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
                                                     <div className="min-w-0 flex-1">
                                                         <span className="font-semibold block">Pending HR approval</span>
                                                         {findPendingNotRenew({ kind: 'establishmentCard' })?.reason ? (
@@ -6501,7 +6548,7 @@ function CompanyProfilePageContent() {
 
                                             <div className="divide-y divide-slate-50">
 
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                     <span className="text-sm font-medium text-gray-500">Card Number</span>
 
@@ -6511,7 +6558,7 @@ function CompanyProfilePageContent() {
 
 
 
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                     <span className="text-sm font-medium text-gray-500">Expiry Date</span>
 
@@ -6521,7 +6568,7 @@ function CompanyProfilePageContent() {
 
                                                 </div>
 
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
 
                                                     <span className="text-sm font-medium text-gray-500">Company Name</span>
 
@@ -6531,7 +6578,7 @@ function CompanyProfilePageContent() {
 
                                                 {company.establishmentCardAttachment && (
 
-                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                    <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-slate-50/50 transition-colors">
 
                                                         <span className="text-sm font-medium text-gray-500">Attachment</span>
 
@@ -6572,8 +6619,8 @@ function CompanyProfilePageContent() {
                                                         : 'bg-white border-slate-100'
                                                 }`}
                                             >
-                                                <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
-                                                    <h4 className="text-xl font-semibold text-gray-800">
+                                                <div className="flex items-center justify-between px-3 sm:px-6 lg:px-3 sm:px-6 lg:px-8 py-2 sm:py-3 sm:py-4 lg:py-5 border-b border-gray-100">
+                                                    <h4 className="text-base sm:text-xl font-semibold text-gray-800">
                                                         Ejari{ej?.type ? ` — ${ej.type}` : ''}
                                                     </h4>
                                                     <div className="flex items-center gap-2">
@@ -6649,7 +6696,7 @@ function CompanyProfilePageContent() {
                                                     arrayIndex: ejIdx,
                                                     arrayItemId: ej?._id != null ? String(ej._id) : undefined,
                                                 })?.requestId ? (
-                                                    <div className="px-8 py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
+                                                    <div className="px-3 sm:px-6 lg:px-8 py-2 sm:py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
                                                         <div className="min-w-0 flex-1">
                                                             <span className="font-semibold block">Pending HR approval</span>
                                                             {findPendingNotRenew({
@@ -6711,31 +6758,31 @@ function CompanyProfilePageContent() {
                                                 ) : null}
                                                 <div className="divide-y divide-slate-50">
                                                     {ej?.provider ? (
-                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                        <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                             <span className="text-sm font-medium text-gray-500">Provider</span>
                                                             <span className="text-sm font-medium text-gray-500">{ej.provider}</span>
                                                         </div>
                                                     ) : null}
                                                     {ej?.description ? (
-                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                        <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                             <span className="text-sm font-medium text-gray-500">Note</span>
                                                             <span className="text-sm font-medium text-gray-500 text-right max-w-[60%] whitespace-pre-wrap break-words">
                                                                 {ej.description}
                                                             </span>
                                                         </div>
                                                     ) : null}
-                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                         <span className="text-sm font-medium text-gray-500">Issue / Start</span>
                                                         <span className="text-sm font-medium text-gray-500">{formatDate(issueRaw)}</span>
                                                     </div>
-                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                         <span className="text-sm font-medium text-gray-500">Expiry Date</span>
                                                         <span className={`text-sm font-medium ${getExpiryVisualState(expiryRaw).className}`}>
                                                             {formatDate(expiryRaw)}
                                                         </span>
                                                     </div>
                                                     {ej?.value != null && ej?.value !== '' ? (
-                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                        <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-gray-50/50 transition-colors">
                                                             <span className="text-sm font-medium text-gray-500">Value (AED)</span>
                                                             <span className="text-sm font-medium text-gray-500">
                                                                 {Number(ej.value).toLocaleString()}
@@ -6743,7 +6790,7 @@ function CompanyProfilePageContent() {
                                                         </div>
                                                     ) : null}
                                                     {attachUrl ? (
-                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                        <div className="flex items-center justify-between px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 hover:bg-slate-50/50 transition-colors">
                                                             <span className="text-sm font-medium text-gray-500">Attachment</span>
                                                             <button
                                                                 type="button"
@@ -6858,7 +6905,7 @@ function CompanyProfilePageContent() {
 
                                                         onClick={() => setActiveOwnerTabIndex(index)}
 
-                                                        className={`pb-3 text-sm font-semibold tracking-tight transition-all relative ${activeOwnerTabIndex === index
+                                                        className={`pb-2 sm:pb-3 text-xs sm:text-sm font-semibold tracking-tight transition-all relative whitespace-nowrap ${activeOwnerTabIndex === index
 
                                                             ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
 
@@ -6897,7 +6944,7 @@ function CompanyProfilePageContent() {
 
                                                     <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
                                                         <div className="flex items-center">
-                                                            <h4 className="text-xl font-semibold text-gray-800">Owner Details</h4>
+                                                            <h4 className="text-base sm:text-xl font-semibold text-gray-800">Owner Details</h4>
                                                             {hasPendingOwnerDetailsChange && (
                                                                 <span
                                                                     className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
@@ -6973,7 +7020,7 @@ function CompanyProfilePageContent() {
                                                     hasPendingOwnerDetailsChange &&
                                                     hasUnsubmittedPendingCompanyChanges &&
                                                     canMutateActiveOwner ? (
-                                                        <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                                        <div className="px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                             <p className="text-xs text-amber-900 leading-snug">
                                                                 Owner details are saved in the temporary queue. Use{' '}
                                                                 <span className="font-semibold">{activationSubmitLabel}</span> when you are
@@ -7319,7 +7366,7 @@ function CompanyProfilePageContent() {
 
                                         <div>
 
-                                            <h3 className="text-xl font-semibold text-gray-800">Company Assets</h3>
+                                            <h3 className="text-base sm:text-xl font-semibold text-gray-800">Company Assets</h3>
 
                                             <p className="text-sm text-gray-400 mt-0.5">Assets transferred and assigned to this company</p>
 
@@ -7481,29 +7528,30 @@ function CompanyProfilePageContent() {
 
                                                         const statusClass = statusColors[asset.status] || 'bg-blue-100 text-blue-600';
                                                         const empName = asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : '---';
-
-
+                                                        const typeLower = String(asset.type || asset.typeId?.name || '').toLowerCase();
+                                                        const catLower = String(asset.category || asset.categoryId?.name || '').toLowerCase();
+                                                        const isVehicleRow =
+                                                            typeLower.includes('vehicle') ||
+                                                            typeLower.includes('car') ||
+                                                            typeLower.includes('van') ||
+                                                            typeLower.includes('pickup') ||
+                                                            catLower.includes('vehicle') ||
+                                                            !!(asset.plateNumber && String(asset.plateNumber).trim());
+                                                        const assetDetailHref = asset._id || asset.id
+                                                            ? (isVehicleRow
+                                                                ? `/HRM/Asset/Vehicle/details/${asset._id || asset.id}`
+                                                                : `/HRM/Asset/details/${asset._id || asset.id}`)
+                                                            : '';
 
                                                         return (
 
                                                             <tr
                                                                 key={asset._id || idx}
                                                                 className="hover:bg-blue-50/20 transition-colors group cursor-pointer"
+                                                                data-nav-href={assetDetailHref || undefined}
                                                                 onClick={() => {
-                                                                    const typeLower = String(asset.type || asset.typeId?.name || '').toLowerCase();
-                                                                    const catLower = String(asset.category || asset.categoryId?.name || '').toLowerCase();
-                                                                    const isVehicleRow =
-                                                                        typeLower.includes('vehicle') ||
-                                                                        typeLower.includes('car') ||
-                                                                        typeLower.includes('van') ||
-                                                                        typeLower.includes('pickup') ||
-                                                                        catLower.includes('vehicle') ||
-                                                                        !!(asset.plateNumber && String(asset.plateNumber).trim());
-                                                                    router.push(
-                                                                        isVehicleRow
-                                                                            ? `/HRM/Asset/Vehicle/details/${asset._id || asset.id}`
-                                                                            : `/HRM/Asset/details/${asset._id || asset.id}`
-                                                                    );
+                                                                    if (!assetDetailHref) return;
+                                                                    router.push(assetDetailHref);
                                                                 }}
                                                             >
                                                                 {companyAssetsCanManage && (
@@ -7614,22 +7662,12 @@ function CompanyProfilePageContent() {
                                                                 <td className="px-6 py-4 text-right">
 
                                                                     <button
+                                                                        type="button"
+                                                                        data-nav-href={assetDetailHref || undefined}
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            const typeLower = String(asset.type || asset.typeId?.name || '').toLowerCase();
-                                                                            const catLower = String(asset.category || asset.categoryId?.name || '').toLowerCase();
-                                                                            const isVehicleRow =
-                                                                                typeLower.includes('vehicle') ||
-                                                                                typeLower.includes('car') ||
-                                                                                typeLower.includes('van') ||
-                                                                                typeLower.includes('pickup') ||
-                                                                                catLower.includes('vehicle') ||
-                                                                                !!(asset.plateNumber && String(asset.plateNumber).trim());
-                                                                            router.push(
-                                                                                isVehicleRow
-                                                                                    ? `/HRM/Asset/Vehicle/details/${asset._id || asset.id}`
-                                                                                    : `/HRM/Asset/details/${asset._id || asset.id}`
-                                                                            );
+                                                                            if (!assetDetailHref) return;
+                                                                            router.push(assetDetailHref);
                                                                         }}
 
                                                                         className="opacity-0 group-hover:opacity-100 transition-all p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"
@@ -7680,7 +7718,7 @@ function CompanyProfilePageContent() {
 
                                         <div>
 
-                                            <h3 className="text-xl font-semibold text-gray-800">Company Fines</h3>
+                                            <h3 className="text-base sm:text-xl font-semibold text-gray-800">Company Fines</h3>
 
                                             <p className="text-sm text-gray-400 mt-0.5">Approved company fines for this company from the Fine module</p>
 
@@ -7858,6 +7896,7 @@ function CompanyProfilePageContent() {
                                                             <tr
                                                                 key={fine._id || idx}
                                                                 className="hover:bg-blue-50/20 transition-colors group cursor-pointer"
+                                                                data-nav-href={`/HRM/Fine/${fine._id || fine.fineId}`}
                                                                 onClick={() => router.push(`/HRM/Fine/${fine._id || fine.fineId}`)}
                                                             >
 
@@ -7908,13 +7947,11 @@ function CompanyProfilePageContent() {
                                                                 <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
 
                                                                     <button
-
+                                                                        type="button"
+                                                                        data-nav-href={`/HRM/Fine/${fine._id || fine.fineId}`}
                                                                         onClick={() => router.push(`/HRM/Fine/${fine._id || fine.fineId}`)}
-
                                                                         className="opacity-0 group-hover:opacity-100 transition-all p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"
-
                                                                         title="View Fine Details"
-
                                                                     >
 
                                                                         <ChevronRight size={18} />
@@ -7955,7 +7992,7 @@ function CompanyProfilePageContent() {
 
                                     <div className="flex items-center justify-between">
 
-                                        <h3 className="text-xl font-semibold text-gray-800 capitalize">
+                                        <h3 className="text-base sm:text-xl font-semibold text-gray-800 capitalize">
 
                                             {activeTab === 'others' ? 'Documents' :
 
@@ -13259,7 +13296,7 @@ function CompanyProfilePageContent() {
 
                                                     }}
 
-                                                    className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-blue-200 flex items-center gap-2 hover:bg-blue-700 transition-all"
+                                                    className="bg-blue-600 text-white px-3 sm:px-6 lg:px-8 py-2 sm:py-3 rounded-xl font-bold shadow-lg shadow-blue-200 flex items-center gap-2 hover:bg-blue-700 transition-all"
 
                                                 >
 

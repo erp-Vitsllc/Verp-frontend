@@ -11,14 +11,13 @@ import { hasAnyPermission, isAdmin, hasPermission, canAccessAddEmployee } from '
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc } from '@/utils/dashboardNotificationRouting';
-import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
+import { buildEmployeeListBellFromStats, buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
-import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import {
     clearEmployeeDashboardStatsCache,
     fetchEmployeeDashboardStats,
@@ -32,6 +31,7 @@ import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { canDeleteEmployeeFromList } from '@/utils/employeeListPermissions';
 import { isEmployeeProfileActivated } from '@/utils/employeeActivationSections';
 import ErpPageHeader from '@/components/ErpPageHeader';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import { Country } from 'country-state-city';
 import {
     getEmployeeInitials,
@@ -239,16 +239,7 @@ function EmployeeContent() {
     usePersistListReturnState(listReturnParams);
 
     const buildNotificationsFromStats = useCallback((statsData, employeesList) => {
-        const items = Array.isArray(statsData?.items) ? statsData.items : [];
-        const pendingItems = filterActionableDashboardItems(items);
-        const flowchartHrId = statsData?.flowchartHrEmployeeObjectId ?? null;
-        const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-        const hrLive =
-            typeof window !== 'undefined' &&
-            (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-        const mandatoryCardsHrLive =
-            typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-        return buildEmployeePageNotifications(pendingItems, employeesList, hrLive, mandatoryCardsHrLive);
+        return buildEmployeeListBellFromStats(statsData, employeesList);
     }, []);
 
     const applyDashboardStats = useCallback(
@@ -1222,7 +1213,7 @@ function EmployeeContent() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                         <ErpPageHeader
                             title="Employees"
                             subtitle={`${statusCounts.permanent} Permanent | ${statusCounts.notice} Notice`}
@@ -1253,7 +1244,7 @@ function EmployeeContent() {
                                 </button>
 
                                 {/* Search */}
-                                <div className="relative flex-1 max-w-md">
+                                <div className="relative flex-1 min-w-[140px] sm:min-w-[180px] max-w-md">
                                     <svg
                                         width="16"
                                         height="16"
@@ -1271,7 +1262,7 @@ function EmployeeContent() {
                                         placeholder="Search"
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                                        className="w-full pl-9 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white"
                                     />
                                 </div>
 
@@ -1279,7 +1270,7 @@ function EmployeeContent() {
                                 {mounted && canAccessAddEmployee() && (
                                     <Link
                                         href="/emp/add-employee"
-                                        className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                        className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
                                     >
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -1293,10 +1284,10 @@ function EmployeeContent() {
                         </ErpPageHeader>
 
                         {/* Profile Head Section */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6 lg:mb-8">
                             {/* Left Card: Stats Grid */}
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between overflow-hidden" style={{ height: '320px' }}>
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between overflow-hidden min-h-0 h-auto xl:min-h-[280px] xl:h-[320px]">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-3">
                                     {[
                                         {
                                             label: 'COMPANY',
@@ -1370,9 +1361,9 @@ function EmployeeContent() {
                                         },
                                     ].map((item, idx) => (
                                         item.isGenderBox ? (
-                                            <div key={idx} className="bg-gray-100 p-4 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center transition-all duration-300">
-                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">{item.label}</span>
-                                                <div className="flex items-center gap-2 text-3xl font-black" style={{ color: '#dc2626' }}>
+                                            <div key={idx} className="bg-gray-100 p-2 sm:p-3 lg:p-4 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center transition-all duration-300 min-w-0">
+                                                <span className="text-[8px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 sm:mb-2">{item.label}</span>
+                                                <div className="flex items-center gap-1 sm:gap-2 text-xl sm:text-2xl lg:text-3xl font-black" style={{ color: '#dc2626' }}>
                                                     <span
                                                         className="cursor-pointer text-blue-600 underline decoration-blue-400/60 underline-offset-2 hover:scale-110 transition-transform"
                                                         onClick={() => {
@@ -1401,12 +1392,12 @@ function EmployeeContent() {
                                         ) : (
                                             <div
                                                 key={idx}
-                                                className="bg-gray-100 p-4 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center group hover:bg-white hover:shadow-md transition-all duration-300 cursor-pointer"
+                                                className="bg-gray-100 p-2 sm:p-3 lg:p-4 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center group hover:bg-white hover:shadow-md transition-all duration-300 cursor-pointer min-w-0"
                                                 onClick={item.onClick}
                                             >
-                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">{item.label}</span>
+                                                <span className="text-[8px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 sm:mb-2">{item.label}</span>
                                                 <span
-                                                    className="text-2xl font-black text-blue-600 underline decoration-blue-400/60 underline-offset-2 group-hover:scale-110 transition-transform"
+                                                    className="text-lg sm:text-2xl font-black text-blue-600 underline decoration-blue-400/60 underline-offset-2 group-hover:scale-110 transition-transform"
                                                     style={{ color: '#dc2626' }}
                                                 >
                                                     <AnimatedCounter value={item.value} />
@@ -1417,10 +1408,10 @@ function EmployeeContent() {
                                 </div>
                                 <div className="mt-auto">
                                     <div className="flex justify-between items-end mb-2">
-                                        <span className="text-sm font-bold text-gray-700 uppercase tracking-wider">Profile Status</span>
-                                        <span className="text-sm font-black text-blue-600">{Math.round(stats.statusProgress)}%</span>
+                                        <span className="text-xs sm:text-sm font-bold text-gray-700 uppercase tracking-wider">Profile Status</span>
+                                        <span className="text-xs sm:text-sm font-black text-blue-600">{Math.round(stats.statusProgress)}%</span>
                                     </div>
-                                    <div className="h-3 bg-blue-50 rounded-full overflow-hidden border border-blue-100 shadow-inner">
+                                    <div className="h-2.5 sm:h-3 bg-blue-50 rounded-full overflow-hidden border border-blue-100 shadow-inner">
                                         <TooltipProvider>
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
@@ -1442,12 +1433,12 @@ function EmployeeContent() {
                             </div>
 
                             {/* Right Card: Charts Grid */}
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-4 overflow-hidden min-w-0" style={{ height: '320px' }}>
+                            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-3 sm:gap-4 overflow-hidden min-w-0 min-h-0 h-auto xl:h-[320px]">
                                 {/* Bar Chart: Document Expiry */}
-                                <div className="flex-1 flex flex-col">
-                                    <h3 className="text-sm font-bold text-gray-500 text-center uppercase tracking-widest mb-4">Document Expiry</h3>
-                                    <div className="flex-1 min-h-[180px] min-w-0">
-                                        <RechartsBox height={180} minHeight={180} minWidth={260}>
+                                <div className="flex-1 flex flex-col min-w-0">
+                                    <h3 className="text-[10px] sm:text-sm font-bold text-gray-500 text-center uppercase tracking-widest mb-2 sm:mb-4">Document Expiry</h3>
+                                    <div className="flex-1 min-h-[160px] sm:min-h-[180px] min-w-0">
+                                        <RechartsBox height={180} minHeight={160} minWidth={200}>
                                             <BarChart
                                                 data={stats.docExpiryChartData || []}
                                                 margin={{ top: 20, right: 0, left: 0, bottom: 0 }}
@@ -1501,9 +1492,9 @@ function EmployeeContent() {
                                 </div>
 
                                 {/* Pie Chart: Nationality */}
-                                <div className="w-full sm:w-[250px] flex flex-col items-center justify-center">
-                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Nationality</h3>
-                                    <div className="flex-1 w-full min-h-[230px] flex items-center justify-center">
+                                <div className="w-full md:w-[220px] lg:w-[250px] flex flex-col items-center justify-center shrink-0">
+                                    <h3 className="text-[10px] sm:text-sm font-bold text-gray-500 uppercase tracking-widest mb-2 sm:mb-4">Nationality</h3>
+                                    <div className="flex-1 w-full min-h-[180px] sm:min-h-[230px] flex items-center justify-center">
                                         <Pie
                                             data={stats.nationalityChartData}
                                             plugins={[ChartDataLabels]}
@@ -1563,16 +1554,16 @@ function EmployeeContent() {
 
                         {/* Filter Panel */}
                         {showFilters && (
-                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
-                                <div className="flex items-center gap-4 flex-wrap">
-                                    <span className="text-sm font-medium text-gray-700">Filter by</span>
+                            <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
+                                <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-wrap">
+                                    <span className="text-xs sm:text-sm font-medium text-gray-700 w-full sm:w-auto">Filter by</span>
 
                                     {/* Gender Dropdown */}
                                     <div className="relative">
                                         <select
                                             value={gender}
                                             onChange={(e) => setGender(e.target.value)}
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                         >
                                             <option value="">All Genders</option>
                                             <option value="male">Male</option>
@@ -1596,7 +1587,7 @@ function EmployeeContent() {
                                         <select
                                             value={department}
                                             onChange={(e) => setDepartment(e.target.value)}
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                         >
                                             <option value="">Select Department</option>
                                             {departmentOptions.map((option) => (
@@ -1623,7 +1614,7 @@ function EmployeeContent() {
                                         <select
                                             value={designation}
                                             onChange={(e) => setDesignation(e.target.value)}
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                         >
                                             <option value="">Select Designation</option>
                                             {designationOptions.map((option) => (
@@ -1650,7 +1641,7 @@ function EmployeeContent() {
                                         <select
                                             value={selectedCompany}
                                             onChange={(e) => setSelectedCompany(e.target.value)}
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                         >
                                             <option value="">All Companies</option>
                                             {companiesList.map((company) => (
@@ -1677,7 +1668,7 @@ function EmployeeContent() {
                                         <select
                                             value={jobStatus}
                                             onChange={(e) => setJobStatus(e.target.value)}
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                         >
                                             <option value="">Active Employees</option>
                                             <option value="Probation">Probation</option>
@@ -1704,7 +1695,7 @@ function EmployeeContent() {
                                         <select
                                             value={profileStatus}
                                             onChange={(e) => setProfileStatus(e.target.value)}
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                         >
                                             <option value="">All Profile Status</option>
                                             <option value="active">Active</option>
@@ -1728,7 +1719,7 @@ function EmployeeContent() {
                                         <select
                                             value={sortByContractExpiry}
                                             onChange={(e) => setSortByContractExpiry(e.target.value)}
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                         >
                                             <option value="">Sort by Contract Expiry</option>
                                             <option value="asc">Expiring Soon (Oldest First)</option>
@@ -1797,37 +1788,37 @@ function EmployeeContent() {
                         {/* Employee Table */}
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full">
                             <div className="overflow-x-auto w-full max-w-full">
-                                <table className="w-full min-w-0 table-auto">
+                                <table className="w-full min-w-[720px] sm:min-w-[900px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider w-14">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider w-10 sm:w-14">
                                                 Sl
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Employee Name
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 EMP ID
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Gender
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Nationality
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Company
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Contract Expiry
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Job Status
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Profile Status
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider w-24">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider w-16 sm:w-24">
                                             </th>
                                         </tr>
                                     </thead>
@@ -1888,13 +1879,13 @@ function EmployeeContent() {
                                                     <tr
                                                         className={`hover:bg-gray-50 transition-colors ${canViewProfile ? 'cursor-pointer group' : 'cursor-not-allowed opacity-60'}`}
                                                     >
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                             {startIndex + index + 1}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
                                                             <div className="flex items-center gap-3">
                                                                 {toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee)) ? (
-                                                                    <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative bg-gray-200">
+                                                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full overflow-hidden flex-shrink-0 relative bg-gray-200">
                                                                         <Image
                                                                             src={toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee))}
                                                                             alt={`${employee.firstName} ${employee.lastName}`}
@@ -1945,21 +1936,21 @@ function EmployeeContent() {
                                                                 </div>
                                                             </div>
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700 font-medium">
                                                             {employee.employeeId ? (
                                                                 <span>{employee.employeeId}</span>
                                                             ) : (
                                                                 <span className="text-gray-400">—</span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                             {employee.gender ? (
                                                                 <span>{capitalizeFirstLetter(employee.gender)}</span>
                                                             ) : (
                                                                 <span className="text-gray-400">—</span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                             {formatNationalityDisplay(employee.nationality || employee.country) ? (
                                                                 <span>
                                                                     {formatNationalityDisplay(employee.nationality || employee.country)}
@@ -1968,21 +1959,21 @@ function EmployeeContent() {
                                                                 <span className="text-gray-400">—</span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm">
                                                             {employee.companyNickName || employee.companyName ? (
                                                                 <span className="text-gray-700">{employee.companyNickName || employee.companyName}</span>
                                                             ) : (
                                                                 <span className="text-gray-400">No Data</span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                             {contractExpiry && contractExpiry !== 'N/A' ? (
                                                                 <span>{contractExpiry}</span>
                                                             ) : (
                                                                 <span className="text-gray-400">No Data</span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
                                                             {employee.status ? (
                                                                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
                                                                     {employee.status}
@@ -1991,12 +1982,12 @@ function EmployeeContent() {
                                                                 <span className="text-gray-400">No Data</span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
                                                             <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
                                                                 {profileStatusLabel}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                        <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
                                                             <div className="flex items-center justify-end gap-3">
                                                                 {mounted && (employee.profileStatus || 'inactive').toLowerCase() === 'inactive' && (isAdmin() || hasPermission('hrm_employees_list', 'isEdit')) && (
                                                                     <Link
@@ -2067,7 +2058,7 @@ function EmployeeContent() {
 
                             {/* Pagination Controls */}
                             {filteredEmployees.length > 0 && (
-                                <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                                <div className="px-3 sm:px-6 py-3 sm:py-4 border-t border-gray-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                                     <div className="flex items-center gap-4">
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm text-gray-600">Show</span>
@@ -2160,6 +2151,7 @@ function EmployeeContent() {
                         setShowNotificationsModal(false);
                     }
                 }}
+                getItemHref={(item) => buildDashboardNotificationPath(item) || ''}
                 onDelete={isAdmin() ? handleDeleteNotification : undefined}
             />
 
@@ -2361,6 +2353,7 @@ function EmployeeContent() {
                                             <tr
                                                 key={company._id}
                                                 className="hover:bg-blue-50 cursor-pointer transition-colors"
+                                                {...navHrefProps(`/Company/${company._id}`)}
                                                 onClick={() => router.push(`/Company/${company._id}`)}
                                             >
                                                 <td className="px-6 py-3 text-gray-500">{index + 1}</td>

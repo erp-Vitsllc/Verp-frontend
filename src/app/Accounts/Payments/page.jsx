@@ -337,17 +337,17 @@ function PaymentsPageContent() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                         {/* Header and Actions */}
-                        <div className="flex items-center justify-between mb-8">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
                             <div>
-                                <h1 className="text-3xl font-bold text-gray-800 mb-2">Payments</h1>
-                                <p className="text-gray-600">
+                                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">Payments</h1>
+                                <p className="text-gray-600 text-xs sm:text-sm">
                                     Manage payment records and transactions
                                 </p>
                             </div>
 
-                            <div className="flex items-center gap-4">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:gap-4">
                                 {isAccountsResp ? (
                                     <button
                                         type="button"
@@ -367,7 +367,7 @@ function PaymentsPageContent() {
                                 {/* Add Payment Button */}
                                 <button
                                     onClick={handleAddPayment}
-                                    className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                    className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
                                 >
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M12 5v14M5 12h14"></path>
@@ -378,13 +378,13 @@ function PaymentsPageContent() {
                         </div>
 
                         {/* Top Two Cards */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6 mb-4 sm:mb-6 lg:mb-8">
                             {/* Left Card: Statistics */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden" style={{ height: '320px' }}>
+                            <div className="bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden min-h-[180px] sm:min-h-[240px] lg:min-h-[300px] h-auto lg:h-[320px]">
                             </div>
 
                             {/* Right Card: Additional Stats or Chart */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden" style={{ height: '320px' }}>
+                            <div className="bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden min-h-[180px] sm:min-h-[240px] lg:min-h-[300px] h-auto lg:h-[320px]">
                             </div>
                         </div>
 
@@ -396,28 +396,28 @@ function PaymentsPageContent() {
                         {/* Payments Table */}
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
-                                <table className="w-full min-w-0 table-auto">
+                                <table className="w-full min-w-[720px] sm:min-w-[900px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 PAYMENT ID
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 PAYMENT TYPE
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 PAID BY
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 AMOUNT
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 STATUS
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 ATTACHMENT
                                             </th>
-                                            <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 ACTIONS
                                             </th>
                                         </tr>
@@ -448,11 +448,11 @@ function PaymentsPageContent() {
                                                             className={`transition-all cursor-pointer ${rowSurfaceClass} ${expandedPaymentId === (payment._id || payment.paymentId) ? 'ring-1 ring-inset ring-teal-200' : ''}`}
                                                             onClick={() => toggleRow(payment._id || payment.paymentId)}
                                                         >
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center gap-2">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900 flex items-center gap-2">
                                                                 {expandedPaymentId === (payment._id || payment.paymentId) ? <ChevronUp size={14} className="text-teal-500" /> : <ChevronDown size={14} className="text-gray-400" />}
                                                                 {payment.paymentId || 'N/A'}
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                 <div className="flex items-center gap-2">
                                                                     <div className={`p-1.5 rounded-lg ${payment.paymentType === 'Fine' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
                                                                         <FileText size={14} />
@@ -460,7 +460,7 @@ function PaymentsPageContent() {
                                                                     {payment.paymentType || 'Other'}
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                 {(() => {
                                                                     if (payment.paidByName) return payment.paidByName;
                                                                     if (payment.paidBy && typeof payment.paidBy === 'object') {
@@ -469,17 +469,17 @@ function PaymentsPageContent() {
                                                                     return payment.paidBy || 'N/A';
                                                                 })()}
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-red-600 font-bold">
                                                                 {Number(payment.amount || 0).toLocaleString()} AED
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
                                                                 <span
                                                                     className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${statusBadgeClass}`}
                                                                 >
                                                                     {statusLabel}
                                                                 </span>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm">
                                                                 {payment.attachment?.url || (payment.attachment?.data) ? (
                                                                     <button
                                                                         onClick={(e) => handleViewAttachment(payment, e)}
@@ -493,7 +493,7 @@ function PaymentsPageContent() {
                                                                     <span className="text-gray-300 italic text-xs">No attachment</span>
                                                                 )}
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-right">
                                                                 <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                                                                     {isAccountsResp && (payment.status === 'Processing' || payment.status === 'Pending') && (
                                                                         <>

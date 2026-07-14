@@ -12,9 +12,174 @@ import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
 export { getCalendarDaysUntilExpiry };
 
-/** Dashboard / bell: surface follow-ups within expiry task window (30 / 20 / ≤10 days or overdue). */
+/** Dashboard / bell: surface follow-ups within expiry task window (≤10 days or overdue). */
 export function isExpiryNotificationWindow(days, options = {}) {
     return isExpiryHrTaskDueForDoc(days, options);
+}
+
+/** Parse `(Exp: …)` labels produced by toLocaleDateString('en-GB') / ISO. */
+export function parseExpiryLabelToDate(expLabel = '') {
+    const raw = String(expLabel || '').trim();
+    if (!raw) return null;
+
+    const dmy = raw.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+    if (dmy) {
+        const day = Number(dmy[1]);
+        const month = Number(dmy[2]);
+        const year = Number(dmy[3]);
+        const d = new Date(year, month - 1, day);
+        if (!Number.isNaN(d.getTime())) return d;
+    }
+
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+const extractExpiryReminderLabel = (extra1 = '') => {
+    const raw = String(extra1 || '').trim();
+    const prefix = 'Expiry follow-up required:';
+    const withoutPrefix = raw.toLowerCase().startsWith(prefix.toLowerCase())
+        ? raw.slice(prefix.length).trim()
+        : raw;
+    return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
+};
+
+const extractExpiryDateLabelFromExtra1 = (extra1 = '') => {
+    const m = String(extra1 || '').match(/\(Exp:\s*([^)]+)\)/i);
+    return m?.[1] ? String(m[1]).trim() : '';
+};
+
+const normalizeExpiryLabelKey = (label = '') =>
+    String(label || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+
+/** Resolve current live expiry date for an employee reminder label. */
+export function resolveEmployeeLiveExpiryDate(emp, reminderLabel = '') {
+    if (!emp) return null;
+    const label = normalizeExpiryLabelKey(reminderLabel);
+    if (!label) return null;
+
+    if (label === 'passport') return emp?.passportDetails?.expiryDate || emp?.passportExp || null;
+    if (label === 'emirates id') return emp?.eidExp || emp?.emiratesIdDetails?.expiryDate || null;
+    if (label === 'medical insurance') return emp?.medExp || emp?.medicalInsuranceDetails?.expiryDate || null;
+    if (label === 'labour card') return emp?.labourCardExp || emp?.labourCardDetails?.expiryDate || null;
+    if (label === 'driving license' || label === 'driving licence') {
+        return emp?.drivingLicenceDetails?.expiryDate || emp?.drivingLicenseExp || null;
+    }
+    if (label === 'visit visa') return emp?.visaDetails?.visit?.expiryDate || null;
+    if (label === 'employment visa') return emp?.visaDetails?.employment?.expiryDate || null;
+    if (label === 'spouse visa') return emp?.visaDetails?.spouse?.expiryDate || null;
+    if (label === 'contract expiry') return emp?.contractExpiryDate || null;
+
+    for (const doc of emp?.documents || []) {
+        const docLabel = normalizeExpiryLabelKey(buildEmployeeManualDocumentExpiryLabel(doc));
+        if (docLabel === label) return doc?.expiryDate || null;
+    }
+    return null;
+}
+
+const isCertificateExpiryLabel = (label = '') =>
+    String(label || '')
+        .trim()
+        .toLowerCase()
+        .includes('certificate');
+
+/**
+ * Keep expiry reminders only when the live card expiry is still ≤ today+10 (or overdue).
+ * Stale API rows after renew/edit are dropped even if their old Exp text still looks "due".
+ */
+export function isEmployeeExpiryReminderStillDue(item, emp) {
+    const type = String(item?.type || '').trim();
+    if (type !== 'Employee Document Expiry Reminder') return true;
+    if (!emp) return true;
+
+    const label = extractExpiryReminderLabel(item?.extra1 || '');
+    const liveDate = resolveEmployeeLiveExpiryDate(emp, label);
+    if (!liveDate) return false;
+
+    const days = getCalendarDaysUntilExpiry(liveDate);
+    return isExpiryHrTaskDueForDoc(days, { isCertificate: isCertificateExpiryLabel(label) });
+}
+
+export function isCompanyExpiryReminderStillDue(item, company) {
+    const type = String(item?.type || '').trim();
+    if (type !== 'Document Expiry Reminder') return true;
+    if (!company) return true;
+
+    const label = normalizeExpiryLabelKey(extractExpiryReminderLabel(item?.extra1 || ''));
+    if (!label) return true;
+
+    const dueDocs = collectCompanyExpiryDocuments(company).filter((doc) => {
+        const days = getCalendarDaysUntilExpiry(doc.expiryDate);
+        return isExpiryHrTaskDueForDoc(days, { isCertificate: !!doc.isCertificate });
+    });
+
+    return dueDocs.some((doc) => normalizeExpiryLabelKey(doc.label) === label);
+}
+
+function indexEmployeesForExpiryFilter(employees = []) {
+    const byMongoId = new Map();
+    const byHumanId = new Map();
+    for (const emp of employees || []) {
+        if (emp?._id != null) byMongoId.set(String(emp._id), emp);
+        if (emp?.employeeId) byHumanId.set(String(emp.employeeId).trim(), emp);
+    }
+    return { byMongoId, byHumanId };
+}
+
+function indexCompaniesForExpiryFilter(companies = []) {
+    const byMongoId = new Map();
+    for (const company of companies || []) {
+        if (company?._id != null) byMongoId.set(String(company._id), company);
+    }
+    return byMongoId;
+}
+
+/** Drop expiry notifications whose live card is outside the ≤10-day window (or gone). */
+export function filterExpiryRemindersAgainstLiveEntities(
+    items = [],
+    { employees = null, companies = null } = {},
+) {
+    const empIndex =
+        Array.isArray(employees) && employees.length > 0 ? indexEmployeesForExpiryFilter(employees) : null;
+    const companyIndex =
+        Array.isArray(companies) && companies.length > 0 ? indexCompaniesForExpiryFilter(companies) : null;
+
+    return (items || []).filter((item) => {
+        const type = String(item?.type || '').trim();
+
+        if (type === 'Employee Document Expiry Reminder' && empIndex) {
+            const emp =
+                empIndex.byMongoId.get(String(item?.id ?? '')) ||
+                empIndex.byHumanId.get(String(item?.targetEmployeeId || '').trim());
+            if (!emp) return true;
+            return isEmployeeExpiryReminderStillDue(item, emp);
+        }
+
+        if (type === 'Document Expiry Reminder' && companyIndex) {
+            const company = companyIndex.get(String(item?.id ?? ''));
+            if (!company) return true;
+            return isCompanyExpiryReminderStillDue(item, company);
+        }
+
+        // Soft check from notification Exp text (covers vehicle + rows without entity lists).
+        if (
+            type === 'Document Expiry Reminder' ||
+            type === 'Employee Document Expiry Reminder' ||
+            type === 'Vehicle Document Expiry Reminder'
+        ) {
+            const expLabel = extractExpiryDateLabelFromExtra1(item?.extra1 || '');
+            const expDate = parseExpiryLabelToDate(expLabel);
+            if (!expDate) return true;
+            const days = getCalendarDaysUntilExpiry(expDate);
+            const label = extractExpiryReminderLabel(item?.extra1 || '');
+            return isExpiryHrTaskDueForDoc(days, { isCertificate: isCertificateExpiryLabel(label) });
+        }
+
+        return true;
+    });
 }
 
 const comparableOwnerName = (name) =>
@@ -277,20 +442,6 @@ const OWNER_DOC_LABEL_RE =
 
 const CERTIFICATE_EXPIRY_LABEL_RE = /^certificate\s*[-\u2013\u2014]\s*(.+)$/i;
 
-const extractExpiryReminderLabel = (extra1 = '') => {
-    const raw = String(extra1 || '').trim();
-    const prefix = 'Expiry follow-up required:';
-    const withoutPrefix = raw.toLowerCase().startsWith(prefix.toLowerCase())
-        ? raw.slice(prefix.length).trim()
-        : raw;
-    return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
-};
-
-const extractExpiryDateLabelFromExtra1 = (extra1 = '') => {
-    const m = String(extra1 || '').match(/\(Exp:\s*([^)]+)\)/i);
-    return m?.[1] ? String(m[1]).trim() : '';
-};
-
 /**
  * Human-readable expiry wording for notifications.
  * Ex: "Visa Expiry", "RAZAAAN ASLAM's Passport Expiry"
@@ -523,14 +674,50 @@ const shouldKeepExpiryNotification = (item) => {
     ) {
         return true;
     }
-    return !isOldExpiryReminderLabel(item?.extra1 || '');
+    if (isOldExpiryReminderLabel(item?.extra1 || '')) return false;
+
+    // Always enforce ≤ today+10 (or overdue) from the Exp label when present.
+    const expLabel = extractExpiryDateLabelFromExtra1(item?.extra1 || '');
+    const expDate = parseExpiryLabelToDate(expLabel);
+    if (!expDate) return true;
+    const days = getCalendarDaysUntilExpiry(expDate);
+    const label = extractExpiryReminderLabel(item?.extra1 || '');
+    return isExpiryHrTaskDueForDoc(days, { isCertificate: isCertificateExpiryLabel(label) });
 };
 
-export function mergeExpiryNotificationDedupe(apiItems = [], fallbackItems = []) {
-    const apiBest = dedupeExpiryItemsByMergeKeyKeepBest((apiItems || []).filter(shouldKeepExpiryNotification));
+/**
+ * Merge API expiry rows with live scans.
+ * When entity lists are provided, drop reminders whose live card is no longer within ≤10 days.
+ * When preferLiveForTypes is set, live rows replace API rows for those types (authoritative after renew/edit).
+ */
+export function mergeExpiryNotificationDedupe(apiItems = [], fallbackItems = [], options = {}) {
+    const {
+        employees = null,
+        companies = null,
+        preferLiveForTypes = [],
+    } = options || {};
+
+    const preferTypes = new Set(
+        (Array.isArray(preferLiveForTypes) ? preferLiveForTypes : [])
+            .map((t) => String(t || '').trim())
+            .filter(Boolean),
+    );
+
+    let apiFiltered = (apiItems || []).filter(shouldKeepExpiryNotification);
+    apiFiltered = filterExpiryRemindersAgainstLiveEntities(apiFiltered, { employees, companies });
+    if (preferTypes.size > 0) {
+        apiFiltered = apiFiltered.filter((item) => !preferTypes.has(String(item?.type || '').trim()));
+    }
+
+    const liveFiltered = filterExpiryRemindersAgainstLiveEntities(
+        (fallbackItems || []).filter(shouldKeepExpiryNotification),
+        { employees, companies },
+    );
+
+    const apiBest = dedupeExpiryItemsByMergeKeyKeepBest(apiFiltered);
     const seen = new Set(apiBest.keys());
     const merged = Array.from(apiBest.values());
-    (fallbackItems || []).filter(shouldKeepExpiryNotification).forEach((x) => {
+    liveFiltered.forEach((x) => {
         const key = mergeDedupeKey(x);
         if (!seen.has(key)) {
             seen.add(key);

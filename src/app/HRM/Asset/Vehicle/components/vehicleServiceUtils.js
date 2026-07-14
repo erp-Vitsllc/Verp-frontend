@@ -61,6 +61,23 @@ export function vehicleServiceDetailPath(assetId, serviceId, serviceType) {
     return null;
 }
 
+/** Href for a vehicle service list row (fleet inbox / service-requests / detail tables). */
+export function buildVehicleServiceListRowHref(row) {
+    const vehicleId = normalizeMongoId(row?.vehicleId);
+    const serviceId = normalizeMongoId(row?.serviceId || row?.id);
+    if (!vehicleId || !serviceId) return '';
+    const serviceType = String(row?.serviceType || '').trim();
+    if (serviceType === 'Oil Service') {
+        return `/HRM/Asset/Vehicle/details/${vehicleId}/oil-service/${serviceId}`;
+    }
+    if (serviceType === 'Car Wash') {
+        return `/HRM/Asset/Vehicle/details/${vehicleId}?tab=service&carWashServiceId=${serviceId}`;
+    }
+    const typed = vehicleServiceDetailPath(vehicleId, serviceId, serviceType);
+    if (typed) return typed;
+    return `/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceId}`;
+}
+
 export function buildVehicleServiceListRows(services, asset, { serviceTypeFilter } = {}) {
     const list = Array.isArray(services) ? services : [];
     const vid = normalizeMongoId(asset?._id);

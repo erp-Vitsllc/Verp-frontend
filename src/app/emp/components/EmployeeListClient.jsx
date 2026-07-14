@@ -12,7 +12,7 @@ import { apiGet } from '@/lib/api-client';
 import EmployeeTable from './EmployeeTable';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
-import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
+import { buildEmployeeListBellFromStats, buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
 import {
     clearEmployeeDashboardStatsCache,
     fetchEmployeeDashboardStats,
@@ -21,7 +21,6 @@ import {
 import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
-import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -139,16 +138,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
     const prefetchedNotificationsRef = useRef([]);
 
     const buildNotificationsFromStats = useCallback((statsData, employeesList) => {
-        const items = Array.isArray(statsData?.items) ? statsData.items : [];
-        const pendingItems = filterActionableDashboardItems(items);
-        const flowchartHrId = statsData?.flowchartHrEmployeeObjectId ?? null;
-        const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-        const hrLive =
-            typeof window !== 'undefined' &&
-            (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-        const mandatoryCardsHrLive =
-            typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-        return buildEmployeePageNotifications(pendingItems, employeesList, hrLive, mandatoryCardsHrLive);
+        return buildEmployeeListBellFromStats(statsData, employeesList);
     }, []);
 
     const applyDashboardStats = useCallback(
@@ -576,6 +566,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                         setShowNotificationsModal(false);
                     }
                 }}
+                getItemHref={(item) => buildDashboardNotificationPath(item) || ''}
                 onDelete={isAdmin() ? handleDeleteNotification : undefined}
             />
         </PermissionGuard>

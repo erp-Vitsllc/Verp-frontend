@@ -113,6 +113,7 @@ export default function ListTableRowLink({
     return cloneElement(children, {
         ...children.props,
         className: [children.props.className, 'relative'].filter(Boolean).join(' '),
+        'data-nav-href': href,
         onClick: handleRowClick,
         onAuxClick: handleAuxClick,
         onContextMenu: handleRowContextMenu,

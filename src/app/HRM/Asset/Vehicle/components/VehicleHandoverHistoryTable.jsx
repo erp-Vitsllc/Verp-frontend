@@ -15,6 +15,7 @@ import {
     getHandoverTypeLabel,
     resolveHandoverDeleteHistoryId,
 } from '../utils/vehicleHandoverHistory';
+import { navHrefProps } from '@/utils/linkContextMenu';
 
 function formatHandoverDate(value) {
     if (!value) return '—';
@@ -174,6 +175,13 @@ export default function VehicleHandoverHistoryTable({
                                     key={String(entry._id || index)}
                                     role="button"
                                     tabIndex={0}
+                                    {...navHrefProps(
+                                        asset?._id && entry?._id
+                                            ? `/HRM/Asset/Vehicle/details/${asset._id}/assign/${
+                                                resolveHandoverDeleteHistoryId(entry, asset, assetHistory) || entry._id
+                                            }`
+                                            : '',
+                                    )}
                                     onClick={() => openAssignDetail(entry)}
                                     onKeyDown={(event) => {
                                         if (event.key === 'Enter' || event.key === ' ') {

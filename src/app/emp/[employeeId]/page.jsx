@@ -9194,9 +9194,9 @@ function EmployeeProfilePageContent() {
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="p-8">
+                <div className="p-3 sm:p-5 lg:p-8">
                     {/* Header Controls */}
-                    <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
                         <ListReturnBackButton onNavigate={handleBackNavigation} />
                     </div>
 
@@ -9215,9 +9215,9 @@ function EmployeeProfilePageContent() {
                     )}
 
                     {!loading && !pageLoadError && employee && (
-                        <div className="space-y-6">
+                        <div className="space-y-4 sm:space-y-6">
                             {/* Profile Card and Employment Summary */}
-                            <div className={`${HEADER_PAIR_GRID} mb-0 ${isCompanyProfile ? 'lg:grid-cols-1' : ''}`}>
+                            <div className={`${HEADER_PAIR_GRID} mb-0 gap-3 sm:gap-6 ${isCompanyProfile ? 'lg:grid-cols-1' : ''}`}>
                                 {/* Profile Card */}
                                 <div className={HEADER_PAIR_CARD}>
                                     <ProfileHeader
@@ -9299,6 +9299,13 @@ function EmployeeProfilePageContent() {
                                 <TabNavigation
                                     activeTab={activeTab}
                                     onTabChange={navigateToEmployeeTab}
+                                    getTabHref={(tab, opts = {}) =>
+                                        buildEmployeeProfileHref(pathname, searchParams, {
+                                            tab,
+                                            subTab: opts.subTab ?? (tab === 'personal' ? 'personal-info' : activeSubTab),
+                                            salaryAction: tab === 'salary' ? selectedSalaryAction : 'Salary History',
+                                        })
+                                    }
                                     isCompanyProfile={isCompanyProfile}
                                     employee={employee}
                                     viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}

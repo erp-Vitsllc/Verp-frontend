@@ -9,10 +9,12 @@ import {
     isPersonalDetailsPending,
     isSalaryDetailsPending,
 } from '@/utils/employeeActivationSections';
+import { navHrefProps } from '@/utils/linkContextMenu';
 
 export default function TabNavigation({
     activeTab,
     onTabChange,
+    getTabHref,
     hasDocuments = false,
     hasTraining = false,
     onTrainingClick = null,
@@ -104,18 +106,27 @@ export default function TabNavigation({
         console.log('Selected option:', option);
     };
 
+    const tabBtn = (isActive) =>
+        `relative pb-2 transition-colors flex items-center whitespace-nowrap text-xs sm:text-sm ${
+            isActive
+                ? "text-blue-600 after:content-[''] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500"
+                : 'text-gray-400 hover:text-gray-600'
+        }`;
+
     return (
         <>
-            <div className="px-6 pt-4">
-                <div className="rounded-2xl shadow-sm px-6 py-4 flex items-center justify-between bg-transparent">
-                    <div role="tablist" className="flex items-center gap-6 text-sm font-semibold">
+            <div className="px-2 sm:px-4 lg:px-6 pt-3 sm:pt-4">
+                <div className="rounded-2xl shadow-sm px-2 sm:px-4 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-transparent">
+                    <div
+                        role="tablist"
+                        className="flex items-center gap-3 sm:gap-4 lg:gap-6 font-semibold overflow-x-auto w-full pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    >
                         {tabPerm('basic') && (
                         <button
+                            type="button"
+                            {...navHrefProps(typeof getTabHref === 'function' ? getTabHref('basic') : '')}
                             onClick={() => onTabChange('basic')}
-                            className={`relative pb-2 transition-colors flex items-center ${activeTab === 'basic'
-                                ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                : 'text-gray-400 hover:text-gray-600'
-                                }`}
+                            className={tabBtn(activeTab === 'basic')}
                         >
                             Basic Details
                             {isBasicTabPending && (
@@ -125,11 +136,10 @@ export default function TabNavigation({
                         )}
                         {tabPerm('work-details') && (
                         <button
+                            type="button"
+                            {...navHrefProps(typeof getTabHref === 'function' ? getTabHref('work-details') : '')}
                             onClick={() => onTabChange('work-details')}
-                            className={`relative pb-2 transition-colors flex items-center ${activeTab === 'work-details'
-                                ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                : 'text-gray-400 hover:text-gray-600'
-                                }`}
+                            className={tabBtn(activeTab === 'work-details')}
                         >
                             Work Details
                             {isWorkTabPending && (
@@ -139,11 +149,10 @@ export default function TabNavigation({
                         )}
                         {!isCompanyProfile && tabPerm('salary') && (
                             <button
+                                type="button"
+                                {...navHrefProps(typeof getTabHref === 'function' ? getTabHref('salary') : '')}
                                 onClick={() => onTabChange('salary')}
-                                className={`relative pb-2 transition-colors flex items-center ${activeTab === 'salary'
-                                    ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                    : 'text-gray-400 hover:text-gray-600'
-                                    }`}
+                                className={tabBtn(activeTab === 'salary')}
                             >
                                 Salary
                                 {isSalaryTabPending && (
@@ -153,11 +162,14 @@ export default function TabNavigation({
                         )}
                         {!isCompanyProfile && tabPerm('personal') && (
                             <button
+                                type="button"
+                                {...navHrefProps(
+                                    typeof getTabHref === 'function'
+                                        ? getTabHref('personal', { subTab: 'personal-info' })
+                                        : '',
+                                )}
                                 onClick={() => onTabChange('personal', { subTab: 'personal-info' })}
-                                className={`relative pb-2 transition-colors flex items-center ${activeTab === 'personal'
-                                    ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                    : 'text-gray-400 hover:text-gray-600'
-                                    }`}
+                                className={tabBtn(activeTab === 'personal')}
                             >
                                 Personal Information
                                 {isPersonalTabPending && (
@@ -167,11 +179,10 @@ export default function TabNavigation({
                         )}
                         {!isCompanyProfile && tabPerm('documents') && (
                             <button
+                                type="button"
+                                {...navHrefProps(typeof getTabHref === 'function' ? getTabHref('documents') : '')}
                                 onClick={() => onTabChange('documents')}
-                                className={`relative pb-2 transition-colors flex items-center ${activeTab === 'documents'
-                                    ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                    : 'text-gray-400 hover:text-gray-600'
-                                    }`}
+                                className={tabBtn(activeTab === 'documents')}
                             >
                                 Documents
                                 {isDocumentsTabPending && (
@@ -181,11 +192,10 @@ export default function TabNavigation({
                         )}
                         {(hasTraining || activeTab === 'training') && tabPerm('training') && (
                             <button
+                                type="button"
+                                {...navHrefProps(typeof getTabHref === 'function' ? getTabHref('training') : '')}
                                 onClick={() => onTabChange('training')}
-                                className={`relative pb-2 transition-colors ${activeTab === 'training'
-                                    ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                    : 'text-gray-400 hover:text-gray-600'
-                                    }`}
+                                className={tabBtn(activeTab === 'training')}
                             >
                                 Training
                             </button>
@@ -195,7 +205,7 @@ export default function TabNavigation({
                     {activeTab === 'training' && trainingCreate && (
                         <button
                             onClick={onTrainingClick}
-                            className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-md flex items-center gap-2 shadow-sm"
+                            className="px-3 sm:px-5 py-1.5 sm:py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs sm:text-sm font-semibold rounded-md flex items-center gap-2 shadow-sm whitespace-nowrap shrink-0"
                         >
                             <span>+</span> Add Training
                         </button>
@@ -205,4 +215,3 @@ export default function TabNavigation({
         </>
     );
 }
-

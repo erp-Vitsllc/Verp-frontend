@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin, crudAccess, crudAccessUnion } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess } from '@/utils/employeeProfileCardAccess';
@@ -236,12 +237,12 @@ export default function SalaryTab({
     const [companyAssets, setCompanyAssets] = useState([]);
     const [loadingCompanyAssets, setLoadingCompanyAssets] = useState(false);
 
-    const openAssetDetailFromProfile = useCallback(
+    const resolveAssetProfileHref = useCallback(
         (assetOrId, extraQuery = '') => {
-            if (!assetOrId) return;
+            if (!assetOrId) return '';
             let assetObj = typeof assetOrId === 'object' ? assetOrId : null;
             const assetId = assetObj ? (assetObj._id || assetObj.id) : assetOrId;
-            if (!assetId) return;
+            if (!assetId) return '';
 
             if (!assetObj) {
                 const allLists = [
@@ -269,13 +270,22 @@ export default function SalaryTab({
                     !!(assetObj.plateNumber && String(assetObj.plateNumber).trim());
             }
 
-            const suffix = typeof window !== 'undefined' ? window.location.search : '';
-            saveListReturnState(`${pathname}${suffix}`);
             const q = extraQuery ? (extraQuery.startsWith('?') ? extraQuery : `?${extraQuery}`) : '';
             const baseRoute = isVehicle ? '/HRM/Asset/Vehicle/details' : '/HRM/Asset/details';
-            router.push(`${baseRoute}/${assetId}${q}`);
+            return `${baseRoute}/${assetId}${q}`;
         },
-        [pathname, router, assets, unassignedAssets, onLeaveAssets, onServiceAssets, companyAssets, previousAssets, employee?.assets],
+        [assets, unassignedAssets, onLeaveAssets, onServiceAssets, companyAssets, previousAssets, employee?.assets],
+    );
+
+    const openAssetDetailFromProfile = useCallback(
+        (assetOrId, extraQuery = '') => {
+            const href = resolveAssetProfileHref(assetOrId, extraQuery);
+            if (!href) return;
+            const suffix = typeof window !== 'undefined' ? window.location.search : '';
+            saveListReturnState(`${pathname}${suffix}`);
+            router.push(href);
+        },
+        [pathname, router, resolveAssetProfileHref],
     );
 
     /** Ignore stale responses when switching between employee profiles */
@@ -3302,6 +3312,11 @@ export default function SalaryTab({
                                                     <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
                                                         <button
                                                             type="button"
+                                                            data-nav-href={
+                                                                fine.fineId || fine._id
+                                                                    ? `/HRM/Fine/${encodeURIComponent(fine.fineId || fine._id)}`
+                                                                    : undefined
+                                                            }
                                                             onClick={(e) => openFineDetails(fine, e)}
                                                             className="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
                                                             title="Open fine details"
@@ -3430,6 +3445,11 @@ export default function SalaryTab({
                                             return (
                                         <tr
                                             key={reward._id || index}
+                                            data-nav-href={
+                                                reward?.rewardId || reward?._id
+                                                    ? `/HRM/Reward/rewrd.${encodeURIComponent(reward.rewardId || reward._id)}`
+                                                    : undefined
+                                            }
                                             onClick={(e) => openRewardDetails(reward, e)}
                                             className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
                                         >
@@ -3706,6 +3726,7 @@ export default function SalaryTab({
                                                 key={asset._id || index}
                                                 className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${canBulkAssetFromProfile && rowSelected ? 'bg-blue-50/50' : ''
                                                     }`}
+                                                {...navHrefProps(resolveAssetProfileHref(asset))}
                                                 onClick={() => openAssetDetailFromProfile(asset)}
                                             >
                                                 <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
@@ -3974,6 +3995,7 @@ export default function SalaryTab({
                                             <tr
                                                 key={asset._id || index}
                                                 className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                {...navHrefProps(resolveAssetProfileHref(asset))}
                                                 onClick={() => openAssetDetailFromProfile(asset)}
                                             >
                                                 <td className="py-3 px-4 w-10"></td>
@@ -4048,6 +4070,7 @@ export default function SalaryTab({
                                             <tr
                                                 key={asset._id || index}
                                                 className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedUnassignedAssets.includes(asset._id || asset.id) ? 'bg-blue-50/40' : ''}`}
+                                                {...navHrefProps(resolveAssetProfileHref(asset))}
                                                 onClick={() => openAssetDetailFromProfile(asset)}
                                             >
                                                 <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
@@ -4135,7 +4158,8 @@ export default function SalaryTab({
                                                 <tr
                                                     key={asset._id || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnLeaveAssets.includes(asset._id) ? 'bg-blue-50/50' : ''}`}
-                                                    onClick={() => openAssetDetailFromProfile(asset)}
+                                                    {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                onClick={() => openAssetDetailFromProfile(asset)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -4323,7 +4347,8 @@ export default function SalaryTab({
                                                 <tr
                                                     key={rowId || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnServiceAssets.includes(rowId) ? 'bg-blue-50/50' : ''}`}
-                                                    onClick={() => openAssetDetailFromProfile(asset)}
+                                                    {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                onClick={() => openAssetDetailFromProfile(asset)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -4446,7 +4471,8 @@ export default function SalaryTab({
                                                 <tr
                                                     key={asset._id || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedCompanyAssets.some((sid) => String(sid) === String(asset._id || asset.id)) ? 'bg-blue-50/40' : ''}`}
-                                                    onClick={() => openAssetDetailFromProfile(asset)}
+                                                    {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                onClick={() => openAssetDetailFromProfile(asset)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -4497,7 +4523,8 @@ export default function SalaryTab({
                                                     <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                onClick={() => openAssetDetailFromProfile(asset)}
+                                                                {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                onClick={() => openAssetDetailFromProfile(asset)}
                                                                 className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
                                                                 title="View Details"
                                                             >
@@ -4529,6 +4556,7 @@ export default function SalaryTab({
 
                                                                 return shouldShowButton ? (
                                                                     <button
+                                                                        {...navHrefProps(resolveAssetProfileHref(asset, 'authAction=true'))}
                                                                         onClick={() => openAssetDetailFromProfile(asset, 'authAction=true')}
                                                                         className="px-3 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1"
                                                                     >

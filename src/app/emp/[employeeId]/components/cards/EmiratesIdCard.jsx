@@ -403,10 +403,10 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         if (!access.create && !canEdit) {
             return (
                 <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
-                    <div className="flex items-center px-6 py-4 border-b border-gray-100">
-                        <h3 className="text-xl font-semibold text-gray-800">Emirates ID</h3>
+                    <div className="flex items-center px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
+                        <h3 className="text-base sm:text-xl font-semibold text-gray-800">Emirates ID</h3>
                     </div>
-                    <p className="px-6 py-4 text-sm text-gray-500">No Emirates ID on file.</p>
+                    <p className="px-3 sm:px-6 py-2.5 sm:py-4 text-sm text-gray-500">No Emirates ID on file.</p>
                 </div>
             );
         }
@@ -439,9 +439,9 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     isCardExpired ? 'bg-red-50/70 border-red-200' : 'bg-white border-gray-100'
                 }`}
             >
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
                     <div className="flex items-center">
-                        <h3 className="text-xl font-semibold text-gray-800">Emirates ID</h3>
+                        <h3 className="text-base sm:text-xl font-semibold text-gray-800">Emirates ID</h3>
                         {isPendingApproval && (
                             <span
                                 className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
@@ -588,7 +588,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     {dataRows.map((row, index, arr) => (
                         <div
                             key={row.label}
-                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                            className={`flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                         >
                             <span className="text-gray-500">{row.label}</span>
                             <span className={isCardExpired && /expiry/i.test(row.label) ? 'text-red-600 font-semibold' : 'text-gray-500'}>

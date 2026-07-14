@@ -716,14 +716,14 @@ export default function RewardDetailsPage({ params }) {
             <div className="flex-1 flex flex-col min-w-0 w-full max-w-full print:hidden">
                 <Navbar />
 
-                <div className="p-6 md:p-8 w-full mx-auto space-y-6">
+                <div className="p-3 sm:p-5 lg:p-8 w-full mx-auto space-y-4 sm:space-y-6">
                     {/* Back Button Header */}
                     <div className="w-full flex items-center justify-between mb-2 print:hidden">
                         <ListReturnBackButton onNavigate={handleListReturnBack} />
                     </div>
 
                     {/* Top Grid: Profile + Action Card — Fine-style header */}
-                    <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
+                    <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 lg:gap-6 w-full mb-4 sm:mb-6 lg:mb-8 print:hidden items-stretch">
                         {/* Left Column: Profile & Stats */}
                         <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
                     {employee && (

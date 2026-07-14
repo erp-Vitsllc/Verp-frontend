@@ -11,13 +11,14 @@ function resolvePlateEmirateForImage(plateEmirate) {
 
 /**
  * UAE plate graphic (same layout as Add Vehicle preview).
- * @param {'default'|'large'} size — `large` for vehicle details / hero-style display.
+ * @param {'default'|'large'|'compact'} size — `large` for vehicle details / hero-style display; `compact` for list tables.
  */
 export default function VehiclePlateThumbnail({ plateEmirate, plateNumber, className = '', size = 'default' }) {
     const { code, digits } = parsePlateParts(plateNumber);
     const emirate = resolvePlateEmirateForImage(plateEmirate);
     const imgSrc = EMIRATE_PLATE_IMAGE[emirate];
     const large = size === 'large';
+    const compact = size === 'compact';
 
     if (!plateNumber?.trim()) {
         return <span className="text-gray-400 text-sm">-</span>;
@@ -26,16 +27,20 @@ export default function VehiclePlateThumbnail({ plateEmirate, plateNumber, class
     const showDigits = digits || '—';
     const hasCode = Boolean(code && code.trim());
 
-    const maxW = large ? 'max-w-[min(100%,320px)]' : 'max-w-[168px]';
+    const maxW = large ? 'max-w-[min(100%,320px)]' : compact ? 'max-w-[108px]' : 'max-w-[168px]';
     const codeTextSize = large
         ? emirate === 'Dubai'
             ? 'text-[min(5.5vw,22px)]'
             : 'text-[min(6vw,24px)]'
+        : compact
+          ? emirate === 'Dubai'
+            ? 'text-[9px]'
+            : 'text-[10px]'
         : emirate === 'Dubai'
           ? 'text-[12px]'
           : 'text-[13px]';
-    const digitCls = large ? 'text-[min(6.5vw,28px)]' : 'text-[14px]';
-    const shellRadius = large ? 'rounded-xl shadow-sm' : 'rounded-lg';
+    const digitCls = large ? 'text-[min(6.5vw,28px)]' : compact ? 'text-[11px]' : 'text-[14px]';
+    const shellRadius = large ? 'rounded-xl shadow-sm' : compact ? 'rounded-md' : 'rounded-lg';
 
     return (
         <div

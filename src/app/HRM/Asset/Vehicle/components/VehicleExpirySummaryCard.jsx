@@ -35,30 +35,30 @@ export default function VehicleExpirySummaryCard({
 
     return (
         <div
-            className={`w-full h-full flex flex-col rounded-2xl bg-[#00AEEF] p-2.5 shadow-xl transition-all duration-300 ${className}`.trim()}
+            className={`w-full h-full flex flex-col rounded-xl sm:rounded-2xl bg-[#00AEEF] p-1.5 sm:p-2 shadow-lg transition-all duration-300 ${className}`.trim()}
         >
             <div
-                className={`w-full h-full min-h-0 border-2 border-white/50 rounded-xl ${
+                className={`w-full h-full min-h-0 border-2 border-white/50 rounded-lg sm:rounded-xl ${
                     splitLayout
-                        ? 'flex flex-row items-stretch gap-4 sm:gap-5 px-5 py-4'
-                        : 'flex flex-col justify-center gap-3 px-5 py-4'
+                        ? 'flex flex-row items-stretch gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3'
+                        : 'flex flex-col justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3'
                 }`}
             >
                 {showExpiry ? (
                     <div
                         className={
                             splitLayout
-                                ? 'flex flex-col justify-center gap-3 sm:gap-3.5 shrink-0 w-[42%] min-w-[140px] py-0.5'
-                                : 'flex flex-col justify-center gap-3'
+                                ? 'flex flex-col justify-center gap-1.5 sm:gap-2 shrink-0 w-[42%] min-w-[120px] py-0.5'
+                                : 'flex flex-col justify-center gap-1.5 sm:gap-2'
                         }
                     >
                         {rows.map(({ label, value, hasDate }) => (
-                            <div key={label} className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
-                                <span className="text-[15px] sm:text-[16px] font-black text-white whitespace-nowrap tracking-tight">
+                            <div key={label} className="flex flex-col gap-0 sm:flex-row sm:items-baseline sm:gap-1.5 min-w-0">
+                                <span className="text-[11px] sm:text-xs lg:text-[13px] font-black text-white whitespace-nowrap tracking-tight">
                                     {label} :
                                 </span>
                                 <span
-                                    className={`text-[14px] sm:text-[15px] font-black tracking-tight leading-snug ${
+                                    className={`text-[10px] sm:text-[11px] lg:text-xs font-black tracking-tight leading-snug break-words min-w-0 ${
                                         hasDate ? 'text-white' : 'text-white/70'
                                     }`}
                                 >
@@ -77,7 +77,7 @@ export default function VehicleExpirySummaryCard({
                                 : 'flex flex-col justify-center min-w-0 w-full'
                         }
                     >
-                        <div className={`grid gap-3 w-full ${actionGridClass}`}>
+                        <div className={`grid gap-2 w-full ${actionGridClass}`}>
                             {actionButtons.map((action) => (
                                 <button
                                     key={action.key || action.label}
@@ -89,7 +89,7 @@ export default function VehicleExpirySummaryCard({
                                     }}
                                     className={
                                         action.className ||
-                                        `${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8] ${
+                                        `${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8] text-[10px] sm:text-xs ${
                                             action.disabled ? 'opacity-50 cursor-not-allowed' : ''
                                         }`
                                     }
@@ -103,7 +103,7 @@ export default function VehicleExpirySummaryCard({
                 ) : null}
 
                 {!showExpiry && !hasActions ? (
-                    <p className="text-[14px] font-bold text-white/80 text-center px-4">
+                    <p className="text-[11px] sm:text-xs font-bold text-white/80 text-center px-3">
                         No fleet actions available for this vehicle.
                     </p>
                 ) : null}

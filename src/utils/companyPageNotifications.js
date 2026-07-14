@@ -185,11 +185,17 @@ export function buildCompanyPageNotifications(
         ? collectCompanyActivationIncompleteNotifications(companiesList)
         : [];
 
+    const hasCompanyList = Array.isArray(companiesList) && companiesList.length > 0;
+
     return sortNotificationsStackOrder(
-        mergeExpiryNotificationDedupe(companyFiltered, [
-            ...liveExpiry,
-            ...activationIncomplete,
-        ]),
+        mergeExpiryNotificationDedupe(
+            companyFiltered,
+            [...liveExpiry, ...activationIncomplete],
+            {
+                companies: hasCompanyList ? companiesList : null,
+                preferLiveForTypes: hrLive && hasCompanyList ? ['Document Expiry Reminder'] : [],
+            },
+        ),
     );
 }
 

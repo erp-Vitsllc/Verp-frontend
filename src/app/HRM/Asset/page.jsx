@@ -33,6 +33,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep } from '@/utils/listReturnNavigation';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import Link from 'next/link';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { buildAssetFocusElementId } from '@/utils/assetNotificationRouting';
@@ -264,6 +265,60 @@ function resolveAssetDetailHref(item) {
     return rowLooksLikeVehicleAsset(item)
         ? `/HRM/Asset/Vehicle/details/${item._id}`
         : `/HRM/Asset/details/${item._id}`;
+}
+
+/** Build `/HRM/Asset?...` URLs for tools tabs / KPI filters / type→category drill-downs. */
+function buildToolsAssetListHref({
+    tab = 'asset',
+    search = '',
+    status = '',
+    assignedTo = '',
+    lossDamageStatus = '',
+    view = '',
+} = {}) {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (status) params.set('status', status);
+    if (status === 'Assigned' && assignedTo) params.set('assignedTo', assignedTo);
+    if (tab && tab !== 'asset') params.set('tab', tab);
+    if (view && view !== 'grid') params.set('view', view);
+    if (lossDamageStatus && lossDamageStatus !== 'All') params.set('lossDamageStatus', lossDamageStatus);
+    const qs = params.toString();
+    return qs ? `/HRM/Asset?${qs}` : '/HRM/Asset';
+}
+
+function toolsSummaryCardHref(filterKey) {
+    switch (filterKey) {
+        case 'totalAsset':
+        case 'totalAssetValue':
+            return buildToolsAssetListHref({ status: 'All' });
+        case 'assignedAsset':
+        case 'assignedAssetValue':
+        case 'assignedPeople':
+            return buildToolsAssetListHref({ status: 'Assigned' });
+        case 'unassignedAsset':
+        case 'unassignedValue':
+            return buildToolsAssetListHref({ status: 'Unassigned' });
+        case 'lossDamageAsset':
+        case 'lossDamageValue':
+            return buildToolsAssetListHref({ tab: 'lossDamage', lossDamageStatus: 'All' });
+        case 'parking':
+            return buildToolsAssetListHref({ status: 'OnLeave' });
+        case 'accessories':
+            return buildToolsAssetListHref({ tab: 'accessories' });
+        case 'warranty':
+            return buildToolsAssetListHref({ status: 'WarrantyYes' });
+        case 'assetType':
+            return buildToolsAssetListHref({ tab: 'type' });
+        case 'inService':
+            return buildToolsAssetListHref({ status: 'OnService' });
+        case 'pendingApproval':
+            return buildToolsAssetListHref({ status: 'AwaitingApproval' });
+        case 'assetCategory':
+            return buildToolsAssetListHref({ tab: 'category' });
+        default:
+            return '';
+    }
 }
 
 function openAssetDetailFromList(router, item, { tab } = {}) {
@@ -1781,28 +1836,28 @@ function AssetPageContent() {
 
     const toolsSummaryLeftCards = useMemo(
         () => [
-            { label: 'Total Asset', value: toolsListStats.total, filterKey: 'totalAsset' },
-            { label: 'Assigned Asset', value: toolsListStats.assigned, filterKey: 'assignedAsset' },
-            { label: 'Unassigned Asset', value: toolsListStats.unassigned, filterKey: 'unassignedAsset' },
-            { label: 'Loss & Damage Asset', value: toolsListStats.lossDamage, filterKey: 'lossDamageAsset' },
-            { label: 'Total Asset Value', value: toolsListStats.totalVal, suffix: 'AED', filterKey: 'totalAssetValue' },
-            { label: 'Assigned Asset Value', value: toolsListStats.assignedVal, suffix: 'AED', filterKey: 'assignedAssetValue' },
-            { label: 'Unassigned Value', value: toolsListStats.unassignedVal, suffix: 'AED', filterKey: 'unassignedValue' },
-            { label: 'Loss & Damage Value', value: toolsListStats.lossDamageVal, suffix: 'AED', filterKey: 'lossDamageValue' },
+            { label: 'Total Asset', value: toolsListStats.total, filterKey: 'totalAsset', href: toolsSummaryCardHref('totalAsset') },
+            { label: 'Assigned Asset', value: toolsListStats.assigned, filterKey: 'assignedAsset', href: toolsSummaryCardHref('assignedAsset') },
+            { label: 'Unassigned Asset', value: toolsListStats.unassigned, filterKey: 'unassignedAsset', href: toolsSummaryCardHref('unassignedAsset') },
+            { label: 'Loss & Damage Asset', value: toolsListStats.lossDamage, filterKey: 'lossDamageAsset', href: toolsSummaryCardHref('lossDamageAsset') },
+            { label: 'Total Asset Value', value: toolsListStats.totalVal, suffix: 'AED', filterKey: 'totalAssetValue', href: toolsSummaryCardHref('totalAssetValue') },
+            { label: 'Assigned Asset Value', value: toolsListStats.assignedVal, suffix: 'AED', filterKey: 'assignedAssetValue', href: toolsSummaryCardHref('assignedAssetValue') },
+            { label: 'Unassigned Value', value: toolsListStats.unassignedVal, suffix: 'AED', filterKey: 'unassignedValue', href: toolsSummaryCardHref('unassignedValue') },
+            { label: 'Loss & Damage Value', value: toolsListStats.lossDamageVal, suffix: 'AED', filterKey: 'lossDamageValue', href: toolsSummaryCardHref('lossDamageValue') },
         ],
         [toolsListStats],
     );
 
     const toolsSummaryRightCards = useMemo(
         () => [
-            { label: 'Parking', value: toolsListStats.parking, filterKey: 'parking' },
-            { label: 'Accessories', value: toolsListStats.accessories, filterKey: 'accessories' },
-            { label: 'Warranty', value: toolsListStats.warranty, filterKey: 'warranty' },
-            { label: 'Asset type', value: toolsListStats.assetTypesDistinct, filterKey: 'assetType' },
-            { label: 'In Service', value: toolsListStats.inService, filterKey: 'inService' },
-            { label: 'Pending for approval', value: toolsListStats.pendingApproval, filterKey: 'pendingApproval' },
-            { label: 'Assigned People', value: toolsListStats.assignedPeople, filterKey: 'assignedPeople' },
-            { label: 'Asset Category', value: toolsListStats.categoriesDistinct, filterKey: 'assetCategory' },
+            { label: 'Parking', value: toolsListStats.parking, filterKey: 'parking', href: toolsSummaryCardHref('parking') },
+            { label: 'Accessories', value: toolsListStats.accessories, filterKey: 'accessories', href: toolsSummaryCardHref('accessories') },
+            { label: 'Warranty', value: toolsListStats.warranty, filterKey: 'warranty', href: toolsSummaryCardHref('warranty') },
+            { label: 'Asset type', value: toolsListStats.assetTypesDistinct, filterKey: 'assetType', href: toolsSummaryCardHref('assetType') },
+            { label: 'In Service', value: toolsListStats.inService, filterKey: 'inService', href: toolsSummaryCardHref('inService') },
+            { label: 'Pending for approval', value: toolsListStats.pendingApproval, filterKey: 'pendingApproval', href: toolsSummaryCardHref('pendingApproval') },
+            { label: 'Assigned People', value: toolsListStats.assignedPeople, filterKey: 'assignedPeople', href: toolsSummaryCardHref('assignedPeople') },
+            { label: 'Asset Category', value: toolsListStats.categoriesDistinct, filterKey: 'assetCategory', href: toolsSummaryCardHref('assetCategory') },
         ],
         [toolsListStats],
     );
@@ -1824,7 +1879,7 @@ function AssetPageContent() {
 
                     <Navbar />
 
-                    <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
                         <AssetListSummaryPanels
                             leftCards={toolsSummaryLeftCards}
@@ -1835,13 +1890,13 @@ function AssetPageContent() {
 
                         {/* Header and Actions in Single Row Matching Employee Page */}
 
-                        <div className="flex items-center justify-between mb-6">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
 
-                            <div className="flex flex-wrap items-center gap-3">
-                                <h1 className="text-3xl font-bold text-gray-800">Asset Management</h1>
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800">Asset Management</h1>
                                 <Link
                                     href="/HRM/Asset/Vehicle/dashboard"
-                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-sm font-semibold text-blue-700 hover:bg-blue-50 hover:border-blue-200 shadow-sm transition-colors"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-white border border-gray-200 text-xs sm:text-sm font-semibold text-blue-700 hover:bg-blue-50 hover:border-blue-200 shadow-sm transition-colors"
                                 >
                                     <Truck className="shrink-0" size={18} />
                                     Vehicle assets
@@ -1852,7 +1907,7 @@ function AssetPageContent() {
 
                             {/* Right Side - Actions Bar */}
 
-                            <div className="flex items-center gap-4">
+                            <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 w-full lg:w-auto lg:flex-1 lg:max-w-none">
 
                                 {/* Filter Toggle Icon */}
 
@@ -1862,7 +1917,7 @@ function AssetPageContent() {
 
                                         onClick={() => setShowFilters(!showFilters)}
 
-                                        className={`p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20 ${showFilters ? 'bg-gray-100' : ''}`}
+                                        className={`p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20 shrink-0 ${showFilters ? 'bg-gray-100' : ''}`}
 
                                         title="Toggle Filters"
 
@@ -1888,7 +1943,7 @@ function AssetPageContent() {
                                         onMouseEnter={warmToolsInboxBadge}
                                         onFocus={warmToolsInboxBadge}
 
-                                        className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800"
+                                        className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
 
                                         title="Pending requests — tools & equipment (vehicle service uses Vehicle Assets bell)"
 
@@ -1908,7 +1963,7 @@ function AssetPageContent() {
 
                                 {/* Search */}
 
-                                <div className="relative flex-1 max-w-md w-64 group">
+                                <div className="relative flex-1 min-w-[120px] sm:min-w-[160px] max-w-xs sm:max-w-sm w-full sm:w-52 group order-last sm:order-none basis-full sm:basis-auto">
 
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={16} />
 
@@ -1922,7 +1977,7 @@ function AssetPageContent() {
 
                                         onChange={(e) => setSearchQuery(e.target.value)}
 
-                                        className="w-full pl-10 pr-10 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                                        className="w-full pl-9 sm:pl-10 pr-9 sm:pr-10 py-1.5 sm:py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white"
 
                                     />
 
@@ -1946,7 +2001,7 @@ function AssetPageContent() {
 
                                 {activeTab === 'asset' && (
 
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 shrink-0">
 
                                         {!selectionMode ? (
 
@@ -1958,7 +2013,7 @@ function AssetPageContent() {
 
                                                         onClick={() => setShowAssignChoiceModal(true)}
 
-                                                        className="bg-white hover:bg-gray-50 text-blue-600 border border-blue-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                                                        className="bg-white hover:bg-gray-50 text-blue-600 border border-blue-200 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-all shadow-sm active:scale-95 text-xs sm:text-sm whitespace-nowrap"
 
                                                     >
 
@@ -1976,7 +2031,7 @@ function AssetPageContent() {
 
                                                     onClick={() => setBulkHolderModal({ open: true, mode: 'return' })}
 
-                                                    className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                                                    className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-all shadow-sm active:scale-95 text-xs sm:text-sm whitespace-nowrap"
 
                                                     title="Bulk return by holder"
 
@@ -1994,7 +2049,7 @@ function AssetPageContent() {
 
                                                     onClick={() => setBulkHolderModal({ open: true, mode: 'transfer' })}
 
-                                                    className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                                                    className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-all shadow-sm active:scale-95 text-xs sm:text-sm whitespace-nowrap"
 
                                                     title="Bulk transfer (Leave / End of Services)"
 
@@ -2024,7 +2079,7 @@ function AssetPageContent() {
 
                                                     }}
 
-                                                    className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all active:scale-95"
+                                                    className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-all active:scale-95 text-xs sm:text-sm whitespace-nowrap"
 
                                                 >
 
@@ -2050,7 +2105,7 @@ function AssetPageContent() {
 
                                                     }}
 
-                                                    className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95 ${selectedAssetIds.length > 0
+                                                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-all shadow-sm active:scale-95 text-xs sm:text-sm whitespace-nowrap ${selectedAssetIds.length > 0
 
                                                         ? 'bg-blue-600 hover:bg-blue-700 text-white animate-in zoom-in-95 duration-200'
 
@@ -2096,7 +2151,7 @@ function AssetPageContent() {
 
                                             }}
 
-                                            className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                            className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap shrink-0 ml-auto sm:ml-0"
 
                                         >
 
@@ -2137,9 +2192,11 @@ function AssetPageContent() {
 
                         {/* Tabs */}
 
-                        <div className="flex border-b border-gray-200 mb-6">
+                        <div className="flex flex-wrap border-b border-gray-200 mb-4 sm:mb-6">
 
                             <button
+                                type="button"
+                                {...navHrefProps(buildToolsAssetListHref({ tab: 'asset', status: statusFilter === 'All' ? '' : statusFilter }))}
 
                                 onClick={() => {
 
@@ -2149,7 +2206,7 @@ function AssetPageContent() {
 
                                 }}
 
-                                className={`px-6 py-3 font-medium text-sm transition-all relative ${activeTab === 'asset'
+                                className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'asset'
 
                                     ? 'text-blue-600'
 
@@ -2170,6 +2227,8 @@ function AssetPageContent() {
                             </button>
 
                             <button
+                                type="button"
+                                {...navHrefProps(buildToolsAssetListHref({ tab: 'type' }))}
 
                                 onClick={() => {
 
@@ -2179,7 +2238,7 @@ function AssetPageContent() {
 
                                 }}
 
-                                className={`px-6 py-3 font-medium text-sm transition-all relative ${activeTab === 'type'
+                                className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'type'
 
                                     ? 'text-blue-600'
 
@@ -2200,6 +2259,8 @@ function AssetPageContent() {
                             </button>
 
                             <button
+                                type="button"
+                                {...navHrefProps(buildToolsAssetListHref({ tab: 'category' }))}
 
                                 onClick={() => {
 
@@ -2209,7 +2270,7 @@ function AssetPageContent() {
 
                                 }}
 
-                                className={`px-6 py-3 font-medium text-sm transition-all relative ${activeTab === 'category'
+                                className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'category'
 
                                     ? 'text-blue-600'
 
@@ -2230,6 +2291,8 @@ function AssetPageContent() {
                             </button>
 
                             <button
+                                type="button"
+                                {...navHrefProps(buildToolsAssetListHref({ tab: 'accessories' }))}
 
                                 onClick={() => {
 
@@ -2241,7 +2304,7 @@ function AssetPageContent() {
 
                                 }}
 
-                                className={`px-6 py-3 font-medium text-sm transition-all relative ${activeTab === 'accessories'
+                                className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'accessories'
 
                                     ? 'text-blue-600'
 
@@ -2262,6 +2325,8 @@ function AssetPageContent() {
                             </button>
 
                             <button
+                                type="button"
+                                {...navHrefProps(buildToolsAssetListHref({ tab: 'lossDamage', lossDamageStatus: 'All' }))}
 
                                 onClick={() => {
 
@@ -2273,7 +2338,7 @@ function AssetPageContent() {
 
                                 }}
 
-                                className={`px-6 py-3 font-medium text-sm transition-all relative ${activeTab === 'lossDamage'
+                                className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'lossDamage'
 
                                     ? 'text-blue-600'
 
@@ -2309,11 +2374,11 @@ function AssetPageContent() {
 
                         {activeTab === 'asset' && showFilters && (
 
-                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+                            <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
 
-                                <div className="flex items-center gap-4 flex-wrap">
+                                <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-wrap">
 
-                                    <span className="text-sm font-medium text-gray-700">Filter by</span>
+                                    <span className="text-xs sm:text-sm font-medium text-gray-700 w-full sm:w-auto">Filter by</span>
 
 
 
@@ -2327,7 +2392,7 @@ function AssetPageContent() {
 
                                             onChange={(e) => setStatusFilter(e.target.value)}
 
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
 
                                         >
 
@@ -2353,7 +2418,7 @@ function AssetPageContent() {
 
                                     {statusFilter === 'Assigned' && (
                                         <>
-                                            <span className="text-sm font-medium text-gray-700">Assigned To</span>
+                                            <span className="text-xs sm:text-sm font-medium text-gray-700 w-full sm:w-auto">Assigned To</span>
                                             <SearchableAssignedToFilter
                                                 value={normalizedAssignedToFilter}
                                                 onChange={setAssignedToEmployeeFilter}
@@ -2369,7 +2434,7 @@ function AssetPageContent() {
                                         type="button"
                                         onClick={handleDownloadAssetListClick}
                                         disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
-                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
                                         <Download size={16} />
                                         {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
@@ -2386,7 +2451,7 @@ function AssetPageContent() {
                                                 setAssignedToEmployeeFilter('');
                                             }}
 
-                                            className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+                                            className="text-xs sm:text-sm text-gray-600 hover:text-gray-800 font-medium"
 
                                         >
 
@@ -2404,11 +2469,11 @@ function AssetPageContent() {
 
                         {activeTab === 'accessories' && (
 
-                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+                            <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
 
-                                <div className="flex items-center gap-4 flex-wrap">
+                                <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-wrap">
 
-                                    <span className="text-sm font-medium text-gray-700">Filter by</span>
+                                    <span className="text-xs sm:text-sm font-medium text-gray-700 w-full sm:w-auto">Filter by</span>
 
                                     <div className="relative">
 
@@ -2418,7 +2483,7 @@ function AssetPageContent() {
 
                                             onChange={(e) => setAccessoryCatalogStatusFilter(e.target.value)}
 
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[13rem]"
+                                            className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full sm:min-w-[13rem]"
 
                                             aria-label="Filter accessories by status"
 
@@ -2452,7 +2517,7 @@ function AssetPageContent() {
 
                                             onClick={() => setAccessoryCatalogStatusFilter('pool')}
 
-                                            className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+                                            className="text-xs sm:text-sm text-gray-600 hover:text-gray-800 font-medium"
 
                                         >
 
@@ -2466,7 +2531,7 @@ function AssetPageContent() {
                                         type="button"
                                         onClick={handleDownloadAssetListClick}
                                         disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
-                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
                                         <Download size={16} />
                                         {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
@@ -2479,13 +2544,13 @@ function AssetPageContent() {
                         )}
 
                         {(activeTab === 'type' || activeTab === 'category') && (
-                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
-                                <div className="flex items-center gap-4 flex-wrap">
+                            <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
+                                <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-wrap">
                                     <button
                                         type="button"
                                         onClick={handleDownloadAssetListClick}
                                         disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
-                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
                                         <Download size={16} />
                                         {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
@@ -2520,14 +2585,14 @@ function AssetPageContent() {
                                         Accessories
                                     </button>
                                 </div>
-                                <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
-                                    <div className="flex items-center gap-4 flex-wrap">
-                                        <span className="text-sm font-medium text-gray-700">Filter by</span>
+                                <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
+                                    <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-wrap">
+                                        <span className="text-xs sm:text-sm font-medium text-gray-700 w-full sm:w-auto">Filter by</span>
                                         <div className="relative">
                                             <select
                                                 value={lossDamageStatusFilter}
                                                 onChange={(e) => setLossDamageStatusFilter(e.target.value)}
-                                                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[13rem]"
+                                                className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full sm:min-w-[13rem]"
                                                 aria-label="Filter loss and damage by status"
                                             >
                                                 <option value="All">All</option>
@@ -2542,7 +2607,7 @@ function AssetPageContent() {
                                             <button
                                                 type="button"
                                                 onClick={() => setLossDamageStatusFilter('All')}
-                                                className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+                                                className="text-xs sm:text-sm text-gray-600 hover:text-gray-800 font-medium"
                                             >
                                                 Clear Filters
                                             </button>
@@ -2552,7 +2617,7 @@ function AssetPageContent() {
                                             type="button"
                                             onClick={handleDownloadAssetListClick}
                                             disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
-                                            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                            className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                         >
                                             <Download size={16} />
                                             {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
@@ -2570,7 +2635,7 @@ function AssetPageContent() {
 
                             <div className="overflow-x-auto w-full max-w-full">
 
-                                <table className="w-full min-w-0 table-auto">
+                                <table className="w-full min-w-[720px] sm:min-w-[900px] lg:min-w-0 table-auto text-xs sm:text-sm">
 
                                     {activeTab === 'asset' ? (
 
@@ -2582,7 +2647,7 @@ function AssetPageContent() {
 
                                                     {selectionMode && (
 
-                                                        <th className="px-6 py-4 text-left">
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left">
 
                                                             <button
 
@@ -2620,27 +2685,27 @@ function AssetPageContent() {
 
                                                     )}
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">VALUE</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">VALUE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">PURCHASE DATE</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">PURCHASE DATE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">INVOICE</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">INVOICE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ACCESSORIES</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ACCESSORIES</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
 
                                                 </tr>
 
@@ -2693,7 +2758,7 @@ function AssetPageContent() {
 
                                                             {selectionMode && (
 
-                                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
 
                                                                     {assignmentMode === 'bulk' && ['Unassigned', 'Returned'].includes(item.status) ? (
 
@@ -2733,37 +2798,37 @@ function AssetPageContent() {
 
                                                             )}
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                 <div className="relative z-10 pointer-events-none">{assetListPagination.startIndex + index + 1}</div>
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium text-blue-600 hover:underline">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700 font-medium text-blue-600 hover:underline">
                                                                 <div className="relative z-10 pointer-events-none">{item.assetId}</div>
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                 <div className="relative z-10 pointer-events-none">{item.type}</div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                 <div className="relative z-10 pointer-events-none">{item.category}</div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700 font-semibold">
                                                                 <div className="relative z-10 pointer-events-none">{item.name || '-'}</div>
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
 
                                                                 {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(item.assetValue || 0)}
 
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
 
                                                                 {item.purchaseDate ? new Date(item.purchaseDate).toLocaleDateString('en-GB') : '-'}
 
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
 
                                                                 {item.invoiceFile ? (
 
@@ -2806,7 +2871,7 @@ function AssetPageContent() {
 
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
 
                                                                 <button
 
@@ -2834,7 +2899,7 @@ function AssetPageContent() {
 
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
 
                                                                 <div className="flex flex-col items-start gap-1">
 
@@ -2877,7 +2942,7 @@ function AssetPageContent() {
 
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-right">
                                                                 <div className="relative z-20 flex items-center justify-end gap-2">
 
 
@@ -2935,21 +3000,21 @@ function AssetPageContent() {
 
                                                 <tr>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSIGN</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSIGN</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">UNASSIGN</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">UNASSIGN</th>
 
-                                                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
 
                                                 </tr>
 
@@ -3055,6 +3120,13 @@ function AssetPageContent() {
 
                                                             key={cat._id}
 
+                                                            {...navHrefProps(
+                                                                buildToolsAssetListHref({
+                                                                    tab: 'asset',
+                                                                    search: cat.name || '',
+                                                                }),
+                                                            )}
+
                                                             onClick={(e) => {
 
                                                                 e.stopPropagation();
@@ -3069,9 +3141,9 @@ function AssetPageContent() {
 
                                                         >
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">{index + 1}</td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm">
 
                                                                 <div className="flex items-center gap-3">
 
@@ -3099,21 +3171,21 @@ function AssetPageContent() {
 
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{cat.categoryId || '-'}</td>
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 font-mono">{cat.categoryId || '-'}</td>
 
-                                                            <td className="px-6 py-4 text-sm text-gray-600 font-normal">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-xs sm:text-sm text-gray-600 font-normal">
 
                                                                 {cat.typeNames.length > 0 ? cat.typeNames.join(', ') : '-'}
 
                                                             </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">{cat.assetCount}</td>
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600 font-mono">{cat.assetCount}</td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{cat.assignedTotal}</td>
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600">{cat.assignedTotal}</td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{cat.unassignedTotal}</td>
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600">{cat.unassignedTotal}</td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-right text-xs sm:text-sm">
 
                                                                 <div
                                                                     className="flex items-center justify-end gap-1"
@@ -3184,23 +3256,23 @@ function AssetPageContent() {
 
                                                 <tr>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Accessories ID</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">Accessories ID</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">PRICE</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">PRICE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET ID</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET ID</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Owned by</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">Owned by</th>
 
 
 
-                                                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
 
                                                 </tr>
 
@@ -3229,19 +3301,19 @@ function AssetPageContent() {
                                                                 onClick={() => setExpandedAccessoryCatalogId((prev) => prev === row._id ? null : row._id)}
                                                             >
 
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{row.accessoryCatalogId || '—'}</td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">{index + 1}</td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 font-mono">{row.accessoryCatalogId || '—'}</td>
 
 
-                                                                <td className="px-6 py-4 text-sm font-medium text-gray-900">{row.name}</td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-xs sm:text-sm font-medium text-gray-900">{row.name}</td>
 
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600">
 
                                                                     {Number(row.price || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
 
                                                                 </td>
 
-                                                                <td className="px-6 py-4 text-sm text-gray-600 max-w-md">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-xs sm:text-sm text-gray-600 max-w-md">
                                                                     {catalogRowStatus(row) === 'Attached'
                                                                         ? (() => {
                                                                             const directAssetId = row?.assetItemId?.assetId || row?.assetId;
@@ -3256,7 +3328,7 @@ function AssetPageContent() {
                                                                         : ''}
                                                                 </td>
 
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm">
                                                                     <span
                                                                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${catalogRowStatus(row) === 'Pending'
                                                                             ? 'bg-amber-50 text-amber-600 border border-amber-100'
@@ -3275,14 +3347,14 @@ function AssetPageContent() {
                                                                     </span>
                                                                 </td>
 
-                                                                <td className="px-6 py-4 text-sm text-gray-700 max-w-[14rem]">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-xs sm:text-sm text-gray-700 max-w-[14rem]">
                                                                     {isCatalogTerminalStatus(row)
                                                                         ? ''
                                                                         : (row.ownedByDisplay || '').trim() || '—'}
                                                                 </td>
 
 
-                                                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-right text-xs sm:text-sm">
 
                                                                     {isAdmin() && !isCatalogTerminalStatus(row) && (
 
@@ -3312,7 +3384,7 @@ function AssetPageContent() {
                                                             </tr>
                                                             {expandedAccessoryCatalogId === row._id && (
                                                                 <tr className="bg-slate-50/60">
-                                                                    <td colSpan="8" className="px-6 py-4">
+                                                                    <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
                                                                         <div className="rounded-xl border border-slate-200 bg-white p-4">
                                                                             <p className="text-xs font-semibold text-slate-500 mb-3">
                                                                                 <span className="text-slate-700">Details: </span>
@@ -3322,6 +3394,14 @@ function AssetPageContent() {
                                                                                 {catalogRowStatus(row) === 'Attached' && row.assetItemId && (
                                                                                     <button
                                                                                         type="button"
+                                                                                        {...navHrefProps(
+                                                                                            (() => {
+                                                                                                const aid = row.assetItemId?._id || row.assetItemId;
+                                                                                                return aid
+                                                                                                    ? `/HRM/Asset/details/${String(aid)}?tab=accessories`
+                                                                                                    : '';
+                                                                                            })(),
+                                                                                        )}
                                                                                         onClick={(e) => {
                                                                                             e.stopPropagation();
                                                                                             const aid = row.assetItemId?._id || row.assetItemId;
@@ -3410,17 +3490,17 @@ function AssetPageContent() {
                                             <>
                                                 <thead className="bg-gray-50 border-b border-gray-200">
                                                     <tr>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">VALUE</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">LOST DATE</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">FINE LINK</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ACCESSORIES</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
-                                                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">VALUE</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">LOST DATE</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">FINE LINK</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ACCESSORIES</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="bg-white divide-y divide-gray-200">
@@ -3442,32 +3522,33 @@ function AssetPageContent() {
                                                                     key={`asset-${item._id}`}
                                                                     id={buildAssetFocusElementId({ assetId: item._id })}
                                                                     className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                                    {...navHrefProps(resolveAssetDetailHref(item) || '')}
                                                                     onClick={() => openAssetDetailFromList(router, item)}
                                                                 >
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">{index + 1}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:underline">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm font-medium text-blue-600 hover:underline">
                                                                         <div className="relative z-10 pointer-events-none">{displayId}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">{item.type}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">{item.category}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-900 font-semibold">
                                                                         <div className="relative z-10 pointer-events-none">{displayName}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">
                                                                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(item.assetValue || 0)}
                                                                         </div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">{formatLostDate(row)}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">
                                                                         {isEol ? (
                                                                             <span className="text-blue-600 font-semibold">View Asset</span>
                                                                         ) : fineIdForRow ? (
@@ -3482,7 +3563,7 @@ function AssetPageContent() {
                                                                             <span className="text-gray-400 pointer-events-none">Pending</span>
                                                                         )}
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
                                                                         <button
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
@@ -3496,12 +3577,12 @@ function AssetPageContent() {
                                                                             View
                                                                         </button>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
                                                                         <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100 pointer-events-none">
                                                                             {displayStatus}
                                                                         </span>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-right">
                                                                         {isAdmin() && (
                                                                             <button
                                                                                 type="button"
@@ -3532,15 +3613,15 @@ function AssetPageContent() {
                                             <>
                                                 <thead className="bg-gray-50 border-b border-gray-200">
                                                     <tr>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Accessories ID</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">PRICE</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET ID</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">FINE LINK</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
-                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Owned by</th>
-                                                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">Accessories ID</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">PRICE</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET ID</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">FINE LINK</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">Owned by</th>
+                                                        <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="bg-white divide-y divide-gray-200">
@@ -3569,15 +3650,21 @@ function AssetPageContent() {
                                                                         accessoryKey: String(acc?.accessoryId || acc?._id || ''),
                                                                     })}
                                                                     className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                                    {...navHrefProps(
+                                                                        (() => {
+                                                                            const base = resolveAssetDetailHref(item);
+                                                                            return base ? `${base}?tab=accessories` : '';
+                                                                        })(),
+                                                                    )}
                                                                     onClick={() => openAssetDetailFromList(router, item, { tab: 'accessories' })}
                                                                 >
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">{index + 1}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:underline">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm font-medium text-blue-600 hover:underline">
                                                                         <div className="relative z-10 pointer-events-none">{displayId}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 text-sm text-gray-900 font-semibold">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-xs sm:text-sm text-gray-900 font-semibold">
                                                                         <div className="relative z-10 pointer-events-none flex flex-col">
                                                                             <span>{displayName}</span>
                                                                             <span className="text-[11px] text-slate-500 font-medium">
@@ -3585,15 +3672,15 @@ function AssetPageContent() {
                                                                             </span>
                                                                         </div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">
                                                                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(acc?.amount || 0)}
                                                                         </div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600">
                                                                         <div className="relative z-10 pointer-events-none">{item.assetId}</div>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">
                                                                         {isEol ? (
                                                                             <span className="text-blue-600 font-semibold">View Asset</span>
                                                                         ) : fineIdForRow ? (
@@ -3608,15 +3695,15 @@ function AssetPageContent() {
                                                                             <span className="text-gray-400 pointer-events-none">Pending</span>
                                                                         )}
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
                                                                         <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100 pointer-events-none">
                                                                             {displayStatus}
                                                                         </span>
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         {resolveAssetListAssigneeStr(item) || '—'}
                                                                     </td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-right">
                                                                         {isAdmin() && (
                                                                             <button
                                                                                 type="button"
@@ -3653,21 +3740,21 @@ function AssetPageContent() {
 
                                                 <tr>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSETS</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSETS</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSIGNED</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSIGNED</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">UNASSIGNED</th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">UNASSIGNED</th>
 
-                                                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
+                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
 
                                                 </tr>
 
@@ -3725,6 +3812,13 @@ function AssetPageContent() {
 
                                                                     key={type._id}
 
+                                                                    {...navHrefProps(
+                                                                        buildToolsAssetListHref({
+                                                                            tab: 'category',
+                                                                            search: type.type || '',
+                                                                        }),
+                                                                    )}
+
                                                                     onClick={(e) => {
 
                                                                         e.stopPropagation();
@@ -3739,9 +3833,9 @@ function AssetPageContent() {
 
                                                                 >
 
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">{index + 1}</td>
 
-                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
 
                                                                         <div className="flex items-center gap-3">
 
@@ -3769,17 +3863,17 @@ function AssetPageContent() {
 
                                                                     </td>
 
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{type.assetId}</td>
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 font-mono">{type.assetId}</td>
 
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">{type.categoryCount || 0}</td>
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600 font-mono">{type.categoryCount || 0}</td>
 
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">{stats.count}</td>
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600 font-mono">{stats.count}</td>
 
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">{stats.assigned}</td>
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600 font-medium">{stats.assigned}</td>
 
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">{stats.unassigned}</td>
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-600 font-medium">{stats.unassigned}</td>
 
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-right">
 
                                                                         <div
                                                                             className="flex items-center justify-end gap-1"
@@ -3855,8 +3949,8 @@ function AssetPageContent() {
                             {/* Pagination Footer */}
 
                             {activeTab === 'asset' && assetListPagination.totalItems > 0 && (
-                                <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between flex-wrap gap-4">
-                                    <div className="flex items-center gap-4 flex-wrap">
+                                <div className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2 sm:gap-3 lg:gap-4">
+                                    <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-wrap">
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm text-gray-600">Show</span>
                                             <select
@@ -3939,7 +4033,7 @@ function AssetPageContent() {
                                     ? lossDamageListRows.length
                                     : assetTypes.length) > 0) && (
 
-                                    <div className="px-6 py-4 border-t border-gray-200">
+                                    <div className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 border-t border-gray-200">
 
                                         <p className="text-sm text-gray-500">
 

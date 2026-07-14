@@ -109,6 +109,7 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
             refreshing={refreshing}
             emptyMessage="No pending fine notifications for you."
             onItemClick={handleRowActivate}
+            getItemHref={(row) => buildFineNotificationPath(normalizeFineNotificationItem(row)) || ''}
         />
     );
 }

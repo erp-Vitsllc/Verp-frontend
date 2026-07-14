@@ -22,8 +22,8 @@ export default function TrainingCard({
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                <h3 className="text-xl font-semibold text-gray-800">{training.trainingName || 'Training'}</h3>
+            <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
+                <h3 className="text-base sm:text-xl font-semibold text-gray-800">{training.trainingName || 'Training'}</h3>
                 <div className="flex items-center gap-2">
                     {training.certificate?.data && (
                         <button
@@ -84,7 +84,7 @@ export default function TrainingCard({
                     .map((row, rowIndex, arr) => (
                         <div
                             key={row.label}
-                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${rowIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                            className={`flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 text-sm font-medium text-gray-600 ${rowIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                         >
                             <span className="text-gray-500">{row.label}</span>
                             <span className="text-gray-500">{row.value}</span>

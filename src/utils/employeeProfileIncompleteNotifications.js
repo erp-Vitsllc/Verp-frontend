@@ -58,10 +58,12 @@ function resolveEmployeeForNotification(employees = [], item = {}) {
 
 /** Drop mandatory-cards alerts when progress is 100%+; never invent alerts from list API rows. */
 export function filterMandatoryCardsNotificationsByProgress(items = [], employees = []) {
+    const roster = Array.isArray(employees) ? employees : [];
     return (items || []).filter((item) => {
         if (!isMandatoryCardsProfileIncompleteItem(item)) return true;
-        const employee = resolveEmployeeForNotification(employees, item);
-        if (!employee) return true;
+        // Without a roster match we cannot verify progress — drop (avoids empty-roster count inflation).
+        const employee = resolveEmployeeForNotification(roster, item);
+        if (!employee) return false;
         if (!isEmployeeProfileLiveActive(employee)) return false;
         const { percentage } = calculateEmployeeProfileCompletion(employee);
         return Number.isFinite(percentage) && percentage < 100;

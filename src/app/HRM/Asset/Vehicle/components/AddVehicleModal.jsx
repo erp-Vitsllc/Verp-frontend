@@ -176,11 +176,16 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
 
     const buildCreatePayload = (creationIntent) => {
         const assignedCategory = buildCategory();
+        const brand = String(formData.manufacture || '').trim();
+        const selectedCat = categories.find((c) => c.category === assignedCategory);
+        // Parent tools type name if present — brand must not be sent as `type` (that auto-created tools types).
+        const parentTypeName = String(selectedCat?.type || '').trim() || 'Fleet Vehicle';
         return {
             mode: 'asset',
             creationIntent,
             category: assignedCategory,
-            type: formData.manufacture,
+            type: parentTypeName,
+            vehicleBrand: brand,
             name: formData.name,
             modelYear: formData.modelYear,
             plateNumber: normalizePlate({
@@ -204,6 +209,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
     const buildUpdatePayload = () => ({
         name: formData.name,
         type: formData.manufacture,
+        vehicleBrand: String(formData.manufacture || '').trim(),
         modelYear: formData.modelYear,
         plateNumber: normalizePlate({
             code: formData.plateCode,

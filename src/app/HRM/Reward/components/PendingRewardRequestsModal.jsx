@@ -117,6 +117,7 @@ export default function PendingRewardRequestsModal({
             refreshing={refreshing}
             emptyMessage="No pending reward notifications for you."
             onItemClick={handleRowActivate}
+            getItemHref={(row) => buildRewardNotificationPath(normalizeRewardNotificationItem(row)) || ''}
         />
     );
 }

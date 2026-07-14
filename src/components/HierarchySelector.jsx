@@ -28,27 +28,38 @@ const HierarchySelector = ({ onClose, onSelect }) => {
         fetchHierarchy();
     }, []);
 
-    // Helper to build tree from flat list
+    // Helper to build tree from flat list (only account holders from API; string-safe ids)
     const buildTree = (manager, allEmployees) => {
         if (!manager) return [];
 
+        const list = Array.isArray(allEmployees) ? allEmployees : [];
+        const seenIds = new Set();
+
         const getChildren = (parentId, visited = new Set()) => {
-            if (visited.has(parentId)) return [];
+            const parentKey = String(parentId);
+            if (visited.has(parentKey)) return [];
 
             const currentVisited = new Set(visited);
-            currentVisited.add(parentId);
+            currentVisited.add(parentKey);
 
-            return allEmployees
-                .filter(e => e.primaryReportee === parentId && !currentVisited.has(e._id))
-                .map(child => ({
-                    ...child,
-                    children: getChildren(child._id, currentVisited)
-                }));
+            return list
+                .filter((e) => {
+                    const id = String(e._id);
+                    if (seenIds.has(id) || currentVisited.has(id)) return false;
+                    return String(e.primaryReportee) === parentKey;
+                })
+                .map((child) => {
+                    seenIds.add(String(child._id));
+                    return {
+                        ...child,
+                        children: getChildren(child._id, currentVisited),
+                    };
+                });
         };
 
         return [{
             ...manager,
-            children: getChildren(manager._id, new Set())
+            children: getChildren(manager._id, new Set()),
         }];
     };
 

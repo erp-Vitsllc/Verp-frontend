@@ -24,10 +24,10 @@ export default function CurrentAddressCard({
         if (!access.create && !access.edit) {
             return (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                        <h3 className="text-xl font-semibold text-gray-800">Current Address</h3>
+                    <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
+                        <h3 className="text-base sm:text-xl font-semibold text-gray-800">Current Address</h3>
                     </div>
-                    <p className="px-6 py-4 text-sm text-gray-500">No current address on file.</p>
+                    <p className="px-3 sm:px-6 py-2.5 sm:py-4 text-sm text-gray-500">No current address on file.</p>
                 </div>
             );
         }
@@ -36,8 +36,8 @@ export default function CurrentAddressCard({
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                <h3 className="text-xl font-semibold text-gray-800">Current Address</h3>
+            <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
+                <h3 className="text-base sm:text-xl font-semibold text-gray-800">Current Address</h3>
                 {(access.edit || canDeleteAddress) && (
                     <div className="flex items-center gap-2">
                         {access.edit && (
@@ -83,7 +83,7 @@ export default function CurrentAddressCard({
                     .map((row, index, arr) => (
                         <div
                             key={row.label}
-                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                            className={`flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                         >
                             <span className="text-gray-500">{row.label}</span>
                             <span className="text-gray-500">{row.value}</span>

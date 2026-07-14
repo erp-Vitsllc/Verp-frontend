@@ -15,13 +15,19 @@ export function useZohoCustomers({ enabled = true } = {}) {
             if (!authorizationUrl) {
                 throw new Error('Authorization URL was not returned');
             }
-            window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
+            const popup = window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
+            if (!popup) {
+                window.location.assign(authorizationUrl);
+            }
+            return authorizationUrl;
         } catch (err) {
             const message =
                 err?.response?.data?.message ||
                 err?.message ||
                 'Failed to start Zoho authorization';
             setError(message);
+            setNeedsConnect(true);
+            throw new Error(message);
         }
     }, []);
 

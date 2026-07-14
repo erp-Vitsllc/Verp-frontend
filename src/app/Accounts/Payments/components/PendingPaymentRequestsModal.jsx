@@ -113,6 +113,12 @@ export default function PendingPaymentRequestsModal({
             refreshing={refreshing}
             emptyMessage="No pending payment approvals for you."
             onItemClick={handleRowActivate}
+            getItemHref={(row) => {
+                const paymentId = row?.payment?.paymentId || row?.payment?._id;
+                return paymentId
+                    ? `/Accounts/Payments?paymentId=${encodeURIComponent(paymentId)}`
+                    : '';
+            }}
         />
     );
 }

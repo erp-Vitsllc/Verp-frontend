@@ -133,7 +133,7 @@ export default function SignatureCard({
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-slate-50/30">
+            <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100 bg-slate-50/30">
                 <div className="flex items-center gap-2">
                     <h3 className="text-lg font-bold text-slate-800">Digital Signature</h3>
                     {isPendingApproval && (
@@ -256,7 +256,7 @@ export default function SignatureCard({
 
 
 
-            <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100">
+            <div className="px-3 sm:px-6 py-2.5 sm:py-4 bg-slate-50/50 border-t border-slate-100">
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center italic">
                     Legally Binding Digital Signature
                 </p>

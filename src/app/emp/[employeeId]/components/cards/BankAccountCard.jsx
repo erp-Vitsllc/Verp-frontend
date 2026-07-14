@@ -38,9 +38,9 @@ export default function BankAccountCard({
 
     return (
         <div id={id} className="bg-white rounded-2xl shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-b border-gray-100">
                 <div className="flex items-center">
-                    <h3 className="text-xl font-semibold text-gray-800">Salary Bank Account</h3>
+                    <h3 className="text-base sm:text-xl font-semibold text-gray-800">Salary Bank Account</h3>
                     {isPendingApproval && (
                         <span
                             className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
@@ -116,7 +116,7 @@ export default function BankAccountCard({
                     bankRows.map((row, index, arr) => (
                         <div
                             key={row.label}
-                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                            className={`flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                         >
                             <span className="text-gray-500">{row.label}</span>
                             <span className="text-gray-500">{row.value}</span>

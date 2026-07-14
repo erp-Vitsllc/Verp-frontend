@@ -611,9 +611,9 @@ export default function VehicleAssetPage() {
 
     const vehicleSummaryLeftCards = useMemo(
         () => [
-            { label: 'Total Vehicle', value: vehicleListStats.total, filterKey: 'total' },
-            { label: 'Assigned Vehicle', value: vehicleListStats.assigned, filterKey: 'assigned' },
-            { label: 'Unassigned Vehicle', value: vehicleListStats.unassigned, filterKey: 'unassigned' },
+            { label: 'Total Vehicle', value: vehicleListStats.total, filterKey: 'total', href: '/HRM/Asset/Vehicle' },
+            { label: 'Assigned Vehicle', value: vehicleListStats.assigned, filterKey: 'assigned', href: vehicleDashboardKpiHref('assigned') },
+            { label: 'Unassigned Vehicle', value: vehicleListStats.unassigned, filterKey: 'unassigned', href: vehicleDashboardKpiHref('unassigned') },
             { label: 'Sold Vehicle', value: vehicleListStats.lossDamage },
             { label: 'Total Vehicle Value', value: vehicleListStats.totalVal, suffix: 'AED' },
             { label: 'Assigned Vehicle Value', value: vehicleListStats.assignedVal, suffix: 'AED' },
@@ -626,8 +626,8 @@ export default function VehicleAssetPage() {
     const vehicleSummaryRightCards = useMemo(
         () => [
             { label: 'Warranty', value: vehicleListStats.warranty },
-            { label: 'In Service', value: vehicleListStats.inService, filterKey: 'inService' },
-            { label: 'Pending for approval', value: vehicleListStats.pendingApproval, filterKey: 'pendingApproval' },
+            { label: 'In Service', value: vehicleListStats.inService, filterKey: 'inService', href: vehicleDashboardKpiHref('inService') },
+            { label: 'Pending for approval', value: vehicleListStats.pendingApproval, filterKey: 'pendingApproval', href: '/HRM/Asset/Vehicle?status=AwaitingApproval' },
             { label: 'Assigned People', value: vehicleListStats.assignedPeople },
         ],
         [vehicleListStats],
@@ -646,11 +646,11 @@ export default function VehicleAssetPage() {
 
     return (
         <PermissionGuard moduleId="hrm_asset_vehicle" redirectTo="/dashboard">
-            <div className="flex min-h-screen w-full bg-[#f2f6f9]">
+            <div className="flex min-h-screen w-full max-w-full overflow-x-hidden bg-[#f2f6f9]">
                 <Sidebar />
-                <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8">
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden">
 
                         <AssetListSummaryPanels
                             leftCards={vehicleSummaryLeftCards}
@@ -660,18 +660,18 @@ export default function VehicleAssetPage() {
                         />
 
                         {/* Header */}
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
                             <div>
                                 <div className="flex items-center gap-2 mb-1">
-                                    <h1 className="text-2xl font-bold text-gray-800">Vehicle Assets</h1>
+                                    <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800">Vehicle Assets</h1>
                                     <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
                                         {vehicles.length}
                                     </span>
                                 </div>
-                                <p className="text-gray-500 text-sm">Manage company fleet and transport assets</p>
+                                <p className="text-gray-500 text-xs sm:text-sm">Manage company fleet and transport assets</p>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                                 <button
                                     type="button"
                                     onClick={() => setVehicleInboxOpen(true)}
@@ -690,14 +690,14 @@ export default function VehicleAssetPage() {
 
                                 <Link
                                     href="/HRM/Asset/Vehicle/dashboard"
-                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-gray-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-white border border-gray-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors whitespace-nowrap"
                                 >
                                     <LayoutDashboard size={18} />
                                     Fleet dashboard
                                 </Link>
                                 <Link
                                     href="/HRM/Asset/Vehicle/service-requests"
-                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-white border border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors whitespace-nowrap"
                                 >
                                     <ClipboardList size={18} />
                                     Service requests
@@ -706,12 +706,34 @@ export default function VehicleAssetPage() {
                                 <button
                                     type="button"
                                     onClick={() => setCreateServiceModalOpen(true)}
-                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 shadow-sm transition-colors"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-teal-600 text-white text-xs sm:text-sm font-semibold hover:bg-teal-700 shadow-sm transition-colors whitespace-nowrap"
                                 >
                                     <Wrench size={18} />
                                     Create service
                                 </button>
                                 ) : null}
+
+                                <button
+                                    onClick={fetchVehicles}
+                                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
+                                    title="Refresh list"
+                                >
+                                    <RotateCcw size={18} />
+                                </button>
+
+                                {mounted && canAccessAddVehicle() && (
+                                <button
+                                    onClick={() => {
+                                        setAddVehicleEditId(null);
+                                        setIsAddVehicleModalOpen(true);
+                                    }}
+                                    className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
+                                >
+                                    <Plus size={18} />
+                                    <span className="text-sm font-medium">Add Vehicle</span>
+                                </button>
+                                )}
+
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                                     <input
@@ -719,7 +741,7 @@ export default function VehicleAssetPage() {
                                         placeholder="Search vehicles..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-64 shadow-sm"
+                                        className="pl-9 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-full min-w-[140px] sm:w-64 max-w-md shadow-sm"
                                     />
                                 </div>
 
@@ -737,33 +759,12 @@ export default function VehicleAssetPage() {
                                         <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-blue-500 border-2 border-white" />
                                     )}
                                 </button>
-
-                                <button
-                                    onClick={fetchVehicles}
-                                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
-                                    title="Refresh list"
-                                >
-                                    <RotateCcw size={18} />
-                                </button>
-
-                                {mounted && canAccessAddVehicle() && (
-                                <button
-                                    onClick={() => {
-                                        setAddVehicleEditId(null);
-                                        setIsAddVehicleModalOpen(true);
-                                    }}
-                                    className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors shadow-sm"
-                                >
-                                    <Plus size={18} />
-                                    <span className="text-sm font-medium">Add Vehicle</span>
-                                </button>
-                                )}
                             </div>
                         </div>
 
                         {showFilters && (
-                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
-                                <div className="flex items-center gap-4 flex-wrap">
+                            <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
+                                <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-wrap">
                                     <div
                                         className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 shadow-sm"
                                         role="tablist"
@@ -802,12 +803,12 @@ export default function VehicleAssetPage() {
                                     </div>
                                     {fleetListTab === 'active' ? (
                                         <>
-                                            <span className="text-sm font-medium text-gray-700">Filter by</span>
+                                            <span className="text-xs sm:text-sm font-medium text-gray-700 w-full sm:w-auto">Filter by</span>
                                             <div className="relative">
                                                 <select
                                                     value={statusFilter}
                                                     onChange={(e) => setStatusFilter(e.target.value)}
-                                                    className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                                    className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                                 >
                                                     {VEHICLE_STATUS_FILTERS.map((value) => (
                                                         <option key={value} value={value}>
@@ -842,7 +843,7 @@ export default function VehicleAssetPage() {
                                                 setStatusFilter('All');
                                                 setFleetListTabAndUrl('active');
                                             }}
-                                            className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+                                            className="text-xs sm:text-sm text-gray-600 hover:text-gray-800 font-medium"
                                         >
                                             Clear filters
                                         </button>
@@ -854,26 +855,26 @@ export default function VehicleAssetPage() {
                             </div>
                         )}
 
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden w-full max-w-full">
+                            <div className="overflow-x-auto w-full max-w-full">
+                                <table className="w-full min-w-[980px] table-auto text-left border-collapse text-[11px] sm:text-xs">
                                     <thead>
-                                        <tr className="bg-gray-50/50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wider">
-                                            <th className="px-6 py-4">Id</th>
-                                            <th className="px-6 py-4">Plate No</th>
-                                            <th className="px-6 py-4">Model Year</th>
-                                            <th className="px-6 py-4">Current KM</th>
-                                            <th className="px-6 py-4">Registration Expiry</th>
-                                            <th className="px-6 py-4">GPS Status</th>
-                                            <th className="px-6 py-4">Status</th>
-                                            <th className="px-6 py-4">Assigned To</th>
-                                            {showVehicleRowActions && <th className="px-6 py-4 text-right w-24" />}
+                                        <tr className="bg-gray-50/50 border-b border-gray-100 text-[9px] sm:text-[10px] uppercase text-gray-500 font-semibold tracking-wider">
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Id</th>
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Plate No</th>
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Model Year</th>
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Current KM</th>
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Registration Expiry</th>
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">GPS Status</th>
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Status</th>
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Assigned To</th>
+                                            {showVehicleRowActions && <th className="px-2 sm:px-3 py-2 sm:py-2.5 text-right w-14 sm:w-20" />}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan={tableColSpan} className="px-6 py-12 text-center text-gray-500">
+                                                <td colSpan={tableColSpan} className="px-4 sm:px-6 py-8 sm:py-12 text-center text-gray-500">
                                                     <div className="flex flex-col items-center gap-2">
                                                         <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                                                         <p className="text-sm">Loading vehicles...</p>
@@ -882,7 +883,7 @@ export default function VehicleAssetPage() {
                                             </tr>
                                         ) : vehicles.length === 0 ? (
                                             <tr>
-                                                <td colSpan={tableColSpan} className="px-6 py-12 text-center text-gray-500">
+                                                <td colSpan={tableColSpan} className="px-4 sm:px-6 py-8 sm:py-12 text-center text-gray-500">
                                                     <div className="flex flex-col items-center gap-3">
                                                         <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
                                                             <Truck size={24} />
@@ -894,7 +895,7 @@ export default function VehicleAssetPage() {
                                             </tr>
                                         ) : filteredVehicles.length === 0 ? (
                                             <tr>
-                                                <td colSpan={tableColSpan} className="px-6 py-12 text-center text-gray-500">
+                                                <td colSpan={tableColSpan} className="px-4 sm:px-6 py-8 sm:py-12 text-center text-gray-500">
                                                     <div className="flex flex-col items-center gap-3">
                                                         <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
                                                             <Filter size={22} />
@@ -948,16 +949,17 @@ export default function VehicleAssetPage() {
                                                     <tr
                                                         className="hover:bg-blue-50/30 transition-colors group cursor-pointer"
                                                     >
-                                                        <td className="px-6 py-4">
-                                                            <span className="font-semibold text-gray-800 text-sm">
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">
+                                                            <span className="font-semibold text-gray-800 text-[11px] sm:text-xs whitespace-nowrap">
                                                                 {vehicle.assetId || '-'}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm font-medium text-gray-700">
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs font-medium text-gray-700 whitespace-nowrap">
                                                             {vehicle.plateEmirate || vehicle.plateNumber ? (
                                                                 <VehiclePlateThumbnail
                                                                     plateEmirate={vehicle.plateEmirate}
                                                                     plateNumber={vehicle.plateNumber}
+                                                                    size="compact"
                                                                 />
                                                             ) : (
                                                                 <button
@@ -966,16 +968,16 @@ export default function VehicleAssetPage() {
                                                                         e.stopPropagation();
                                                                         setPlateModalVehicle(vehicle);
                                                                     }}
-                                                                    className="inline-flex items-center px-3 py-1.5 rounded-lg text-[11px] font-semibold text-gray-400 bg-gray-50 ring-1 ring-gray-200 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                                                                    className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold text-gray-400 bg-gray-50 ring-1 ring-gray-200 hover:bg-gray-100 hover:text-gray-600 transition-colors whitespace-nowrap"
                                                                 >
                                                                     No plate
                                                                 </button>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs text-gray-600 whitespace-nowrap">
                                                             {vehicle.modelYear || '-'}
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm text-gray-600 font-mono">
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs text-gray-600 font-mono whitespace-nowrap">
                                                             {displayKm != null && displayKm !== '' ? (
                                                                 <span title={gpsStatus ? `GPS: ${gpsStatus}` : undefined}>
                                                                     {Number(displayKm).toLocaleString()} km
@@ -984,7 +986,7 @@ export default function VehicleAssetPage() {
                                                                 '-'
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs text-gray-600 whitespace-nowrap">
                                                             {formatDate(
                                                                 vehicle.registrationExpiryDate ||
                                                                     vehicle.registrationExpiry ||
@@ -997,9 +999,9 @@ export default function VehicleAssetPage() {
                                                             )}
                                                         </td>
 
-                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">
                                                             <span
-                                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${
+                                                                className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap ${
                                                                     gpsConnected
                                                                         ? 'bg-teal-50 text-teal-800 ring-1 ring-teal-200'
                                                                         : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
@@ -1010,26 +1012,26 @@ export default function VehicleAssetPage() {
                                                             </span>
                                                         </td>
 
-                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">
                                                             <span
-                                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${vehicleProfileStatusBadgeClass(vehicle)}`}
+                                                                className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap ${vehicleProfileStatusBadgeClass(vehicle)}`}
                                                             >
                                                                 {getVehicleProfileStatusLabel(vehicle)}
                                                             </span>
                                                         </td>
 
-                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">
                                                             <VehicleListAssignmentStatusCell vehicle={vehicle} />
                                                         </td>
                                                         {showVehicleRowActions && (
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <div className="flex items-center justify-end gap-3">
+                                                            <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">
+                                                                <div className="flex items-center justify-end gap-2">
                                                                     {canEditInactiveVehicleFromList &&
                                                                         isVehicleProfileInactiveForListEdit(vehicle) && (
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={(e) => openInactiveVehicleEdit(vehicle, e)}
-                                                                                className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
+                                                                                className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
                                                                                 title="Edit vehicle profile"
                                                                             >
                                                                                 <Pencil size={18} />

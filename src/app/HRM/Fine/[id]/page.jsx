@@ -1315,14 +1315,14 @@ function FineDetailsPageContent() {
                             </AlertDialogFooter>
                         </AlertDialogContent>
                     </AlertDialog>
-                    <div className="flex-1 flex flex-col items-stretch justify-start py-8 print:py-0 relative overflow-y-auto w-full px-6 md:px-8">
+                    <div className="flex-1 flex flex-col items-stretch justify-start py-4 sm:py-6 lg:py-8 print:py-0 relative overflow-y-auto w-full px-3 sm:px-5 lg:px-8">
                         {/* Back Button Header */}
                         <div className="w-full flex items-center justify-between mb-2 print:hidden">
                             <ListReturnBackButton onNavigate={handleListReturnBack} />
                         </div>
 
                         {/* Top Grid: Profile + Action Card — equal width columns (matches Loan/Advance detail) */}
-                        <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
+                        <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 lg:gap-6 w-full mb-4 sm:mb-6 lg:mb-8 print:hidden items-stretch">
 
                             {/* Left Column: Profile & Stats */}
                             <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>

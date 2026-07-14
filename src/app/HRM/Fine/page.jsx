@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
 import PendingFineRequestsModal from './components/PendingFineRequestsModal';
@@ -484,21 +485,21 @@ function FinePageContent() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                         {/* Header and Actions */}
-                        <div className="flex items-center justify-between mb-8">
-                            <div>
-                                <h1 className="text-3xl font-bold text-gray-800 mb-2">Fine Management</h1>
-                                <p className="text-gray-600">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
+                            <div className="min-w-0">
+                                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">Fine Management</h1>
+                                <p className="text-sm sm:text-base text-gray-600">
                                     Manage employee fines and split liability tracking
                                 </p>
                             </div>
 
-                            <div className="flex items-center gap-4">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:gap-4 w-full sm:w-auto">
                                 <button
                                     type="button"
                                     onClick={() => setPendingInboxModalOpen(true)}
-                                    className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
+                                    className="relative p-1.5 sm:p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
                                     title="Fine notifications assigned to you"
                                 >
                                     <Bell size={20} />
@@ -510,7 +511,7 @@ function FinePageContent() {
                                 </button>
 
                                 {/* Search */}
-                                <div className="relative flex-1 min-w-[300px]">
+                                <div className="relative flex-1 min-w-[140px] sm:min-w-[180px] max-w-md">
                                     <svg
                                         width="16"
                                         height="16"
@@ -528,7 +529,7 @@ function FinePageContent() {
                                         placeholder="Search Fines"
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white shadow-sm transition-all"
+                                        className="w-full pl-9 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white shadow-sm transition-all"
                                     />
                                 </div>
 
@@ -536,7 +537,7 @@ function FinePageContent() {
                                 {canAccessAddFine() ? (
                                 <button
                                     onClick={handleAddFine}
-                                    className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                    className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
                                 >
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M12 5v14M5 12h14"></path>
@@ -550,8 +551,8 @@ function FinePageContent() {
                         {/* Redesigned Dashboard Header */}
                         <div className={HEADER_PAIR_GRID}>
                             {/* Left Panel: Statistics Grid */}
-                            <div className={`bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}>
-                                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3 shrink-0">Fine Overview</h3>
+                            <div className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}>
+                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">Fine Overview</h3>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 flex-1">
                                     {[
                                         { label: 'Total Fines', value: dashboardStats.count, color: 'text-red-600', filter: '' },
@@ -567,7 +568,7 @@ function FinePageContent() {
                                         <div
                                             key={idx}
                                             onClick={() => item.filter !== undefined && setSelectedFineType(item.filter)}
-                                            className="bg-gray-50 p-4 rounded-xl flex flex-col items-center justify-center text-center group hover:bg-white hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-gray-200"
+                                            className="bg-gray-50 p-2 sm:p-3 lg:p-4 rounded-xl flex flex-col items-center justify-center text-center group hover:bg-white hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-gray-200"
                                         >
                                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2 break-words text-center leading-tight">{item.label}</span>
                                             <div
@@ -577,10 +578,10 @@ function FinePageContent() {
                                                 {item.isCurrency ? (
                                                     <>
                                                         <span className="text-sm font-bold">AED</span>
-                                                        <span className="text-2xl"><AnimatedCounter value={item.value} /></span>
+                                                        <span className="text-lg sm:text-xl lg:text-2xl"><AnimatedCounter value={item.value} /></span>
                                                     </>
                                                 ) : (
-                                                    <span className="text-3xl"><AnimatedCounter value={item.value} /></span>
+                                                    <span className="text-xl sm:text-2xl lg:text-3xl"><AnimatedCounter value={item.value} /></span>
                                                 )}
                                             </div>
                                         </div>
@@ -589,10 +590,10 @@ function FinePageContent() {
                             </div>
 
                             {/* Right Panel: Charts */}
-                            <div className={`bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-4 sm:gap-6 ${HEADER_PAIR_CARD_DASHBOARD}`}>
+                            <div className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4 lg:gap-6 ${HEADER_PAIR_CARD_DASHBOARD}`}>
                                 {/* Bar Chart: Finer User */}
                                 <div className="flex-[3] flex flex-col min-h-0 min-w-0">
-                                    <h3 className="text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-4 shrink-0">Finer User</h3>
+                                    <h3 className="text-xs sm:text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-2 sm:mb-4 shrink-0">Finer User</h3>
                                     <div className="flex-1 min-h-0 min-w-0">
                                         <RechartsBox height={220} minHeight={180} className="h-full">
                                             <BarChart data={finerUserData} margin={{ top: 15, right: 0, left: 0, bottom: 0 }}>
@@ -641,7 +642,7 @@ function FinePageContent() {
 
                                 {/* Pie Chart: Fine Type */}
                                 <div className="flex-[2] flex flex-col items-center justify-center min-h-0 min-w-0">
-                                    <h3 className="text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-4 shrink-0">Fine Type</h3>
+                                    <h3 className="text-xs sm:text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-2 sm:mb-4 shrink-0">Fine Type</h3>
                                     <div className="w-full max-w-[230px] aspect-square flex items-center justify-center relative min-h-0">
                                         <Pie
                                             data={fineTypeData}
@@ -689,8 +690,10 @@ function FinePageContent() {
                         </div>
 
                         {/* Tabs Navigation */}
-                        <div className="flex items-center gap-10 mb-8 border-b border-gray-200 px-2">
+                        <div className="flex items-center gap-4 sm:gap-6 lg:gap-10 mb-4 sm:mb-6 lg:mb-8 border-b border-gray-200 px-1 sm:px-2 overflow-x-auto">
                             <button
+                                type="button"
+                                {...navHrefProps('/HRM/Fine')}
                                 onClick={() => setActiveTab('individual')}
                                 className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${activeTab === 'individual'
                                     ? 'text-blue-600'
@@ -713,6 +716,8 @@ function FinePageContent() {
                             </button>
 
                             <button
+                                type="button"
+                                {...navHrefProps('/HRM/Fine?tab=group')}
                                 onClick={() => setActiveTab('group')}
                                 className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${activeTab === 'group'
                                     ? 'text-blue-600'
@@ -737,9 +742,9 @@ function FinePageContent() {
                             </button>
                         </div>
 
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl font-bold text-gray-800">Fine Directory</h2>
-                            <div className="flex items-center gap-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 sm:mb-4">
+                            <h2 className="text-lg sm:text-xl font-bold text-gray-800">Fine Directory</h2>
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                                 {selectedFineType && (
                                     <button
                                         onClick={() => setSelectedFineType('')}
@@ -753,11 +758,11 @@ function FinePageContent() {
                                     </button>
                                 )}
                                 {/* Status Filter Dropdown */}
-                                <div className="relative min-w-[180px]">
+                                <div className="relative min-w-[140px] sm:min-w-[180px] flex-1 sm:flex-none">
                                     <select
                                         value={selectedStatus}
                                         onChange={(e) => setSelectedStatus(e.target.value)}
-                                        className="w-full h-[38px] px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all font-medium"
+                                        className="w-full h-[34px] sm:h-[38px] px-3 sm:px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all font-medium"
                                     >
                                         <option value="All">All Statuses</option>
                                         <option value="Pending">Pending</option>
@@ -774,11 +779,11 @@ function FinePageContent() {
                                     </select>
                                 </div>
                                 {/* Fine Type Filter Dropdown */}
-                                <div className="relative min-w-[200px]">
+                                <div className="relative min-w-[140px] sm:min-w-[200px] flex-1 sm:flex-none">
                                     <select
                                         value={selectedFineType}
                                         onChange={(e) => setSelectedFineType(e.target.value)}
-                                        className="w-full h-[38px] px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all"
+                                        className="w-full h-[34px] sm:h-[38px] px-3 sm:px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all"
                                     >
                                         <option value="">All Fine Types</option>
                                         <option value="Vehicle Fine">Vehicle Fine</option>
@@ -805,31 +810,31 @@ function FinePageContent() {
                         {/* Fines Table */}
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
-                                <table className="w-full min-w-0 table-auto">
+                                <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 FINE ID
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 EMP. ID
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 NAME
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 COMPANY
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 FINE TYPE
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 AMOUNT
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 STATUS
                                             </th>
-                                            <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 ACTIONS
                                             </th>
                                         </tr>
@@ -837,13 +842,13 @@ function FinePageContent() {
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="8" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     Loading fines...
                                                 </td>
                                             </tr>
                                         ) : filteredFines.length === 0 ? (
                                             <tr>
-                                                <td colSpan="8" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     No fines found. Click "Add Fine" to create one.
                                                 </td>
                                             </tr>
@@ -889,7 +894,7 @@ function FinePageContent() {
                                                                     : 'hover:bg-gray-50 cursor-pointer'
                                                                 }`}
                                                         >
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900">
                                                                 <div className="flex items-center gap-2">
                                                                     {canExpandGroup && (
                                                                         <span className="text-gray-400">
@@ -899,7 +904,7 @@ function FinePageContent() {
                                                                     {fine.fineId}
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-bold text-gray-700">
                                                                 <div className="relative z-10 pointer-events-none">
                                                                     {isGroupRow ? (
                                                                         <span className="text-gray-500 uppercase tracking-tighter">
@@ -910,7 +915,7 @@ function FinePageContent() {
                                                                     ) : (fine.employeeId || '').replace(/\s+/g, '')}
                                                                 </div>
                                                             </td>
-                                                            <td className={`px-6 py-4 whitespace-nowrap text-gray-700 ${isGroupRow && fine.hasCompanyShare ? 'text-xs' : 'text-sm'}`}>
+                                                            <td className={`px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-gray-700 ${isGroupRow && fine.hasCompanyShare ? 'text-[10px] sm:text-xs' : 'text-xs sm:text-sm'}`}>
                                                                 <div className="relative z-10 pointer-events-none">
                                                                     {isGroupRow ? (
                                                                         <span className="text-gray-500 font-bold uppercase tracking-wide italic">
@@ -919,12 +924,12 @@ function FinePageContent() {
                                                                     ) : fine.employeeName}
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                 <div className="relative z-10 pointer-events-none">
                                                                     {fine.companyName || 'N/A'}
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                 <div className="relative z-10 pointer-events-none">
                                                                     {fine.fineType}
                                                                     {fine.accessoryName ? (
@@ -936,12 +941,12 @@ function FinePageContent() {
                                                                     ) : null}
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-red-600 font-bold">
                                                                 <div className="relative z-10 pointer-events-none">
                                                                     {Number(fine.displayAmount || 0).toLocaleString()} AED
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                                 <div className="relative z-10 pointer-events-none">
                                                                     <span
                                                                         className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' || fine.fineStatus === 'Completed'
@@ -961,10 +966,16 @@ function FinePageContent() {
                                                                     </span>
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
                                                                 <div className="relative z-20 flex items-center justify-end gap-2">
                                                                     {!isGroupRow && (
                                                                         <button
+                                                                            type="button"
+                                                                            {...navHrefProps(
+                                                                                !isCompanyRow && fine.fineId
+                                                                                    ? `/HRM/Fine/${encodeURIComponent(fine.fineId)}`
+                                                                                    : '',
+                                                                            )}
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
                                                                                 !isCompanyRow && navigateFromList(router, `/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
@@ -1007,29 +1018,29 @@ function FinePageContent() {
                                                             <tr
                                                                 className={`bg-gray-50/50 hover:bg-blue-50/30 border-l-4 border-blue-400 transition-colors ${canOpenMember ? 'cursor-pointer' : 'cursor-default'}`}
                                                             >
-                                                                <td className="px-6 py-3 whitespace-nowrap text-xs font-mono text-gray-400 pl-12 italic">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs font-mono text-gray-400 pl-8 sm:pl-12 italic">
                                                                     ↳ {member.fineId}
                                                                 </td>
-                                                                <td className="px-6 py-3 whitespace-nowrap text-xs font-bold text-gray-600">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs font-bold text-gray-600">
                                                                     {member.isCompany ? (
                                                                         <span className="text-blue-600 font-semibold italic">
                                                                             Company (Click to View)
                                                                         </span>
                                                                     ) : member.employeeId}
                                                                 </td>
-                                                                <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-gray-600">
                                                                     {member.employeeName}
                                                                 </td>
-                                                                <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-500">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-gray-500">
                                                                     {fine.companyName}
                                                                 </td>
-                                                                <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-500">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-gray-500">
                                                                     {fine.fineType}
                                                                 </td>
-                                                                <td className="px-6 py-3 whitespace-nowrap text-xs text-red-500 font-bold">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-red-500 font-bold">
                                                                     {Number(member.fineAmount || 0).toLocaleString()} AED
                                                                 </td>
-                                                                <td className="px-6 py-3 whitespace-nowrap">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                                     <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${member.fineStatus === 'Active' || member.fineStatus === 'Approved' || member.fineStatus === 'Completed'
                                                                         ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
                                                                         : 'bg-gray-100 text-gray-600 border-gray-200'
@@ -1037,7 +1048,7 @@ function FinePageContent() {
                                                                         {member.fineStatus}
                                                                     </span>
                                                                 </td>
-                                                                <td className="px-6 py-3 text-right">
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right">
                                                                     {canOpenMember && (
                                                                         <span
                                                                             className="text-blue-600 text-xs font-semibold"
@@ -1134,6 +1145,7 @@ function FinePageContent() {
                             {selectedTypeFines.fines.map((fine, idx) => (
                                 <div
                                     key={fine._id || idx}
+                                    {...navHrefProps(fine.fineId ? `/HRM/Fine/${fine.fineId}` : '')}
                                     onClick={() => {
                                         setIsTypeModalOpen(false);
                                         navigateFromList(router, `/HRM/Fine/${fine.fineId}`);
@@ -1203,6 +1215,7 @@ function FinePageContent() {
                             {selectedEmployeeFines.fines.map((fine, idx) => (
                                 <div
                                     key={fine._id || idx}
+                                    {...navHrefProps(fine.fineId ? `/HRM/Fine/${fine.fineId}` : '')}
                                     onClick={() => {
                                         setIsEmpModalOpen(false);
                                         navigateFromList(router, `/HRM/Fine/${fine.fineId}`);

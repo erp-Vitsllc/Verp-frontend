@@ -74,6 +74,18 @@ export default function CrmCustomersPage() {
         }
     }, []);
 
+    const handleConnectZoho = useCallback(async () => {
+        try {
+            setError('');
+            await connectZoho();
+        } catch (err) {
+            setError(
+                err?.message ||
+                    'Failed to start Zoho authorization. Check ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, and ZOHO_REDIRECT_URI in the backend .env, then restart the server.',
+            );
+        }
+    }, [connectZoho]);
+
     useEffect(() => {
         if (!mounted) return;
         void loadCustomers();
@@ -106,11 +118,11 @@ export default function CrmCustomersPage() {
 
     return (
         <PermissionGuard moduleId="crm" redirectTo="/dashboard">
-            <div className="flex min-h-screen bg-[#f4f6f8]">
+            <div className="flex min-h-screen w-full max-w-full overflow-x-hidden bg-[#f4f6f8]">
                 <Sidebar />
-                <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <main className="flex-1 p-6 overflow-auto">
+                    <main className="flex-1 p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden overflow-y-auto">
                         <ErpPageHeader
                             title="Customers"
                             subtitle="Customer list from local database (sync from Zoho on Refresh)"
@@ -119,7 +131,7 @@ export default function CrmCustomersPage() {
                                 type="button"
                                 onClick={() => void loadCustomers({ sync: true })}
                                 disabled={loading}
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                                className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl border border-slate-200 bg-white px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 whitespace-nowrap"
                             >
                                 <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                                 Refresh
@@ -127,13 +139,13 @@ export default function CrmCustomersPage() {
                         </ErpPageHeader>
 
                         {error ? (
-                            <div className="mb-4">
+                            <div className="mb-3 sm:mb-4">
                                 <ErpErrorBanner message={error} />
-                                {/not connected|re-authorize|not configured/i.test(error) ? (
+                                {/not connected|re-authorize|not configured|authorization|oauth/i.test(error) ? (
                                     <button
                                         type="button"
-                                        onClick={() => void connectZoho()}
-                                        className="mt-3 text-sm font-semibold text-teal-700 underline"
+                                        onClick={() => void handleConnectZoho()}
+                                        className="mt-2 sm:mt-3 text-xs sm:text-sm font-semibold text-teal-700 underline"
                                     >
                                         Connect Zoho Books
                                     </button>
@@ -141,21 +153,21 @@ export default function CrmCustomersPage() {
                             </div>
                         ) : null}
 
-                        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                            <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3 bg-[#f8fafc]">
-                                <div className="flex items-center gap-3 min-w-0">
+                        <div className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 border-b border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 bg-[#f8fafc]">
+                                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                                     <button
                                         type="button"
-                                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500"
+                                        className="inline-flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500"
                                         aria-label="Filters"
                                     >
                                         <SlidersHorizontal size={16} />
                                     </button>
-                                    <span className="text-sm font-medium text-slate-600">
+                                    <span className="text-xs sm:text-sm font-medium text-slate-600">
                                         {filteredRows.length} customer{filteredRows.length === 1 ? '' : 's'}
                                     </span>
                                 </div>
-                                <div className="relative w-full max-w-xs">
+                                <div className="relative w-full sm:max-w-xs">
                                     <Search
                                         size={16}
                                         className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -165,16 +177,16 @@ export default function CrmCustomersPage() {
                                         value={search}
                                         onChange={(e) => setSearch(e.target.value)}
                                         placeholder="Search customers"
-                                        className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
+                                        className="h-9 sm:h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs sm:text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
                                     />
                                 </div>
                             </div>
 
                             <div className="overflow-x-auto">
-                                <table className="min-w-full border-collapse">
+                                <table className="min-w-[640px] w-full border-collapse text-xs sm:text-sm">
                                     <thead>
                                         <tr className="border-b border-slate-200 bg-[#f8fafc] text-left">
-                                            <th className="w-12 px-4 py-3">
+                                            <th className="w-12 px-3 sm:px-4 py-2 sm:py-3">
                                                 <input
                                                     type="checkbox"
                                                     className="h-4 w-4 rounded border-slate-300"
@@ -185,7 +197,7 @@ export default function CrmCustomersPage() {
                                             {COLUMNS.map((column) => (
                                                 <th
                                                     key={column.key}
-                                                    className={`px-4 py-3 text-[11px] font-bold tracking-[0.08em] text-slate-500 ${
+                                                    className={`px-3 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-[11px] font-bold tracking-[0.08em] text-slate-500 ${
                                                         column.align === 'right' ? 'text-right' : ''
                                                     }`}
                                                 >
@@ -208,7 +220,7 @@ export default function CrmCustomersPage() {
                                             <tr>
                                                 <td
                                                     colSpan={COLUMNS.length + 1}
-                                                    className="px-4 py-16 text-center text-slate-500"
+                                                    className="px-3 sm:px-4 py-10 sm:py-16 text-center text-slate-500"
                                                 >
                                                     <div className="inline-flex items-center gap-2">
                                                         <Loader2 size={18} className="animate-spin" />
@@ -224,7 +236,7 @@ export default function CrmCustomersPage() {
                                             <tr>
                                                 <td
                                                     colSpan={COLUMNS.length + 1}
-                                                    className="px-4 py-16 text-center text-slate-500"
+                                                    className="px-3 sm:px-4 py-10 sm:py-16 text-center text-slate-500"
                                                 >
                                                     {/not connected|re-authorize|not configured/i.test(error)
                                                         ? 'Connect Zoho Books to load customers.'
@@ -239,26 +251,26 @@ export default function CrmCustomersPage() {
                                                       key={row.id || row.name}
                                                       className="border-b border-slate-100 hover:bg-slate-50/80"
                                                   >
-                                                      <td className="px-4 py-3">
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3">
                                                           <input
                                                               type="checkbox"
                                                               className="h-4 w-4 rounded border-slate-300"
                                                               aria-label={`Select ${row.name}`}
                                                           />
                                                       </td>
-                                                      <td className="px-4 py-3 text-sm font-medium text-slate-800">
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 font-medium text-slate-800">
                                                           {row.name}
                                                       </td>
-                                                      <td className="px-4 py-3 text-sm text-slate-700">
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700">
                                                           {row.companyName}
                                                       </td>
-                                                      <td className="px-4 py-3 text-sm text-slate-700">
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700">
                                                           {row.email}
                                                       </td>
-                                                      <td className="px-4 py-3 text-sm text-slate-700">
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700">
                                                           {row.workPhone}
                                                       </td>
-                                                      <td className="px-4 py-3 text-sm text-slate-700 text-right tabular-nums">
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 text-right tabular-nums">
                                                           {row.receivables}
                                                       </td>
                                                   </tr>

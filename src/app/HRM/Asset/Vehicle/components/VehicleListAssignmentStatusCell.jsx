@@ -14,7 +14,7 @@ import {
 import { collectVehicleProfilePendingItems } from '@/app/HRM/Asset/Vehicle/utils/resolveVehicleProfilePendingItems';
 import VehicleProfilePendingStatusBadge from '@/app/HRM/Asset/Vehicle/components/VehicleProfilePendingStatusBadge';
 
-const pendingApprovalTextClass = 'inline-flex items-center justify-center rounded-lg bg-amber-100 px-2.5 py-1.5 text-[10px] font-bold leading-snug text-amber-950 ring-1 ring-amber-300/80';
+const pendingApprovalTextClass = 'inline-flex items-center justify-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold leading-snug text-amber-950 ring-1 ring-amber-300/80 whitespace-nowrap';
 
 /**
  * Assigned-to column — matches tools asset list status badge UI (read-only reference).
@@ -56,12 +56,12 @@ export default function VehicleListAssignmentStatusCell({ vehicle }) {
     }
 
     return (
-        <div className="flex flex-col items-start gap-1">
+        <div className="flex flex-col items-start gap-0.5">
             {pendingItems.map((item) => (
                 <VehicleProfilePendingStatusBadge
                     key={`${item.kind}-${item.label}-${item.pendingFor}`}
                     item={item}
-                    className="px-2.5 py-1.5 text-[10px]"
+                    className="px-1.5 py-0.5 text-[9px] whitespace-nowrap"
                 />
             ))}
             {submittedWaiting ? (
@@ -74,7 +74,8 @@ export default function VehicleListAssignmentStatusCell({ vehicle }) {
             ) : null}
             {showAssigneeBadge ? (
                 <span
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(vehicle.status, vehicle)}`}
+                    className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider whitespace-nowrap ${getAssetStatusBadgeClass(vehicle.status, vehicle)}`}
+                    title={badgeLabel}
                 >
                     {badgeLabel}
                 </span>

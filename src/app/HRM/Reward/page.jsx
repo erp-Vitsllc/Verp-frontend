@@ -287,23 +287,23 @@ function RewardContent() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                         {/* Header and Actions in Single Row */}
-                        <div className="flex items-center justify-between mb-8">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
                             {/* Left Side - Header */}
-                            <div>
-                                <h1 className="text-3xl font-bold text-gray-800 mb-2">Rewards</h1>
-                                <p className="text-gray-600">
+                            <div className="min-w-0">
+                                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">Rewards</h1>
+                                <p className="text-sm sm:text-base text-gray-600">
                                     Manage and track employee rewards
                                 </p>
                             </div>
 
                             {/* Right Side - Actions Bar */}
-                            <div className="flex items-center gap-4">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:gap-4">
                                 <button
                                     type="button"
                                     onClick={() => setPendingInboxModalOpen(true)}
-                                    className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
+                                    className="relative p-1.5 sm:p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
                                     title="Reward notifications assigned to you"
                                 >
                                     <Bell size={20} />
@@ -316,7 +316,7 @@ function RewardContent() {
                                 {mounted && canAccessCreateReward() && (
                                     <button
                                         onClick={handleAddReward}
-                                        className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                        className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
                                     >
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                             <path d="M12 5v14M5 12h14"></path>
@@ -328,87 +328,87 @@ function RewardContent() {
                         </div>
 
                         {/* Reward Dashboard */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6 mb-4 sm:mb-6 lg:mb-8 items-stretch">
                             {/* Stats Grid (White BG / Grey Boxes) */}
-                            <div className={`bg-white rounded-xl p-6 border ${selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm flex flex-col overflow-hidden transition-all`} style={{ height: '320px' }}>
-                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex justify-between items-center">
+                            <div className={`bg-white rounded-xl p-3 sm:p-4 lg:p-6 border ${selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm flex flex-col overflow-hidden transition-all h-auto min-h-[220px] sm:min-h-[280px] lg:h-[320px]`}>
+                                <h3 className="text-sm sm:text-base lg:text-lg font-bold text-gray-800 mb-2 sm:mb-4 flex justify-between items-center gap-2">
                                     Reward Statistics
                                     {selectedStatus !== 'All' && (
                                         <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
                                     )}
                                 </h3>
-                                <div className="grid grid-cols-4 gap-4 flex-1">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4 flex-1">
                                     {/* Row 1 */}
                                     <div
                                         onClick={() => setSelectedStatus('All')}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'All' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'All' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Rewards</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Total Rewards</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.total} />
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => setSelectedStatus('Pending')}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Pending' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Pending' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Pending Reward</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Pending Reward</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.pending} />
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => setSelectedStatus('Approved')}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Approved' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Approved Reward</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Approved Reward</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.approved} />
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => setSelectedStatus('Rejected')}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Rejected' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Rejected' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Rejected Reward</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Rejected Reward</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.rejected} />
                                         </span>
                                     </div>
                                     {/* Row 2 */}
                                     <div
                                         onClick={() => setSelectedStatus('Draft')}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Draft' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Draft' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Draft Reward</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Draft Reward</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.draft} />
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => setSelectedStatus('Cash')}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Cash' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Cash' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Cash Reward</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Cash Reward</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.cash} />
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => setSelectedStatus('Gift')}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Gift' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Gift' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Gift Reward</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Gift Reward</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.gift} />
                                         </span>
                                     </div>
                                     <div
                                         onClick={() => setSelectedStatus('Certificate')}
-                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Certificate' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                        className={`p-2 sm:p-3 lg:p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Certificate' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Certificate Reward</span>
-                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                        <span className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase mb-1 sm:mb-2 min-h-[1.5rem] sm:h-8 flex items-center justify-center leading-tight">Certificate Reward</span>
+                                        <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.certificate} />
                                         </span>
                                     </div>
@@ -416,9 +416,9 @@ function RewardContent() {
                             </div>
 
                             {/* Bar Chart Panel */}
-                            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm flex flex-col overflow-hidden" style={{ height: '320px' }}>
-                                <h3 className="text-sm font-bold text-[#475569] mb-8 text-center uppercase tracking-widest">Reward List</h3>
-                                <div className="flex-1 w-full min-h-[300px] min-w-0">
+                            <div className="bg-white rounded-xl p-3 sm:p-4 lg:p-6 border border-gray-100 shadow-sm flex flex-col overflow-hidden h-auto min-h-[220px] sm:min-h-[280px] lg:h-[320px]">
+                                <h3 className="text-xs sm:text-sm font-bold text-[#475569] mb-3 sm:mb-6 lg:mb-8 text-center uppercase tracking-widest">Reward List</h3>
+                                <div className="flex-1 w-full min-h-[180px] sm:min-h-[240px] lg:min-h-[280px] min-w-0">
                                     <RechartsBox height={300} minHeight={240}>
                                         <BarChart
                                             data={chartData}
@@ -487,8 +487,8 @@ function RewardContent() {
                             <ErpErrorBanner className="mb-4" />
                         )}
 
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl font-bold text-gray-800">Reward Directory</h2>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 sm:mb-4">
+                            <h2 className="text-lg sm:text-xl font-bold text-gray-800">Reward Directory</h2>
                             {selectedStatus !== 'All' && (
                                 <button
                                     onClick={() => setSelectedStatus('All')}
@@ -506,25 +506,25 @@ function RewardContent() {
                         {/* Rewards Table */}
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
-                                <table className="w-full min-w-0 table-auto">
+                                <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 REWARD ID
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 EMP. ID
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 NAME
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 REWARD TYPE
                                             </th>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 REWARD STATUS
                                             </th>
-                                            <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 ACTIONS
                                             </th>
                                         </tr>
@@ -532,13 +532,13 @@ function RewardContent() {
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="6" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     Loading rewards...
                                                 </td>
                                             </tr>
                                         ) : filteredRewards.length === 0 ? (
                                             <tr>
-                                                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="6" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     No rewards found matching "{selectedStatus}".
                                                 </td>
                                             </tr>
@@ -554,21 +554,21 @@ function RewardContent() {
                                                 <tr
                                                     className="relative hover:bg-gray-50 transition-colors group cursor-pointer"
                                                 >
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900">
                                                         <div className="relative z-10 pointer-events-none">
                                                             {reward.rewardId || 'N/A'}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                         <div className="relative z-10 pointer-events-none">{reward.employeeId || 'N/A'}</div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                         <div className="relative z-10 pointer-events-none">{reward.employeeName || 'N/A'}</div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                         <div className="relative z-10 pointer-events-none">{reward.rewardType || 'N/A'}</div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                         <div className="relative z-10 pointer-events-none">
                                                             <span
                                                                 className={`px-3 py-1 rounded-full text-xs font-medium ${reward.rewardStatus === 'Active' || reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)'
@@ -584,7 +584,7 @@ function RewardContent() {
                                                             </span>
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
                                                         <div className="relative z-20 flex items-center justify-end gap-2">
                                                             {(isAdmin() || canAccessCreateReward()) && (
                                                                 <button

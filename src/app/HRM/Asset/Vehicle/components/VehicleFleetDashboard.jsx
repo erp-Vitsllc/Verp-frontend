@@ -25,6 +25,7 @@ import {
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetAnalyticsTheme';
 import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
 import { navigateFromList } from '@/utils/listReturnNavigation';
+import { navHrefProps } from '@/utils/linkContextMenu';
 
 const YEAR_COLORS = FLORAL_CLASS_COLORS;
 
@@ -156,10 +157,18 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {rows.map((row, idx) => (
+                                {rows.map((row, idx) => {
+                                    const rowHref = row?.vehicleId
+                                        ? buildVehicleDetailPath(row.vehicleId, {
+                                            tab: row.tab || 'basic',
+                                            focusCard: row.focusCard || undefined,
+                                        })
+                                        : '';
+                                    return (
                                     <tr
                                         key={`${row.vehicleId || row.assetId || idx}-${row.serviceId || row.cardName || ''}-${idx}`}
                                         className="hover:bg-orange-50/50 transition-all border-l-4 border-l-transparent hover:border-l-orange-500 group cursor-pointer"
+                                        {...navHrefProps(rowHref || '')}
                                         onClick={() => onRowClick(row)}
                                     >
                                         <td className="px-4 py-4 text-xs font-bold text-gray-400">
@@ -256,7 +265,8 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
                                             </>
                                         ) : null}
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     )}

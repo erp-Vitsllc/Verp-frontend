@@ -6,9 +6,11 @@ import { useRouter } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
+import NavButton from '@/components/NavButton';
 import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -117,11 +119,11 @@ export default function GroupPage() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8 w-full max-w-full overflow-x-hidden">
+                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden">
                         {/* Header */}
-                        <div className="mb-6">
-                            <h1 className="text-3xl font-bold text-gray-800 mb-2">Groups</h1>
-                            <nav className="text-sm text-gray-600">
+                        <div className="mb-4 sm:mb-6">
+                            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">Groups</h1>
+                            <nav className="text-xs sm:text-sm text-gray-600">
                                 <span>Home</span>
                                 <span className="mx-2">/</span>
                                 <span>Settings</span>
@@ -132,59 +134,62 @@ export default function GroupPage() {
 
                         {/* Create Button */}
                         {mounted && (isAdmin() || hasPermission('settings_user_group', 'isCreate')) && (
-                            <div className="flex items-center justify-end mb-4">
-                                <button
-                                    onClick={() => router.push('/Settings/Group/create')}
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors"
+                            <div className="flex items-center justify-end mb-3 sm:mb-4">
+                                <NavButton
+                                    href="/Settings/Group/create"
+                                    router={router}
+                                    className="px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors text-xs sm:text-sm whitespace-nowrap"
                                 >
                                     <span>+</span>
                                     Create Group
-                                </button>
+                                </NavButton>
                             </div>
                         )}
 
                         {/* Groups List */}
                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                             {loading ? (
-                                <div className="p-8 text-center text-gray-500">Loading groups...</div>
+                                <div className="p-4 sm:p-8 text-center text-xs sm:text-sm text-gray-500">Loading groups...</div>
                             ) : error ? (
-                                <div className="p-8 text-center text-red-500">{error}</div>
+                                <div className="p-4 sm:p-8 text-center text-xs sm:text-sm text-red-500">{error}</div>
                             ) : (
                                 <div className="overflow-x-auto w-full max-w-full">
-                                    <table className="w-full min-w-0 table-auto">
+                                    <table className="w-full min-w-[480px] table-auto text-xs sm:text-sm">
                                         <thead className="bg-gray-50 border-b border-gray-200">
                                             <tr>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Name</th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
+                                                <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-700 uppercase tracking-wider">Name</th>
+                                                <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
+                                                <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
                                             {groups.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
+                                                    <td colSpan={3} className="px-3 sm:px-6 py-6 sm:py-8 text-center text-gray-500">
                                                         No groups found
                                                     </td>
                                                 </tr>
                                             ) : (
                                                 groups.map((group) => (
                                                     <tr key={group._id} className="hover:bg-gray-50">
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                        <td className="px-3 sm:px-6 py-2.5 sm:py-4 whitespace-nowrap font-medium text-gray-900">
                                                             {group.name}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${group.status === 'Active'
+                                                        <td className="px-3 sm:px-6 py-2.5 sm:py-4 whitespace-nowrap">
+                                                            <span className={`px-2 py-1 text-[10px] sm:text-xs font-semibold rounded-full ${group.status === 'Active'
                                                                     ? 'bg-green-100 text-green-800'
                                                                     : 'bg-gray-100 text-gray-800'
                                                                 }`}>
                                                                 {group.status}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                        <td className="px-3 sm:px-6 py-2.5 sm:py-4 whitespace-nowrap font-medium">
                                                             {mounted && (
-                                                                <div className="flex items-center gap-3">
+                                                                <div className="flex items-center gap-2 sm:gap-3">
                                                                     {(isAdmin() || hasPermission('settings_user_group', 'isEdit')) && !group.isSystemGroup && (
                                                                         <button
+                                                                            type="button"
+                                                                            {...navHrefProps(`/Settings/Group/${group._id}/edit`)}
                                                                             onClick={() => handleEdit(group._id)}
                                                                             className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
                                                                         >

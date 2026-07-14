@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import { ClipboardList, Download, ExternalLink, Trash2 } from 'lucide-react';
-import { normalizeMongoId, resolveVehicleServiceListRowTone, vehicleServiceListRowClassName } from './vehicleServiceUtils';
+import {
+    buildVehicleServiceListRowHref,
+    normalizeMongoId,
+    resolveVehicleServiceListRowTone,
+    vehicleServiceListRowClassName,
+} from './vehicleServiceUtils';
+import { navHrefProps } from '@/utils/linkContextMenu';
 
 export function vehicleServiceRowKey(row) {
     return `${normalizeMongoId(row.vehicleId)}::${normalizeMongoId(row.serviceId)}`;
@@ -12,6 +18,7 @@ export default function VehicleServiceRecordsTable({
     rows = [],
     loading = false,
     onRowClick,
+    getRowHref,
     hideVehicleColumn = false,
     hideTypeColumn = false,
     canDelete = false,
@@ -84,11 +91,15 @@ export default function VehicleServiceRecordsTable({
                     {rows.map((row, idx) => {
                         const rk = vehicleServiceRowKey(row);
                         const rowTone = row.rowTone || resolveVehicleServiceListRowTone(row);
+                        const rowHref =
+                            (typeof getRowHref === 'function' ? getRowHref(row) : '') ||
+                            buildVehicleServiceListRowHref(row);
                         return (
                             <tr
                                 key={rk}
                                 role="button"
                                 tabIndex={0}
+                                {...navHrefProps(rowHref)}
                                 onClick={() => onRowClick?.(row)}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter' || e.key === ' ') {

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink, Square } from 'lucide-react';
 import {
+    handleGlobalNavContextMenu,
     hideLinkContextMenu,
     openLinkInNewTab,
     openLinkInNewWindow,
@@ -30,6 +31,14 @@ export default function LinkContextMenuHost() {
     }, []);
 
     useEffect(() => subscribeLinkContextMenu(setMenu), []);
+
+    // Main app-wide right-click: Open in new tab / window for links and nav buttons.
+    useEffect(() => {
+        document.addEventListener('contextmenu', handleGlobalNavContextMenu, true);
+        return () => {
+            document.removeEventListener('contextmenu', handleGlobalNavContextMenu, true);
+        };
+    }, []);
 
     useEffect(() => {
         if (!menu) return undefined;

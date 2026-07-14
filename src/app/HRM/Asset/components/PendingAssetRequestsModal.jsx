@@ -10,6 +10,7 @@ import BulkPendingResolveModal from './BulkPendingResolveModal';
 import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
 import { isPendingInboxRowVisible } from '../utils/assetRequestLabels';
 import { countVisibleAssetPendingInbox, dedupeAssetPendingInboxItems, invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
+import { filterToolsAssetInboxRows, filterVehicleAssetInboxRows } from '@/utils/assetInboxScope';
 import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import { canDismissAssetInboxNotifications } from '@/utils/permissions';
@@ -59,9 +60,15 @@ export default function PendingAssetRequestsModal({
         const cacheParams =
             inboxScope === 'tools' || inboxScope === 'vehicle' ? { scope: inboxScope } : {};
         const cached = !force ? getCachedPendingInbox(ASSET_PENDING_INBOX_ENDPOINT, cacheParams) : null;
+        const partitionByScope = (list) => {
+            const deduped = dedupeAssetPendingInboxItems(list);
+            if (inboxScope === 'tools') return filterToolsAssetInboxRows(deduped);
+            if (inboxScope === 'vehicle') return filterVehicleAssetInboxRows(deduped);
+            return deduped;
+        };
 
         if (cached?.length && itemsRef.current.length === 0) {
-            const dedupedCached = dedupeAssetPendingInboxItems(cached);
+            const dedupedCached = partitionByScope(cached);
             setItems(dedupedCached);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(countVisibleAssetPendingInbox(dedupedCached));
@@ -74,7 +81,7 @@ export default function PendingAssetRequestsModal({
         if (block) setLoading(true);
         else setRefreshing(true);
         try {
-            const list = dedupeAssetPendingInboxItems(
+            const list = partitionByScope(
                 await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope,
                 skipSync: !sync,
@@ -203,6 +210,9 @@ export default function PendingAssetRequestsModal({
                             : 'No pending asset requests in your inbox.'
                     }
                     onItemClick={handleRowActivate}
+                    getItemHref={(row) =>
+                        buildAssetNotificationPath(normalizeAssetNotificationItem(row)) || ''
+                    }
                     onDelete={
                         canDeleteNotifications
                             ? (row) => setDeleteTarget(row)
