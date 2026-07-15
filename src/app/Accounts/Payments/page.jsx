@@ -189,18 +189,21 @@ function PaymentsPageContent() {
 
     useEffect(() => {
         if (!mounted) return;
-        if (searchParams.get('addFinePay') !== '1') return;
+        const addFine = searchParams.get('addFinePay') === '1';
+        const addUtility = searchParams.get('addUtilityPay') === '1';
+        if (!addFine && !addUtility) return;
 
         try {
-            const raw = sessionStorage.getItem('finePaymentPrefill');
+            const storageKey = addUtility ? 'utilityBillPaymentPrefill' : 'finePaymentPrefill';
+            const raw = sessionStorage.getItem(storageKey);
             if (raw) {
                 const parsed = JSON.parse(raw);
                 setPaymentPrefill(parsed);
                 setIsAddPaymentModalOpen(true);
-                sessionStorage.removeItem('finePaymentPrefill');
+                sessionStorage.removeItem(storageKey);
             }
         } catch (err) {
-            console.error('Failed to load fine payment prefill:', err);
+            console.error('Failed to load payment prefill:', err);
         }
 
         router.replace('/Accounts/Payments', { scroll: false });

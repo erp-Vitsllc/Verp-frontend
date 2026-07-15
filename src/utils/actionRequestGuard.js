@@ -5,6 +5,7 @@ import {
 
 const inFlightMutationKeys = new Map();
 
+/** Build a dedupe key without JSON.stringifying multi‑MB attachment payloads (freezes the tab). */
 function mutationRequestKey(config) {
     const method = String(config.method || 'get').toUpperCase();
     const url = String(config.url || '');
@@ -12,8 +13,32 @@ function mutationRequestKey(config) {
     try {
         if (config.data instanceof FormData) {
             body = 'form-data';
-        } else if (config.data != null) {
-            body = typeof config.data === 'string' ? config.data : JSON.stringify(config.data);
+        } else if (typeof config.data === 'string') {
+            body =
+                config.data.length > 2000
+                    ? `str:${config.data.length}:${config.data.slice(0, 120)}`
+                    : config.data;
+        } else if (config.data != null && typeof config.data === 'object') {
+            const data = config.data;
+            const att = data.attachment;
+            const heavyData =
+                typeof att?.data === 'string' && att.data.length > 2000
+                    ? att.data.length
+                    : typeof att?.dataUrl === 'string' && att.dataUrl.length > 2000
+                      ? att.dataUrl.length
+                      : 0;
+            if (heavyData) {
+                body = JSON.stringify({
+                    ...data,
+                    attachment: {
+                        name: att?.name || '',
+                        mimeType: att?.mimeType || att?.mime || '',
+                        dataLength: heavyData,
+                    },
+                });
+            } else {
+                body = JSON.stringify(data);
+            }
         }
     } catch {
         body = 'unserializable';

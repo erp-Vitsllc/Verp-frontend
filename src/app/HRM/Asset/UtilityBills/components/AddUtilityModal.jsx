@@ -11,7 +11,7 @@ export const UTILITY_TOGGLE_FIELDS = [
     { key: 'contractPeriod', label: 'Contract Period' },
     { key: 'monthlyRental', label: 'Monthly Rental' },
     { key: 'planDetails', label: 'Plan Details' },
-    { key: 'paymentDate', label: 'Payment Date' },
+    { key: 'paymentDate', label: 'Payment Day' },
     { key: 'assignment', label: 'Assignment' },
     { key: 'location', label: 'Location' },
     { key: 'accountNumber', label: 'Account Number' },
@@ -100,6 +100,7 @@ export default function AddUtilityModal({
     const [types, setTypes] = useState([]);
     const [type, setType] = useState('');
     const [toggles, setToggles] = useState(defaultToggles);
+    const [attachmentEnabled, setAttachmentEnabled] = useState('no');
     const [newTypeName, setNewTypeName] = useState('');
     const [showAddType, setShowAddType] = useState(false);
     const [error, setError] = useState('');
@@ -121,11 +122,14 @@ export default function AddUtilityModal({
         if (!isOpen) return;
         const loaded = loadUtilityTypes();
         setTypes(loaded);
-        setToggles(
+        const fieldSource =
             initialFields && typeof initialFields === 'object'
                 ? { ...defaultToggles(), ...initialFields }
-                : defaultToggles(),
-        );
+                : defaultToggles();
+        const nextAttachmentEnabled = fieldSource.attachment === 'yes' ? 'yes' : 'no';
+        const { attachment: _ignoredAttachmentToggle, ...fieldToggles } = fieldSource;
+        setToggles({ ...defaultToggles(), ...fieldToggles });
+        setAttachmentEnabled(nextAttachmentEnabled);
         setNewTypeName('');
         setShowAddType(false);
         setError('');
@@ -201,7 +205,11 @@ export default function AddUtilityModal({
         }
         onSave?.({
             type: selected,
-            fields: { ...toggles },
+            fields: {
+                ...toggles,
+                attachment: attachmentEnabled,
+            },
+            attachment: null,
         });
         onClose?.();
     };
@@ -354,6 +362,15 @@ export default function AddUtilityModal({
                                     onChange={(value) => handleToggle(field.key, value)}
                                 />
                             ))}
+                            <YesNoToggle
+                                name="utility-attachment"
+                                label="Attachment"
+                                value={attachmentEnabled}
+                                onChange={(value) => {
+                                    setAttachmentEnabled(value);
+                                    setError('');
+                                }}
+                            />
                         </div>
 
                         {error ? <p className="text-sm text-red-600">{error}</p> : null}

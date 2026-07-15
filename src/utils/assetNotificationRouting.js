@@ -199,7 +199,11 @@ export function buildAssetNotificationPath(rawItem) {
     const assetId = item.id ? String(item.id) : '';
 
     if (type.includes('utility bill payment')) {
+        if (meta?.reviewPath) return normalizeNotificationDestinationPath(meta.reviewPath);
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
+        if (meta?.batchId) {
+            return `/HRM/Asset/UtilityBills?batchId=${encodeURIComponent(String(meta.batchId))}&review=1`;
+        }
         if (meta?.entryId) {
             const billQ = meta.billId ? `?billId=${encodeURIComponent(String(meta.billId))}` : '';
             return `/HRM/Asset/UtilityBills/details/${encodeURIComponent(String(meta.entryId))}${billQ}`;

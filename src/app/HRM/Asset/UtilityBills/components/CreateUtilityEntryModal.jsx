@@ -1,21 +1,33 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
+import { isAdmin } from '@/utils/permissions';
 import { UTILITY_TOGGLE_FIELDS } from './AddUtilityModal';
+import {
+    addUtilityProvider,
+    isUtilityProviderInUse,
+    loadUtilityProviders,
+    removeUtilityProvider,
+} from '../utils/utilityBillsStorage';
 
-const PROVIDER_OPTIONS = ['Etisalat', 'Du'];
-const BILLING_TYPE_OPTIONS = [
-    { value: 'fixed', label: 'Fixed (Package)' },
-    { value: 'usage', label: 'Usage' },
-];
+const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024;
 
 /** Assignment is a row action, not an entry form field. */
 const FORM_SKIP_KEYS = new Set(['assignment']);
 const DESCRIPTION_KEYS = new Set(['location', 'planDetails']);
 const CONTRACT_KEY = 'contractPeriod';
 const PAYMENT_DATE_KEY = 'paymentDate';
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.readAsDataURL(file);
+    });
+}
 
 function emptyValuesForFields(enabledKeys) {
     const values = {};
@@ -24,8 +36,7 @@ function emptyValuesForFields(enabledKeys) {
             values.contractStart = '';
             values.contractEnd = '';
         } else if (key === PAYMENT_DATE_KEY) {
-            values.billingType = 'fixed';
-            values.paymentDate = '';
+            values.paymentDay = '';
         } else if (key === 'monthlyRental') {
             values.monthlyRental = '';
         } else if (key === 'provider') {
@@ -52,6 +63,7 @@ export default function CreateUtilityEntryModal({
     onSave,
 }) {
     const assignmentEnabled = enabledFields?.assignment === 'yes';
+    const attachmentEnabled = enabledFields?.attachment === 'yes';
 
     const enabledFieldDefs = useMemo(
         () =>
@@ -67,20 +79,101 @@ export default function CreateUtilityEntryModal({
     );
     const enabledKeysKey = enabledKeys.join('|');
 
+    const canManageProviders = isAdmin();
     const [values, setValues] = useState({});
+    const [attachment, setAttachment] = useState(null);
+    const [providers, setProviders] = useState([]);
+    const [showAddProvider, setShowAddProvider] = useState(false);
+    const [providerMenuOpen, setProviderMenuOpen] = useState(false);
+    const [newProviderName, setNewProviderName] = useState('');
     const [error, setError] = useState('');
+    const providerMenuRef = useRef(null);
+
+    const sortedProviders = useMemo(
+        () => [...providers].sort((a, b) => a.localeCompare(b)),
+        [providers],
+    );
 
     useEffect(() => {
         if (!isOpen) return;
         setValues(emptyValuesForFields(enabledKeys));
+        setAttachment(null);
+        setProviders(loadUtilityProviders());
+        setShowAddProvider(false);
+        setProviderMenuOpen(false);
+        setNewProviderName('');
         setError('');
         // eslint-disable-next-line react-hooks/exhaustive-deps -- enabledKeysKey tracks enabledKeys
-    }, [isOpen, utilityType, enabledKeysKey]);
+    }, [isOpen, utilityType, enabledKeysKey, attachmentEnabled]);
+
+    useEffect(() => {
+        if (!providerMenuOpen) return undefined;
+        const onDocClick = (e) => {
+            if (!providerMenuRef.current?.contains(e.target)) {
+                setProviderMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, [providerMenuOpen]);
 
     if (!isOpen) return null;
 
+    const handleAddProvider = () => {
+        const result = addUtilityProvider(newProviderName);
+        if (!result.ok) {
+            setError(result.message);
+            return;
+        }
+        setProviders(result.providers);
+        setField('provider', String(newProviderName).trim());
+        setNewProviderName('');
+        setShowAddProvider(false);
+        setError('');
+    };
+
+    const handleRemoveProvider = (name) => {
+        const result = removeUtilityProvider(name);
+        if (!result.ok) {
+            setError(result.message);
+            return;
+        }
+        setProviders(result.providers);
+        if (String(values.provider || '').toLowerCase() === String(name).toLowerCase()) {
+            setField('provider', '');
+        }
+        setError('');
+    };
+
+    const selectProvider = (name) => {
+        setField('provider', name);
+        setProviderMenuOpen(false);
+        setError('');
+    };
+
     const setField = (key, value) => {
         setValues((prev) => ({ ...prev, [key]: value }));
+    };
+
+    const handleAttachmentFile = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+            setError('Attachment must be 1.5 MB or smaller.');
+            return;
+        }
+        try {
+            const dataUrl = await readFileAsDataUrl(file);
+            setAttachment({
+                name: file.name,
+                mime: file.type || 'application/octet-stream',
+                dataUrl,
+            });
+            setError('');
+        } catch {
+            setError('Could not read the selected file.');
+        }
     };
 
     const handleSubmit = (e) => {
@@ -111,19 +204,21 @@ export default function CreateUtilityEntryModal({
         }
 
         if (enabledKeys.includes(PAYMENT_DATE_KEY)) {
-            if (!values.billingType) {
-                setError('Please select billing type (Fixed or Usage).');
-                return;
-            }
-            if (values.billingType === 'fixed' && !values.paymentDate) {
-                setError('Please select a payment date for Fixed (Package) billing.');
+            const day = Number(values.paymentDay);
+            if (!Number.isInteger(day) || day < 1 || day > 31) {
+                setError('Please select a payment day (1–31).');
                 return;
             }
         }
 
+        if (attachmentEnabled && !attachment?.name) {
+            setError('Please upload an attachment.');
+            return;
+        }
+
         const payloadValues = { ...values };
-        if (enabledKeys.includes(PAYMENT_DATE_KEY) && values.billingType === 'usage') {
-            payloadValues.paymentDate = '';
+        if (attachmentEnabled) {
+            payloadValues.attachment = attachment;
         }
 
         onSave?.({
@@ -135,23 +230,145 @@ export default function CreateUtilityEntryModal({
 
     const renderField = (field) => {
         if (field.key === 'provider') {
+            const selectedProvider = values.provider || '';
             return (
-                <div key={field.key}>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                        {field.label}
-                    </label>
-                    <select
-                        value={values.provider || ''}
-                        onChange={(e) => setField('provider', e.target.value)}
-                        className={inputClass}
-                    >
-                        <option value="">Select provider</option>
-                        {PROVIDER_OPTIONS.map((opt) => (
-                            <option key={opt} value={opt}>
-                                {opt}
-                            </option>
-                        ))}
-                    </select>
+                <div key={field.key} className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <label className="block text-sm font-semibold text-gray-700">
+                            {field.label}
+                        </label>
+                        {canManageProviders ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowAddProvider((v) => !v);
+                                    setNewProviderName('');
+                                    setError('');
+                                }}
+                                className="text-xs font-medium text-teal-600 hover:text-teal-700 inline-flex items-center gap-1"
+                            >
+                                <Plus size={14} />
+                                Add provider
+                            </button>
+                        ) : null}
+                    </div>
+
+                    <div className="relative" ref={providerMenuRef}>
+                        <button
+                            type="button"
+                            onClick={() => setProviderMenuOpen((v) => !v)}
+                            className={`${inputClass} flex items-center justify-between gap-2 text-left`}
+                            aria-haspopup="listbox"
+                            aria-expanded={providerMenuOpen}
+                        >
+                            <span
+                                className={
+                                    selectedProvider ? 'text-gray-800 truncate' : 'text-gray-400'
+                                }
+                            >
+                                {selectedProvider || 'Select provider'}
+                            </span>
+                            <ChevronDown
+                                size={16}
+                                className={`shrink-0 text-gray-400 transition-transform ${
+                                    providerMenuOpen ? 'rotate-180' : ''
+                                }`}
+                            />
+                        </button>
+
+                        {providerMenuOpen ? (
+                            <div
+                                className="absolute z-30 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden"
+                                role="listbox"
+                            >
+                                <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={!selectedProvider}
+                                    onClick={() => selectProvider('')}
+                                    className={`w-full px-3 py-2 text-left text-sm ${
+                                        !selectedProvider
+                                            ? 'bg-gray-700 text-white'
+                                            : 'text-gray-500 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    Select provider
+                                </button>
+                                <ul className="max-h-48 overflow-y-auto">
+                                    {sortedProviders.map((opt) => {
+                                        const selected = selectedProvider === opt;
+                                        const inUse = isUtilityProviderInUse(opt);
+                                        return (
+                                            <li
+                                                key={opt}
+                                                className={`flex items-center gap-2 border-t border-gray-100 px-2 py-1.5 ${
+                                                    selected ? 'bg-teal-50' : 'bg-white'
+                                                }`}
+                                            >
+                                                <button
+                                                    type="button"
+                                                    role="option"
+                                                    aria-selected={selected}
+                                                    onClick={() => selectProvider(opt)}
+                                                    className="flex-1 min-w-0 text-left text-sm text-gray-800 truncate px-1 py-1 rounded hover:bg-gray-50"
+                                                >
+                                                    {opt}
+                                                </button>
+                                                {canManageProviders ? (
+                                                    <button
+                                                        type="button"
+                                                        title={
+                                                            inUse
+                                                                ? 'In use — delete disabled'
+                                                                : 'Delete provider'
+                                                        }
+                                                        disabled={inUse}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleRemoveProvider(opt);
+                                                        }}
+                                                        className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-xs font-semibold text-red-600 hover:bg-red-50 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                        Delete
+                                                    </button>
+                                                ) : null}
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </div>
+                        ) : null}
+                    </div>
+
+                    {!canManageProviders ? (
+                        <p className="text-xs text-gray-500">
+                            Only administrators can add providers to this list.
+                        </p>
+                    ) : (
+                        <p className="text-xs text-gray-500">
+                            Default: Etisalat, Du. Used providers cannot be deleted.
+                        </p>
+                    )}
+
+                    {canManageProviders && showAddProvider ? (
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={newProviderName}
+                                onChange={(e) => setNewProviderName(e.target.value)}
+                                placeholder="New provider name"
+                                className={`${inputClass} flex-1`}
+                            />
+                            <button
+                                type="button"
+                                onClick={handleAddProvider}
+                                className="px-3 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium whitespace-nowrap"
+                            >
+                                Save
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
             );
         }
@@ -211,48 +428,26 @@ export default function CreateUtilityEntryModal({
         }
 
         if (field.key === PAYMENT_DATE_KEY) {
-            const isFixed = values.billingType === 'fixed';
             return (
-                <div key={field.key} className="space-y-3">
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                            Billing Type
-                        </label>
-                        <select
-                            value={values.billingType || 'fixed'}
-                            onChange={(e) => {
-                                const next = e.target.value;
-                                setValues((prev) => ({
-                                    ...prev,
-                                    billingType: next,
-                                    paymentDate: next === 'usage' ? '' : prev.paymentDate,
-                                }));
-                            }}
-                            className={inputClass}
-                        >
-                            {BILLING_TYPE_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                </option>
-                            ))}
-                        </select>
-                        <p className="mt-1 text-xs text-gray-500">
-                            Fixed (Package) uses a set payment date. Usage has no fixed date.
-                        </p>
-                    </div>
-                    {isFixed ? (
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                                Payment Date
-                            </label>
-                            <DatePicker
-                                value={values.paymentDate || ''}
-                                onChange={(v) => setField('paymentDate', v || '')}
-                                placeholder="Payment date"
-                                className="w-full"
-                            />
-                        </div>
-                    ) : null}
+                <div key={field.key}>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                        Payment Day
+                    </label>
+                    <select
+                        value={values.paymentDay || ''}
+                        onChange={(e) => setField('paymentDay', e.target.value)}
+                        className={inputClass}
+                    >
+                        <option value="">Select day of month</option>
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                            <option key={day} value={String(day)}>
+                                {day}
+                            </option>
+                        ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                        Same day every month (e.g. 10 = the 10th of each month).
+                    </p>
                 </div>
             );
         }
@@ -325,6 +520,38 @@ export default function CreateUtilityEntryModal({
 
                         {enabledFieldDefs.map(renderField)}
 
+                        {attachmentEnabled ? (
+                            <div className="rounded-lg border border-teal-100 bg-teal-50/40 px-3 py-3 space-y-2">
+                                <label className="block text-sm font-semibold text-gray-700">
+                                    Attachment
+                                </label>
+                                <input
+                                    type="file"
+                                    onChange={handleAttachmentFile}
+                                    className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-teal-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-teal-600"
+                                />
+                                {attachment?.name ? (
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p
+                                            className="text-xs text-gray-600 truncate"
+                                            title={attachment.name}
+                                        >
+                                            Selected: {attachment.name}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAttachment(null)}
+                                            className="text-xs font-semibold text-red-600 hover:text-red-700 shrink-0"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-gray-500">Max 1.5 MB.</p>
+                                )}
+                            </div>
+                        ) : null}
+
                         {error ? <p className="text-sm text-red-600">{error}</p> : null}
                     </div>
 
@@ -338,7 +565,11 @@ export default function CreateUtilityEntryModal({
                         </button>
                         <button
                             type="submit"
-                            disabled={enabledFieldDefs.length === 0 && !assignmentEnabled}
+                            disabled={
+                                enabledFieldDefs.length === 0 &&
+                                !assignmentEnabled &&
+                                !attachmentEnabled
+                            }
                             className="px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium"
                         >
                             Save

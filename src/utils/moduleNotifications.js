@@ -547,6 +547,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Group Fine Request',
         'Payment Approval',
         'Utility Bill Payment',
+        'Utility Bill Payment Reminder',
         'Reward',
         'Loan',
         'Loan/Advance',

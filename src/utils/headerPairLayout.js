@@ -12,6 +12,12 @@ export const HEADER_PAIR_CARD_BODY =
 /** Dashboard stat panels — modest min-height only (charts/grids inside, no card scroll). */
 export const HEADER_PAIR_CARD_DASHBOARD =
     'flex flex-col min-w-0 w-full h-full overflow-hidden min-h-[180px] sm:min-h-[220px]';
+/**
+ * Utility Bills list + details — both top cards keep the same fixed panel size
+ * (~275px tall, full column width, equal stretch in HEADER_PAIR_GRID).
+ */
+export const HEADER_PAIR_CARD_UTILITY =
+    'lg:col-span-1 relative flex flex-col min-w-0 w-full h-[275px] overflow-hidden';
 
 /** Two equal columns for detail panels below tabs (e.g. fine history). */
 export const DETAIL_PAIR_GRID =

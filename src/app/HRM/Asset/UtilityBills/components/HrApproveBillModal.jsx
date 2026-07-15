@@ -49,14 +49,14 @@ export default function HrApproveBillModal({ isOpen, onClose, bill, onConfirm, s
 
                 <form onSubmit={handleSubmit}>
                     <div className="px-4 sm:px-5 py-4 space-y-4">
-                        <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 text-sm">
-                            <p className="text-slate-500">
+                        <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2.5 text-sm">
+                            <p className="text-gray-500">
                                 Amount:{' '}
-                                <span className="font-semibold text-slate-800">{amountTxt}</span>
+                                <span className="font-semibold text-gray-800">{amountTxt}</span>
                             </p>
                             {bill.billMonth ? (
-                                <p className="text-slate-500 mt-0.5">
-                                    Month: <span className="font-semibold text-slate-800">{bill.billMonth}</span>
+                                <p className="text-gray-500 mt-0.5">
+                                    Month: <span className="font-semibold text-gray-800">{bill.billMonth}</span>
                                 </p>
                             ) : null}
                         </div>

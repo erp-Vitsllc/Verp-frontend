@@ -31,7 +31,10 @@ export const VEHICLE_MODULE_TYPES = new Set([
     'Vehicle Document Expiry Reminder',
 ]);
 
-export const UTILITY_BILL_MODULE_TYPES = new Set(['Utility Bill Payment']);
+export const UTILITY_BILL_MODULE_TYPES = new Set([
+    'Utility Bill Payment',
+    'Utility Bill Payment Reminder',
+]);
 
 export const ASSET_MODULE_TYPES = new Set([
     'Asset',
@@ -213,6 +216,7 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Reward') return 'Reward Request';
     if (type === 'Payment Approval') return 'Payment Approval';
     if (type === 'Utility Bill Payment') return 'Utility Bill Payment';
+    if (type === 'Utility Bill Payment Reminder') return 'Utility Payment Day Reminder';
     if (type === 'Loan' || type === 'Loan/Advance') return 'Loan';
     if (type === 'Advance') return 'Advance';
     if (type === 'Card Deleted Progress') return 'Card deleted';

@@ -1,19 +1,41 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import { isPaymentCountableTowardPaid } from '@/utils/paymentStatusDisplay';
 import { X, FileText } from 'lucide-react';
 
+/** Base64 data URLs above this size freeze the tab on JSON.stringify / re-render. */
+const MAX_INLINE_ATTACHMENT_CHARS = 350_000;
+
+function attachmentForApi(attachment, { includeData = true } = {}) {
+    if (!attachment) return null;
+    const payload = {
+        name: attachment.name || '',
+        mimeType: attachment.mimeType || '',
+    };
+    if (
+        includeData &&
+        typeof attachment.data === 'string' &&
+        attachment.data.length > 0 &&
+        attachment.data.length <= MAX_INLINE_ATTACHMENT_CHARS
+    ) {
+        payload.data = attachment.data;
+    }
+    return payload;
+}
+
 const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
+    const prefillAppliedKeyRef = useRef('');
     const { toast } = useToast();
     const [paymentType, setPaymentType] = useState('');
     const [selectedFineId, setSelectedFineId] = useState('');
     const [selectedLoanId, setSelectedLoanId] = useState('');
     const [fines, setFines] = useState([]);
     const [bulkFines, setBulkFines] = useState([]);
+    const [utilityBills, setUtilityBills] = useState([]);
     const [loans, setLoans] = useState([]);
     const [selectedEntity, setSelectedEntity] = useState(null);
     const [paymentAmount, setPaymentAmount] = useState('');
@@ -25,10 +47,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     const [attachmentName, setAttachmentName] = useState('');
     const [paymentSource, setPaymentSource] = useState('');
 
-    // Fetch fines and loans when payment type changes
+    // Fetch fines and loans when payment type changes (or apply prefill once)
     useEffect(() => {
         if (!isOpen) {
             // Reset state when modal closes
+            prefillAppliedKeyRef.current = '';
             setPaymentType('');
             setSelectedFineId('');
             setSelectedLoanId('');
@@ -40,10 +63,32 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             setAttachmentName('');
             setPaymentSource('');
             setBulkFines([]);
+            setUtilityBills([]);
+            setLoading(false);
+            return;
+        }
+
+        if (prefill?.utilityBills?.length) {
+            const key = `utility:${prefill.batchId || ''}:${prefill.utilityBills.map((b) => b._id).join(',')}`;
+            if (prefillAppliedKeyRef.current === key) return;
+            prefillAppliedKeyRef.current = key;
+            setPaymentType('UtilityBill');
+            setUtilityBills(prefill.utilityBills);
+            const first = prefill.utilityBills[0];
+            setSelectedEntity(first);
+            const totalBalance = prefill.utilityBills.reduce(
+                (sum, b) => sum + (parseFloat(b.balance) || 0),
+                0,
+            );
+            setPaymentAmount(totalBalance.toFixed(2));
+            setPaymentSource(prefill.paymentSource || 'Cash');
             return;
         }
 
         if (prefill?.fines?.length) {
+            const key = `fines:${prefill.fines.map((f) => f._id || f.fineId).join(',')}`;
+            if (prefillAppliedKeyRef.current === key) return;
+            prefillAppliedKeyRef.current = key;
             setPaymentType('Fine');
             setBulkFines(prefill.fines);
             setFines(prefill.fines);
@@ -62,6 +107,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         if (prefill?.loan) {
             const loan = prefill.loan;
             const loanType = loan.type === 'Advance' ? 'Advance' : 'Loan';
+            const key = `loan:${loan._id || loan.loanId || loan.id}`;
+            if (prefillAppliedKeyRef.current === key) return;
+            prefillAppliedKeyRef.current = key;
             setPaymentType(loanType);
             setLoans([loan]);
             setSelectedEntity(loan);
@@ -76,6 +124,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
 
         if (prefill?.reward) {
             const reward = prefill.reward;
+            const key = `reward:${reward._id || reward.rewardId}`;
+            if (prefillAppliedKeyRef.current === key) return;
+            prefillAppliedKeyRef.current = key;
             setPaymentType('Reward');
             setSelectedEntity(reward);
             setSelectedLoanId(reward.rewardId || reward._id || '');
@@ -111,10 +162,8 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     const response = await axiosInstance.get('/Employee/loans', {
                         params: {
                             type: paymentType,
-                            // Note: Loan model uses 'status' field, not 'approvalStatus' for filtering
                         }
                     });
-                    // Filter approved loans/advances on frontend
                     const approvedLoans = (response.data.loans || []).filter(
                         loan => loan.status === 'Approved' || loan.approvalStatus === 'Approved'
                     );
@@ -131,14 +180,16 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             }
         };
 
-        if (paymentType) {
+        if (paymentType && paymentType !== 'UtilityBill') {
             fetchData();
         }
-    }, [paymentType, isOpen, toast, prefill]);
+        // toast omitted from deps on purpose — unstable identity caused freeze loops
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paymentType, isOpen, prefill]);
 
-    // Fetch existing payments when entity is selected
+    // Fetch existing payments when entity is selected (not for utility bills)
     useEffect(() => {
-        if (!selectedEntity || !paymentType) return;
+        if (!selectedEntity || !paymentType || paymentType === 'UtilityBill') return;
 
         const fetchExistingPayments = async () => {
             try {
@@ -151,13 +202,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                               : 'Fine',
                 };
 
-                // For Fine, filter by fineId (referenceId) to ensure we only get payments for this specific fine
                 if (paymentType === 'Fine') {
                     params.referenceId = selectedEntity.fineId;
                 } else if (paymentType === 'Reward') {
                     params.referenceId = selectedEntity.rewardId;
                 } else {
-                    // For Loan/Advance, use relatedEntityId
                     params.relatedEntityId = selectedEntity._id || selectedEntity.id;
                 }
 
@@ -301,6 +350,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             while (remainingPayments.length > 0 && paidAmount < monthlyAmount) {
                 const nextPayment = remainingPayments[0];
                 const paymentAmount = parseFloat(nextPayment.amount || 0);
+                // Skip empty/invalid payments so this loop can never spin forever
+                if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+                    remainingPayments.shift();
+                    continue;
+                }
 
                 // How much is still needed for this month
                 const needed = monthlyAmount - paidAmount;
@@ -362,10 +416,26 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         : Math.max(0, employeeShare - totalPaid);
 
     const bulkFinesTotalBalance = bulkFines.reduce((sum, f) => sum + (parseFloat(f.balance) || 0), 0);
+    const utilityBillsTotalBalance = utilityBills.reduce(
+        (sum, b) => sum + (parseFloat(b.balance) || 0),
+        0,
+    );
     const isBulkFinePayment = paymentType === 'Fine' && bulkFines.length > 0;
-    const activeRemainingAmount = isBulkFinePayment ? bulkFinesTotalBalance : remainingAmount;
+    const isUtilityBillPayment = paymentType === 'UtilityBill' && utilityBills.length > 0;
+    const activeRemainingAmount = isUtilityBillPayment
+        ? utilityBillsTotalBalance
+        : isBulkFinePayment
+          ? bulkFinesTotalBalance
+          : remainingAmount;
 
     useEffect(() => {
+        // Don't fight the user while a submit is in flight (was contributing to freeze loops)
+        if (loading) return;
+        if (isUtilityBillPayment) {
+            setPaymentAmount(utilityBillsTotalBalance.toFixed(2));
+            setSelectedCardIndex(null);
+            return;
+        }
         if (isBulkFinePayment) {
             setPaymentAmount(bulkFinesTotalBalance.toFixed(2));
             setSelectedCardIndex(null);
@@ -375,7 +445,15 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             setPaymentAmount(remainingAmount.toFixed(2));
             setSelectedCardIndex(null);
         }
-    }, [remainingAmount, selectedEntity, isBulkFinePayment, bulkFinesTotalBalance]);
+    }, [
+        loading,
+        remainingAmount,
+        selectedEntity,
+        isBulkFinePayment,
+        bulkFinesTotalBalance,
+        isUtilityBillPayment,
+        utilityBillsTotalBalance,
+    ]);
 
     const handleCardClick = (index, box) => {
         if (box.isPaid) return;
@@ -392,33 +470,65 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     };
 
     const handleAttachmentChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (file.size > 5 * 1024 * 1024) {
+            toast({
+                title: 'Validation Error',
+                description: 'File size exceeds 5MB limit',
+                variant: 'destructive',
+            });
+            e.target.value = '';
+            return;
+        }
+
+        setAttachmentName(file.name);
+
+        // Utility bills + large PDFs: keep filename only. Full base64 in React state freezes the tab.
+        const metadataOnly =
+            paymentType === 'UtilityBill' || file.size > 250 * 1024;
+
+        if (metadataOnly) {
+            setAttachment({
+                name: file.name,
+                mimeType: file.type || '',
+                size: file.size,
+            });
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const data = reader.result;
+            if (typeof data === 'string' && data.length > MAX_INLINE_ATTACHMENT_CHARS) {
+                setAttachment({
+                    name: file.name,
+                    mimeType: file.type || '',
+                    size: file.size,
+                });
                 toast({
-                    title: "Validation Error",
-                    description: "File size exceeds 5MB limit",
-                    variant: "destructive",
+                    title: 'Attachment note',
+                    description: 'File is large — only the filename will be saved with this payment.',
                 });
                 return;
             }
-
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setAttachment({
-                    data: reader.result,
-                    name: file.name,
-                    mimeType: file.type
-                });
-                setAttachmentName(file.name);
-            };
-            reader.readAsDataURL(file);
-        }
+            setAttachment({
+                data,
+                name: file.name,
+                mimeType: file.type || '',
+            });
+        };
+        reader.readAsDataURL(file);
     };
 
     // Handle payment submission
     const handlePayNow = async () => {
-        if ((!selectedEntity && !isBulkFinePayment) || !paymentAmount || parseFloat(paymentAmount) <= 0) {
+        if (
+            (!selectedEntity && !isBulkFinePayment && !isUtilityBillPayment) ||
+            !paymentAmount ||
+            parseFloat(paymentAmount) <= 0
+        ) {
             toast({
                 title: "Validation Error",
                 description: "Please enter a valid payment amount",
@@ -454,12 +564,34 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             return;
         }
 
+        // Drop any huge base64 from state before re-render / network (letterhead PDFs etc.)
+        if (typeof attachment?.data === 'string' && attachment.data.length > MAX_INLINE_ATTACHMENT_CHARS) {
+            setAttachment({
+                name: attachment.name,
+                mimeType: attachment.mimeType || '',
+                size: attachment.size,
+            });
+        }
+
         setLoading(true);
+        // Let the UI paint "Processing..." before any JSON work / posts
+        await new Promise((r) => setTimeout(r, 0));
+
         try {
-            const submitSinglePayment = async (fineOrLoan, amount, type = paymentType) => {
+            const submitSinglePayment = async (
+                fineOrLoan,
+                amount,
+                type = paymentType,
+                { includeAttachment = true } = {},
+            ) => {
                 let employeeId;
                 if (type === 'Fine') {
                     employeeId = prefill?.employeeId || fineOrLoan.assignedEmployees?.[0]?.employeeId;
+                } else if (type === 'UtilityBill') {
+                    employeeId =
+                        prefill?.employeeId ||
+                        fineOrLoan.payByEmployeeBusinessId ||
+                        'VEGA-HR-0000';
                 } else {
                     employeeId = fineOrLoan.employeeId || prefill?.employeeId;
                 }
@@ -473,25 +605,67 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                         ? fineOrLoan.fineId
                         : type === 'Reward'
                           ? fineOrLoan.rewardId
-                          : (fineOrLoan.loanId || fineOrLoan.id);
+                          : type === 'UtilityBill'
+                            ? fineOrLoan.referenceId || fineOrLoan.accountNo || fineOrLoan._id
+                            : (fineOrLoan.loanId || fineOrLoan.id);
 
+                // Never send multi‑MB base64 — freezes the browser (axios + dedupe guard).
+                const includeData = type !== 'UtilityBill';
                 const paymentData = {
-                    paymentType: type === 'Loan' || type === 'Advance' || type === 'Reward' ? type : 'Fine',
+                    paymentType:
+                        type === 'Loan' || type === 'Advance' || type === 'Reward'
+                            ? type
+                            : type === 'UtilityBill'
+                              ? 'UtilityBill'
+                              : 'Fine',
                     paidBy: employeeId,
                     amount: parseFloat(amount),
                     status: 'Completed',
-                    description: `Payment for ${entityRef}`,
+                    description:
+                        type === 'UtilityBill'
+                            ? `Utility bill payment · ${prefill?.utilityType || ''} ${prefill?.billMonth || ''} · Acc ${fineOrLoan.accountNo || ''}`.trim()
+                            : `Payment for ${entityRef}`,
                     referenceId: entityRef,
-                    relatedEntityType: type === 'Loan' || type === 'Advance' ? 'Loan' : type === 'Reward' ? 'Reward' : 'Fine',
+                    relatedEntityType:
+                        type === 'Loan' || type === 'Advance'
+                            ? 'Loan'
+                            : type === 'Reward'
+                              ? 'Reward'
+                              : type === 'UtilityBill'
+                                ? 'UtilityBill'
+                                : 'Fine',
                     relatedEntityId: fineOrLoan._id || fineOrLoan.id,
                     paymentSource,
-                    attachment: attachment || null,
+                    attachment: includeAttachment
+                        ? attachmentForApi(attachment, { includeData })
+                        : null,
                 };
 
                 await axiosInstance.post('/Payment', paymentData);
             };
 
-            if (isBulkFinePayment) {
+            if (isUtilityBillPayment) {
+                let remainingPay = parseFloat(paymentAmount);
+                let attachedOnce = false;
+                for (const bill of utilityBills) {
+                    if (remainingPay <= 0) break;
+                    const billBalance = parseFloat(bill.balance) || 0;
+                    if (billBalance <= 0) continue;
+                    const payAmt = Math.min(billBalance, remainingPay);
+                    await submitSinglePayment(bill, payAmt, 'UtilityBill', {
+                        includeAttachment: Boolean(attachment) && !attachedOnce,
+                    });
+                    attachedOnce = true;
+                    remainingPay -= payAmt;
+                }
+                // Mark selected utility bills Paid in the Utility Bill workflow
+                if (prefill?.batchId) {
+                    const billIds = utilityBills.map((b) => b._id).filter(Boolean);
+                    await axiosInstance.put(`/UtilityBill/batch/${prefill.batchId}/pay`, {
+                        billIds,
+                    });
+                }
+            } else if (isBulkFinePayment) {
                 let remainingPay = parseFloat(paymentAmount);
                 for (const fine of bulkFines) {
                     if (remainingPay <= 0) break;
@@ -507,13 +681,15 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
 
             toast({
                 title: "Success",
-                description: isBulkFinePayment
-                    ? "Payments recorded successfully for selected fines"
-                    : "Payment recorded successfully",
+                description: isUtilityBillPayment
+                    ? "Utility bill payment recorded and marked paid"
+                    : isBulkFinePayment
+                      ? "Payments recorded successfully for selected fines"
+                      : "Payment recorded successfully",
                 variant: "success",
             });
 
-            if (!isBulkFinePayment) {
+            if (!isBulkFinePayment && !isUtilityBillPayment) {
                 // Refresh existing payments and entity data to show updated colors and total amount
                 try {
                     let params = {
@@ -576,7 +752,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 <div className="flex items-center justify-between px-8 py-6 border-b border-gray-100 bg-gradient-to-r from-teal-50/30 to-white">
                     <div>
                         <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Add Payment</h2>
-                        <p className="text-sm text-gray-500 mt-1">Record a new payment for fine, loan, or advance.</p>
+                        <p className="text-sm text-gray-500 mt-1">
+                            {isUtilityBillPayment
+                                ? 'Pay selected utility bills.'
+                                : 'Record a new payment for fine, loan, or advance.'}
+                        </p>
                     </div>
                     <button
                         onClick={onClose}
@@ -604,7 +784,16 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                 setSelectedCardIndex(null);
                                 setBulkFines([]);
                             }}
-                            disabled={isBulkFinePayment || Boolean(prefill?.loan || prefill?.reward || prefill?.fines?.length)}
+                            disabled={
+                                isBulkFinePayment ||
+                                isUtilityBillPayment ||
+                                Boolean(
+                                    prefill?.loan ||
+                                        prefill?.reward ||
+                                        prefill?.fines?.length ||
+                                        prefill?.utilityBills?.length,
+                                )
+                            }
                             className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors disabled:opacity-70"
                         >
                             <option value="">Select Payment Type</option>
@@ -612,8 +801,90 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                             <option value="Loan">Loan</option>
                             <option value="Advance">Advance</option>
                             <option value="Reward">Reward</option>
+                            <option value="UtilityBill">Utility Bill</option>
                         </select>
                     </div>
+
+                    {isUtilityBillPayment && (
+                        <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Selected Utility Bills
+                                {prefill?.utilityType || prefill?.billMonth ? (
+                                    <span className="ml-2 text-xs font-normal text-gray-500">
+                                        {[prefill?.utilityType, prefill?.billMonth]
+                                            .filter(Boolean)
+                                            .join(' · ')}
+                                    </span>
+                                ) : null}
+                            </label>
+                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                                        <tr>
+                                            <th className="text-left px-4 py-2">Account</th>
+                                            <th className="text-right px-4 py-2">Contract</th>
+                                            <th className="text-right px-4 py-2">Actual</th>
+                                            <th className="text-right px-4 py-2">Company</th>
+                                            <th className="text-right px-4 py-2">Employee</th>
+                                            <th className="text-right px-4 py-2">Pay total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {utilityBills.map((bill) => (
+                                            <tr
+                                                key={bill._id || bill.accountNo}
+                                                className="border-t border-gray-100"
+                                            >
+                                                <td className="px-4 py-3 font-semibold text-gray-800">
+                                                    <span className="tabular-nums">
+                                                        {bill.accountNo || '—'}
+                                                    </span>
+                                                    {bill.payByEmployeeName || bill.payByCompanyName ? (
+                                                        <p className="text-xs font-semibold text-gray-700 mt-0.5 whitespace-nowrap truncate max-w-[14rem]" title={bill.payByEmployeeName || bill.payByCompanyName}>
+                                                            {bill.payByEmployeeName
+                                                                ? `${bill.payByEmployeeName}: ${(parseFloat(bill.employeePayAmount) || 0).toFixed(2)}`
+                                                                : null}
+                                                            {bill.payByEmployeeName && bill.payByCompanyName
+                                                                ? ' · '
+                                                                : ''}
+                                                            {bill.payByCompanyName
+                                                                ? `${bill.payByCompanyName}: ${(parseFloat(bill.companyPayAmount) || 0).toFixed(2)}`
+                                                                : null}
+                                                        </p>
+                                                    ) : null}
+                                                </td>
+                                                <td className="px-4 py-3 text-right tabular-nums text-gray-600">
+                                                    {(parseFloat(bill.contractAmount) || 0).toFixed(2)}
+                                                </td>
+                                                <td className="px-4 py-3 text-right tabular-nums text-gray-600">
+                                                    {(parseFloat(bill.actualAmount) || 0).toFixed(2)}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-semibold text-emerald-600 tabular-nums">
+                                                    {(parseFloat(bill.companyPayAmount) || 0).toFixed(2)}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-semibold text-emerald-600 tabular-nums">
+                                                    {(parseFloat(bill.employeePayAmount) || 0).toFixed(2)}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-bold text-rose-600 tabular-nums">
+                                                    AED {(parseFloat(bill.balance) || 0).toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot className="bg-emerald-50 border-t border-emerald-100">
+                                        <tr>
+                                            <td colSpan={5} className="px-4 py-3 font-bold text-gray-700">
+                                                Total to pay
+                                            </td>
+                                            <td className="px-4 py-3 text-right font-black text-emerald-700">
+                                                AED {utilityBillsTotalBalance.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    )}
 
                     {isBulkFinePayment && (
                         <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -730,7 +1001,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     )}
 
                     {/* Entity Details */}
-                    {selectedEntity && !(isBulkFinePayment && bulkFines.length > 1) && (
+                    {selectedEntity &&
+                        !isUtilityBillPayment &&
+                        !(isBulkFinePayment && bulkFines.length > 1) && (
                         <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                             <div className="grid grid-cols-2 gap-4 mb-8 p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
                                 <div className="p-4 bg-gray-50/50 rounded-xl border border-gray-100">
@@ -961,9 +1234,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         </div>
                                     )}
                                     <p className="text-[11px] text-gray-400 mt-2">
-                                        {paymentSource === 'Cash'
-                                            ? 'Required for cash payments. Max 5MB (PDF or image).'
-                                            : 'Max file size: 5MB (PDF or image)'}
+                                        {isUtilityBillPayment
+                                            ? 'Filename is recorded with the payment (large PDFs are not embedded — that froze the browser).'
+                                            : paymentSource === 'Cash'
+                                              ? 'Required for cash payments. Max 5MB (PDF or image).'
+                                              : 'Max file size: 5MB (PDF or image)'}
                                     </p>
                                 </div>
                             </div>
@@ -1015,7 +1290,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                         onClick={handlePayNow}
                         disabled={
                             loading ||
-                            (!selectedEntity && !isBulkFinePayment) ||
+                            (!selectedEntity && !isBulkFinePayment && !isUtilityBillPayment) ||
                             !paymentAmount ||
                             parseFloat(paymentAmount) <= 0 ||
                             parseFloat(paymentAmount) > (activeRemainingAmount + 0.01) ||
