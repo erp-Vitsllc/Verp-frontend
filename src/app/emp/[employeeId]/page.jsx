@@ -301,7 +301,9 @@ const EMP_PROFILE_SALARY_ACTIONS = [
     'NCR',
     'Loans',
     'Advance',
-    'Assets',
+    'Tools Asset',
+    'Vehicle',
+    'Utility Bills',
     'CTC',
     'Certificate',
 ];
@@ -490,8 +492,10 @@ function EmployeeProfilePageContent() {
                 setActiveSubTab('basic-details');
             }
             if (tabAlias === 'salary') {
-                const match = salaryActionRaw
-                    ? EMP_PROFILE_SALARY_ACTIONS.find((a) => a.toLowerCase() === salaryActionRaw.toLowerCase())
+                const normalizedAction =
+                    salaryActionRaw.toLowerCase() === 'assets' ? 'Tools Asset' : salaryActionRaw;
+                const match = normalizedAction
+                    ? EMP_PROFILE_SALARY_ACTIONS.find((a) => a.toLowerCase() === normalizedAction.toLowerCase())
                     : null;
                 setSelectedSalaryAction(match || 'Salary History');
             } else {

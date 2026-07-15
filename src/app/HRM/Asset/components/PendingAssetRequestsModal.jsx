@@ -10,7 +10,11 @@ import BulkPendingResolveModal from './BulkPendingResolveModal';
 import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
 import { isPendingInboxRowVisible } from '../utils/assetRequestLabels';
 import { countVisibleAssetPendingInbox, dedupeAssetPendingInboxItems, invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
-import { filterToolsAssetInboxRows, filterVehicleAssetInboxRows } from '@/utils/assetInboxScope';
+import {
+    filterToolsAssetInboxRows,
+    filterVehicleAssetInboxRows,
+    isUtilityBillInboxRow,
+} from '@/utils/assetInboxScope';
 import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import { canDismissAssetInboxNotifications } from '@/utils/permissions';
@@ -29,7 +33,7 @@ import NotificationInboxModal from '@/components/notifications/NotificationInbox
  * Bulk groups open a sub-modal to approve/reject per asset.
  */
 /**
- * @param {'all'|'tools'|'vehicle'} inboxScope — tools = equipment inbox (excludes vehicle service workflow); vehicle = fleet only.
+ * @param {'all'|'tools'|'vehicle'|'utility'} inboxScope — tools = equipment; vehicle = fleet; utility = Utility Bill Payment only.
  */
 export default function PendingAssetRequestsModal({
     isOpen,
@@ -57,11 +61,13 @@ export default function PendingAssetRequestsModal({
     }, [isOpen]);
 
     const load = useCallback(async ({ force = false, sync = false } = {}) => {
+        const fetchScope = inboxScope === 'utility' ? 'tools' : inboxScope;
         const cacheParams =
-            inboxScope === 'tools' || inboxScope === 'vehicle' ? { scope: inboxScope } : {};
+            fetchScope === 'tools' || fetchScope === 'vehicle' ? { scope: fetchScope } : {};
         const cached = !force ? getCachedPendingInbox(ASSET_PENDING_INBOX_ENDPOINT, cacheParams) : null;
         const partitionByScope = (list) => {
             const deduped = dedupeAssetPendingInboxItems(list);
+            if (inboxScope === 'utility') return deduped.filter(isUtilityBillInboxRow);
             if (inboxScope === 'tools') return filterToolsAssetInboxRows(deduped);
             if (inboxScope === 'vehicle') return filterVehicleAssetInboxRows(deduped);
             return deduped;
@@ -83,7 +89,7 @@ export default function PendingAssetRequestsModal({
         try {
             const list = partitionByScope(
                 await fetchAssetPendingInbox(axiosInstance, {
-                inboxScope,
+                inboxScope: fetchScope,
                 skipSync: !sync,
                 skipToast: true,
                 force,

@@ -31,6 +31,8 @@ export const VEHICLE_MODULE_TYPES = new Set([
     'Vehicle Document Expiry Reminder',
 ]);
 
+export const UTILITY_BILL_MODULE_TYPES = new Set(['Utility Bill Payment']);
+
 export const ASSET_MODULE_TYPES = new Set([
     'Asset',
     'Asset Approval',
@@ -86,6 +88,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (PAYMENT_MODULE_TYPES.has(type)) return 'Payments';
     if (REWARD_MODULE_TYPES.has(type)) return 'Reward';
     if (LOAN_MODULE_TYPES.has(type)) return 'Loan and Advance';
+    if (UTILITY_BILL_MODULE_TYPES.has(type)) return 'Utility Bills';
     if (VEHICLE_MODULE_TYPES.has(type)) return 'Vehicle Asset';
     // Fleet shared Asset Approval / Assignment / Return → Vehicle; equipment → Tools.
     if (
@@ -100,6 +103,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (EMPLOYEE_MODULE_TYPES.has(type)) return 'Employees';
 
     if (low.includes('fine')) return 'Fine';
+    if (low.includes('utility bill')) return 'Utility Bills';
     if (low.includes('payment')) return 'Payments';
     if (low.includes('reward')) return 'Reward';
     if (low.includes('loan') || low === 'advance' || low.startsWith('advance ')) {
@@ -147,6 +151,7 @@ export function buildExactModuleNotificationLists(args = {}) {
         paymentNotifications: bundle.byModule.Payments || [],
         toolsNotifications: bundle.byModule['Tools Asset'] || [],
         vehicleNotifications: bundle.byModule['Vehicle Asset'] || [],
+        utilityBillNotifications: bundle.byModule['Utility Bills'] || [],
         counts: bundle.counts,
         hrmPendingItems: bundle.all.filter((i) => i.moduleCategory !== 'Payments'),
         allPendingItems: bundle.all,
@@ -207,6 +212,7 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Fine') return 'Fine Request';
     if (type === 'Reward') return 'Reward Request';
     if (type === 'Payment Approval') return 'Payment Approval';
+    if (type === 'Utility Bill Payment') return 'Utility Bill Payment';
     if (type === 'Loan' || type === 'Loan/Advance') return 'Loan';
     if (type === 'Advance') return 'Advance';
     if (type === 'Card Deleted Progress') return 'Card deleted';

@@ -34,6 +34,7 @@ import {
     filterToolsAssetInboxRows,
     filterVehicleAssetInboxRows,
     isToolsAssetInboxRow,
+    isUtilityBillInboxRow,
     isVehicleAssetInboxRow,
 } from '@/utils/assetInboxScope';
 import {
@@ -51,6 +52,7 @@ export const MODULE_ORDER = [
     'Reward',
     'Vehicle Asset',
     'Tools Asset',
+    'Utility Bills',
     'Payments',
 ];
 
@@ -425,14 +427,15 @@ export function buildModuleNotificationBundle(feeds = {}) {
         pendingInboxToItem(row, 'Reward'),
     );
 
-    const toolsVisible = filterToolsAssetInboxRows(
-        dedupeAssetPendingInboxItems(toolsItems).filter(isPendingInboxRowVisible),
-    );
+    const toolsRawVisible = dedupeAssetPendingInboxItems(toolsItems).filter(isPendingInboxRowVisible);
+    const toolsVisible = filterToolsAssetInboxRows(toolsRawVisible);
     const vehicleVisible = filterVehicleAssetInboxRows(
         dedupeAssetPendingInboxItems(vehicleItems).filter(isPendingInboxRowVisible),
     );
 
     const toolsAsset = toolsVisible.map((row) => pendingInboxToItem(row, 'Tools Asset'));
+    const utilityBillVisible = toolsRawVisible.filter(isUtilityBillInboxRow);
+    const utilityBill = utilityBillVisible.map((row) => pendingInboxToItem(row, 'Utility Bills'));
     const vehicleFromInbox = vehicleVisible.map((row) => pendingInboxToItem(row, 'Vehicle Asset'));
     // Stats rows for vehicle document expiry (pending-inbox also returns these once types include it).
     const vehicleExpiryFromStats = pendingItems
@@ -462,6 +465,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         Reward: reward,
         'Vehicle Asset': vehicleAsset,
         'Tools Asset': toolsAsset,
+        'Utility Bills': utilityBill,
         Payments: payments,
     };
 
@@ -474,9 +478,11 @@ export function buildModuleNotificationBundle(feeds = {}) {
         toolsAsset: countVisibleAssetPendingInbox(toolsVisible),
         // Match Vehicle Asset section length (inbox + vehicle document expiry).
         vehicleAsset: vehicleAsset.length,
+        utilityBill: utilityBillVisible.length,
         loan: loan.length,
     };
-    counts.asset = (counts.toolsAsset || 0) + (counts.vehicleAsset || 0);
+    counts.asset =
+        (counts.toolsAsset || 0) + (counts.vehicleAsset || 0) + (counts.utilityBill || 0);
     counts.hrm =
         (counts.company || 0) +
         (counts.employee || 0) +
@@ -484,7 +490,8 @@ export function buildModuleNotificationBundle(feeds = {}) {
         (counts.reward || 0) +
         (counts.loan || 0) +
         (counts.toolsAsset || 0) +
-        (counts.vehicleAsset || 0);
+        (counts.vehicleAsset || 0) +
+        (counts.utilityBill || 0);
 
     const all = dedupe([
         ...company,
@@ -494,6 +501,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         ...reward,
         ...vehicleAsset,
         ...toolsAsset,
+        ...utilityBill,
         ...payments,
     ]);
 
@@ -538,6 +546,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Fine',
         'Group Fine Request',
         'Payment Approval',
+        'Utility Bill Payment',
         'Reward',
         'Loan',
         'Loan/Advance',
@@ -631,6 +640,7 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
     const paymentPending = pending.filter((i) => String(i?.type || '').trim() === 'Payment Approval');
     const rewardPending = pending.filter((i) => String(i?.type || '').trim() === 'Reward');
     const toolsPending = pending.filter((i) => isToolsAssetInboxRow(i));
+    const utilityPending = pending.filter((i) => isUtilityBillInboxRow(i));
     const vehiclePending = pending.filter((i) => isVehicleAssetInboxRow(i));
 
     const bundle = buildModuleNotificationBundle({
@@ -638,7 +648,8 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
         statsData: statsPayload,
         companiesList: [],
         employeesList: [],
-        toolsItems: toolsPending.map(statsItemToPendingInboxRow),
+        // Utility bills arrive via tools-scope API but are partitioned in the bundle.
+        toolsItems: [...toolsPending, ...utilityPending].map(statsItemToPendingInboxRow),
         vehicleItems: vehiclePending.map(statsItemToPendingInboxRow),
         fineItems: finePending.map(statsItemToPendingInboxRow),
         paymentItems: paymentPending.map(statsItemToPendingInboxRow),

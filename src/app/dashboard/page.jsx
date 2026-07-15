@@ -1231,7 +1231,7 @@ function DashboardContent() {
 
 
 
-                                                    // Group by sidebar modules (Company, Employees, Fine, Reward, Vehicle Asset, Tools Asset, …)
+                                                    // Group by sidebar modules (Company, Employees, … Tools Asset, Utility Bills, …)
                                                     const moduleGroups = groupCommandCenterByModule(items);
 
                                                     return moduleGroups.map(({ category, items: groupItems }) => (

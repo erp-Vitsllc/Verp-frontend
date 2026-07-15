@@ -198,6 +198,15 @@ export function buildAssetNotificationPath(rawItem) {
     const meta = parseAssetNotificationMeta(item.extra3);
     const assetId = item.id ? String(item.id) : '';
 
+    if (type.includes('utility bill payment')) {
+        if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
+        if (meta?.entryId) {
+            const billQ = meta.billId ? `?billId=${encodeURIComponent(String(meta.billId))}` : '';
+            return `/HRM/Asset/UtilityBills/details/${encodeURIComponent(String(meta.entryId))}${billQ}`;
+        }
+        return '/HRM/Asset/UtilityBills';
+    }
+
     if (type.includes('vehicle document expiry') && assetId) {
         const label = String(item.extra1 || '')
             .replace(/^Expiry follow-up required:\s*/i, '')

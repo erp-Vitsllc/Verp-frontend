@@ -118,6 +118,8 @@ function assetIconVariant(row) {
             return 'asset-badge-accessory';
         case 'Asset Accessory Unattach':
             return 'asset-settings-unattach';
+        case 'Utility Bill Payment':
+            return 'asset-settings-service';
         case 'Vehicle Service Request':
             return 'asset-settings-service';
         case 'Vehicle Profile Activation':

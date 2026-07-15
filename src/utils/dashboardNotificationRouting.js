@@ -428,6 +428,16 @@ export const buildDashboardNotificationPath = (item) => {
         return path || '';
     }
 
+    if (type.includes('utility bill payment')) {
+        const meta = parseMeta(item.extra3);
+        if (meta?.detailsPath) return String(meta.detailsPath);
+        if (meta?.entryId) {
+            const billQ = meta.billId ? `?billId=${encodeURIComponent(String(meta.billId))}` : '';
+            return `/HRM/Asset/UtilityBills/details/${encodeURIComponent(String(meta.entryId))}${billQ}`;
+        }
+        return '/HRM/Asset/UtilityBills';
+    }
+
     if (type.includes('responsibility')) return '/Settings/FlowChart';
     if (type.includes('payment')) return '/Accounts/Payments';
 

@@ -66,10 +66,17 @@ export function isVehicleAssetInboxRow(row = {}) {
 export function isToolsAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
     if (!type) return false;
+    // Utility bill tasks belong under Utility Bills only — not Tools Asset.
+    if (type === 'Utility Bill Payment') return false;
     if (isVehicleOnlyRequestType(type)) return false;
     if (FLEET_SHARED_TYPES.has(type)) return !isFleetSharedAssetInboxRow(row);
     const low = type.toLowerCase();
     return low === 'asset' || low.startsWith('asset');
+}
+
+/** Utility Bills inbox rows (from tools-scope API feed). */
+export function isUtilityBillInboxRow(row = {}) {
+    return requestTypeOf(row) === 'Utility Bill Payment';
 }
 
 /** Keep only Tools-scope rows (drops Vehicle* and fleet shared). */

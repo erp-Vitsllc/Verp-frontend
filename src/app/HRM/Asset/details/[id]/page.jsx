@@ -257,61 +257,61 @@ const canUserApprovePendingAccessory = (acc, asset, currentUserEmployeeId, { use
 /** Only flowchart Asset Controller gets the full L&D fine form — not admin, assignee, or permission-group holders. */
 const canDirectLossAndDamage = (flowchartAssetController) => !!flowchartAssetController;
 
+const empDisplayName = (ref) => {
+    if (!ref || typeof ref !== 'object') return '';
+    const n = `${ref.firstName || ''} ${ref.lastName || ''}`.trim();
+    if (n) return n;
+    if (ref.employeeId) return String(ref.employeeId);
+    return '';
+};
+
+const assetRefId = (ref) => {
+    if (!ref) return '';
+    if (typeof ref === 'object') return String(ref._id || ref.id || '');
+    return String(ref);
+};
+
 /** Populated actionRequiredBy, else flowchart assetController from API (getAssetItemDetail). */
 const getAssetApproverDisplayName = (asset) => {
     if (!asset) return '';
 
+    const arName = empDisplayName(asset.actionRequiredBy);
+    const reporteeName = empDisplayName(asset.assignedTo?.primaryReportee);
+    const assigneeName = empDisplayName(asset.assignedTo);
+    const arIsAssignee =
+        Boolean(assetRefId(asset.actionRequiredBy) && assetRefId(asset.assignedTo)) &&
+        assetRefId(asset.actionRequiredBy) === assetRefId(asset.assignedTo);
+
     if (isAssetAssignmentAcknowledgmentPending(asset)) {
-        const ar = asset.actionRequiredBy;
-        if (ar && typeof ar === 'object') {
-            const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
-            if (n) return n;
-            if (ar.employeeId) return String(ar.employeeId);
+        // Company acceptors
+        if (asset.assignedToType === 'Company' || asset.assignedCompany) {
+            if (arName) return arName;
+            return 'Company coordinator';
         }
-        if (asset.assignedToType === 'Employee' && asset.assignedTo && typeof asset.assignedTo === 'object') {
-            const n = `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim();
-            if (n) return n;
-            if (asset.assignedTo.employeeId) return String(asset.assignedTo.employeeId);
-        }
-        return 'Assignee';
+        // Task holder who can act in ERP — not the assignee without portal login.
+        if (arName && !arIsAssignee) return arName;
+        if (reporteeName) return reporteeName;
+        if (arName) return arName;
+        if (assigneeName && !reporteeName) return assigneeName;
+        return 'Acknowledgment';
     }
 
     // If there is an active pending action (like EOL or Loss & Damage), the approver is actionRequiredBy.
     if (asset.pendingAction) {
-        const ar = asset.actionRequiredBy;
-        if (ar && typeof ar === 'object') {
-            const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
-            if (n) return n;
-            if (ar.employeeId) return String(ar.employeeId);
-        }
-        const ac = asset.assetController;
-        if (ac && typeof ac === 'object') {
-            const n = `${ac.firstName || ''} ${ac.lastName || ''}`.trim();
-            if (n) return n;
-            if (ac.employeeId) return String(ac.employeeId);
-        }
+        if (arName && !arIsAssignee) return arName;
+        const ac = empDisplayName(asset.assetController);
+        if (ac) return ac;
+        if (arName) return arName;
         return '';
     }
 
     // Prefer the current role holder so the banner stays correct after a flowchart swap.
-    const ca = asset.creationApprover;
-    if (ca && typeof ca === 'object') {
-        const n = `${ca.firstName || ''} ${ca.lastName || ''}`.trim();
-        if (n) return n;
-        if (ca.employeeId) return String(ca.employeeId);
-    }
-    const ar = asset.actionRequiredBy;
-    if (ar && typeof ar === 'object') {
-        const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
-        if (n) return n;
-        if (ar.employeeId) return String(ar.employeeId);
-    }
-    const ac = asset.assetController;
-    if (ac && typeof ac === 'object') {
-        const n = `${ac.firstName || ''} ${ac.lastName || ''}`.trim();
-        if (n) return n;
-        if (ac.employeeId) return String(ac.employeeId);
-    }
+    const ca = empDisplayName(asset.creationApprover);
+    if (ca) return ca;
+    if (arName && !arIsAssignee) return arName;
+    const ac = empDisplayName(asset.assetController);
+    if (ac) return ac;
+    if (arName) return arName;
     return '';
 };
 

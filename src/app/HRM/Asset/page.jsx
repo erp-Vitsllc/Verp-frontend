@@ -61,6 +61,7 @@ import {
     countVisibleAssetPendingInbox,
     notifyAssetPendingInboxChanged,
 } from './utils/assetPendingInboxCount';
+import { filterToolsAssetInboxRows } from '@/utils/assetInboxScope';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import BulkAssignmentAcknowledgeModal from './components/BulkAssignmentAcknowledgeModal';
 import AssetListExportDialog from './components/AssetListExportDialog';
@@ -663,26 +664,65 @@ function formatAssetWorkflowActorLabel(ref) {
     return name || (ref.employeeId ? String(ref.employeeId) : '');
 }
 
+function assetRefId(ref) {
+    if (!ref) return '';
+    if (typeof ref === 'object') return String(ref._id || ref.id || '');
+    return String(ref);
+}
+
 function getAssetListWaitingLabel(item) {
-    if (isAssignmentAcknowledgmentOnly(item)) {
-        const fromActionRequired = formatAssetWorkflowActorLabel(item.actionRequiredBy);
-        if (fromActionRequired) return fromActionRequired;
-        if (item.assignedCompany) return resolveAssetCompanyLabel(item);
-        if (item.assignedTo) return resolveAssetAssigneeLabel(item);
-        return 'Acknowledgment';
-    }
-    const ar = item.actionRequiredBy;
-    const fromAr = formatAssetWorkflowActorLabel(ar);
+    /** Person who currently holds the approve / respond option (not assignment target without ERP login). */
+    const fromAr = formatAssetWorkflowActorLabel(item.actionRequiredBy);
     const flow = item.designatedAssetController;
     const fromFlow = flow
-        ? `${flow.firstName || ''} ${flow.lastName || ''}`.trim() || (flow.employeeId ? String(flow.employeeId) : '')
+        ? `${flow.firstName || ''} ${flow.lastName || ''}`.trim() ||
+          (flow.employeeId ? String(flow.employeeId) : '')
         : '';
-    if (fromAr) return fromAr;
+    const assignee = item?.assignedTo && typeof item.assignedTo === 'object' ? item.assignedTo : null;
+    const assigneeLabel = assignee ? resolveAssetAssigneeLabel(item) : '';
+    const fromReportee = formatAssetWorkflowActorLabel(assignee?.primaryReportee);
+    const arIsAssignee =
+        Boolean(assetRefId(item.actionRequiredBy) && assetRefId(item.assignedTo)) &&
+        assetRefId(item.actionRequiredBy) === assetRefId(item.assignedTo);
+
+    const st = String(item.status || '').trim();
+    const stLow = st.toLowerCase();
+
+    // Creation approval: show who can Approve now (flowchart Asset Controller).
+    if (st === 'Submitted for Approval' || st === 'Draft') {
+        if (fromFlow) return fromFlow;
+        if (fromAr && !arIsAssignee) return fromAr;
+        return 'Asset controller approval';
+    }
+
+    // Loss / EOL / other pending actions — dashboard task holder first.
+    if (item.pendingAction) {
+        if (fromAr && !arIsAssignee) return fromAr;
+        if (fromFlow) return fromFlow;
+        if (fromAr) return fromAr;
+        return 'Action required';
+    }
+
+    // Assignment Accept: show who has the inbox task.
+    // Assignees without ERP login cannot act — primary reportee gets the task (never show assignee then).
+    if (isAssignmentAcknowledgmentOnly(item)) {
+        if (item.assignedCompany) {
+            if (fromAr) return fromAr;
+            return resolveAssetCompanyLabel(item);
+        }
+        if (fromAr && !arIsAssignee) return fromAr;
+        if (fromReportee) return fromReportee;
+        if (fromAr) return fromAr;
+        // Only show assignee when there is no primary reportee to act for them.
+        if (assigneeLabel && !fromReportee) return assigneeLabel;
+        return 'Acknowledgment';
+    }
+
+    if (fromAr && !arIsAssignee) return fromAr;
     if (fromFlow) return fromFlow;
-    const st = String(item.status || '').toLowerCase();
-    if (st === 'submitted for approval') return 'Asset controller approval';
-    if (st === 'draft') return 'Asset controller approval';
-    if (st === 'pending') return 'Acknowledgment';
+    if (fromReportee) return fromReportee;
+    if (fromAr) return fromAr;
+    if (stLow === 'pending') return 'Acknowledgment';
     return 'Action required';
 }
 
@@ -1038,7 +1078,7 @@ function AssetPageContent() {
                 skipToast: true,
                 force,
             });
-            setPendingInboxCount(countVisibleAssetPendingInbox(items));
+            setPendingInboxCount(countVisibleAssetPendingInbox(filterToolsAssetInboxRows(items)));
             notifyAssetPendingInboxChanged();
         } catch {
             setPendingInboxCount(0);

@@ -31,6 +31,7 @@ import {
     Trash2,
     ChevronRight,
     Search,
+    Receipt,
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import {
@@ -116,6 +117,7 @@ const menuItems = [
                 children: [
                     { label: 'Vehicle', icon: Car, permissionModule: 'hrm_asset_vehicle' },
                     { label: 'Tools Asset', icon: Wrench, permissionModule: 'hrm_asset_tools' },
+                    { label: 'Utility Bills', icon: Receipt, permissionModule: 'hrm_asset' },
                 ],
             },
         ],
@@ -173,6 +175,15 @@ function isToolsAssetSidebarItem(label) {
     return label === 'Tools Asset' || label === 'Tools Assets';
 }
 
+function isUtilityBillsSidebarItem(label) {
+    return (
+        label === 'Utility Bills' ||
+        label === 'Sim Card' ||
+        label === 'SIM Card' ||
+        label === 'Telecommunication'
+    );
+}
+
 /**
  * Path for real links so right-click / middle-click get standard browser behavior (e.g. Open in new tab).
  * Returns null for expand-only rows, Logout, and items with no route wired in the sidebar.
@@ -188,7 +199,7 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Fine') return '/HRM/Fine';
         if (label === 'Loan and Advance' || label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
         if (isVehicleSidebarItem(label)) return '/HRM/Asset/Vehicle/dashboard';
-        if (label === 'Telecommunication') return '/HRM/Asset/Telecommunication';
+        if (isUtilityBillsSidebarItem(label)) return '/HRM/Asset/UtilityBills';
         if (isToolsAssetSidebarItem(label)) return '/HRM/Asset';
         if (label === 'Company') return '/Company';
     }
@@ -227,6 +238,8 @@ export default function Sidebar() {
         loan: 0,
         toolsAsset: 0,
         vehicleAsset: 0,
+        utilityBill: 0,
+        asset: 0,
         payments: 0,
     });
     const [canRestoreRecovery, setCanRestoreRecovery] = useState(false);
@@ -289,14 +302,23 @@ export default function Sidebar() {
         let debounceTimer = null;
 
         const applySidebarCounts = (counts = {}) => {
+            const toolsAsset = counts.toolsAsset || 0;
+            const vehicleAsset = counts.vehicleAsset || 0;
+            const utilityBill = counts.utilityBill || 0;
             setSidebarCounts({
                 company: counts.company || 0,
                 employee: counts.employee || 0,
                 fine: counts.fine || 0,
                 reward: counts.reward || 0,
                 loan: counts.loan || 0,
-                toolsAsset: counts.toolsAsset || 0,
-                vehicleAsset: counts.vehicleAsset || 0,
+                toolsAsset,
+                vehicleAsset,
+                utilityBill,
+                // Prefer bundle.asset; fall back so Vehicle + Tools + Utility Bills always match.
+                asset:
+                    typeof counts.asset === 'number'
+                        ? counts.asset
+                        : toolsAsset + vehicleAsset + utilityBill,
                 payments: counts.payment || 0,
             });
         };
@@ -411,9 +433,17 @@ export default function Sidebar() {
             if (label === 'Fine') return sidebarCounts.fine;
             if (label === 'Reward') return sidebarCounts.reward;
             if (label === 'Loan and Advance' || label === 'Loan/Advance') return sidebarCounts.loan || 0;
-            if (label === 'Asset') return (sidebarCounts.vehicleAsset || 0) + (sidebarCounts.toolsAsset || 0);
+            if (label === 'Asset') {
+                return (
+                    (sidebarCounts.asset ??
+                        (sidebarCounts.vehicleAsset || 0) +
+                            (sidebarCounts.toolsAsset || 0) +
+                            (sidebarCounts.utilityBill || 0)) || 0
+                );
+            }
             if (isVehicleSidebarItem(label)) return sidebarCounts.vehicleAsset;
             if (isToolsAssetSidebarItem(label)) return sidebarCounts.toolsAsset;
+            if (isUtilityBillsSidebarItem(label)) return sidebarCounts.utilityBill || 0;
             return 0;
         }
         if (parentId === 'Accounts' && label === 'Payments') return sidebarCounts.payments;
@@ -429,7 +459,8 @@ export default function Sidebar() {
         (sidebarCounts.reward || 0) +
         (sidebarCounts.loan || 0) +
         (sidebarCounts.toolsAsset || 0) +
-        (sidebarCounts.vehicleAsset || 0);
+        (sidebarCounts.vehicleAsset || 0) +
+        (sidebarCounts.utilityBill || 0);
 
     // Load sidebar state from localStorage on mount; keep closed on phone/tablet so content fits.
     useEffect(() => {
@@ -572,8 +603,8 @@ export default function Sidebar() {
             router.push('/HRM/LoanAndAdvance');
         } else if (parentId === 'HRM' && isVehicleSidebarItem(subItem.label)) {
             router.push('/HRM/Asset/Vehicle/dashboard');
-        } else if (parentId === 'HRM' && subItem.label === 'Telecommunication') {
-            router.push('/HRM/Asset/Telecommunication');
+        } else if (parentId === 'HRM' && isUtilityBillsSidebarItem(subItem.label)) {
+            router.push('/HRM/Asset/UtilityBills');
         } else if (parentId === 'HRM' && isToolsAssetSidebarItem(subItem.label)) {
             router.push('/HRM/Asset');
         } else if (parentId === 'Settings' && subItem.label === 'User') {
@@ -612,8 +643,11 @@ export default function Sidebar() {
             return pathname?.startsWith('/HRM/LoanAndAdvance');
         } else if (parentId === 'HRM' && isVehicleSidebarItem(subItem.label)) {
             return pathname?.startsWith('/HRM/Asset/Vehicle');
-        } else if (parentId === 'HRM' && subItem.label === 'Telecommunication') {
-            return pathname?.startsWith('/HRM/Asset/Telecommunication');
+        } else if (parentId === 'HRM' && isUtilityBillsSidebarItem(subItem.label)) {
+            return (
+                pathname?.startsWith('/HRM/Asset/UtilityBills') ||
+                pathname?.startsWith('/HRM/Asset/Telecommunication')
+            );
         } else if (parentId === 'HRM' && isToolsAssetSidebarItem(subItem.label)) {
             return pathname === '/HRM/Asset' || pathname?.startsWith('/HRM/Asset/details');
         } else if (parentId === 'Settings' && subItem.label === 'User') {

@@ -68,6 +68,7 @@ import {
 } from '@/utils/paymentStatusDisplay';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import { formatRewardPaymentLabel, formatRewardStatusLabel } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
+import EmployeeSalaryVehicleUtilityPanel from './EmployeeSalaryVehicleUtilityPanel';
 
 
 /** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
@@ -78,8 +79,9 @@ const SALARY_ACTION_TO_MODULE = {
     NCR: 'hrm_ncr',
     Loans: 'hrm_loan',
     Advance: 'hrm_loan',
-    Assets: 'hrm_asset',
-    CTC: 'hrm_employees_view_salary',
+    'Tools Asset': 'hrm_asset',
+    Vehicle: 'hrm_asset',
+    'Utility Bills': 'hrm_asset',
     CTC: 'hrm_employees_view_salary',
 };
 
@@ -90,10 +92,32 @@ const SALARY_ACTION_ORDER = [
     'NCR',
     'Loans',
     'Advance',
-    'Assets',
-    'CTC',
+    'Tools Asset',
+    'Vehicle',
+    'Utility Bills',
     'CTC',
 ];
+
+/** Vehicle / fleet rows belong under Salary → Vehicle only — never Tools Asset. */
+function isProfileVehicleAsset(asset) {
+    if (!asset) return false;
+    const typeLower = String(asset.type || asset.typeId?.name || '').toLowerCase();
+    const catLower = String(asset.category || asset.categoryId?.name || '').toLowerCase();
+    return (
+        typeLower.includes('vehicle') ||
+        typeLower.includes('car') ||
+        typeLower.includes('van') ||
+        typeLower.includes('pickup') ||
+        typeLower.includes('fleet') ||
+        catLower.includes('vehicle') ||
+        catLower.includes('car') ||
+        !!(asset.plateNumber && String(asset.plateNumber).trim())
+    );
+}
+
+function isProfileToolsAsset(asset) {
+    return Boolean(asset) && !isProfileVehicleAsset(asset);
+}
 
 /** Avoid infinite setState loops: only return a new array when ids actually change. */
 function pruneSelectionToValidIds(prev, validIds) {
@@ -405,7 +429,7 @@ export default function SalaryTab({
     }, [hasOpenTargetApproval, employee?._id, employee?.employeeId]);
 
     const assetControllerTrulyUnassigned = useMemo(() => {
-        return (unassignedAssets || []).filter((asset) => {
+        return (unassignedAssets || []).filter(isProfileToolsAsset).filter((asset) => {
             const status = asset.status?.toString().trim();
             return (
                 status === 'Unassigned' ||
@@ -423,15 +447,27 @@ export default function SalaryTab({
         [assetControllerTrulyUnassigned]
     );
 
-    /** All profile “Your Assets” rows — checkboxes apply to every row (no status / pending filters). */
+    /** Tools only — vehicles are listed under Salary → Vehicle. */
     const yourAssetsAllRows = useMemo(() => {
         const initial = assets?.length ? assets : employee?.assets || [];
-        return initial.filter(Boolean);
+        return initial.filter(Boolean).filter(isProfileToolsAsset);
     }, [assets, employee?.assets]);
+
+    const toolsPreviousAssets = useMemo(
+        () => (previousAssets || []).filter(isProfileToolsAsset),
+        [previousAssets],
+    );
+
+    const toolsUnassignedAssets = useMemo(
+        () => (unassignedAssets || []).filter(isProfileToolsAsset),
+        [unassignedAssets],
+    );
 
     const companyAssetsForActiveTab = useMemo(() => {
         const acceptedOnly = (companyAssets || []).filter(
-            (asset) => String(asset?.acceptanceStatus || '').toLowerCase() === 'accepted'
+            (asset) =>
+                String(asset?.acceptanceStatus || '').toLowerCase() === 'accepted' &&
+                isProfileToolsAsset(asset),
         );
         if (!selectedCompanyTab) return acceptedOnly;
         return acceptedOnly.filter((asset) => {
@@ -521,9 +557,9 @@ export default function SalaryTab({
 
 
     useEffect(() => {
-        const validIds = new Set((unassignedAssets || []).map((a) => String(a?._id || a?.id)).filter(Boolean));
+        const validIds = new Set(toolsUnassignedAssets.map((a) => String(a?._id || a?.id)).filter(Boolean));
         setSelectedUnassignedAssets((prev) => pruneSelectionToValidIds(prev, validIds));
-    }, [unassignedAssets]);
+    }, [toolsUnassignedAssets]);
 
     useEffect(() => {
         const validIds = new Set(
@@ -553,7 +589,7 @@ export default function SalaryTab({
     }, [employee?.employeeId, fetchEmployee]);
 
     const filteredOnLeaveAssets = useMemo(() => {
-        const activeLeave = filterOnLeaveFlagActiveAssets(onLeaveAssets);
+        const activeLeave = filterOnLeaveFlagActiveAssets(onLeaveAssets).filter(isProfileToolsAsset);
         return selectedParkingEmployee
             ? activeLeave.filter(asset => {
                 if (!asset.assignedTo) return false;
@@ -564,7 +600,7 @@ export default function SalaryTab({
     }, [onLeaveAssets, selectedParkingEmployee]);
 
     const onServiceActiveAssets = useMemo(
-        () => filterOnServiceFlagActiveAssets(onServiceAssets),
+        () => filterOnServiceFlagActiveAssets(onServiceAssets).filter(isProfileToolsAsset),
         [onServiceAssets]
     );
 
@@ -573,9 +609,9 @@ export default function SalaryTab({
             case 'Your Assets':
                 return yourAssetsAllRows;
             case 'Previous Assets':
-                return previousAssets || [];
+                return toolsPreviousAssets;
             case 'Unassigned Assets':
-                return unassignedAssets || [];
+                return toolsUnassignedAssets;
             case 'On Leave':
                 return filteredOnLeaveAssets;
             case 'On Service':
@@ -588,8 +624,8 @@ export default function SalaryTab({
     }, [
         assetSubTab,
         yourAssetsAllRows,
-        previousAssets,
-        unassignedAssets,
+        toolsPreviousAssets,
+        toolsUnassignedAssets,
         filteredOnLeaveAssets,
         onServiceActiveAssets,
         companyAssetsForActiveTab,
@@ -797,7 +833,7 @@ export default function SalaryTab({
                 setIsBulkAssignModalOpen(false);
                 return true;
             }
-            if (selectedSalaryAction === 'Assets') {
+            if (selectedSalaryAction === 'Tools Asset') {
                 if (selectedParkingEmployee) {
                     setSelectedParkingEmployee(null);
                     return true;
@@ -1448,7 +1484,7 @@ export default function SalaryTab({
     // Refetch when the browser tab becomes visible again.
     useEffect(() => {
         if (!canAccessCompanyAssets) return;
-        if (selectedSalaryAction !== 'Assets' || assetSubTab !== 'Company Assets') return;
+        if (selectedSalaryAction !== 'Tools Asset' || assetSubTab !== 'Company Assets') return;
         if (!employee?.employeeId) return;
 
         // Refetch on client-side navigation changes (e.g., returning from Asset details).
@@ -2117,7 +2153,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Tools Asset', 'Vehicle', 'Utility Bills', 'CTC'].map((action) => {
                     if (!canSeeSalaryActionButton(action)) {
                         return null;
                     }
@@ -2178,7 +2214,7 @@ export default function SalaryTab({
                                 )}
                             </div>
                         )}
-                        {selectedSalaryAction === 'Assets' && (
+                        {selectedSalaryAction === 'Tools Asset' && (
                             <div className="flex bg-gray-100 p-1 rounded-lg">
                                 {/* Everyone sees: Your Assets + Previous Assets */}
                                 <button
@@ -2376,7 +2412,7 @@ export default function SalaryTab({
                         )}
                     </div>
                     <div className="flex items-center gap-4">
-                        {selectedSalaryAction === 'Assets' && (
+                        {selectedSalaryAction === 'Tools Asset' && (
                             <button
                                 type="button"
                                 onClick={handleDownloadAssetList}
@@ -2387,7 +2423,7 @@ export default function SalaryTab({
                                 {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
                             </button>
                         )}
-                        {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && selectedOnLeaveAssets.length > 0 && (
+                        {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'On Leave' && selectedOnLeaveAssets.length > 0 && (
                             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-300">
                                 <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
                                     {selectedOnLeaveAssets.length} Selected
@@ -2442,7 +2478,7 @@ export default function SalaryTab({
                                 </button>
                             </div>
                         )}
-                        {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Service' && selectedOnServiceAssets.length > 0 && (
+                        {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Service' && selectedOnServiceAssets.length > 0 && (
                             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-300">
                                 <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
                                     {selectedOnServiceAssets.length} Selected
@@ -2493,7 +2529,7 @@ export default function SalaryTab({
                                 </button>
                             </div>
                         )}
-                        {selectedSalaryAction === 'Assets' &&
+                        {selectedSalaryAction === 'Tools Asset' &&
                             isAssetController &&
                             assetSubTab === 'Unassigned Assets' &&
                             assetControllerHasBulkAssignable &&
@@ -2507,7 +2543,7 @@ export default function SalaryTab({
                                     Assign Asset ({selectedUnassignedAssets.length})
                                 </button>
                             )}
-                        {selectedSalaryAction === 'Assets' &&
+                        {selectedSalaryAction === 'Tools Asset' &&
                             assetSubTab === 'Your Assets' &&
                             selectedYourAssets.length > 0 && (
                                 <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
@@ -2547,7 +2583,7 @@ export default function SalaryTab({
                                     </button>
                                 </div>
                             )}
-                        {selectedSalaryAction === 'Assets' &&
+                        {selectedSalaryAction === 'Tools Asset' &&
                             assetSubTab === 'Company Assets' &&
                             canAccessCompanyAssets &&
                             selectedCompanyAssets.length > 0 && (
@@ -2669,6 +2705,14 @@ export default function SalaryTab({
                     </div>
                 )}
 
+                {(selectedSalaryAction === 'Vehicle' || selectedSalaryAction === 'Utility Bills') ? (
+                    <EmployeeSalaryVehicleUtilityPanel
+                        mode={selectedSalaryAction}
+                        employee={employee}
+                        assets={yourAssetsAllRows}
+                        formatDate={formatDate}
+                    />
+                ) : (
                 <div className="overflow-x-auto w-full max-w-full">
                     <table className="w-full min-w-0 table-auto">
                         <thead>
@@ -2758,7 +2802,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
+                                {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Your Assets' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10">
                                             <input
@@ -2794,7 +2838,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && assetSubTab === 'Previous Assets' && (
+                                {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Previous Assets' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10"></th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
@@ -2806,7 +2850,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
+                                {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10">
                                             <input
@@ -2814,13 +2858,13 @@ export default function SalaryTab({
                                                 className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
                                                 title="Select all assets in this list"
                                                 checked={
-                                                    (unassignedAssets || []).length > 0 &&
-                                                    selectedUnassignedAssets.length === (unassignedAssets || []).length
+                                                    toolsUnassignedAssets.length > 0 &&
+                                                    selectedUnassignedAssets.length === toolsUnassignedAssets.length
                                                 }
                                                 onChange={(e) => {
                                                     if (e.target.checked) {
                                                         setSelectedUnassignedAssets(
-                                                            (unassignedAssets || [])
+                                                            toolsUnassignedAssets
                                                                 .map((a) => a?._id || a?.id)
                                                                 .filter(Boolean)
                                                         );
@@ -2839,7 +2883,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Leave' && (
+                                {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Leave' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10">
                                             <input
@@ -2864,7 +2908,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Service' && (
+                                {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Service' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10">
                                             <input
@@ -2889,7 +2933,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
+                                {selectedSalaryAction === 'Tools Asset' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10">
                                             <input
@@ -3666,7 +3710,7 @@ export default function SalaryTab({
                                 </tr>
                             )}
 
-                            {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
+                            {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Your Assets' && (
                                 (() => {
                                     const assetsList = yourAssetsAllRows;
 
@@ -3700,7 +3744,7 @@ export default function SalaryTab({
                                                     colSpan={9}
                                                     className="py-16 text-center text-gray-400 text-sm"
                                                 >
-                                                    No Assets assigned
+                                                    No tools assigned
                                                 </td>
                                             </tr>
                                         );
@@ -3968,7 +4012,7 @@ export default function SalaryTab({
                                 })())}
 
                             {/* Previous Assets Section */}
-                            {selectedSalaryAction === 'Assets' && assetSubTab === 'Previous Assets' && (
+                            {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Previous Assets' && (
                                 <React.Fragment>
                                     {(() => {
                                         if (loadingPreviousAssets) {
@@ -3981,17 +4025,17 @@ export default function SalaryTab({
                                             );
                                         }
 
-                                        if (!previousAssets || previousAssets.length === 0) {
+                                        if (!toolsPreviousAssets || toolsPreviousAssets.length === 0) {
                                             return (
                                                 <tr>
                                                     <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
-                                                        No Previous Assets Found
+                                                        No Previous Tools Found
                                                     </td>
                                                 </tr>
                                             );
                                         }
 
-                                        return previousAssets.map((asset, index) => (
+                                        return toolsPreviousAssets.map((asset, index) => (
                                             <tr
                                                 key={asset._id || index}
                                                 className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
@@ -4050,10 +4094,10 @@ export default function SalaryTab({
 
 
                             {/* Unassigned Assets Section - for Asset Controllers */}
-                            {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
+                            {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                 <React.Fragment>
                                     {(() => {
-                                        const pool = (unassignedAssets || []).filter((asset) =>
+                                        const pool = toolsUnassignedAssets.filter((asset) =>
                                             isPoolAssignableAssetStatus(asset?.status),
                                         );
 
@@ -4133,7 +4177,7 @@ export default function SalaryTab({
                             )}
 
                             {/* On Leave Assets Section - for Asset Controllers */}
-                            {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && (
+                            {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'On Leave' && (
                                 <React.Fragment>
                                     {(() => {
                                         if (!filteredOnLeaveAssets || filteredOnLeaveAssets.length === 0) {
@@ -4313,7 +4357,7 @@ export default function SalaryTab({
                             )}
 
                             {/* On Service Assets Section - for Asset Controllers */}
-                            {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Service' && (
+                            {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Service' && (
                                 <React.Fragment>
                                     {(() => {
                                         if (!onServiceActiveAssets || onServiceActiveAssets.length === 0) {
@@ -4435,7 +4479,7 @@ export default function SalaryTab({
                                 </React.Fragment>
                             )}
 
-                            {selectedSalaryAction === 'Assets' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
+                            {selectedSalaryAction === 'Tools Asset' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
                                 <React.Fragment>
                                     {loadingCompanyAssets ? (
                                         <tr>
@@ -4577,6 +4621,7 @@ export default function SalaryTab({
                         </tbody>
                     </table>
                 </div>
+                )}
             </div>
 
             {/* Certificate Modal */}

@@ -35,6 +35,7 @@ export function isPendingInboxRowVisible(row) {
     const requestType = String(row.requestType || '').trim();
     if (requestType === 'Asset Owner On Duty') return true;
     if (requestType === 'Asset On Duty Request') return true;
+    if (requestType === 'Utility Bill Payment') return true;
     if (
         VEHICLE_INBOX_TYPES_WITHOUT_ASSET.has(requestType) &&
         (row.primaryAssetId || row.requestObjectId)
