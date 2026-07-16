@@ -198,9 +198,12 @@ export function buildAssetNotificationPath(rawItem) {
     const meta = parseAssetNotificationMeta(item.extra3);
     const assetId = item.id ? String(item.id) : '';
 
-    if (type.includes('utility bill payment')) {
+    if (type.includes('utility bill payment') || type.includes('utility entry status')) {
         if (meta?.reviewPath) return normalizeNotificationDestinationPath(meta.reviewPath);
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
+        if (meta?.statusChangeId) {
+            return `/HRM/Asset/UtilityBills?statusChangeId=${encodeURIComponent(String(meta.statusChangeId))}&review=1`;
+        }
         if (meta?.batchId) {
             return `/HRM/Asset/UtilityBills?batchId=${encodeURIComponent(String(meta.batchId))}&review=1`;
         }

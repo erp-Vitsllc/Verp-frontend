@@ -7,11 +7,10 @@ import axiosInstance from '@/utils/axios';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import { getAssetStatusBadgeClass } from '@/utils/assetStatusHelpers';
 import {
-    loadJsonArray,
-    UTILITY_ENTRIES_STORAGE_KEY,
     formatCellValue,
     getMonthlyRentalAmount,
 } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsStorage';
+import { fetchUtilityEntries } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsApi';
 
 function employeeIdCandidates(employee) {
     return new Set(
@@ -65,7 +64,8 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     const router = useRouter();
     const [fleetVehicles, setFleetVehicles] = useState([]);
     const [loadingFleet, setLoadingFleet] = useState(false);
-    const [utilityTick, setUtilityTick] = useState(0);
+    const [utilityEntries, setUtilityEntries] = useState([]);
+    const [loadingUtilities, setLoadingUtilities] = useState(false);
 
     const loadFleet = useCallback(async () => {
         if (!employee?._id) return;
@@ -91,20 +91,33 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         }
     }, [employee]);
 
+    const loadUtilities = useCallback(async () => {
+        const empId = String(employee?._id || '');
+        if (!empId) {
+            setUtilityEntries([]);
+            return;
+        }
+        setLoadingUtilities(true);
+        try {
+            const entries = await fetchUtilityEntries({
+                assignedToId: empId,
+                assignedToType: 'Employee',
+            });
+            setUtilityEntries(Array.isArray(entries) ? entries : []);
+        } catch {
+            setUtilityEntries([]);
+        } finally {
+            setLoadingUtilities(false);
+        }
+    }, [employee?._id]);
+
     useEffect(() => {
         if (mode === 'Vehicle') loadFleet();
     }, [mode, loadFleet]);
 
     useEffect(() => {
-        if (mode !== 'Utility Bills') return;
-        const onStorage = (e) => {
-            if (!e?.key || e.key === UTILITY_ENTRIES_STORAGE_KEY) {
-                setUtilityTick((t) => t + 1);
-            }
-        };
-        window.addEventListener('storage', onStorage);
-        return () => window.removeEventListener('storage', onStorage);
-    }, [mode]);
+        if (mode === 'Utility Bills') loadUtilities();
+    }, [mode, loadUtilities]);
 
     // Profile `employee.assets` is already scoped to this employee.
     const vehiclesFromAssets = useMemo(
@@ -123,16 +136,8 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     }, [fleetVehicles, vehiclesFromAssets]);
 
     const utilitiesByType = useMemo(() => {
-        void utilityTick;
-        const empId = String(employee?._id || '');
-        if (!empId) return [];
-        const entries = loadJsonArray(UTILITY_ENTRIES_STORAGE_KEY).filter(
-            (e) =>
-                String(e.assignedToType || 'Employee') === 'Employee' &&
-                String(e.assignedToId || '') === empId,
-        );
         const groups = new Map();
-        entries.forEach((entry) => {
+        (utilityEntries || []).forEach((entry) => {
             const typeName = String(entry.type || 'Other').trim() || 'Other';
             if (!groups.has(typeName)) groups.set(typeName, []);
             groups.get(typeName).push(entry);
@@ -145,7 +150,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                     (x, y) => new Date(y.createdAt || 0).getTime() - new Date(x.createdAt || 0).getTime(),
                 ),
             }));
-    }, [employee?._id, utilityTick]);
+    }, [utilityEntries]);
 
     if (mode === 'Vehicle') {
         return (
@@ -251,7 +256,9 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 </p>
             </div>
 
-            {utilitiesByType.length === 0 ? (
+            {loadingUtilities ? (
+                <p className="py-12 text-center text-sm text-gray-400">Loading utilities…</p>
+            ) : utilitiesByType.length === 0 ? (
                 <p className="py-12 text-center text-sm text-gray-400">No utility bills assigned</p>
             ) : (
                 utilitiesByType.map(({ type, rows }) => (

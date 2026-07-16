@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { isAdmin } from '@/utils/permissions';
-
-const UTILITY_TYPES_STORAGE_KEY = 'verp_utility_bill_types';
+import {
+    addUtilityTypeNameApi,
+    fetchUtilityTypeNames,
+    removeUtilityTypeNameApi,
+} from '../utils/utilityBillsApi';
 
 export const UTILITY_TOGGLE_FIELDS = [
     { key: 'provider', label: 'Provider' },
@@ -24,30 +27,6 @@ const defaultToggles = () =>
         acc[field.key] = 'no';
         return acc;
     }, {});
-
-/** Only admin-added types — no static Electricity/Water/etc. list. */
-function loadUtilityTypes() {
-    try {
-        const raw = localStorage.getItem(UTILITY_TYPES_STORAGE_KEY);
-        if (!raw) return [];
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        const unique = [];
-        parsed.forEach((t) => {
-            const name = String(t || '').trim();
-            if (name && !unique.some((x) => x.toLowerCase() === name.toLowerCase())) {
-                unique.push(name);
-            }
-        });
-        return unique;
-    } catch {
-        return [];
-    }
-}
-
-function saveUtilityTypes(allTypes) {
-    localStorage.setItem(UTILITY_TYPES_STORAGE_KEY, JSON.stringify(allTypes));
-}
 
 function YesNoToggle({ name, value, onChange, label }) {
     return (
@@ -104,6 +83,7 @@ export default function AddUtilityModal({
     const [newTypeName, setNewTypeName] = useState('');
     const [showAddType, setShowAddType] = useState(false);
     const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
 
     const lockedType = String(utilityType || '').trim();
     const isEditMode = Boolean(lockedType);
@@ -120,31 +100,47 @@ export default function AddUtilityModal({
 
     useEffect(() => {
         if (!isOpen) return;
-        const loaded = loadUtilityTypes();
-        setTypes(loaded);
-        const fieldSource =
-            initialFields && typeof initialFields === 'object'
-                ? { ...defaultToggles(), ...initialFields }
-                : defaultToggles();
-        const nextAttachmentEnabled = fieldSource.attachment === 'yes' ? 'yes' : 'no';
-        const { attachment: _ignoredAttachmentToggle, ...fieldToggles } = fieldSource;
-        setToggles({ ...defaultToggles(), ...fieldToggles });
-        setAttachmentEnabled(nextAttachmentEnabled);
-        setNewTypeName('');
-        setShowAddType(false);
-        setError('');
-
-        if (lockedType) {
-            setType(lockedType);
-            if (!loaded.some((t) => t.toLowerCase() === lockedType.toLowerCase())) {
-                const next = [...loaded, lockedType];
-                setTypes(next);
-                saveUtilityTypes(next);
+        let cancelled = false;
+        (async () => {
+            let loaded = [];
+            try {
+                loaded = await fetchUtilityTypeNames();
+            } catch {
+                loaded = [];
             }
-        } else {
-            const firstAvailable = loaded.find((t) => !usedSet.has(t.toLowerCase()));
-            setType(firstAvailable || '');
-        }
+            if (cancelled) return;
+            setTypes(loaded);
+            const fieldSource =
+                initialFields && typeof initialFields === 'object'
+                    ? { ...defaultToggles(), ...initialFields }
+                    : defaultToggles();
+            const nextAttachmentEnabled = fieldSource.attachment === 'yes' ? 'yes' : 'no';
+            const { attachment: _ignoredAttachmentToggle, ...fieldToggles } = fieldSource;
+            setToggles({ ...defaultToggles(), ...fieldToggles });
+            setAttachmentEnabled(nextAttachmentEnabled);
+            setNewTypeName('');
+            setShowAddType(false);
+            setError('');
+            setBusy(false);
+
+            if (lockedType) {
+                setType(lockedType);
+                if (!loaded.some((t) => t.toLowerCase() === lockedType.toLowerCase())) {
+                    try {
+                        const next = await addUtilityTypeNameApi(lockedType);
+                        if (!cancelled) setTypes(next);
+                    } catch {
+                        if (!cancelled) setTypes([...loaded, lockedType]);
+                    }
+                }
+            } else {
+                const firstAvailable = loaded.find((t) => !usedSet.has(t.toLowerCase()));
+                setType(firstAvailable || '');
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when modal opens / edit target changes
     }, [isOpen, lockedType]);
 
@@ -152,7 +148,7 @@ export default function AddUtilityModal({
 
     const isTypeUsed = (name) => usedSet.has(String(name || '').toLowerCase());
 
-    const handleAddType = () => {
+    const handleAddType = async () => {
         const name = newTypeName.trim();
         if (!name) {
             setError('Enter a type name.');
@@ -162,30 +158,42 @@ export default function AddUtilityModal({
             setError('That type already exists in the dropdown.');
             return;
         }
-        const next = [...types, name];
-        setTypes(next);
-        saveUtilityTypes(next);
-        if (!isEditMode && !isTypeUsed(name)) {
-            setType(name);
-        }
-        setNewTypeName('');
-        setShowAddType(false);
+        setBusy(true);
         setError('');
+        try {
+            const next = await addUtilityTypeNameApi(name);
+            setTypes(next);
+            if (!isEditMode && !isTypeUsed(name)) {
+                setType(name);
+            }
+            setNewTypeName('');
+            setShowAddType(false);
+        } catch (err) {
+            setError(err?.response?.data?.message || 'Could not add type.');
+        } finally {
+            setBusy(false);
+        }
     };
 
-    const handleRemoveType = (name) => {
+    const handleRemoveType = async (name) => {
         if (isTypeUsed(name)) {
             setError(`“${name}” is in use and cannot be removed from the dropdown.`);
             return;
         }
-        const next = types.filter((t) => t.toLowerCase() !== String(name).toLowerCase());
-        setTypes(next);
-        saveUtilityTypes(next);
-        if (type.toLowerCase() === String(name).toLowerCase()) {
-            const firstAvailable = next.find((t) => !isTypeUsed(t));
-            setType(firstAvailable || '');
-        }
+        setBusy(true);
         setError('');
+        try {
+            const next = await removeUtilityTypeNameApi(name);
+            setTypes(next);
+            if (type.toLowerCase() === String(name).toLowerCase()) {
+                const firstAvailable = next.find((t) => !isTypeUsed(t));
+                setType(firstAvailable || '');
+            }
+        } catch (err) {
+            setError(err?.response?.data?.message || 'Could not remove type.');
+        } finally {
+            setBusy(false);
+        }
     };
 
     const handleToggle = (key, value) => {
@@ -308,7 +316,8 @@ export default function AddUtilityModal({
                                     <button
                                         type="button"
                                         onClick={handleAddType}
-                                        className="px-3 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium whitespace-nowrap"
+                                        disabled={busy}
+                                        className="px-3 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium whitespace-nowrap disabled:opacity-60"
                                     >
                                         Save type
                                     </button>
@@ -332,7 +341,7 @@ export default function AddUtilityModal({
                                                 </span>
                                                 <button
                                                     type="button"
-                                                    disabled={used}
+                                                    disabled={used || busy}
                                                     title={
                                                         used
                                                             ? 'In use — delete disabled'

@@ -67,7 +67,7 @@ import {
     shouldShowPaymentInHistory,
 } from '@/utils/paymentStatusDisplay';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
-import { formatRewardPaymentLabel, formatRewardStatusLabel } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
+import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import EmployeeSalaryVehicleUtilityPanel from './EmployeeSalaryVehicleUtilityPanel';
 
 
@@ -1752,16 +1752,16 @@ export default function SalaryTab({
     };
 
     const getSigner1Title = () => {
-        if (selectedCertificate?.certSigner1Title && selectedCertificate.certSigner1Title !== 'Managing Director') {
-            return selectedCertificate.certSigner1Title;
+        const PLACEHOLDER = 'Managing Director';
+        const saved = selectedCertificate?.certSigner1Title;
+        const rep = employee?.primaryReportee;
+        if (typeof rep === 'object' && (rep.designation || rep.role)) {
+            return rep.designation || rep.role;
         }
-        if (employee?.primaryReportee) {
-            const rep = employee.primaryReportee;
-            if (typeof rep === 'object' && rep.designation) {
-                return rep.designation;
-            }
+        if (saved && saved !== PLACEHOLDER) {
+            return saved;
         }
-        return 'Managing Director';
+        return PLACEHOLDER;
     };
 
     // Prepare salary history data
@@ -3478,7 +3478,7 @@ export default function SalaryTab({
 
                             {selectedSalaryAction === 'Rewards' && (
                                 (() => {
-                                    const profileRewards = rewards || [];
+                                    const profileRewards = (rewards || []).filter(isRewardVisibleOnEmployeeProfile);
                                     return profileRewards.length > 0 ? (
                                         profileRewards.map((reward, index) => {
                                             const paymentLabel = formatRewardPaymentLabel(reward);

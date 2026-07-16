@@ -41,6 +41,21 @@ export function formatRewardPaymentLabel(reward) {
     return '—';
 }
 
+/** Employee profile: only Approved / Paid / Not Paid — hide Draft, Pending, etc. */
+export const EMPLOYEE_PROFILE_REWARD_STATUSES = [
+    'Approved',
+    'Approved (Paid)',
+    'Approved (Not Paid)',
+    'Paid',
+    'Completed',
+    'Active',
+];
+
+export function isRewardVisibleOnEmployeeProfile(reward) {
+    const status = String(reward?.rewardStatus || reward?.approvalStatus || '').trim();
+    return EMPLOYEE_PROFILE_REWARD_STATUSES.includes(status);
+}
+
 export function isRewardPaymentEligible(reward) {
     if (!isRewardApprovedNotPaid(reward)) return false;
     const amount = Number(reward?.amount) || 0;

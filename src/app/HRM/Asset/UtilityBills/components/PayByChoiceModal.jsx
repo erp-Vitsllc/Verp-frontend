@@ -34,7 +34,7 @@ export function resolveRowPayBy(row, { isUnder = false } = {}) {
     return payBy;
 }
 
-/** True when Pay by + required party are filled (Company or Employee only). */
+/** True when Contract Paid By + required party are filled (Company or Employee only). */
 export function isPayByComplete(row, { isUnder = false } = {}) {
     const payBy = resolveRowPayBy(row, { isUnder });
     if (!payBy) return false;
@@ -47,12 +47,112 @@ export function isPayByComplete(row, { isUnder = false } = {}) {
     return false;
 }
 
+/** Map utility entry assignment onto Contract Paid By defaults. */
+export function assignedPartyDefaults(entryOrRow = {}) {
+    const typeRaw = String(entryOrRow?.assignedToType || '').trim();
+    const id = String(entryOrRow?.assignedToId || '').trim();
+    const name = String(
+        entryOrRow?.assignedToName || entryOrRow?.assignedTo || '',
+    ).trim();
+    if (!id) {
+        return {
+            assignedToType: '',
+            assignedToId: '',
+            assignedToName: '',
+            defaultPayBy: '',
+        };
+    }
+    const assignedToType =
+        typeRaw === 'Company' ? 'Company' : typeRaw === 'Employee' ? 'Employee' : '';
+    return {
+        assignedToType,
+        assignedToId: id,
+        assignedToName: name,
+        defaultPayBy:
+            assignedToType === 'Company'
+                ? PAY_BY_COMPANY
+                : assignedToType === 'Employee'
+                  ? PAY_BY_EMPLOYEE
+                  : '',
+    };
+}
+
+function partyFromAssignment(payBy, assigned) {
+    if (payBy === PAY_BY_COMPANY && assigned.assignedToType === 'Company') {
+        return {
+            payByCompanyId: assigned.assignedToId,
+            payByCompanyName: assigned.assignedToName,
+            payByEmployeeId: '',
+            payByEmployeeName: '',
+        };
+    }
+    if (payBy === PAY_BY_EMPLOYEE && assigned.assignedToType === 'Employee') {
+        return {
+            payByEmployeeId: assigned.assignedToId,
+            payByEmployeeName: assigned.assignedToName,
+            payByCompanyId: '',
+            payByCompanyName: '',
+        };
+    }
+    return null;
+}
+
+/**
+ * Pre-fill Contract Paid By fields from the utility entry assignment.
+ * Used so assigned company/employee appears by default and stays editable.
+ */
+export function payByFieldsFromAssignment(entryOrRow = {}) {
+    const assigned = assignedPartyDefaults(entryOrRow);
+    if (!assigned.defaultPayBy) {
+        return {
+            payBy: '',
+            payByCompanyId: '',
+            payByCompanyName: '',
+            payByEmployeeId: '',
+            payByEmployeeName: '',
+        };
+    }
+    const party = partyFromAssignment(assigned.defaultPayBy, assigned) || {
+        payByCompanyId: '',
+        payByCompanyName: '',
+        payByEmployeeId: '',
+        payByEmployeeName: '',
+    };
+    return {
+        payBy: assigned.defaultPayBy,
+        payByCompanyId: party.payByCompanyId || '',
+        payByCompanyName: party.payByCompanyName || '',
+        payByEmployeeId: party.payByEmployeeId || '',
+        payByEmployeeName: party.payByEmployeeName || '',
+    };
+}
+
 function partyDisplayName(name, fallback) {
     const t = String(name || '').trim();
     if (!t) return fallback;
     // Prefer short label before "(ID)" when long
     const cut = t.indexOf(' (');
     return cut > 0 ? t.slice(0, cut) : t;
+}
+
+/** Short party name for the Contract Paid By table cell. */
+export function payByPartyLabel(row = {}) {
+    const payBy = String(row?.payBy || '').trim();
+    if (payBy === PAY_BY_COMPANY) {
+        return partyDisplayName(
+            row?.payByCompanyName ||
+                (row?.assignedToType === 'Company' ? row?.assignedToName : ''),
+            '',
+        );
+    }
+    if (payBy === PAY_BY_EMPLOYEE) {
+        return partyDisplayName(
+            row?.payByEmployeeName ||
+                (row?.assignedToType === 'Employee' ? row?.assignedToName : ''),
+            '',
+        );
+    }
+    return partyDisplayName(row?.assignedToName || row?.assignedTo, '');
 }
 
 function PayBySummaryLine({ name, amount }) {
@@ -72,7 +172,7 @@ function PayBySummaryLine({ name, amount }) {
 }
 
 /**
- * Summary after Pay by is done — one line `{Name}: amount` + Edit.
+ * Summary after Contract Paid By is done — one line `{Name}: amount` + Edit.
  */
 export function PayByDoneSummary({
     row,
@@ -115,7 +215,8 @@ export function PayByDoneSummary({
 }
 
 /**
- * Choose Pay by (and company/employee party) in a modal — not a tight table dropdown.
+ * Choose Contract Paid By (and company/employee party) in a modal.
+ * Assigned party name is auto-filled when the utility entry is assigned.
  */
 export default function PayByChoiceModal({
     isOpen,
@@ -129,6 +230,9 @@ export default function PayByChoiceModal({
     initialCompanyName = '',
     initialEmployeeId = '',
     initialEmployeeName = '',
+    assignedToType = '',
+    assignedToId = '',
+    assignedToName = '',
     companyOptions = [],
     employeeOptions = [],
 }) {
@@ -139,14 +243,62 @@ export default function PayByChoiceModal({
     const [payByEmployeeName, setPayByEmployeeName] = useState('');
     const [error, setError] = useState('');
 
+    const assigned = assignedPartyDefaults({
+        assignedToType,
+        assignedToId,
+        assignedToName,
+    });
+
+    const applyPayByChoice = (nextPayBy, { keepExisting = false } = {}) => {
+        setPayBy(nextPayBy);
+        setError('');
+        if (!nextPayBy) return;
+
+        if (nextPayBy === PAY_BY_EMPLOYEE) {
+            const fromAssigned = partyFromAssignment(nextPayBy, assigned);
+            const hasExisting = keepExisting && String(initialEmployeeId || '').trim();
+            if (hasExisting) {
+                setPayByEmployeeId(initialEmployeeId || '');
+                setPayByEmployeeName(initialEmployeeName || '');
+            } else if (fromAssigned) {
+                setPayByEmployeeId(fromAssigned.payByEmployeeId);
+                setPayByEmployeeName(fromAssigned.payByEmployeeName);
+            } else {
+                setPayByEmployeeId('');
+                setPayByEmployeeName('');
+            }
+            setPayByCompanyId('');
+            setPayByCompanyName('');
+            return;
+        }
+
+        if (nextPayBy === PAY_BY_COMPANY) {
+            const fromAssigned = partyFromAssignment(nextPayBy, assigned);
+            const hasExisting = keepExisting && String(initialCompanyId || '').trim();
+            if (hasExisting) {
+                setPayByCompanyId(initialCompanyId || '');
+                setPayByCompanyName(initialCompanyName || '');
+            } else if (fromAssigned) {
+                setPayByCompanyId(fromAssigned.payByCompanyId);
+                setPayByCompanyName(fromAssigned.payByCompanyName);
+            } else {
+                setPayByCompanyId('');
+                setPayByCompanyName('');
+            }
+            setPayByEmployeeId('');
+            setPayByEmployeeName('');
+        }
+    };
+
     useEffect(() => {
         if (!isOpen) return;
-        setPayBy(lockedPayBy || initialPayBy || '');
-        setPayByCompanyId(initialCompanyId || '');
-        setPayByCompanyName(initialCompanyName || '');
-        setPayByEmployeeId(initialEmployeeId || '');
-        setPayByEmployeeName(initialEmployeeName || '');
-        setError('');
+        const nextPayBy =
+            lockedPayBy ||
+            initialPayBy ||
+            assigned.defaultPayBy ||
+            '';
+        applyPayByChoice(nextPayBy, { keepExisting: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         isOpen,
         lockedPayBy,
@@ -155,13 +307,16 @@ export default function PayByChoiceModal({
         initialCompanyName,
         initialEmployeeId,
         initialEmployeeName,
+        assignedToType,
+        assignedToId,
+        assignedToName,
     ]);
 
     if (!isOpen) return null;
 
     const handleConfirm = () => {
         if (!payBy) {
-            setError('Please select who pays.');
+            setError('Please select who pays the contract.');
             return;
         }
         if (payBy === PAY_BY_COMPANY && !String(payByCompanyId || '').trim()) {
@@ -195,7 +350,7 @@ export default function PayByChoiceModal({
                             id="pay-by-choice-title"
                             className="text-lg sm:text-xl font-bold text-gray-800"
                         >
-                            Pay by
+                            Contract Paid By
                         </h2>
                         <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
                             {accountNo ? `Account ${accountNo}` : 'Select who pays'}
@@ -203,6 +358,14 @@ export default function PayByChoiceModal({
                                 ? ` · Diff ${formatMoney(differenceAmount)} AED`
                                 : ''}
                         </p>
+                        {assigned.assignedToName ? (
+                            <p className="text-[11px] text-teal-700 mt-1">
+                                Assigned: {assigned.assignedToName}
+                                {assigned.assignedToType
+                                    ? ` (${assigned.assignedToType})`
+                                    : ''}
+                            </p>
+                        ) : null}
                     </div>
                     <button
                         type="button"
@@ -219,6 +382,26 @@ export default function PayByChoiceModal({
                         {PAY_BY_OPTIONS.map((opt) => {
                             const selected = payBy === opt.value;
                             const disabled = Boolean(lockedPayBy) && opt.value !== lockedPayBy;
+                            const assignedName =
+                                opt.value === PAY_BY_EMPLOYEE &&
+                                assigned.assignedToType === 'Employee'
+                                    ? assigned.assignedToName
+                                    : opt.value === PAY_BY_COMPANY &&
+                                        assigned.assignedToType === 'Company'
+                                      ? assigned.assignedToName
+                                      : '';
+                            const selectedPartyName =
+                                opt.value === PAY_BY_EMPLOYEE
+                                    ? partyDisplayName(
+                                          payByEmployeeName || assignedName,
+                                          '',
+                                      )
+                                    : opt.value === PAY_BY_COMPANY
+                                      ? partyDisplayName(
+                                            payByCompanyName || assignedName,
+                                            '',
+                                        )
+                                      : '';
                             return (
                                 <button
                                     key={opt.value}
@@ -226,29 +409,39 @@ export default function PayByChoiceModal({
                                     disabled={disabled}
                                     onClick={() => {
                                         if (disabled) return;
-                                        setPayBy(opt.value);
-                                        setError('');
-                                        if (opt.value === PAY_BY_EMPLOYEE) {
-                                            setPayByCompanyId('');
-                                            setPayByCompanyName('');
-                                        }
-                                        if (opt.value === PAY_BY_COMPANY) {
-                                            setPayByEmployeeId('');
-                                            setPayByEmployeeName('');
-                                        }
+                                        applyPayByChoice(opt.value);
                                     }}
                                     className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg border text-sm font-medium transition-colors ${
                                         selected
                                             ? 'border-teal-500 bg-teal-50 text-teal-800'
                                             : disabled
-                                              ? 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
+                                              ? 'border-gray-100 bg-gray-50 text-gray-500 cursor-not-allowed'
                                               : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
                                     }`}
                                 >
-                                    {opt.label}
+                                    <span className="flex items-center justify-between gap-2">
+                                        <span>{opt.label}</span>
+                                        {selectedPartyName ? (
+                                            <span
+                                                className={`text-xs font-semibold truncate max-w-[60%] ${
+                                                    disabled ? 'text-gray-600' : 'text-teal-700'
+                                                }`}
+                                                title={selectedPartyName}
+                                            >
+                                                {selectedPartyName}
+                                            </span>
+                                        ) : null}
+                                    </span>
                                     {disabled ? (
-                                        <span className="block text-xs font-normal mt-0.5">
+                                        <span className="block text-xs font-normal mt-0.5 text-gray-400">
                                             Locked when actual is under contract
+                                            {assignedName
+                                                ? ` · assigned ${assignedName}`
+                                                : ''}
+                                        </span>
+                                    ) : assignedName && !selectedPartyName ? (
+                                        <span className="block text-xs font-normal mt-0.5 text-teal-600">
+                                            Assigned: {assignedName}
                                         </span>
                                     ) : null}
                                 </button>

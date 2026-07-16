@@ -1,6 +1,7 @@
 /** User-facing labels for DashboardAction.requestType (tools & equipment inbox). */
 export function formatAssetDashboardRequestType(requestType, row = null) {
     const t = String(requestType || '').trim();
+    if (t === 'Utility Entry Status Change') return 'Utility Activate / Deactivate';
     if (t === 'Asset Overdue') return 'Asset Service overdue';
     if (t === 'Asset Leave') {
         try {
@@ -37,7 +38,8 @@ export function isPendingInboxRowVisible(row) {
     if (requestType === 'Asset On Duty Request') return true;
     if (
         requestType === 'Utility Bill Payment' ||
-        requestType === 'Utility Bill Payment Reminder'
+        requestType === 'Utility Bill Payment Reminder' ||
+        requestType === 'Utility Entry Status Change'
     ) {
         return true;
     }

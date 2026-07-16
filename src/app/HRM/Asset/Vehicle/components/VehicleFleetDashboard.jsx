@@ -20,6 +20,8 @@ import {
     YAxis,
 } from 'recharts';
 import { AlertCircle, Clock, Gauge, MapPin, RefreshCw, Route, TrendingUp, XCircle } from 'lucide-react';
+import { DatePicker, MonthPicker } from '@/components/ui/date-picker';
+import { endOfDay, format, parse, startOfDay } from 'date-fns';
 import {
     FLORAL_CLASS_COLORS,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetAnalyticsTheme';
@@ -360,6 +362,35 @@ const SALIK_PERIOD_TABS = [
     { id: 'month', label: 'Month' },
 ];
 
+function formatLocatorOptionLabel(opt) {
+    const base = opt.sublabel ? `${opt.label} · ${opt.sublabel}` : opt.label;
+    if (opt.hasSnapshots === false) return `${base} · no GPS saved`;
+    return base;
+}
+
+function getWeekStartMonday(date) {
+    const d = startOfDay(new Date(date));
+    const day = d.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + mondayOffset);
+    return d;
+}
+
+function toLocalDateKey(date) {
+    return format(date, 'yyyy-MM-dd');
+}
+
+function resolveWeekKeyFromDate(dateStr) {
+    return toLocalDateKey(getWeekStartMonday(parse(dateStr, 'yyyy-MM-dd', new Date())));
+}
+
+function buildLocatorDisabledDays(trackingFrom) {
+    const min = trackingFrom ? startOfDay(new Date(trackingFrom)) : undefined;
+    const max = endOfDay(new Date());
+    if (min) return { before: min, after: max };
+    return { after: max };
+}
+
 function LocatorBucketControls({
     tabs,
     period,
@@ -368,14 +399,53 @@ function LocatorBucketControls({
     selectedKey,
     onSelectKey,
     selectAriaLabel,
+    trackingFrom,
 }) {
     const options = bucket?.options || [];
     const value = selectedKey || bucket?.defaultKey || '';
+    const disabledDays = buildLocatorDisabledDays(trackingFrom);
+    const pickerClassName =
+        'h-9 text-xs font-semibold w-full sm:min-w-[11.5rem] sm:w-auto justify-start';
+
+    const handleDayPick = (dateStr) => {
+        if (!dateStr) return;
+        if (period === 'week') {
+            onSelectKey(resolveWeekKeyFromDate(dateStr));
+            return;
+        }
+        onSelectKey(dateStr);
+    };
+
+    const dayPickerValue =
+        period === 'week'
+            ? value || toLocalDateKey(new Date())
+            : value || bucket?.defaultKey || '';
 
     return (
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
             <LocatorPeriodTabBar options={tabs} value={period} onChange={onPeriodChange} />
-            {options.length > 1 ? (
+            {period === 'month' ? (
+                <MonthPicker
+                    value={value || bucket?.defaultKey || ''}
+                    onChange={(monthKey) => monthKey && onSelectKey(monthKey)}
+                    placeholder="Select month"
+                    className={pickerClassName}
+                    fromYear={
+                        trackingFrom
+                            ? new Date(trackingFrom).getFullYear()
+                            : new Date().getFullYear() - 1
+                    }
+                    toYear={new Date().getFullYear()}
+                />
+            ) : period === 'day' || period === 'week' ? (
+                <DatePicker
+                    value={dayPickerValue}
+                    onChange={handleDayPick}
+                    placeholder={period === 'week' ? 'Pick a week' : 'Pick a date'}
+                    className={pickerClassName}
+                    disabledDays={disabledDays}
+                />
+            ) : options.length > 0 ? (
                 <select
                     value={value}
                     onChange={(e) => onSelectKey(e.target.value)}
@@ -384,7 +454,7 @@ function LocatorBucketControls({
                 >
                     {options.map((opt) => (
                         <option key={opt.key} value={opt.key}>
-                            {opt.sublabel ? `${opt.label} · ${opt.sublabel}` : opt.label}
+                            {formatLocatorOptionLabel(opt)}
                         </option>
                     ))}
                 </select>
@@ -412,7 +482,7 @@ function PeriodTabs({ value, onChange }) {
     );
 }
 
-function RunningKmControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey }) {
+function RunningKmControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey, trackingFrom }) {
     return (
         <LocatorBucketControls
             tabs={RUNNING_PERIOD_TABS}
@@ -422,11 +492,12 @@ function RunningKmControls({ period, onPeriodChange, bucket, selectedKey, onSele
             selectedKey={selectedKey}
             onSelectKey={onSelectKey}
             selectAriaLabel="Select running km period"
+            trackingFrom={trackingFrom}
         />
     );
 }
 
-function IdleTimeControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey }) {
+function IdleTimeControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey, trackingFrom }) {
     return (
         <LocatorBucketControls
             tabs={IDLE_PERIOD_TABS}
@@ -436,11 +507,12 @@ function IdleTimeControls({ period, onPeriodChange, bucket, selectedKey, onSelec
             selectedKey={selectedKey}
             onSelectKey={onSelectKey}
             selectAriaLabel="Select idle time period"
+            trackingFrom={trackingFrom}
         />
     );
 }
 
-function SalikControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey }) {
+function SalikControls({ period, onPeriodChange, bucket, selectedKey, onSelectKey, trackingFrom }) {
     return (
         <LocatorBucketControls
             tabs={SALIK_PERIOD_TABS}
@@ -450,6 +522,7 @@ function SalikControls({ period, onPeriodChange, bucket, selectedKey, onSelectKe
             selectedKey={selectedKey}
             onSelectKey={onSelectKey}
             selectAriaLabel="Select salik cost period"
+            trackingFrom={trackingFrom}
         />
     );
 }
@@ -520,8 +593,8 @@ const LOCATOR_GRID_ORDER = ['running', 'odometer', 'idle', 'salik'];
 const LOCATOR_CHARTS = [
     {
         id: 'odometer',
-        title: 'Current km',
-        subtitle: 'Live odometer per Locator vehicle',
+        title: 'Current km / Odometer',
+        subtitle: 'Live totalDistanceKm from Locator (latest positions)',
         accent: 'border-t-teal-500',
         icon: Gauge,
         iconClass: 'text-teal-600',
@@ -532,8 +605,8 @@ const LOCATOR_CHARTS = [
     {
         id: 'running',
         title: 'Running km',
-        subtitle: 'Distance travelled in the selected period',
-        subtitleDay: 'Distance travelled in the last 8 days',
+        subtitle: 'Day distance from saved Locator totalDistance samples',
+        subtitleDay: 'Distance travelled on the selected day',
         accent: 'border-t-violet-500',
         icon: TrendingUp,
         iconClass: 'text-violet-600',
@@ -573,11 +646,12 @@ function LocatorVerticalBarChart({
     chartAnim = 0,
     animateBars = false,
     chartHeight = LOCATOR_CHART_HEIGHT,
+    emptyMessage = 'No GPS data recorded for this period',
 }) {
     if (!data?.length) {
         return (
             <p className="text-slate-400 text-center text-xs py-16">
-                No data yet
+                {emptyMessage}
             </p>
         );
     }
@@ -1017,6 +1091,7 @@ export default function VehicleFleetDashboard({
                     bucket={locatorData?.runningKmByVehicle?.[locatorRunningPeriod]}
                     selectedKey={runningKmSelectionKey}
                     onSelectKey={handleRunningSelectionChange}
+                    trackingFrom={locatorData?.trackingFrom}
                 />
             );
         }
@@ -1028,6 +1103,7 @@ export default function VehicleFleetDashboard({
                     bucket={locatorData?.idleTimeByVehicle?.[locatorIdlePeriod]}
                     selectedKey={idleSelectionKey}
                     onSelectKey={handleIdleSelectionChange}
+                    trackingFrom={locatorData?.trackingFrom}
                 />
             );
         }
@@ -1039,6 +1115,7 @@ export default function VehicleFleetDashboard({
                     bucket={locatorData?.salikWise?.[salikPeriod]}
                     selectedKey={salikSelectionKey}
                     onSelectKey={handleSalikSelectionChange}
+                    trackingFrom={locatorData?.trackingFrom}
                 />
             );
         }
@@ -1604,6 +1681,31 @@ export default function VehicleFleetDashboard({
                                 GPS live data loaded, but history snapshots could not be saved. Charts may show limited running km until snapshots are captured.
                             </div>
                         ) : null}
+                        {locatorData?.trackingFrom ? (
+                            <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-xs text-slate-600">
+                                <span className="font-semibold text-slate-700">Current km / odometer</span> comes
+                                live from Locator <code className="text-[11px]">/v1/position/latest</code> (
+                                <code className="text-[11px]">totalDistanceKm</code>).{' '}
+                                <span className="font-semibold text-slate-700">Running km</span> for each day is
+                                the change in that total between saved samples. Locator&apos;s published API has
+                                no history endpoint, so past days only appear when this server was online and
+                                capturing GPS (every ~2 min). History from{' '}
+                                {new Date(locatorData.trackingFrom).toLocaleDateString('en-GB', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric',
+                                })}
+                                {locatorData.snapshotCount
+                                    ? ` · ${locatorData.snapshotCount.toLocaleString()} sample(s) on ${locatorData.trackingDaysWithData || 0} day(s)`
+                                    : ''}
+                                .
+                            </div>
+                        ) : (
+                            <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-xs text-slate-600">
+                                Current km is live from Locator. Day-by-day running km will fill in as GPS samples
+                                are saved (every ~2 minutes while the backend is running).
+                            </div>
+                        )}
                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-stretch">
                             <ScrollReveal delayMs={0} durationMs={750} className="h-full">
                                 <LocatorStaticChartCard

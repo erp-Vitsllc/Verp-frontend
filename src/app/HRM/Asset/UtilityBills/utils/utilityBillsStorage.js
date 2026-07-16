@@ -1,13 +1,16 @@
 import { UTILITY_TOGGLE_FIELDS } from '../components/AddUtilityModal';
 
-export const UTILITIES_STORAGE_KEY = 'verp_utility_bills_created';
-export const UTILITY_ENTRIES_STORAGE_KEY = 'verp_utility_bill_entries';
 /** Per logged-in user Add Bills drafts (private to that browser user). */
 export const UTILITY_BILL_DRAFTS_STORAGE_KEY = 'verp_utility_bill_drafts';
-/** Admin-managed provider dropdown options (seeded with Etisalat / Du). */
-export const UTILITY_PROVIDERS_STORAGE_KEY = 'verp_utility_providers';
 
-export const DEFAULT_UTILITY_PROVIDERS = ['Etisalat', 'Du'];
+/** One-time migration flag: local → DB. */
+export const UTILITY_LOCAL_MIGRATED_KEY = 'verp_utility_bills_db_migrated_v1';
+
+/** Legacy localStorage keys (cleared after migration). */
+export const UTILITIES_STORAGE_KEY = 'verp_utility_bills_created';
+export const UTILITY_ENTRIES_STORAGE_KEY = 'verp_utility_bill_entries';
+export const UTILITY_PROVIDERS_STORAGE_KEY = 'verp_utility_providers';
+export const UTILITY_TYPES_STORAGE_KEY = 'verp_utility_bill_types';
 
 export function getLoggedInUtilityUserKey() {
     try {
@@ -92,95 +95,6 @@ export function loadJsonArray(key) {
     }
 }
 
-export function saveJsonArray(key, list) {
-    localStorage.setItem(key, JSON.stringify(list));
-}
-
-function normalizeProviderList(list) {
-    const unique = [];
-    (Array.isArray(list) ? list : []).forEach((t) => {
-        const name = String(t || '').trim();
-        if (name && !unique.some((x) => x.toLowerCase() === name.toLowerCase())) {
-            unique.push(name);
-        }
-    });
-    return unique;
-}
-
-/** Load provider dropdown options; seed Etisalat / Du on first use. */
-export function loadUtilityProviders() {
-    try {
-        const raw = localStorage.getItem(UTILITY_PROVIDERS_STORAGE_KEY);
-        if (!raw) {
-            saveUtilityProviders(DEFAULT_UTILITY_PROVIDERS);
-            return [...DEFAULT_UTILITY_PROVIDERS];
-        }
-        const parsed = JSON.parse(raw);
-        const list = normalizeProviderList(parsed);
-        if (!list.length) {
-            saveUtilityProviders(DEFAULT_UTILITY_PROVIDERS);
-            return [...DEFAULT_UTILITY_PROVIDERS];
-        }
-        return list;
-    } catch {
-        return [...DEFAULT_UTILITY_PROVIDERS];
-    }
-}
-
-export function saveUtilityProviders(list) {
-    const next = normalizeProviderList(list);
-    localStorage.setItem(UTILITY_PROVIDERS_STORAGE_KEY, JSON.stringify(next));
-    return next;
-}
-
-export function addUtilityProvider(name) {
-    const label = String(name || '').trim();
-    if (!label) return { ok: false, message: 'Enter a provider name.', providers: loadUtilityProviders() };
-    const current = loadUtilityProviders();
-    if (current.some((p) => p.toLowerCase() === label.toLowerCase())) {
-        return { ok: false, message: 'That provider already exists.', providers: current };
-    }
-    const providers = saveUtilityProviders([...current, label]);
-    return { ok: true, providers };
-}
-
-export function removeUtilityProvider(name) {
-    const label = String(name || '').trim();
-    const current = loadUtilityProviders();
-    if (isUtilityProviderInUse(label)) {
-        return {
-            ok: false,
-            message: `“${label}” is in use and cannot be removed.`,
-            providers: current,
-        };
-    }
-    const providers = saveUtilityProviders(
-        current.filter((p) => p.toLowerCase() !== label.toLowerCase()),
-    );
-    return { ok: true, providers };
-}
-
-export function isUtilityProviderInUse(name) {
-    const key = String(name || '').trim().toLowerCase();
-    if (!key) return false;
-    const entries = loadJsonArray(UTILITY_ENTRIES_STORAGE_KEY);
-    return entries.some(
-        (e) => String(e?.values?.provider || '').trim().toLowerCase() === key,
-    );
-}
-
-export function normalizeUtilityFields(fields = {}) {
-    const next = { ...fields };
-    if (next.paymentDetails != null && next.paymentDate == null) {
-        next.paymentDate = next.paymentDetails;
-    }
-    delete next.paymentDetails;
-    if (next.attachment != null && next.attachment !== 'yes' && next.attachment !== 'no') {
-        delete next.attachment;
-    }
-    return next;
-}
-
 /** Entry / utility config lifecycle: Active | Inactive (defaults Active). */
 export function entryLifecycleStatus(record) {
     const s = String(record?.status || 'Active').trim().toLowerCase();
@@ -219,10 +133,23 @@ export function formatPaymentDayLabel(day) {
     return `Day ${n} every month`;
 }
 
+export function normalizeUtilityFields(fields = {}) {
+    const next = { ...fields };
+    if (next.paymentDetails != null && next.paymentDate == null) {
+        next.paymentDate = next.paymentDetails;
+    }
+    delete next.paymentDetails;
+    if (next.attachment != null && next.attachment !== 'yes' && next.attachment !== 'no') {
+        delete next.attachment;
+    }
+    return next;
+}
+
 export function normalizeUtilityEntry(entry) {
     if (!entry || typeof entry !== 'object') return entry;
     return {
         ...entry,
+        id: String(entry.id || entry._id || ''),
         status: entryLifecycleStatus(entry),
         values: normalizePaymentDay(entry.values || {}),
     };
@@ -230,29 +157,6 @@ export function normalizeUtilityEntry(entry) {
 
 export function normalizeUtilityEntries(list) {
     return (Array.isArray(list) ? list : []).map(normalizeUtilityEntry);
-}
-
-export function getUtilityEntryById(id) {
-    const entries = normalizeUtilityEntries(loadJsonArray(UTILITY_ENTRIES_STORAGE_KEY));
-    return entries.find((e) => String(e.id) === String(id)) || null;
-}
-
-export function getUtilityConfigForType(type) {
-    const utilities = loadJsonArray(UTILITIES_STORAGE_KEY);
-    const match = utilities.find(
-        (u) => String(u.type || '').toLowerCase() === String(type || '').toLowerCase(),
-    );
-    if (!match) return null;
-    return { ...match, fields: normalizeUtilityFields(match.fields || {}) };
-}
-
-export function updateUtilityEntry(id, patch) {
-    const entries = loadJsonArray(UTILITY_ENTRIES_STORAGE_KEY);
-    const next = entries.map((e) =>
-        String(e.id) === String(id) ? { ...e, ...patch, updatedAt: new Date().toISOString() } : e,
-    );
-    saveJsonArray(UTILITY_ENTRIES_STORAGE_KEY, next);
-    return next.find((e) => String(e.id) === String(id)) || null;
 }
 
 export function formatEntryFieldLabel(key) {

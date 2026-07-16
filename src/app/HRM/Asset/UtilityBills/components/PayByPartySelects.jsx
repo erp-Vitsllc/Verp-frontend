@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 
 function isActiveProfileEmployee(emp) {
@@ -24,8 +25,23 @@ export function companyOptionLabel(comp) {
     return comp.companyId ? `${name} (${comp.companyId})` : name;
 }
 
+const selectStyles = {
+    control: (base, state) => ({
+        ...base,
+        minHeight: 38,
+        borderRadius: 8,
+        borderColor: state.isFocused ? '#14b8a6' : '#e5e7eb',
+        boxShadow: state.isFocused ? '0 0 0 2px rgba(20, 184, 166, 0.25)' : 'none',
+        '&:hover': { borderColor: state.isFocused ? '#14b8a6' : '#9ca3af' },
+        fontSize: 13,
+        backgroundColor: state.isDisabled ? '#f3f4f6' : '#fff',
+    }),
+    menu: (base) => ({ ...base, zIndex: 9999 }),
+    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+};
+
 /**
- * Load active companies + employees once for Pay By party dropdowns.
+ * Load active companies + employees once for Contract Paid By party dropdowns.
  */
 export function usePayByPartyOptions(enabled = true) {
     const [employees, setEmployees] = useState([]);
@@ -89,7 +105,7 @@ export function usePayByPartyOptions(enabled = true) {
 }
 
 /**
- * Under Pay By: show Company name and/or Employee name select.
+ * Under Contract Paid By: searchable Company / Employee name select.
  */
 export default function PayByPartySelects({
     payBy = '',
@@ -105,8 +121,10 @@ export default function PayByPartySelects({
 
     if (!showCompany && !showEmployee) return null;
 
-    const selectClass =
-        'mt-1 w-full block rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs sm:text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 disabled:bg-gray-100';
+    const selectedCompany =
+        companyOptions.find((o) => String(o.value) === String(payByCompanyId || '')) || null;
+    const selectedEmployee =
+        employeeOptions.find((o) => String(o.value) === String(payByEmployeeId || '')) || null;
 
     return (
         <div className="space-y-3">
@@ -115,26 +133,25 @@ export default function PayByPartySelects({
                     <label className="block text-xs font-semibold text-gray-600 mb-1">
                         Company name
                     </label>
-                    <select
-                        value={payByCompanyId || ''}
-                        disabled={disabled}
-                        onChange={(e) => {
-                            const id = e.target.value;
-                            const opt = companyOptions.find((o) => o.value === id);
+                    <Select
+                        value={selectedCompany}
+                        onChange={(opt) => {
                             onChange?.({
-                                payByCompanyId: id,
+                                payByCompanyId: opt?.value || '',
                                 payByCompanyName: opt?.label || '',
                             });
                         }}
-                        className={selectClass}
-                    >
-                        <option value="">Select company</option>
-                        {companyOptions.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                            </option>
-                        ))}
-                    </select>
+                        options={companyOptions}
+                        placeholder="Search company..."
+                        isClearable
+                        isSearchable
+                        isDisabled={disabled}
+                        styles={selectStyles}
+                        menuPortalTarget={
+                            typeof document !== 'undefined' ? document.body : null
+                        }
+                        noOptionsMessage={() => 'No active companies found'}
+                    />
                 </div>
             ) : null}
             {showEmployee ? (
@@ -142,26 +159,25 @@ export default function PayByPartySelects({
                     <label className="block text-xs font-semibold text-gray-600 mb-1">
                         Employee name
                     </label>
-                    <select
-                        value={payByEmployeeId || ''}
-                        disabled={disabled}
-                        onChange={(e) => {
-                            const id = e.target.value;
-                            const opt = employeeOptions.find((o) => o.value === id);
+                    <Select
+                        value={selectedEmployee}
+                        onChange={(opt) => {
                             onChange?.({
-                                payByEmployeeId: id,
+                                payByEmployeeId: opt?.value || '',
                                 payByEmployeeName: opt?.label || '',
                             });
                         }}
-                        className={selectClass}
-                    >
-                        <option value="">Select employee</option>
-                        {employeeOptions.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                            </option>
-                        ))}
-                    </select>
+                        options={employeeOptions}
+                        placeholder="Search employee..."
+                        isClearable
+                        isSearchable
+                        isDisabled={disabled}
+                        styles={selectStyles}
+                        menuPortalTarget={
+                            typeof document !== 'undefined' ? document.body : null
+                        }
+                        noOptionsMessage={() => 'No active employees found'}
+                    />
                 </div>
             ) : null}
         </div>

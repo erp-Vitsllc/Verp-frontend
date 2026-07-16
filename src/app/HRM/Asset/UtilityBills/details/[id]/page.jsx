@@ -18,17 +18,20 @@ import {
     clearUtilityBillDraft,
     entryLifecycleStatus,
     getMonthlyRentalAmount,
-    getUtilityConfigForType,
-    getUtilityEntryById,
     isEntryActive,
-    updateUtilityEntry,
+    normalizeUtilityFields,
 } from '../../utils/utilityBillsStorage';
+import { fetchUtilityEntry, updateUtilityEntryApi } from '../../utils/utilityBillsApi';
 import FieldViewModal from '../../components/FieldViewModal';
 import AddBillModal from '../../components/AddBillModal';
-import HrApproveBillModal from '../../components/HrApproveBillModal';
+import ViewBillModal from '../../components/ViewBillModal';
+import UtilityBillReviewModal from '../../components/UtilityBillReviewModal';
+import ActivateDeactivateUtilityModal from '../../components/ActivateDeactivateUtilityModal';
 import UtilityBillStatsCards from '../../components/UtilityBillStatsCards';
 import { billDisplayStatus, formatBillMoney } from '../../utils/utilityBillStats';
 import { openUtilityAttachment } from '../../utils/openUtilityAttachment';
+import { loadUtilityBillPaymentInvoice } from '../../utils/utilityBillPaymentInvoice';
+import PaymentInvoiceViewerModal from '@/app/Accounts/Payments/components/PaymentInvoiceViewerModal';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 
@@ -49,14 +52,6 @@ function statusBadgeClass(status) {
     if (s === 'Paid') return 'bg-teal-50 text-teal-800 border-teal-200';
     if (s === 'Rejected') return 'bg-red-50 text-red-700 border-red-200';
     return 'bg-gray-50 text-gray-600 border-gray-200';
-}
-
-/** Previous calendar month as YYYY-MM. */
-function previousBillMonthKey(date = new Date()) {
-    const d = new Date(date.getFullYear(), date.getMonth() - 1, 1);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    return `${y}-${m}`;
 }
 
 function billMonthKey(bill) {
@@ -105,6 +100,133 @@ function billSortTime(bill) {
     return Number.isNaN(t) ? 0 : t;
 }
 
+/** Aggregate amounts / status counts for year or month browse rows. */
+function summarizeBillGroup(list = []) {
+    let contractTotal = 0;
+    let actualTotal = 0;
+    let paidCount = 0;
+    let unpaidCount = 0;
+    let pendingCount = 0;
+    let rejectedCount = 0;
+    const months = new Set();
+
+    (list || []).forEach((bill) => {
+        const contract = Number(bill?.monthlyRental) || 0;
+        const actual = Number(bill?.amount) || 0;
+        contractTotal += contract;
+        actualTotal += actual;
+        const ym = billMonthKey(bill);
+        if (ym) months.add(ym);
+
+        const status = String(bill?.status || '');
+        if (status === 'Paid') paidCount += 1;
+        else if (status === 'Rejected') rejectedCount += 1;
+        else if (status === 'Approved') unpaidCount += 1;
+        else if (status === 'Pending HR' || status === 'Pending Accounts') pendingCount += 1;
+        else unpaidCount += 1;
+    });
+
+    return {
+        billCount: (list || []).length,
+        monthCount: months.size,
+        contractTotal,
+        actualTotal,
+        difference: contractTotal - actualTotal,
+        paidCount,
+        unpaidCount,
+        pendingCount,
+        rejectedCount,
+    };
+}
+
+function BillGroupSummaryStats({ summary, compact = false }) {
+    if (!summary?.billCount) return null;
+
+    const diffTone =
+        summary.difference < 0
+            ? 'text-red-600'
+            : summary.difference > 0
+              ? 'text-emerald-600'
+              : 'text-gray-700';
+    const labelCls = 'text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400';
+    const valueCls = compact
+        ? 'text-sm font-semibold tabular-nums leading-tight'
+        : 'text-sm sm:text-[15px] font-semibold tabular-nums leading-tight';
+
+    const statusChips = [
+        summary.paidCount > 0
+            ? { key: 'paid', label: `${summary.paidCount} paid`, cls: 'bg-teal-50 text-teal-700' }
+            : null,
+        summary.unpaidCount > 0
+            ? { key: 'due', label: `${summary.unpaidCount} due`, cls: 'bg-orange-50 text-orange-700' }
+            : null,
+        summary.pendingCount > 0
+            ? {
+                  key: 'pending',
+                  label: `${summary.pendingCount} pending`,
+                  cls: 'bg-amber-50 text-amber-700',
+              }
+            : null,
+        summary.rejectedCount > 0
+            ? {
+                  key: 'rejected',
+                  label: `${summary.rejectedCount} rejected`,
+                  cls: 'bg-red-50 text-red-700',
+              }
+            : null,
+    ].filter(Boolean);
+
+    return (
+        <div
+            className={`flex flex-wrap items-center min-w-0 flex-1 justify-end gap-x-4 gap-y-2 sm:gap-x-6 ${
+                compact ? '' : 'sm:justify-end'
+            }`}
+        >
+            <div className="flex items-stretch gap-3 sm:gap-5">
+                <div className="text-right min-w-[4.25rem]">
+                    <p className={labelCls}>Total</p>
+                    <p className={`${valueCls} text-teal-700`}>
+                        {formatBillMoney(summary.actualTotal)}
+                    </p>
+                </div>
+                <div
+                    className="hidden sm:block w-px self-stretch bg-slate-200/80"
+                    aria-hidden
+                />
+                <div className="hidden sm:block text-right min-w-[4.25rem]">
+                    <p className={labelCls}>Contract</p>
+                    <p className={`${valueCls} text-slate-800`}>
+                        {formatBillMoney(summary.contractTotal)}
+                    </p>
+                </div>
+                <div
+                    className="hidden sm:block w-px self-stretch bg-slate-200/80"
+                    aria-hidden
+                />
+                <div className="text-right min-w-[4.25rem]">
+                    <p className={labelCls}>Diff</p>
+                    <p className={`${valueCls} ${diffTone}`}>
+                        {formatBillMoney(summary.difference)}
+                    </p>
+                </div>
+            </div>
+
+            {statusChips.length > 0 ? (
+                <div className="hidden md:flex flex-wrap items-center justify-end gap-1.5">
+                    {statusChips.map((chip) => (
+                        <span
+                            key={chip.key}
+                            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold tabular-nums ${chip.cls}`}
+                        >
+                            {chip.label}
+                        </span>
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 /**
  * Utility entry details — header cards, tabs, 1/2 type details + bills list with HR approval.
  */
@@ -123,9 +245,13 @@ function UtilityBillDetailsPageContent() {
     const [viewModalOpen, setViewModalOpen] = useState(false);
     const [viewFields, setViewFields] = useState([]);
     const [addBillOpen, setAddBillOpen] = useState(false);
+    const [viewBill, setViewBill] = useState(null);
+    const [paymentInvoice, setPaymentInvoice] = useState(null);
     const [savingBill, setSavingBill] = useState(false);
-    const [respondingId, setRespondingId] = useState('');
-    const [approveBill, setApproveBill] = useState(null);
+    const [reviewBatchId, setReviewBatchId] = useState('');
+    const [statusChangeOpen, setStatusChangeOpen] = useState(false);
+    const [statusChangeSaving, setStatusChangeSaving] = useState(false);
+    const [pendingStatusChange, setPendingStatusChange] = useState(null);
     /** Bills tab accordion: open year keeps other years visible; open month keeps other months visible */
     const [billsBrowseYear, setBillsBrowseYear] = useState(null);
     const [billsBrowseMonth, setBillsBrowseMonth] = useState(null);
@@ -135,14 +261,14 @@ function UtilityBillDetailsPageContent() {
     const [monthSort, setMonthSort] = useState('asc');
 
     const focusBillId = searchParams?.get('billId') || '';
-    const previousMonthKey = useMemo(() => previousBillMonthKey(), []);
 
     const overviewBills = useMemo(
         () =>
             (bills || [])
-                .filter((b) => billMonthKey(b) === previousMonthKey)
-                .sort((a, b) => billSortTime(b) - billSortTime(a)),
-        [bills, previousMonthKey],
+                .slice()
+                .sort((a, b) => billSortTime(b) - billSortTime(a))
+                .slice(0, 5),
+        [bills],
     );
 
     const billsByYear = useMemo(() => {
@@ -197,11 +323,30 @@ function UtilityBillDetailsPageContent() {
 
     useEffect(() => {
         if (!entryId) return;
-        const found = getUtilityEntryById(entryId);
-        setEntry(found);
-        if (found) {
-            setUtilityConfig(getUtilityConfigForType(found.type));
-        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const { entry: found, config } = await fetchUtilityEntry(entryId);
+                if (cancelled) return;
+                setEntry(found);
+                if (config) {
+                    setUtilityConfig({
+                        ...config,
+                        fields: normalizeUtilityFields(config.fields || {}),
+                    });
+                } else {
+                    setUtilityConfig(null);
+                }
+            } catch {
+                if (!cancelled) {
+                    setEntry(null);
+                    setUtilityConfig(null);
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [entryId]);
 
     const loadBills = useCallback(async () => {
@@ -224,12 +369,60 @@ function UtilityBillDetailsPageContent() {
         loadBills();
     }, [loadBills]);
 
+    const loadPendingStatusChange = useCallback(async () => {
+        if (!entryId) {
+            setPendingStatusChange(null);
+            return;
+        }
+        try {
+            const res = await axiosInstance.get('/UtilityBill/status-change', {
+                params: { entryId, status: 'Pending' },
+                skipToast: true,
+            });
+            const list = Array.isArray(res.data?.requests) ? res.data.requests : [];
+            const pending = list[0] || null;
+            setPendingStatusChange(pending);
+
+            if (pending) return;
+
+            const approvedRes = await axiosInstance.get('/UtilityBill/status-change', {
+                params: { entryId, status: 'Approved' },
+                skipToast: true,
+            });
+            const approved = (approvedRes.data?.requests || [])[0];
+            if (!approved?.requestedStatus) return;
+
+            try {
+                const { entry: local } = await fetchUtilityEntry(entryId);
+                if (!local) return;
+                if (entryLifecycleStatus(local) === approved.requestedStatus) return;
+
+                const updated = await updateUtilityEntryApi(entryId, {
+                    status: approved.requestedStatus,
+                    pendingStatusChange: null,
+                });
+                if (updated) {
+                    setEntry(updated);
+                }
+            } catch {
+                /* ignore sync */
+            }
+        } catch {
+            setPendingStatusChange(null);
+        }
+    }, [entryId]);
+
+    useEffect(() => {
+        loadPendingStatusChange();
+    }, [loadPendingStatusChange]);
+
     useEffect(() => {
         if (!focusBillId || !bills.length) return;
         const bill = bills.find((b) => String(b._id) === String(focusBillId));
         if (!bill) return;
         const ym = billMonthKey(bill);
-        if (ym && ym === previousMonthKey) {
+        const inLatestFive = overviewBills.some((b) => String(b._id) === String(focusBillId));
+        if (inLatestFive) {
             setActiveTab('overview');
         } else if (ym) {
             setActiveTab('bills');
@@ -244,7 +437,7 @@ function UtilityBillDetailsPageContent() {
                 ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 80);
         return () => window.clearTimeout(t);
-    }, [focusBillId, bills, previousMonthKey]);
+    }, [focusBillId, bills, overviewBills]);
 
     const detailRows = useMemo(
         () => (entry ? buildDetailFieldRows(entry, utilityConfig) : []),
@@ -314,76 +507,80 @@ function UtilityBillDetailsPageContent() {
 
     const entryStatus = entryLifecycleStatus(entry);
     const entryIsActive = isEntryActive(entry);
+    const targetStatus = entryIsActive ? 'Inactive' : 'Active';
+    const hasPendingStatusChange = Boolean(pendingStatusChange?._id);
 
-    const handleToggleEntryStatus = () => {
+    const openStatusChangeModal = () => {
         if (!entry?.id) return;
-        const nextStatus = entryIsActive ? 'Inactive' : 'Active';
-        const updated = updateUtilityEntry(entry.id, { status: nextStatus });
-        if (!updated) {
+        if (hasPendingStatusChange) {
             toast({
-                variant: 'destructive',
-                title: 'Could not update status',
-                description: 'Please try again.',
+                title: 'Already pending HR',
+                description: 'A status change request is waiting for HR approval.',
             });
             return;
         }
-        setEntry(updated);
-
-        const paymentDay = Number(updated?.values?.paymentDay);
-        if (Number.isInteger(paymentDay) && paymentDay >= 1 && paymentDay <= 31) {
-            axiosInstance
-                .post(
-                    '/UtilityBill/payment-day',
-                    {
-                        entryId: entry.id,
-                        paymentDay,
-                        utilityType: updated.type || '',
-                        accountNo: updated.values?.accountNumber || '',
-                        provider: updated.values?.provider || '',
-                        status: nextStatus,
-                    },
-                    { skipToast: true },
-                )
-                .catch(() => {
-                    // local status still updated; reminder sync best-effort
-                });
-        }
-
-        toast({
-            title: nextStatus === 'Active' ? 'Activated' : 'Deactivated',
-            description:
-                nextStatus === 'Active'
-                    ? 'This utility record is active again. Payment-day reminders resume for HR.'
-                    : 'This utility record is inactive — excluded from Add Bills and payment reminders.',
-        });
+        setStatusChangeOpen(true);
     };
 
-    const handleRespond = async (billId, decision, paymentBy = null) => {
-        setRespondingId(billId);
+    const handleSubmitStatusChange = async ({ reason, attachment, requestedStatus }) => {
+        if (!entry?.id) return;
+        setStatusChangeSaving(true);
         try {
-            const body = { decision };
-            if (decision === 'approve') body.paymentBy = paymentBy;
-            await axiosInstance.put(`/UtilityBill/${billId}/respond`, body);
-            toast({
-                title: decision === 'approve' ? 'Approved' : 'Rejected',
-                description:
-                    decision === 'approve'
-                        ? 'Bill stored. Task completed on dashboard.'
-                        : 'Bill deleted. Requester was emailed.',
+            const res = await axiosInstance.post('/UtilityBill/status-change', {
+                entryId: entry.id,
+                utilityType: entry.type || '',
+                accountNo: entry.values?.accountNumber || '',
+                provider: entry.values?.provider || '',
+                currentStatus: entryStatus,
+                requestedStatus,
+                reason,
+                attachment,
             });
-            setApproveBill(null);
+            const request = res.data?.request || null;
+            try {
+                await updateUtilityEntryApi(entry.id, {
+                    pendingStatusChange: request
+                        ? {
+                              requestId: request._id,
+                              requestedStatus: request.requestedStatus,
+                              reason: request.reason,
+                              requestedAt: request.createdAt,
+                          }
+                        : null,
+                });
+            } catch {
+                /* non-fatal */
+            }
+            setPendingStatusChange(request);
+            setStatusChangeOpen(false);
             invalidateAssetPendingInbox('tools');
             clearModuleNotificationFeedsCache();
-            await loadBills();
+            toast({
+                title: 'Sent to HR',
+                description:
+                    res.data?.message ||
+                    'Activation/deactivation request emailed to HR with a dashboard task.',
+            });
         } catch (err) {
             toast({
                 variant: 'destructive',
-                title: 'Action failed',
+                title: 'Could not submit request',
                 description: err?.response?.data?.message || 'Please try again.',
             });
         } finally {
-            setRespondingId('');
+            setStatusChangeSaving(false);
         }
+    };
+
+    const openBillReview = (bill) => {
+        const id = bill?.batchId || bill?._id;
+        if (!id) return;
+        setViewBill(null);
+        setReviewBatchId(String(id));
+    };
+
+    const closeBillReview = () => {
+        setReviewBatchId('');
     };
 
     const renderDetailFields = () => {
@@ -504,21 +701,11 @@ function UtilityBillDetailsPageContent() {
                         const isPaid = bill.status === 'Paid';
                         const canPay = Boolean(bill.canPay);
                         const canApproveReject = Boolean(bill.canApproveReject);
-                        const showBatchAction =
-                            Boolean(bill.batchId) &&
-                            (canPay ||
-                                canApproveReject ||
-                                [
-                                    'Pending Accounts',
-                                    'Pending HR',
-                                    'Approved',
-                                ].includes(String(bill.status)));
+                        const actionBatchId = bill.batchId || bill._id;
+                        const showApprove = Boolean(canApproveReject && actionBatchId);
+                        const showPay = Boolean(canPay && actionBatchId);
                         const statusText = billDisplayStatus(bill);
-                        const actionLabel = canPay
-                            ? 'Pay'
-                            : canApproveReject
-                              ? 'Review'
-                              : 'View';
+                        const openBatchReview = () => openBillReview(bill);
 
                         // Subtle side border indicator class and glowing status dot
                         let statusLBorder = 'border-l-gray-300';
@@ -657,23 +844,57 @@ function UtilityBillDetailsPageContent() {
                                             </>
                                         ) : ''}
                                     </span>
-                                    {showBatchAction ? (
+                                    <div className="inline-flex items-center gap-1.5 shrink-0">
                                         <button
                                             type="button"
-                                            onClick={() =>
-                                                router.push(
-                                                    `/HRM/Asset/UtilityBills?batchId=${encodeURIComponent(String(bill.batchId))}&review=1`,
-                                                )
-                                            }
-                                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-md text-white text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98] ${
-                                                canPay
-                                                    ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100/50'
-                                                    : 'bg-teal-500 hover:bg-teal-600 shadow-teal-100/50'
-                                            }`}
+                                            onClick={() => setViewBill(bill)}
+                                            className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold shadow-sm shadow-teal-100/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
                                         >
-                                            {actionLabel}
+                                            View
                                         </button>
-                                    ) : null}
+                                        {(isNotPaid || isPaid) ? (
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const { payment, error } =
+                                                        await loadUtilityBillPaymentInvoice(bill);
+                                                    if (!payment) {
+                                                        toast({
+                                                            variant: 'destructive',
+                                                            title: 'Payment invoice',
+                                                            description:
+                                                                error ||
+                                                                'Could not open payment invoice.',
+                                                        });
+                                                        return;
+                                                    }
+                                                    setPaymentInvoice(payment);
+                                                }}
+                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                                title="Open payment receipt from Accounts → Payments"
+                                            >
+                                                Invoice
+                                            </button>
+                                        ) : null}
+                                        {showApprove ? (
+                                            <button
+                                                type="button"
+                                                onClick={openBatchReview}
+                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold shadow-sm shadow-sky-100/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                            >
+                                                Approve
+                                            </button>
+                                        ) : null}
+                                        {showPay ? (
+                                            <button
+                                                type="button"
+                                                onClick={openBatchReview}
+                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm shadow-amber-100/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                            >
+                                                Pay
+                                            </button>
+                                        ) : null}
+                                    </div>
                                 </div>
                             </div>
                         );
@@ -745,9 +966,9 @@ function UtilityBillDetailsPageContent() {
 
         return (
             <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3 shrink-0">
-                    <p className="text-xs sm:text-sm font-medium text-gray-500">
-                        Years · expand one to see months
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5 shrink-0">
+                    <p className="text-xs sm:text-sm font-medium text-slate-500">
+                        Years · expand to browse months
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                         {renderSortToggle(yearSort, setYearSort, 'ASC', 'DESC')}
@@ -761,44 +982,64 @@ function UtilityBillDetailsPageContent() {
                         No bill months found.
                     </div>
                 ) : (
-                    <div className="space-y-2 overflow-y-auto flex-1 min-h-0 pr-1 overscroll-contain">
+                    <div className="space-y-2.5 overflow-y-auto flex-1 min-h-0 pr-1 overscroll-contain">
                         {billsByYear.map(([year, yearBills]) => {
                             const yearOpen = Number(billsBrowseYear) === Number(year);
                             const monthEntries = monthsByYear.get(year) || [];
+                            const yearSummary = summarizeBillGroup(yearBills);
                             return (
                                 <div
                                     key={year}
-                                    className={`rounded-xl border bg-white shadow-sm overflow-hidden transition-[border-color,box-shadow] duration-300 ease-out ${
+                                    className={`group/year rounded-2xl border bg-white overflow-hidden transition-[border-color,box-shadow,background-color] duration-300 ease-out ${
                                         yearOpen
-                                            ? 'border-teal-200 ring-1 ring-teal-100'
-                                            : 'border-gray-200 ring-0'
+                                            ? 'border-teal-300/80 shadow-[0_8px_24px_-12px_rgba(13,148,136,0.35)]'
+                                            : 'border-slate-200/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-slate-300 hover:shadow-[0_6px_18px_-12px_rgba(15,23,42,0.18)]'
                                     }`}
                                 >
                                     <button
                                         type="button"
                                         onClick={() => toggleBrowseYear(year)}
-                                        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-teal-50/40 transition-colors duration-200"
+                                        className={`relative w-full flex items-center gap-3 sm:gap-5 px-4 sm:px-5 py-3.5 sm:py-4 text-left transition-colors duration-200 ${
+                                            yearOpen
+                                                ? 'bg-gradient-to-r from-teal-50/90 via-white to-white'
+                                                : 'hover:bg-slate-50/80'
+                                        }`}
                                     >
-                                        <div className="min-w-0">
-                                            <p className="text-sm sm:text-base font-bold text-gray-800">
+                                        <span
+                                            className={`absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full transition-colors duration-300 ${
+                                                yearOpen
+                                                    ? 'bg-teal-500'
+                                                    : 'bg-transparent group-hover/year:bg-slate-300'
+                                            }`}
+                                            aria-hidden
+                                        />
+                                        <div className="min-w-0 shrink-0 w-[6rem] sm:w-[8rem]">
+                                            <p className="text-lg sm:text-xl font-semibold tracking-tight text-slate-900">
                                                 {year}
                                             </p>
-                                            <p className="text-xs text-gray-500 mt-0.5">
-                                                {yearBills.length}{' '}
-                                                {yearBills.length === 1 ? 'bill' : 'bills'}
-                                                {monthEntries.length
-                                                    ? ` · ${monthEntries.length} mo`
+                                            <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5 tabular-nums">
+                                                {yearSummary.billCount}{' '}
+                                                {yearSummary.billCount === 1 ? 'bill' : 'bills'}
+                                                {yearSummary.monthCount
+                                                    ? ` · ${yearSummary.monthCount} mo`
                                                     : ''}
                                             </p>
                                         </div>
-                                        <ChevronDown
-                                            size={16}
-                                            className={`shrink-0 transition-transform duration-300 ease-out ${
+                                        <BillGroupSummaryStats summary={yearSummary} />
+                                        <span
+                                            className={`shrink-0 inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200 ${
                                                 yearOpen
-                                                    ? 'rotate-0 text-teal-600'
-                                                    : '-rotate-90 text-gray-400'
+                                                    ? 'bg-teal-100 text-teal-700'
+                                                    : 'bg-slate-100 text-slate-400 group-hover/year:bg-slate-200/80 group-hover/year:text-slate-600'
                                             }`}
-                                        />
+                                        >
+                                            <ChevronDown
+                                                size={16}
+                                                className={`transition-transform duration-300 ease-out ${
+                                                    yearOpen ? 'rotate-0' : '-rotate-90'
+                                                }`}
+                                            />
+                                        </span>
                                     </button>
 
                                     <div
@@ -809,7 +1050,7 @@ function UtilityBillDetailsPageContent() {
                                         }`}
                                     >
                                         <div className="min-h-0 overflow-hidden">
-                                            <div className="border-t border-gray-100 bg-gray-50/60 px-2 py-2 space-y-1.5">
+                                            <div className="border-t border-slate-100/90 bg-slate-50/70 px-2.5 sm:px-3 py-2.5 space-y-2">
                                                 {monthEntries.length === 0 ? (
                                                     <p className="text-xs sm:text-sm text-gray-500 px-2 py-3 text-center">
                                                         No months for this year.
@@ -817,6 +1058,8 @@ function UtilityBillDetailsPageContent() {
                                                 ) : (
                                                     monthEntries.map(([ym, monthBills]) => {
                                                         const monthOpen = billsBrowseMonth === ym;
+                                                        const monthSummary =
+                                                            summarizeBillGroup(monthBills);
                                                         const monthBillList = monthOpen
                                                             ? billsForBrowseMonth
                                                             : [...monthBills].sort(
@@ -827,10 +1070,10 @@ function UtilityBillDetailsPageContent() {
                                                         return (
                                                             <div
                                                                 key={ym}
-                                                                className={`rounded-lg border bg-white overflow-hidden transition-[border-color] duration-300 ease-out ${
+                                                                className={`group/month rounded-xl border bg-white overflow-hidden transition-[border-color,box-shadow] duration-300 ease-out ${
                                                                     monthOpen
-                                                                        ? 'border-teal-200'
-                                                                        : 'border-gray-200'
+                                                                        ? 'border-teal-200 shadow-sm'
+                                                                        : 'border-slate-200/80 hover:border-slate-300'
                                                                 }`}
                                                             >
                                                                 <button
@@ -838,30 +1081,46 @@ function UtilityBillDetailsPageContent() {
                                                                     onClick={() =>
                                                                         toggleBrowseMonth(ym)
                                                                     }
-                                                                    className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-teal-50/50 transition-colors duration-200"
+                                                                    className={`w-full flex items-center gap-3 sm:gap-4 px-3.5 sm:px-4 py-2.5 sm:py-3 text-left transition-colors duration-200 ${
+                                                                        monthOpen
+                                                                            ? 'bg-teal-50/40'
+                                                                            : 'hover:bg-slate-50/90'
+                                                                    }`}
                                                                 >
-                                                                    <div className="min-w-0">
-                                                                        <p className="text-sm font-bold text-gray-800">
+                                                                    <div className="min-w-0 shrink-0 w-[4.75rem] sm:w-[6rem]">
+                                                                        <p className="text-sm font-semibold text-slate-900">
                                                                             {monthLabelFromKey(ym, {
                                                                                 shortOnly: true,
                                                                             })}
                                                                         </p>
-                                                                        <p className="text-xs text-gray-500 mt-0.5">
-                                                                            {monthBills.length}{' '}
-                                                                            {monthBills.length ===
+                                                                        <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
+                                                                            {monthSummary.billCount}{' '}
+                                                                            {monthSummary.billCount ===
                                                                             1
                                                                                 ? 'bill'
                                                                                 : 'bills'}
                                                                         </p>
                                                                     </div>
-                                                                    <ChevronDown
-                                                                        size={14}
-                                                                        className={`shrink-0 transition-transform duration-300 ease-out ${
-                                                                            monthOpen
-                                                                                ? 'rotate-0 text-teal-600'
-                                                                                : '-rotate-90 text-gray-400'
-                                                                        }`}
+                                                                    <BillGroupSummaryStats
+                                                                        summary={monthSummary}
+                                                                        compact
                                                                     />
+                                                                    <span
+                                                                        className={`shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors duration-200 ${
+                                                                            monthOpen
+                                                                                ? 'bg-teal-100 text-teal-700'
+                                                                                : 'bg-slate-100 text-slate-400 group-hover/month:text-slate-600'
+                                                                        }`}
+                                                                    >
+                                                                        <ChevronDown
+                                                                            size={14}
+                                                                            className={`transition-transform duration-300 ease-out ${
+                                                                                monthOpen
+                                                                                    ? 'rotate-0'
+                                                                                    : '-rotate-90'
+                                                                            }`}
+                                                                        />
+                                                                    </span>
                                                                 </button>
                                                                 <div
                                                                     className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
@@ -871,7 +1130,7 @@ function UtilityBillDetailsPageContent() {
                                                                     }`}
                                                                 >
                                                                     <div className="min-h-0 overflow-hidden">
-                                                                        <div className="border-t border-gray-100 px-2 py-2 max-h-[320px] overflow-y-auto">
+                                                                        <div className="border-t border-slate-100 px-2 py-2 max-h-[320px] overflow-y-auto">
                                                                             {renderBillsList(
                                                                                 monthBillList,
                                                                                 'No bills for this month.',
@@ -939,6 +1198,14 @@ function UtilityBillDetailsPageContent() {
                                 >
                                     {entryStatus}
                                 </span>
+                                {hasPendingStatusChange ? (
+                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-50 text-amber-700 border-amber-200">
+                                        Pending{' '}
+                                        {pendingStatusChange?.requestedStatus === 'Active'
+                                            ? 'activation'
+                                            : 'deactivation'}
+                                    </span>
+                                ) : null}
                             </h1>
                             <p className="text-sm sm:text-base text-gray-600">
                                 {entry.assignedTo
@@ -948,14 +1215,23 @@ function UtilityBillDetailsPageContent() {
                         </div>
                         <button
                             type="button"
-                            onClick={handleToggleEntryStatus}
-                            className={`px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium text-xs sm:text-sm border shadow-sm whitespace-nowrap shrink-0 ${
+                            onClick={openStatusChangeModal}
+                            disabled={hasPendingStatusChange}
+                            className={`px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium text-xs sm:text-sm border shadow-sm whitespace-nowrap shrink-0 disabled:opacity-60 disabled:cursor-not-allowed ${
                                 entryIsActive
                                     ? 'bg-white hover:bg-teal-50 text-teal-700 border-teal-200'
                                     : 'bg-teal-500 hover:bg-teal-600 text-white border-teal-500'
                             }`}
                         >
-                            {entryIsActive ? 'Deactivate' : 'Activate'}
+                            {hasPendingStatusChange
+                                ? `Pending ${
+                                      pendingStatusChange?.requestedStatus === 'Active'
+                                          ? 'activation'
+                                          : 'deactivation'
+                                  }`
+                                : entryIsActive
+                                  ? 'Deactivate'
+                                  : 'Activate'}
                         </button>
                     </div>
 
@@ -972,13 +1248,13 @@ function UtilityBillDetailsPageContent() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-4 sm:gap-6 lg:gap-10 mb-4 sm:mb-6 lg:mb-8 border-b border-gray-200 px-1 sm:px-2 overflow-x-auto">
+                    <div className="flex items-center gap-3 sm:gap-5 lg:gap-8 mb-4 sm:mb-6 lg:mb-8 border-b border-gray-200 px-1 sm:px-2 overflow-x-auto">
                         {tabs.map((tab) => (
                             <button
                                 key={tab.id}
                                 type="button"
                                 onClick={() => setActiveTab(tab.id)}
-                                className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative whitespace-nowrap ${
+                                className={`pb-2 sm:pb-3 text-xs sm:text-sm font-semibold transition-all relative whitespace-nowrap ${
                                     activeTab === tab.id
                                         ? 'text-blue-600'
                                         : 'text-gray-400 hover:text-gray-600'
@@ -986,7 +1262,7 @@ function UtilityBillDetailsPageContent() {
                             >
                                 {tab.label}
                                 {activeTab === tab.id ? (
-                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-600 rounded-t-full shadow-[0_-2px_8px_rgba(37,99,235,0.3)]" />
+                                    <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
                                 ) : null}
                             </button>
                         ))}
@@ -998,7 +1274,7 @@ function UtilityBillDetailsPageContent() {
                                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden h-full">
                                     <div className="px-4 sm:px-5 py-3 sm:py-4 flex items-center justify-between gap-3 border-b border-gray-100">
                                         <div className="flex items-center gap-2 min-w-0">
-                                            <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest truncate">
+                                            <h3 className="text-[10px] sm:text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em] truncate">
                                                 {entry.type} Details
                                             </h3>
                                             <span
@@ -1009,14 +1285,19 @@ function UtilityBillDetailsPageContent() {
                                         </div>
                                         <button
                                             type="button"
-                                            onClick={handleToggleEntryStatus}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border shadow-sm shrink-0 ${
+                                            onClick={openStatusChangeModal}
+                                            disabled={hasPendingStatusChange}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border shadow-sm shrink-0 disabled:opacity-60 disabled:cursor-not-allowed ${
                                                 entryIsActive
                                                     ? 'bg-white hover:bg-teal-50 text-teal-700 border-teal-200'
                                                     : 'bg-teal-500 hover:bg-teal-600 text-white border-teal-500'
                                             }`}
                                         >
-                                            {entryIsActive ? 'Deactivate' : 'Activate'}
+                                            {hasPendingStatusChange
+                                                ? 'Pending HR'
+                                                : entryIsActive
+                                                  ? 'Deactivate'
+                                                  : 'Activate'}
                                         </button>
                                     </div>
                                     {renderDetailFields()}
@@ -1025,12 +1306,10 @@ function UtilityBillDetailsPageContent() {
                             {/* Absolute fill so bills match left card height and scroll instead of growing the page */}
                             <div className={`${DETAIL_PAIR_COLUMN} relative min-h-[320px] lg:min-h-0`}>
                                 <div className="flex flex-col min-h-0 max-h-[420px] lg:max-h-none lg:absolute lg:inset-0">
-                                    {renderBillsHeader(
-                                        `Bills · ${monthLabelFromKey(previousMonthKey)}`,
-                                    )}
+                                    {renderBillsHeader('Latest Bills')}
                                     {renderBillsList(
                                         overviewBills,
-                                        `No bills for ${monthLabelFromKey(previousMonthKey)}. Open the Bills tab for earlier months.`,
+                                        'No bills yet. Click Add Bills to create one.',
                                     )}
                                 </div>
                             </div>
@@ -1063,14 +1342,39 @@ function UtilityBillDetailsPageContent() {
                 saving={savingBill}
             />
 
-            <HrApproveBillModal
-                isOpen={Boolean(approveBill)}
-                onClose={() => setApproveBill(null)}
-                bill={approveBill}
-                saving={Boolean(approveBill && respondingId === approveBill._id)}
-                onConfirm={({ paymentBy }) =>
-                    handleRespond(approveBill._id, 'approve', paymentBy)
-                }
+            <ViewBillModal
+                isOpen={Boolean(viewBill)}
+                onClose={() => setViewBill(null)}
+                bill={viewBill}
+                onEdit={(bill) => openBillReview(bill)}
+            />
+
+            <PaymentInvoiceViewerModal
+                payment={paymentInvoice}
+                onClose={() => setPaymentInvoice(null)}
+            />
+
+            <UtilityBillReviewModal
+                isOpen={Boolean(reviewBatchId)}
+                batchId={reviewBatchId}
+                entries={entry ? [entry] : []}
+                existingBills={bills}
+                utilityAttachment={utilityConfig?.attachment || null}
+                onClose={closeBillReview}
+                onChanged={() => {
+                    invalidateAssetPendingInbox('tools');
+                    clearModuleNotificationFeedsCache();
+                    loadBills();
+                }}
+            />
+
+            <ActivateDeactivateUtilityModal
+                isOpen={statusChangeOpen}
+                onClose={() => setStatusChangeOpen(false)}
+                entry={entry}
+                targetStatus={targetStatus}
+                onSubmit={handleSubmitStatusChange}
+                saving={statusChangeSaving}
             />
         </div>
     );

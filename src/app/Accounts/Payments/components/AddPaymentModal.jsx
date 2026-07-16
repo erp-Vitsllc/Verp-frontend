@@ -73,13 +73,17 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             if (prefillAppliedKeyRef.current === key) return;
             prefillAppliedKeyRef.current = key;
             setPaymentType('UtilityBill');
-            setUtilityBills(prefill.utilityBills);
-            const first = prefill.utilityBills[0];
+            // Checkboxes in payment: default selected unless prefill marks selected:false
+            const billsWithSelect = prefill.utilityBills.map((b) => ({
+                ...b,
+                selected: b.selected !== false,
+            }));
+            setUtilityBills(billsWithSelect);
+            const first = billsWithSelect.find((b) => b.selected) || billsWithSelect[0];
             setSelectedEntity(first);
-            const totalBalance = prefill.utilityBills.reduce(
-                (sum, b) => sum + (parseFloat(b.balance) || 0),
-                0,
-            );
+            const totalBalance = billsWithSelect
+                .filter((b) => b.selected)
+                .reduce((sum, b) => sum + (parseFloat(b.balance) || 0), 0);
             setPaymentAmount(totalBalance.toFixed(2));
             setPaymentSource(prefill.paymentSource || 'Cash');
             return;
@@ -416,10 +420,13 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         : Math.max(0, employeeShare - totalPaid);
 
     const bulkFinesTotalBalance = bulkFines.reduce((sum, f) => sum + (parseFloat(f.balance) || 0), 0);
-    const utilityBillsTotalBalance = utilityBills.reduce(
+    const selectedUtilityBills = utilityBills.filter((b) => b.selected);
+    const utilityBillsTotalBalance = selectedUtilityBills.reduce(
         (sum, b) => sum + (parseFloat(b.balance) || 0),
         0,
     );
+    const allUtilityBillsSelected =
+        utilityBills.length > 0 && selectedUtilityBills.length === utilityBills.length;
     const isBulkFinePayment = paymentType === 'Fine' && bulkFines.length > 0;
     const isUtilityBillPayment = paymentType === 'UtilityBill' && utilityBills.length > 0;
     const activeRemainingAmount = isUtilityBillPayment
@@ -427,6 +434,18 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         : isBulkFinePayment
           ? bulkFinesTotalBalance
           : remainingAmount;
+
+    const setUtilityBillSelected = (billId, checked) => {
+        setUtilityBills((prev) =>
+            prev.map((b) =>
+                String(b._id) === String(billId) ? { ...b, selected: checked } : b,
+            ),
+        );
+    };
+
+    const setAllUtilityBillsSelected = (checked) => {
+        setUtilityBills((prev) => prev.map((b) => ({ ...b, selected: checked })));
+    };
 
     useEffect(() => {
         // Don't fight the user while a submit is in flight (was contributing to freeze loops)
@@ -623,7 +642,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     status: 'Completed',
                     description:
                         type === 'UtilityBill'
-                            ? `Utility bill payment · ${prefill?.utilityType || ''} ${prefill?.billMonth || ''} · Acc ${fineOrLoan.accountNo || ''}`.trim()
+                            ? `Utility bill payment · ${prefill?.utilityType || ''} ${prefill?.billMonth || ''} · ${fineOrLoan.accountNo || ''}`.trim()
                             : `Payment for ${entityRef}`,
                     referenceId: entityRef,
                     relatedEntityType:
@@ -645,22 +664,37 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             };
 
             if (isUtilityBillPayment) {
-                let remainingPay = parseFloat(paymentAmount);
-                let attachedOnce = false;
-                for (const bill of utilityBills) {
-                    if (remainingPay <= 0) break;
-                    const billBalance = parseFloat(bill.balance) || 0;
-                    if (billBalance <= 0) continue;
-                    const payAmt = Math.min(billBalance, remainingPay);
-                    await submitSinglePayment(bill, payAmt, 'UtilityBill', {
-                        includeAttachment: Boolean(attachment) && !attachedOnce,
+                // One grouped payment for checked rows; unchecked stay Approved (pending pay)
+                const checkedBills = utilityBills.filter((b) => b.selected);
+                if (!checkedBills.length) {
+                    toast({
+                        title: 'Validation Error',
+                        description: 'Select at least one utility bill to pay.',
+                        variant: 'destructive',
                     });
-                    attachedOnce = true;
-                    remainingPay -= payAmt;
+                    setLoading(false);
+                    return;
                 }
-                // Mark selected utility bills Paid in the Utility Bill workflow
+                const payAmt = parseFloat(paymentAmount);
+                const accounts = checkedBills
+                    .map((b) => b.accountNo)
+                    .filter(Boolean)
+                    .join(', ');
+                const first = checkedBills[0];
+                await submitSinglePayment(
+                    {
+                        ...first,
+                        referenceId: prefill?.batchId || first.referenceId || first._id,
+                        accountNo: accounts
+                            ? `${checkedBills.length} bill(s) · Acc ${accounts}`
+                            : `${checkedBills.length} bill(s)`,
+                    },
+                    payAmt,
+                    'UtilityBill',
+                    { includeAttachment: Boolean(attachment) },
+                );
                 if (prefill?.batchId) {
-                    const billIds = utilityBills.map((b) => b._id).filter(Boolean);
+                    const billIds = checkedBills.map((b) => b._id).filter(Boolean);
                     await axiosInstance.put(`/UtilityBill/batch/${prefill.batchId}/pay`, {
                         billIds,
                     });
@@ -682,7 +716,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             toast({
                 title: "Success",
                 description: isUtilityBillPayment
-                    ? "Utility bill payment recorded and marked paid"
+                    ? "Utility bill payment recorded for selected rows"
                     : isBulkFinePayment
                       ? "Payments recorded successfully for selected fines"
                       : "Payment recorded successfully",
@@ -808,19 +842,39 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     {isUtilityBillPayment && (
                         <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Selected Utility Bills
-                                {prefill?.utilityType || prefill?.billMonth ? (
-                                    <span className="ml-2 text-xs font-normal text-gray-500">
-                                        {[prefill?.utilityType, prefill?.billMonth]
-                                            .filter(Boolean)
-                                            .join(' · ')}
-                                    </span>
-                                ) : null}
+                                Utility Bills
+                                <span className="ml-2 text-xs font-normal text-gray-500">
+                                    {[prefill?.utilityType, prefill?.billMonth].filter(Boolean).join(' · ')}
+                                    {utilityBills.length
+                                        ? ` · ${selectedUtilityBills.length}/${utilityBills.length} selected`
+                                        : ''}
+                                </span>
                             </label>
+                            <p className="text-xs text-gray-500 mb-2">
+                                One payment for checked rows. Unchecked bills stay pending for Accounts.
+                            </p>
                             <div className="border border-gray-200 rounded-xl overflow-hidden">
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                                         <tr>
+                                            <th className="w-10 px-3 py-2">
+                                                <input
+                                                    type="checkbox"
+                                                    className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                                                    checked={allUtilityBillsSelected}
+                                                    ref={(el) => {
+                                                        if (el) {
+                                                            el.indeterminate =
+                                                                selectedUtilityBills.length > 0 &&
+                                                                !allUtilityBillsSelected;
+                                                        }
+                                                    }}
+                                                    onChange={(e) =>
+                                                        setAllUtilityBillsSelected(e.target.checked)
+                                                    }
+                                                    aria-label="Select all utility bills"
+                                                />
+                                            </th>
                                             <th className="text-left px-4 py-2">Account</th>
                                             <th className="text-right px-4 py-2">Contract</th>
                                             <th className="text-right px-4 py-2">Actual</th>
@@ -833,8 +887,24 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         {utilityBills.map((bill) => (
                                             <tr
                                                 key={bill._id || bill.accountNo}
-                                                className="border-t border-gray-100"
+                                                className={`border-t border-gray-100 ${
+                                                    bill.selected ? 'bg-white' : 'bg-gray-50/80 opacity-70'
+                                                }`}
                                             >
+                                                <td className="px-3 py-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                                                        checked={Boolean(bill.selected)}
+                                                        onChange={(e) =>
+                                                            setUtilityBillSelected(
+                                                                bill._id,
+                                                                e.target.checked,
+                                                            )
+                                                        }
+                                                        aria-label={`Select account ${bill.accountNo || bill._id}`}
+                                                    />
+                                                </td>
                                                 <td className="px-4 py-3 font-semibold text-gray-800">
                                                     <span className="tabular-nums">
                                                         {bill.accountNo || '—'}
@@ -873,8 +943,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     </tbody>
                                     <tfoot className="bg-emerald-50 border-t border-emerald-100">
                                         <tr>
-                                            <td colSpan={5} className="px-4 py-3 font-bold text-gray-700">
-                                                Total to pay
+                                            <td colSpan={6} className="px-4 py-3 font-bold text-gray-700">
+                                                Total to pay ({selectedUtilityBills.length} bill
+                                                {selectedUtilityBills.length === 1 ? '' : 's'})
                                             </td>
                                             <td className="px-4 py-3 text-right font-black text-emerald-700">
                                                 AED {utilityBillsTotalBalance.toFixed(2)}

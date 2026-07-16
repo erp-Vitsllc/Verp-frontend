@@ -19,17 +19,36 @@ export default function CertificateEditModal({ isOpen, onClose, onSuccess, initi
 
     useEffect(() => {
         if (isOpen && initialData) {
-            const existingName = initialData.certSigner1Name || 'Nivil Ali';
-            const existingTitle = initialData.certSigner1Title || 'Managing Director';
+            const PLACEHOLDER_NAME = 'Nivil Ali';
+            const PLACEHOLDER_TITLE = 'Managing Director';
+            let existingName = initialData.certSigner1Name || '';
+            let existingTitle = initialData.certSigner1Title || '';
 
-            setSigner1Name(existingName);
-            setSigner1Title(existingTitle);
+            // Resolve designation from employee list when title is missing/placeholder
+            const nameLower = (existingName || '').trim().toLowerCase();
+            const matched = Array.isArray(employees)
+                ? employees.find((e) => {
+                    const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
+                    return nameLower && full === nameLower;
+                })
+                : null;
+
+            if (matched) {
+                setSigner1Id(matched.employeeId || '');
+                if (!existingName || existingName === PLACEHOLDER_NAME) {
+                    existingName = `${matched.firstName || ''} ${matched.lastName || ''}`.trim();
+                }
+                const liveTitle = (matched.designation || matched.role || '').trim();
+                if (liveTitle && (!existingTitle || existingTitle === PLACEHOLDER_TITLE)) {
+                    existingTitle = liveTitle;
+                }
+            }
+
+            setSigner1Name(existingName || PLACEHOLDER_NAME);
+            setSigner1Title(existingTitle || PLACEHOLDER_TITLE);
             setResubmitComment('');
-
-            // We verify if existing name matches an employee to pre-select dropdown (optional but nice)
-            // For now, we just set the text values.
         }
-    }, [isOpen, initialData]);
+    }, [isOpen, initialData, employees]);
 
     const handleEmployeeChange = (e) => {
         const empId = e.target.value;

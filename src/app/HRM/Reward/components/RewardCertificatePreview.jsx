@@ -64,9 +64,11 @@ export default function RewardCertificatePreview({
     showDownloadButton = true,
 }) {
     const typeLower = String(rewardType || '').toLowerCase();
+    const displayRewardType = String(rewardType || '').trim();
     const showGift = typeLower.includes('gift') && giftName;
     const showAmount =
-        (typeLower.includes('cash') || typeLower.includes('gift') || typeLower.includes('bonus')) &&
+        !typeLower.includes('cash') &&
+        (typeLower.includes('gift') || typeLower.includes('bonus')) &&
         amount != null &&
         amount !== '';
 
@@ -143,6 +145,14 @@ export default function RewardCertificatePreview({
                             {title || ''}
                         </p>
                         <div className="mt-2 space-y-1">
+                            {displayRewardType ? (
+                                <p
+                                    className="text-lg font-medium text-[#1a2e35]"
+                                    style={{ fontFamily: '"Montserrat", sans-serif' }}
+                                >
+                                    {displayRewardType}
+                                </p>
+                            ) : null}
                             {showGift ? (
                                 <p
                                     className="text-lg font-medium text-[#1a2e35]"

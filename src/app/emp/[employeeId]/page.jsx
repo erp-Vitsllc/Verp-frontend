@@ -114,6 +114,7 @@ import {
 } from '@/utils/employeeActivationSections';
 import { cardDeletedProgressToast } from '@/utils/cardDeletedNotifications';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
+import { isRewardVisibleOnEmployeeProfile } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { toast } from '@/hooks/use-toast';
@@ -9056,8 +9057,8 @@ function EmployeeProfilePageContent() {
             text: `Total Fines: ${fineCount}`
         });
 
-        // 3. Total Rewards
-        const rewardCount = employee?.rewards?.length || 0;
+        // 3. Total Rewards (Approved / Paid / Not Paid only — same as Salary → Rewards tab)
+        const rewardCount = (employee?.rewards || []).filter(isRewardVisibleOnEmployeeProfile).length;
         statusItems.push({
             type: 'reward',
             text: `Total Rewards: ${rewardCount}`

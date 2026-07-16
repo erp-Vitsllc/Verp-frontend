@@ -6,11 +6,10 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { isAdmin } from '@/utils/permissions';
 import { UTILITY_TOGGLE_FIELDS } from './AddUtilityModal';
 import {
-    addUtilityProvider,
-    isUtilityProviderInUse,
-    loadUtilityProviders,
-    removeUtilityProvider,
-} from '../utils/utilityBillsStorage';
+    addUtilityProviderApi,
+    fetchUtilityProvidersApi,
+    removeUtilityProviderApi,
+} from '../utils/utilityBillsApi';
 
 const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024;
 
@@ -96,13 +95,24 @@ export default function CreateUtilityEntryModal({
 
     useEffect(() => {
         if (!isOpen) return;
+        let cancelled = false;
         setValues(emptyValuesForFields(enabledKeys));
         setAttachment(null);
-        setProviders(loadUtilityProviders());
         setShowAddProvider(false);
         setProviderMenuOpen(false);
         setNewProviderName('');
         setError('');
+        (async () => {
+            try {
+                const list = await fetchUtilityProvidersApi();
+                if (!cancelled) setProviders(list);
+            } catch {
+                if (!cancelled) setProviders([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- enabledKeysKey tracks enabledKeys
     }, [isOpen, utilityType, enabledKeysKey, attachmentEnabled]);
 
@@ -119,30 +129,35 @@ export default function CreateUtilityEntryModal({
 
     if (!isOpen) return null;
 
-    const handleAddProvider = () => {
-        const result = addUtilityProvider(newProviderName);
-        if (!result.ok) {
-            setError(result.message);
+    const handleAddProvider = async () => {
+        const name = String(newProviderName || '').trim();
+        if (!name) {
+            setError('Enter a provider name.');
             return;
         }
-        setProviders(result.providers);
-        setField('provider', String(newProviderName).trim());
-        setNewProviderName('');
-        setShowAddProvider(false);
-        setError('');
+        try {
+            const result = await addUtilityProviderApi(name);
+            setProviders(result.providers);
+            setField('provider', name);
+            setNewProviderName('');
+            setShowAddProvider(false);
+            setError('');
+        } catch (err) {
+            setError(err?.response?.data?.message || 'Could not add provider.');
+        }
     };
 
-    const handleRemoveProvider = (name) => {
-        const result = removeUtilityProvider(name);
-        if (!result.ok) {
-            setError(result.message);
-            return;
+    const handleRemoveProvider = async (name) => {
+        try {
+            const result = await removeUtilityProviderApi(name);
+            setProviders(result.providers);
+            if (String(values.provider || '').toLowerCase() === String(name).toLowerCase()) {
+                setField('provider', '');
+            }
+            setError('');
+        } catch (err) {
+            setError(err?.response?.data?.message || 'Could not remove provider.');
         }
-        setProviders(result.providers);
-        if (String(values.provider || '').toLowerCase() === String(name).toLowerCase()) {
-            setField('provider', '');
-        }
-        setError('');
     };
 
     const selectProvider = (name) => {
@@ -159,6 +174,13 @@ export default function CreateUtilityEntryModal({
         const file = e.target.files?.[0];
         e.target.value = '';
         if (!file) return;
+        const isPdf =
+            file.type === 'application/pdf' ||
+            file.name.toLowerCase().endsWith('.pdf');
+        if (!isPdf) {
+            setError('Only PDF files are allowed for bill attachment.');
+            return;
+        }
         if (file.size > MAX_ATTACHMENT_BYTES) {
             setError('Attachment must be 1.5 MB or smaller.');
             return;
@@ -167,7 +189,7 @@ export default function CreateUtilityEntryModal({
             const dataUrl = await readFileAsDataUrl(file);
             setAttachment({
                 name: file.name,
-                mime: file.type || 'application/octet-stream',
+                mime: 'application/pdf',
                 dataUrl,
             });
             setError('');
@@ -297,7 +319,6 @@ export default function CreateUtilityEntryModal({
                                 <ul className="max-h-48 overflow-y-auto">
                                     {sortedProviders.map((opt) => {
                                         const selected = selectedProvider === opt;
-                                        const inUse = isUtilityProviderInUse(opt);
                                         return (
                                             <li
                                                 key={opt}
@@ -317,17 +338,12 @@ export default function CreateUtilityEntryModal({
                                                 {canManageProviders ? (
                                                     <button
                                                         type="button"
-                                                        title={
-                                                            inUse
-                                                                ? 'In use — delete disabled'
-                                                                : 'Delete provider'
-                                                        }
-                                                        disabled={inUse}
+                                                        title="Delete provider"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleRemoveProvider(opt);
                                                         }}
-                                                        className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-xs font-semibold text-red-600 hover:bg-red-50 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                                        className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-xs font-semibold text-red-600 hover:bg-red-50 shrink-0"
                                                     >
                                                         <Trash2 size={12} />
                                                         Delete
@@ -527,6 +543,7 @@ export default function CreateUtilityEntryModal({
                                 </label>
                                 <input
                                     type="file"
+                                    accept=".pdf,application/pdf"
                                     onChange={handleAttachmentFile}
                                     className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-teal-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-teal-600"
                                 />
@@ -547,7 +564,7 @@ export default function CreateUtilityEntryModal({
                                         </button>
                                     </div>
                                 ) : (
-                                    <p className="text-xs text-gray-500">Max 1.5 MB.</p>
+                                    <p className="text-xs text-gray-500">PDF only. Max 1.5 MB.</p>
                                 )}
                             </div>
                         ) : null}

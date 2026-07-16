@@ -7,10 +7,9 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
     isEntryActive,
-    loadJsonArray,
-    UTILITY_ENTRIES_STORAGE_KEY,
-    UTILITIES_STORAGE_KEY,
 } from '../utils/utilityBillsStorage';
+import { entryIdsWithOccupiedBillForMonth } from '../utils/utilityBillStats';
+import { fetchUtilityConfigs, fetchUtilityEntries } from '../utils/utilityBillsApi';
 import { openUtilityAttachment } from '../utils/openUtilityAttachment';
 import UtilityBillTotalsBar, {
     computeRowPayTotals,
@@ -18,7 +17,10 @@ import UtilityBillTotalsBar, {
 } from './UtilityBillTotalsBar';
 import PayByChoiceModal, {
     PayByDoneSummary,
+    assignedPartyDefaults,
     isPayByComplete,
+    payByFieldsFromAssignment,
+    payByPartyLabel,
     payByShortLabel,
 } from './PayByChoiceModal';
 import { usePayByPartyOptions } from './PayByPartySelects';
@@ -42,6 +44,10 @@ function titleFromBillMonth(billMonth) {
 
 function entryAccountNo(entry) {
     return String(entry?.values?.accountNumber || '').trim() || '—';
+}
+
+function entryProvider(entry) {
+    return String(entry?.values?.provider || '').trim() || '—';
 }
 
 function entryContractAmount(entry) {
@@ -125,12 +131,17 @@ function buildReviewRows(entries, bills) {
         if (bill) {
             const attachment = bill.attachment?.name ? bill.attachment : null;
             const payBy = normalizePayBy(bill.paymentBy);
+            const assigned = assignedPartyDefaults(entry);
             return {
                 entryId: String(entry.id),
                 billId: bill._id,
                 selected: true,
                 inBatch: true,
                 accountNo: bill.accountNo || entryAccountNo(entry),
+                provider: bill.provider || entryProvider(entry),
+                assignedToType: assigned.assignedToType,
+                assignedToId: assigned.assignedToId,
+                assignedToName: assigned.assignedToName,
                 contractAmount: Number(bill.monthlyRental) || entryContractAmount(entry),
                 actualAmount: String(bill.amount ?? ''),
                 originalActualAmount: String(bill.amount ?? ''),
@@ -155,25 +166,31 @@ function buildReviewRows(entries, bills) {
                 statusLabel: bill.statusLabel,
             };
         }
+        const assigned = assignedPartyDefaults(entry);
+        const assignedPay = payByFieldsFromAssignment(entry);
         return {
             entryId: String(entry.id),
             billId: null,
             selected: false,
             inBatch: false,
             accountNo: entryAccountNo(entry),
+            provider: entryProvider(entry),
+            assignedToType: assigned.assignedToType,
+            assignedToId: assigned.assignedToId,
+            assignedToName: assigned.assignedToName,
             contractAmount: entryContractAmount(entry),
             actualAmount: '',
             originalActualAmount: '',
-            payBy: '',
+            payBy: assignedPay.payBy,
             originalPayBy: '',
             companyDiffAmount: '',
             employeeDiffAmount: '',
             originalCompanyDiffAmount: '',
             originalEmployeeDiffAmount: '',
-            payByCompanyId: '',
-            payByCompanyName: '',
-            payByEmployeeId: '',
-            payByEmployeeName: '',
+            payByCompanyId: assignedPay.payByCompanyId,
+            payByCompanyName: assignedPay.payByCompanyName,
+            payByEmployeeId: assignedPay.payByEmployeeId,
+            payByEmployeeName: assignedPay.payByEmployeeName,
             originalPayByCompanyId: '',
             originalPayByCompanyName: '',
             originalPayByEmployeeId: '',
@@ -197,6 +214,10 @@ function buildReviewRows(entries, bills) {
             selected: true,
             inBatch: true,
             accountNo: bill.accountNo || '—',
+            provider: bill.provider || '—',
+            assignedToType: '',
+            assignedToId: '',
+            assignedToName: '',
             contractAmount: Number(bill.monthlyRental) || 0,
             actualAmount: String(bill.amount ?? ''),
             originalActualAmount: String(bill.amount ?? ''),
@@ -234,6 +255,7 @@ export default function UtilityBillReviewModal({
     onClose,
     onChanged,
     entries: entriesProp = null,
+    existingBills: existingBillsProp = null,
     utilityAttachment: utilityAttachmentProp = null,
 }) {
     const { toast } = useToast();
@@ -269,10 +291,17 @@ export default function UtilityBillReviewModal({
                 setBatch(data);
 
                 const utilityType = String(data?.utilityType || '').trim();
-                const allEntries =
-                    Array.isArray(entriesProp) && entriesProp.length
-                        ? entriesProp
-                        : loadJsonArray(UTILITY_ENTRIES_STORAGE_KEY);
+                let allEntries =
+                    Array.isArray(entriesProp) && entriesProp.length ? entriesProp : [];
+                if (!allEntries.length) {
+                    try {
+                        allEntries = await fetchUtilityEntries(
+                            utilityType ? { type: utilityType } : {},
+                        );
+                    } catch {
+                        allEntries = [];
+                    }
+                }
                 const typeEntries = allEntries.filter(
                     (e) =>
                         String(e?.type || '')
@@ -282,18 +311,73 @@ export default function UtilityBillReviewModal({
 
                 let typeAttachment = utilityAttachmentProp;
                 if (!typeAttachment?.name) {
-                    const utilities = loadJsonArray(UTILITIES_STORAGE_KEY);
-                    const util = utilities.find(
-                        (u) =>
-                            String(u?.type || '')
-                                .trim()
-                                .toLowerCase() === utilityType.toLowerCase(),
-                    );
-                    typeAttachment = util?.attachment || null;
+                    try {
+                        const utilities = await fetchUtilityConfigs();
+                        const util = utilities.find(
+                            (u) =>
+                                String(u?.type || '')
+                                    .trim()
+                                    .toLowerCase() === utilityType.toLowerCase(),
+                        );
+                        typeAttachment = util?.attachment || null;
+                    } catch {
+                        typeAttachment = null;
+                    }
                 }
                 setUtilityAttachment(typeAttachment?.name ? typeAttachment : null);
 
-                setRows(buildReviewRows(typeEntries, data?.bills || []));
+                let billsForType = [];
+                if (utilityType) {
+                    try {
+                        const billsRes = await axiosInstance.get('/UtilityBill', {
+                            params: { utilityType },
+                            skipToast: true,
+                        });
+                        billsForType = Array.isArray(billsRes.data?.bills)
+                            ? billsRes.data.bills
+                            : [];
+                    } catch {
+                        billsForType = Array.isArray(existingBillsProp)
+                            ? existingBillsProp
+                            : [];
+                    }
+                } else if (Array.isArray(existingBillsProp)) {
+                    billsForType = existingBillsProp;
+                }
+                // billsForType used for occupied-month checks below
+
+                const batchBillIds = (data?.bills || [])
+                    .map((b) => b?._id)
+                    .filter(Boolean)
+                    .map(String);
+                const blockedEntryIds = entryIdsWithOccupiedBillForMonth(
+                    billsForType,
+                    data?.billMonth,
+                    { excludeBillIds: batchBillIds },
+                );
+
+                const built = buildReviewRows(typeEntries, data?.bills || []);
+                const withBlocks = built.map((r) => {
+                    const blocked = blockedEntryIds.has(String(r.entryId || ''));
+                    if (!blocked) return { ...r, blockedByExisting: false };
+                    return {
+                        ...r,
+                        blockedByExisting: true,
+                        selected: false,
+                    };
+                });
+                // Move blocked / unchecked rows to the end (same as Add Bills uncheck)
+                const active = withBlocks.filter((r) => r.selected);
+                const rest = withBlocks.filter((r) => !r.selected);
+                setRows([...active, ...rest]);
+
+                if (blockedEntryIds.size > 0) {
+                    setError(
+                        `${blockedEntryIds.size} account(s) already have Approved / Paid for ${
+                            data?.billMonth || 'this month'
+                        } — unchecked and excluded from Approve.`,
+                    );
+                }
             } catch (err) {
                 if (!cancelled) {
                     setError(readApiError(err, 'Could not load bill batch.'));
@@ -307,12 +391,18 @@ export default function UtilityBillReviewModal({
         return () => {
             cancelled = true;
         };
-    }, [isOpen, batchId, reloadKey, entriesProp, utilityAttachmentProp]);
+    }, [isOpen, batchId, reloadKey, entriesProp, existingBillsProp, utilityAttachmentProp]);
 
     const monthTitle = useMemo(() => titleFromBillMonth(batch?.billMonth), [batch?.billMonth]);
     const headerTitle = monthTitle ? `${monthTitle} Bill` : 'Utility Bill Review';
 
     const selectedCount = rows.filter((r) => r.selected).length;
+    const blockedSelectedCount = rows.filter(
+        (r) => r.selected && r.blockedByExisting,
+    ).length;
+    const canApproveSelected =
+        selectedCount > 0 && blockedSelectedCount === 0;
+
     // Only the user the batch is pending with (Accounts / HR / Pay) may edit or act
     const canEdit = Boolean(batch?.canEdit);
     const canApproveReject = Boolean(batch?.canApproveReject ?? batch?.canEdit);
@@ -332,10 +422,18 @@ export default function UtilityBillReviewModal({
     /** Same as Add Bills: uncheck clears row and moves it to the end; check enables editing. */
     const setRowSelected = (index, checked) => {
         if (!canEdit && !canPay) return;
+        if (checked && rows[index]?.blockedByExisting) {
+            setError(
+                `Account ${rows[index]?.accountNo || ''} already has an Approved / Paid bill for ${
+                    batch?.billMonth || 'this month'
+                }.`,
+            );
+            return;
+        }
         // Pay stage: only toggle select on existing bills (do not clear values)
         if (canPay && !canEdit) {
             setRows((prev) => {
-                if (!prev[index]?.billId) return prev;
+                if (!prev[index]?.billId || prev[index]?.blockedByExisting) return prev;
                 const next = prev.map((r, i) =>
                     i === index ? { ...r, selected: checked } : r,
                 );
@@ -373,6 +471,7 @@ export default function UtilityBillReviewModal({
             }
             return prev.map((r, i) => {
                 if (i !== index) return r;
+                if (r.blockedByExisting) return r;
                 // Re-check: restore submitted values if this account was in the batch
                 if (r.inBatch) {
                     return {
@@ -404,13 +503,22 @@ export default function UtilityBillReviewModal({
         if (!canEdit && !canPay) return;
         if (canPay && !canEdit) {
             setRows((prev) =>
-                prev.map((r) => (r.billId ? { ...r, selected: checked } : r)),
+                prev.map((r) =>
+                    r.billId && !r.blockedByExisting
+                        ? { ...r, selected: checked }
+                        : r.blockedByExisting
+                          ? { ...r, selected: false }
+                          : r,
+                ),
             );
             setError('');
             return;
         }
         setRows((prev) =>
             prev.map((r) => {
+                if (r.blockedByExisting) {
+                    return { ...r, selected: false };
+                }
                 if (!checked) {
                     return {
                         ...r,
@@ -459,6 +567,13 @@ export default function UtilityBillReviewModal({
     const handleAttachmentFile = async (index, fileList) => {
         const file = fileList?.[0];
         if (!file) return;
+        const isPdf =
+            file.type === 'application/pdf' ||
+            file.name.toLowerCase().endsWith('.pdf');
+        if (!isPdf) {
+            setError('Only PDF files are allowed for bill attachment.');
+            return;
+        }
         if (file.size > MAX_ATTACHMENT_BYTES) {
             setError('Attachment must be 1.5 MB or smaller.');
             return;
@@ -469,7 +584,7 @@ export default function UtilityBillReviewModal({
                 attachmentMode: 'new',
                 attachment: {
                     name: file.name,
-                    mime: file.type || 'application/octet-stream',
+                    mime: 'application/pdf',
                     dataUrl,
                 },
             });
@@ -505,6 +620,15 @@ export default function UtilityBillReviewModal({
             return;
         }
         if (decision === 'approve') {
+            const blocked = selectedRows.filter((r) => r.blockedByExisting);
+            if (blocked.length) {
+                setError(
+                    `${blocked.length} selected account(s) already have Approved / Paid for ${
+                        batch?.billMonth || 'this month'
+                    }. Uncheck them to Approve.`,
+                );
+                return;
+            }
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
                 if (!row.selected) continue;
@@ -521,7 +645,7 @@ export default function UtilityBillReviewModal({
                         : '';
                 if (!payBy) {
                     setError(
-                        `Select Pay by (Company or Employee) for account ${row.accountNo}.`,
+                        `Select Contract Paid By (Company or Employee) for account ${row.accountNo}.`,
                     );
                     return;
                 }
@@ -615,9 +739,17 @@ export default function UtilityBillReviewModal({
         }
     };
 
-    /** Open Accounts → Add Payment modal with selected utility bills prefilled. */
+    /** Open Accounts → Add Payment modal with payable utility bills (checkboxes there). */
     const openPayViaAccounts = () => {
-        const selected = rows.filter((r) => r.selected && r.inBatch && r.billId);
+        const payable = rows.filter(
+            (r) => r.inBatch && r.billId && String(r.status) === 'Approved',
+        );
+        if (!payable.length) {
+            setError('No bills available to pay.');
+            return;
+        }
+        const anySelected = payable.some((r) => r.selected);
+        const selected = anySelected ? payable.filter((r) => r.selected) : payable;
         if (!selected.length) {
             setError('Select at least one bill to pay.');
             return;
@@ -628,7 +760,8 @@ export default function UtilityBillReviewModal({
             return;
         }
         setError('');
-        const billsPayload = selected.map((r) => {
+        // Pass all payable bills; payment modal checkboxes start from review selection
+        const billsPayload = payable.map((r) => {
             const pay = computeRowPayTotals(r);
             const companyPay = Number(pay.companyPayAmount) || 0;
             const employeePay = Number(pay.employeePayAmount) || 0;
@@ -645,6 +778,7 @@ export default function UtilityBillReviewModal({
                 payByEmployeeName: r.payByEmployeeName || '',
                 payByEmployeeBusinessId: '',
                 referenceId: String(r.billId),
+                selected: anySelected ? Boolean(r.selected) : true,
             };
         });
         const payload = {
@@ -714,7 +848,7 @@ export default function UtilityBillReviewModal({
                             <div className="px-5 pt-3 pb-1 flex items-center justify-between gap-2 shrink-0">
                                 <span className="text-xs text-gray-500">
                                     {canEdit
-                                        ? 'Same as Add Bills — check/uncheck, edit Actual, Pay by, and Upload before Approve.'
+                                        ? 'Same as Add Bills — check/uncheck, edit Actual, Contract Paid By, and Upload before Approve.'
                                         : canPay
                                           ? 'Select bills to pay.'
                                           : isViewerOnly
@@ -750,22 +884,25 @@ export default function UtilityBillReviewModal({
                                                         aria-label="Select all"
                                                     />
                                                 </th>
-                                                <th className="w-[18%] px-4 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="w-[14%] px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Account No
                                                 </th>
-                                                <th className="w-[16%] px-4 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="w-[12%] px-3 py-3 text-center font-bold whitespace-nowrap">
+                                                    Provider
+                                                </th>
+                                                <th className="w-[14%] px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Contract Amount
                                                 </th>
-                                                <th className="w-[16%] px-4 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="w-[14%] px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Actual Amount
                                                 </th>
-                                                <th className="w-[14%] px-4 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="w-[12%] px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Difference
                                                 </th>
-                                                <th className="w-[16%] px-3 py-3 text-center font-bold whitespace-nowrap">
-                                                    Pay by
+                                                <th className="w-[14%] px-2 py-3 text-center font-bold whitespace-nowrap">
+                                                    Contract Paid By
                                                 </th>
-                                                <th className="px-4 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Attachment
                                                 </th>
                                             </tr>
@@ -808,20 +945,37 @@ export default function UtilityBillReviewModal({
                                                             <input
                                                                 type="checkbox"
                                                                 checked={Boolean(row.selected)}
-                                                                disabled={!canEdit && !canPay}
+                                                                disabled={
+                                                                    (!canEdit && !canPay) ||
+                                                                    Boolean(row.blockedByExisting)
+                                                                }
+                                                                title={
+                                                                    row.blockedByExisting
+                                                                        ? `Already has Approved / Paid for ${
+                                                                              batch?.billMonth ||
+                                                                              'this month'
+                                                                          }`
+                                                                        : undefined
+                                                                }
                                                                 onChange={(e) =>
                                                                     setRowSelected(
                                                                         index,
                                                                         e.target.checked,
                                                                     )
                                                                 }
-                                                                className="accent-teal-600 w-4 h-4"
+                                                                className="accent-teal-600 w-4 h-4 disabled:opacity-40"
                                                             />
                                                         </td>
-                                                        <td className="px-4 py-3.5 text-center align-middle font-semibold text-gray-800 tabular-nums">
+                                                        <td className="px-3 py-3.5 text-center align-middle font-semibold text-gray-800 tabular-nums">
                                                             {row.accountNo}
                                                         </td>
-                                                        <td className="px-4 py-3.5 text-center align-middle tabular-nums text-gray-700">
+                                                        <td
+                                                            className="px-3 py-3.5 text-center align-middle text-gray-700 font-medium truncate max-w-[8rem]"
+                                                            title={row.provider}
+                                                        >
+                                                            {row.provider || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-3.5 text-center align-middle tabular-nums text-gray-700">
                                                             {formatMoney(row.contractAmount)}
                                                         </td>
                                                         <td className="px-4 py-3.5 text-center align-middle">
@@ -855,12 +1009,72 @@ export default function UtilityBillReviewModal({
                                                                                     PAY_BY_COMPANY,
                                                                                     diff,
                                                                                 );
-                                                                            patch.payBy =
-                                                                                PAY_BY_COMPANY;
                                                                             patch.companyDiffAmount =
                                                                                 shares.companyAmount;
                                                                             patch.employeeDiffAmount =
                                                                                 shares.employeeAmount;
+                                                                            if (
+                                                                                row.assignedToType ===
+                                                                                    'Company' &&
+                                                                                row.assignedToId
+                                                                            ) {
+                                                                                patch.payBy =
+                                                                                    PAY_BY_COMPANY;
+                                                                                patch.payByCompanyId =
+                                                                                    row.assignedToId;
+                                                                                patch.payByCompanyName =
+                                                                                    row.assignedToName ||
+                                                                                    '';
+                                                                                patch.payByEmployeeId =
+                                                                                    '';
+                                                                                patch.payByEmployeeName =
+                                                                                    '';
+                                                                            } else if (
+                                                                                row.payBy ===
+                                                                                PAY_BY_COMPANY
+                                                                            ) {
+                                                                                patch.payBy =
+                                                                                    PAY_BY_COMPANY;
+                                                                            } else if (
+                                                                                !String(
+                                                                                    row.payBy || '',
+                                                                                ).trim() &&
+                                                                                row.assignedToType ===
+                                                                                    'Employee' &&
+                                                                                row.assignedToId
+                                                                            ) {
+                                                                                Object.assign(
+                                                                                    patch,
+                                                                                    payByFieldsFromAssignment(
+                                                                                        row,
+                                                                                    ),
+                                                                                );
+                                                                            }
+                                                                        } else if (
+                                                                            !String(row.payBy || '').trim() &&
+                                                                            row.assignedToId
+                                                                        ) {
+                                                                            const assignedPay =
+                                                                                payByFieldsFromAssignment(
+                                                                                    row,
+                                                                                );
+                                                                            if (assignedPay.payBy) {
+                                                                                const shares =
+                                                                                    resolvePayShares(
+                                                                                        assignedPay.payBy,
+                                                                                        diff,
+                                                                                    );
+                                                                                Object.assign(
+                                                                                    patch,
+                                                                                    assignedPay,
+                                                                                    {
+                                                                                        companyDiffAmount:
+                                                                                            shares.companyAmount,
+                                                                                        employeeDiffAmount:
+                                                                                            shares.employeeAmount,
+                                                                                    },
+                                                                                );
+                                                                            }
                                                                         } else if (
                                                                             row.payBy ===
                                                                                 PAY_BY_COMPANY ||
@@ -913,12 +1127,14 @@ export default function UtilityBillReviewModal({
                                                                         row,
                                                                         { isUnder },
                                                                     );
+                                                                    const partyLabel =
+                                                                        payByPartyLabel(row);
                                                                     const openPayBy = () => {
                                                                         if (!canOpen) return;
                                                                         setPayByRowIndex(index);
                                                                         setError('');
                                                                     };
-                                                                    if (done) {
+                                                                    if (done && hasActual) {
                                                                         return (
                                                                             <PayByDoneSummary
                                                                                 row={row}
@@ -936,18 +1152,20 @@ export default function UtilityBillReviewModal({
                                                                             type="button"
                                                                             disabled={!canOpen}
                                                                             title={
-                                                                                isUnder
-                                                                                    ? 'Pay by Company — select company'
-                                                                                    : 'Choose Pay by'
+                                                                                partyLabel
+                                                                                    ? `${partyLabel} — click to edit`
+                                                                                    : isUnder
+                                                                                      ? 'Contract Paid By Company — select company'
+                                                                                      : 'Choose Contract Paid By'
                                                                             }
                                                                             onClick={openPayBy}
-                                                                            className={`w-[5.75rem] mx-auto rounded-lg border px-2 py-1.5 text-xs font-medium ${
+                                                                            className={`min-w-[5.75rem] max-w-[11rem] mx-auto rounded-lg border px-2 py-1.5 text-xs font-medium truncate ${
                                                                                 !canOpen
                                                                                     ? 'border-gray-100 bg-gray-100 text-gray-400 cursor-not-allowed'
                                                                                     : 'border-teal-200 bg-white text-teal-700 hover:bg-teal-50'
                                                                             }`}
                                                                         >
-                                                                            Select
+                                                                            {partyLabel || 'Select'}
                                                                         </button>
                                                                     );
                                                                 })()
@@ -980,6 +1198,7 @@ export default function UtilityBillReviewModal({
                                                                             ] = el;
                                                                         }}
                                                                         type="file"
+                                                                        accept=".pdf,application/pdf"
                                                                         className="hidden"
                                                                         onChange={(e) => {
                                                                             handleAttachmentFile(
@@ -1093,8 +1312,13 @@ export default function UtilityBillReviewModal({
                                         </button>
                                         <button
                                             type="button"
-                                            disabled={acting || !selectedCount}
+                                            disabled={acting || !canApproveSelected}
                                             onClick={() => handleRespond('approve')}
+                                            title={
+                                                blockedSelectedCount
+                                                    ? 'Uncheck accounts that already have Approved / Paid for this month'
+                                                    : undefined
+                                            }
                                             className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
                                         >
                                             {acting ? 'Saving…' : 'Approve'}
@@ -1194,7 +1418,9 @@ export default function UtilityBillReviewModal({
                         ? Number(rows[payByRowIndex]?.actualAmount || 0) <
                           Number(rows[payByRowIndex]?.contractAmount || 0)
                             ? PAY_BY_COMPANY
-                            : rows[payByRowIndex]?.payBy || ''
+                            : rows[payByRowIndex]?.payBy ||
+                              assignedPartyDefaults(rows[payByRowIndex]).defaultPayBy ||
+                              ''
                         : ''
                 }
                 initialCompanyId={
@@ -1208,6 +1434,15 @@ export default function UtilityBillReviewModal({
                 }
                 initialEmployeeName={
                     payByRowIndex != null ? rows[payByRowIndex]?.payByEmployeeName || '' : ''
+                }
+                assignedToType={
+                    payByRowIndex != null ? rows[payByRowIndex]?.assignedToType || '' : ''
+                }
+                assignedToId={
+                    payByRowIndex != null ? rows[payByRowIndex]?.assignedToId || '' : ''
+                }
+                assignedToName={
+                    payByRowIndex != null ? rows[payByRowIndex]?.assignedToName || '' : ''
                 }
                 companyOptions={companyOptions}
                 employeeOptions={employeeOptions}

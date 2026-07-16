@@ -30,6 +30,7 @@ import CertificateEditModal from '../components/CertificateEditModal';
 import RewardFormCards from '../components/RewardFormCards';
 import RewardAttachmentTab from '../components/RewardAttachmentTab';
 import { formatRewardStatusLabel, isRewardPaymentEligible, formatRewardPaymentLabel } from '../utils/rewardStatusDisplay';
+import { canEditRewardCertificate } from '../utils/rewardPermissionAccess';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 
 export default function RewardDetailsPage({ params }) {
@@ -327,17 +328,8 @@ export default function RewardDetailsPage({ params }) {
         return false;
     };
 
-    const isRewardFullyApproved = () => {
-        const status = String(reward?.rewardStatus || '').trim();
-        return ['Approved', 'Approved (Paid)', 'Paid', 'Completed', 'Active'].includes(status);
-    };
-
-    /** After approval, only portal super user / system admin may edit the certificate. */
-    const canEditCertificate = () => {
-        if (!reward) return false;
-        if (isRewardFullyApproved()) return isAdmin();
-        return canPerformAction();
-    };
+    /** No status filter — creator, HR, admin, employee HOD, management. */
+    const canEditCertificate = () => canEditRewardCertificate(currentUser, reward, employee);
 
     const getBtnLabel = () => {
         if (!reward) return "";
@@ -586,33 +578,70 @@ export default function RewardDetailsPage({ params }) {
                 setSubHeaderText(reward.certSubHeader || 'Of Appreciation');
                 setPresentationText(reward.certPresentationText || 'This certificate is presented to');
 
-                // Dynamic Signer 1: Prefer Primary Reportee (Manager)
-                let defaultSignerName = 'Nivil Ali';
-                let defaultSignerTitle = 'Managing Director';
+                // Dynamic Signer 1: Prefer Primary Reportee (HOD) — use their live designation
+                const PLACEHOLDER_SIGNER_NAME = 'Nivil Ali';
+                const PLACEHOLDER_SIGNER_TITLE = 'Managing Director';
+                let defaultSignerName = PLACEHOLDER_SIGNER_NAME;
+                let defaultSignerTitle = '';
 
-                if (employee?.primaryReportee) {
-                    let rep = employee.primaryReportee;
-
-                    // If it's just an ID, we need to fetch the details
+                const resolveReporteeProfile = async (rep) => {
+                    if (!rep) return null;
                     if (typeof rep === 'string') {
                         try {
                             const repRes = await axiosInstance.get(`/Employee/${rep}`);
-                            rep = repRes.data.employee || repRes.data;
+                            return repRes.data.employee || repRes.data;
                         } catch (err) {
-                            console.warn("Failed to fetch primary reportee details:", err);
-                            rep = null;
+                            console.warn('Failed to fetch primary reportee details:', err);
+                            return null;
                         }
                     }
+                    // Populated object may omit designation — fetch full profile when needed
+                    if (!rep.designation && !rep.role && (rep._id || rep.employeeId)) {
+                        try {
+                            const repRes = await axiosInstance.get(`/Employee/${rep.employeeId || rep._id}`);
+                            return repRes.data.employee || repRes.data || rep;
+                        } catch (err) {
+                            console.warn('Failed to fetch reportee designation:', err);
+                            return rep;
+                        }
+                    }
+                    return rep;
+                };
 
+                const designationOf = (emp) =>
+                    (emp?.designation || emp?.role || '').trim();
+
+                if (employee?.primaryReportee) {
+                    const rep = await resolveReporteeProfile(employee.primaryReportee);
                     if (rep) {
                         const repName = `${rep.firstName || ''} ${rep.lastName || ''}`.trim();
                         if (repName) defaultSignerName = toTitleCase(repName);
-                        if (rep.designation) defaultSignerTitle = rep.designation;
+                        const liveTitle = designationOf(rep);
+                        if (liveTitle) defaultSignerTitle = liveTitle;
                     }
                 }
 
-                setSigner1Name((reward.certSigner1Name && reward.certSigner1Name !== 'Nivil Ali') ? reward.certSigner1Name : defaultSignerName);
-                setSigner1Title((reward.certSigner1Title && reward.certSigner1Title !== 'Managing Director') ? reward.certSigner1Title : defaultSignerTitle);
+                // If a custom signer name was saved, prefer that employee's live designation
+                const savedName = (reward.certSigner1Name || '').trim();
+                const useSavedName = savedName && savedName !== PLACEHOLDER_SIGNER_NAME;
+                if (useSavedName && Array.isArray(allEmployees) && allEmployees.length) {
+                    const nameLower = savedName.toLowerCase();
+                    const matched = allEmployees.find((e) => {
+                        const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
+                        return full === nameLower;
+                    });
+                    const liveTitle = designationOf(matched);
+                    if (liveTitle) defaultSignerTitle = liveTitle;
+                }
+
+                const savedTitle = (reward.certSigner1Title || '').trim();
+                // Prefer live employee designation over stale/placeholder saved title
+                setSigner1Name(useSavedName ? savedName : defaultSignerName);
+                setSigner1Title(
+                    defaultSignerTitle ||
+                    (savedTitle && savedTitle !== PLACEHOLDER_SIGNER_TITLE ? savedTitle : '') ||
+                    PLACEHOLDER_SIGNER_TITLE
+                );
 
                 setSigner2Name(reward.certSigner2Name || 'Raseel Muhammad');
                 setSigner2Title(reward.certSigner2Title || 'CEO');
@@ -622,7 +651,7 @@ export default function RewardDetailsPage({ params }) {
         };
 
         updateSigners();
-    }, [reward, employee, rawName, prefix]);
+    }, [reward, employee, rawName, prefix, allEmployees]);
 
     const handleDownloadCertificate = async () => {
         try {

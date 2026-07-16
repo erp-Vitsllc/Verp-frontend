@@ -55,3 +55,45 @@ export function billDisplayStatus(bill) {
     if (bill.status === 'Paid') return 'paid';
     return String(bill.status || '');
 }
+
+/**
+ * Statuses that occupy an entry for a bill month (Approved displays as Not Paid).
+ * Pending / Rejected do not occupy — those rows still appear in Add Bills.
+ */
+export const OCCUPIED_BILL_STATUSES = new Set(['Approved', 'Paid']);
+
+export function isOccupiedBillStatus(status) {
+    return OCCUPIED_BILL_STATUSES.has(String(status || ''));
+}
+
+/** Entry ids that already have Approved / Paid for the given YYYY-MM. */
+export function entryIdsWithOccupiedBillForMonth(
+    bills = [],
+    billMonth = '',
+    { excludeBillIds = [] } = {},
+) {
+    const ym = String(billMonth || '').trim();
+    const exclude = new Set((excludeBillIds || []).map(String));
+    const set = new Set();
+    (bills || []).forEach((b) => {
+        if (String(b?.billMonth || '').trim() !== ym) return;
+        if (!isOccupiedBillStatus(b?.status)) return;
+        if (b?._id != null && exclude.has(String(b._id))) return;
+        const id = String(b?.entryId || '');
+        if (id) set.add(id);
+    });
+    return set;
+}
+
+export function filterEntriesWithoutOccupiedBill(entries = [], bills = [], billMonth = '') {
+    const occupied = entryIdsWithOccupiedBillForMonth(bills, billMonth);
+    return (entries || []).filter((e) => !occupied.has(String(e?.id || '')));
+}
+
+/** True when every entry already has Approved / Paid for that month. */
+export function isMonthFullyOccupied(entries = [], bills = [], billMonth = '') {
+    const list = Array.isArray(entries) ? entries : [];
+    if (!list.length) return false;
+    const occupied = entryIdsWithOccupiedBillForMonth(bills, billMonth);
+    return list.every((e) => occupied.has(String(e?.id || '')));
+}
