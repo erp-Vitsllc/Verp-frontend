@@ -8,8 +8,7 @@ import {
     mergeUserStatsWithModuleBundle,
     MODULE_ORDER,
 } from '@/utils/moduleNotifications';
-import { includesCardDeletedNotificationType } from '@/utils/cardDeletedNotifications';
-import { CARD_DELETED_PROGRESS_TYPE } from '@/utils/cardDeletedNotifications';
+import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import { COMPANY_ACTIVATION_INCOMPLETE_TYPE } from '@/utils/companyActivationIncompleteNotifications';
 import { EMPLOYEE_NOTIFICATION_TYPES } from '@/utils/employeePageNotifications';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
@@ -59,13 +58,9 @@ export const COMPANY_MODULE_TYPES = new Set([
     COMPANY_ACTIVATION_INCOMPLETE_TYPE,
     'Document Expiry Reminder',
     'Company Document Not Renew',
-    CARD_DELETED_PROGRESS_TYPE,
 ]);
 
-// Card Deleted is Company-side on Command Center / sidebar — keep Employees types exclusive.
-export const EMPLOYEE_MODULE_TYPES = new Set(
-    [...EMPLOYEE_NOTIFICATION_TYPES].filter((t) => t !== CARD_DELETED_PROGRESS_TYPE),
-);
+export const EMPLOYEE_MODULE_TYPES = new Set([...EMPLOYEE_NOTIFICATION_TYPES]);
 
 export const SIDEBAR_MODULE_CATEGORY_ORDER = [...MODULE_ORDER, 'Other'];
 
@@ -74,6 +69,7 @@ export function isCommandCenterHiddenType(typeOrItem) {
         typeof typeOrItem === 'string'
             ? typeOrItem
             : String(typeOrItem?.type || typeOrItem?.requestType || '').trim();
+    if (isCardDeletedNotificationHiddenType(type)) return true;
     // Flowchart responsibility acceptance lives on Settings → FlowChart, not Command Center.
     return type === 'Responsibility Approval';
 }
@@ -84,7 +80,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     const type = String(item?.type || item?.requestType || '').trim();
     const low = type.toLowerCase();
 
-    if (includesCardDeletedNotificationType(type)) return 'Company';
+    if (isCardDeletedNotificationHiddenType(type)) return 'Other';
 
     // Exact types first so Document Expiry never fuzzy-matches into Loan / other modules.
     if (FINE_MODULE_TYPES.has(type)) return 'Fine';

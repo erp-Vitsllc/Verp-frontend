@@ -16,6 +16,11 @@ export function includesCardDeletedNotificationType(type) {
     return CARD_DELETED_NOTIFICATION_TYPES.includes(String(type || '').trim());
 }
 
+/** Hidden from all bells, Command Center, and My Requests. */
+export function isCardDeletedNotificationHiddenType(type) {
+    return includesCardDeletedNotificationType(type);
+}
+
 export function mergeCardDeletedNotifications(items = [], cardDeletedItems = []) {
     const base = Array.isArray(items) ? items : [];
     const extra = Array.isArray(cardDeletedItems) ? cardDeletedItems : [];

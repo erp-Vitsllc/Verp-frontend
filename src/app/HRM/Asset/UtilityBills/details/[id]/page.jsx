@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
-import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, ChevronDown, Plus } from 'lucide-react';
+import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, ChevronDown, Plus, Calendar, CreditCard, TrendingUp, TrendingDown } from 'lucide-react';
 import {
     DETAIL_PAIR_COLUMN,
     DETAIL_PAIR_GRID,
@@ -493,7 +493,7 @@ export default function UtilityBillDetailsPage() {
                     {emptyMessage || 'No bills yet. Click Add Bills to create one.'}
                 </div>
             ) : (
-                <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-1">
+                <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1 py-1">
                     {list.map((bill) => {
                         const contract = Number(bill.monthlyRental) || 0;
                         const actual = Number(bill.amount) || 0;
@@ -520,42 +520,73 @@ export default function UtilityBillDetailsPage() {
                               ? 'Review'
                               : 'View';
 
+                        // Subtle side border indicator class and glowing status dot
+                        let statusLBorder = 'border-l-gray-300';
+                        let statusGlowDot = 'bg-gray-400';
+                        if (bill.status === 'Paid') {
+                            statusLBorder = 'border-l-emerald-500';
+                            statusGlowDot = 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]';
+                        } else if (bill.status === 'Approved') {
+                            statusLBorder = 'border-l-sky-500';
+                            statusGlowDot = 'bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.5)]';
+                        } else if (bill.status === 'Pending HR') {
+                            statusLBorder = 'border-l-amber-500';
+                            statusGlowDot = 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)] animate-pulse';
+                        } else if (bill.status === 'Pending Accounts') {
+                            statusLBorder = 'border-l-blue-500';
+                            statusGlowDot = 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] animate-pulse';
+                        } else if (bill.status === 'Rejected') {
+                            statusLBorder = 'border-l-red-500';
+                            statusGlowDot = 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]';
+                        }
+
                         return (
                             <div
                                 key={bill._id}
                                 id={`bill-${bill._id}`}
-                                className={`rounded-xl border shadow-sm bg-white px-3 sm:px-4 py-3 ${
+                                className={`rounded-xl border-t border-r border-b border-l-4 bg-white px-4 py-3.5 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-md transition-all duration-200 ${statusLBorder} ${
                                     focused
-                                        ? 'border-teal-300 ring-1 ring-teal-200'
-                                        : isNotPaid
-                                          ? 'border-orange-200'
-                                          : isPaid
-                                            ? 'border-teal-200'
-                                            : 'border-gray-200'
+                                        ? 'ring-2 ring-teal-500/20 border-teal-500/60 shadow-md'
+                                        : 'border-gray-200/80'
                                 }`}
                             >
-                                <div className="flex items-center justify-between gap-3 mb-1">
-                                    <span className="text-xs sm:text-sm text-gray-600">
-                                        {bill.billMonth || 'Bill'}
-                                        {bill.accountNo ? ` · Acc ${bill.accountNo}` : ''}
-                                    </span>
-                                    <span
-                                        className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${statusBadgeClass(bill.status)}`}
-                                    >
-                                        {statusText}
-                                    </span>
+                                <div className="flex items-center justify-between gap-3 mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-1 bg-gray-50 rounded text-gray-500 border border-gray-100/60">
+                                            <Calendar size={13} />
+                                        </div>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="text-xs sm:text-sm font-bold text-gray-800 tracking-tight">
+                                                {monthLabelFromKey(bill.billMonth)}
+                                            </span>
+                                            {bill.accountNo ? (
+                                                <span className="text-[10px] font-semibold px-2 py-0.5 bg-gray-100 text-gray-600 rounded border border-gray-200/50">
+                                                    Acc {bill.accountNo}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        <span className={`w-1.5 h-1.5 rounded-full ${statusGlowDot}`} />
+                                        <span
+                                            className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${statusBadgeClass(bill.status)}`}
+                                        >
+                                            {statusText}
+                                        </span>
+                                    </div>
                                 </div>
-                                <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
-                                    <div>
-                                        <p className="text-[10px] sm:text-xs text-gray-400 font-bold uppercase tracking-widest">
+
+                                <div className="grid grid-cols-3 gap-3 my-3">
+                                    <div className="px-3 py-2 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">
                                             Contract
                                         </p>
                                         <p className="text-xs sm:text-sm font-semibold tabular-nums text-gray-700">
                                             {formatBillMoney(contract)}
                                         </p>
                                     </div>
-                                    <div>
-                                        <p className="text-[10px] sm:text-xs text-gray-400 font-bold uppercase tracking-widest">
+                                    <div className="px-3 py-2 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">
                                             Actual
                                         </p>
                                         <p
@@ -566,49 +597,67 @@ export default function UtilityBillDetailsPage() {
                                             {formatBillMoney(actual)}
                                         </p>
                                     </div>
-                                    <div>
-                                        <p className="text-[10px] sm:text-xs text-gray-400 font-bold uppercase tracking-widest">
-                                            Diff
+                                    <div className={`px-3 py-2 rounded-lg border ${
+                                        difference < 0
+                                            ? 'bg-red-50/30 border-red-100 text-red-700'
+                                            : difference > 0
+                                              ? 'bg-emerald-50/30 border-emerald-100 text-emerald-700'
+                                              : 'bg-gray-50/50 border-gray-100 text-gray-500'
+                                    }`}>
+                                        <p className="text-[9px] font-bold uppercase tracking-wider mb-0.5 opacity-80">
+                                            Difference
                                         </p>
-                                        <p
-                                            className={`text-xs sm:text-sm font-semibold tabular-nums ${
-                                                difference < 0
-                                                    ? 'text-red-600'
-                                                    : difference > 0
-                                                      ? 'text-emerald-600'
-                                                      : 'text-gray-500'
-                                            }`}
-                                        >
-                                            {formatBillMoney(difference)}
-                                        </p>
+                                        <div className="flex items-center gap-1">
+                                            {difference < 0 ? (
+                                                <TrendingDown size={12} className="shrink-0" />
+                                            ) : difference > 0 ? (
+                                                <TrendingUp size={12} className="shrink-0" />
+                                            ) : null}
+                                            <p className="text-xs sm:text-sm font-semibold tabular-nums">
+                                                {formatBillMoney(difference)}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex items-center justify-between gap-3 mt-2">
-                                    <span className="text-xs text-gray-500">
-                                        {isNotPaid || isPaid
-                                            ? paymentByLabel(bill.paymentBy)
-                                            : bill.status === 'Pending HR'
-                                              ? 'Awaiting HR'
-                                              : bill.status === 'Pending Accounts'
-                                                ? 'Awaiting Accounts'
-                                                : paymentByLabel(bill.paymentBy)}
-                                        {bill.createdAt
-                                            ? ` · ${new Date(bill.createdAt).toLocaleDateString('en-GB')}`
-                                            : ''}
-                                    </span>
-                                </div>
+
                                 {(isNotPaid || isPaid) &&
                                 (bill.paymentBy === 'employee_balance' ||
                                     bill.paymentBy === 'employee_and_company' ||
                                     bill.paymentBy === 'employee' ||
                                     bill.paymentBy === 'company') ? (
-                                    <p className="text-xs text-gray-500 mt-1.5 text-right">
-                                        Company: {formatBillMoney(bill.companyPayAmount)} · Employee:{' '}
-                                        {formatBillMoney(bill.employeePayAmount)}
-                                    </p>
+                                    <div className="mt-3 pt-2.5 border-t border-dashed border-gray-100 flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-1.5 text-xs text-gray-400 font-medium">
+                                            <CreditCard size={12} />
+                                            <span>Allocation Details</span>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100">
+                                                Company: {formatBillMoney(bill.companyPayAmount)}
+                                            </span>
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-purple-50 text-purple-700 rounded border border-purple-100">
+                                                Employee: {formatBillMoney(bill.employeePayAmount)}
+                                            </span>
+                                        </div>
+                                    </div>
                                 ) : null}
-                                {showBatchAction ? (
-                                    <div className="flex flex-wrap justify-end gap-2 mt-2">
+
+                                <div className="flex items-center justify-between gap-3 mt-3.5 pt-2.5 border-t border-gray-50">
+                                    <span className="text-[11px] text-gray-400 font-medium flex items-center gap-1">
+                                        {isNotPaid || isPaid
+                                            ? paymentByLabel(bill.paymentBy)
+                                            : bill.status === 'Pending HR'
+                                              ? 'Awaiting HR Approval'
+                                              : bill.status === 'Pending Accounts'
+                                                ? 'Awaiting Accounts Review'
+                                                : paymentByLabel(bill.paymentBy)}
+                                        {bill.createdAt ? (
+                                            <>
+                                                <span className="text-gray-300 px-0.5">·</span>
+                                                <span>{new Date(bill.createdAt).toLocaleDateString('en-GB')}</span>
+                                            </>
+                                        ) : ''}
+                                    </span>
+                                    {showBatchAction ? (
                                         <button
                                             type="button"
                                             onClick={() =>
@@ -616,16 +665,16 @@ export default function UtilityBillDetailsPage() {
                                                     `/HRM/Asset/UtilityBills?batchId=${encodeURIComponent(String(bill.batchId))}&review=1`,
                                                 )
                                             }
-                                            className={`inline-flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-white text-xs sm:text-sm font-medium shadow-sm ${
+                                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-md text-white text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98] ${
                                                 canPay
-                                                    ? 'bg-amber-500 hover:bg-amber-600'
-                                                    : 'bg-teal-500 hover:bg-teal-600'
+                                                    ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100/50'
+                                                    : 'bg-teal-500 hover:bg-teal-600 shadow-teal-100/50'
                                             }`}
                                         >
                                             {actionLabel}
                                         </button>
-                                    </div>
-                                ) : null}
+                                    ) : null}
+                                </div>
                             </div>
                         );
                     })}
@@ -914,31 +963,12 @@ export default function UtilityBillDetailsPage() {
                         <div
                             className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                         >
-                            <div className="flex items-center justify-between gap-2 shrink-0 mb-2 sm:mb-3">
-                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest">
-                                    Utility Overview
-                                </h3>
-                                <span
-                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${entryStatusBadgeClass(entryStatus)}`}
-                                >
-                                    {entryStatus}
-                                </span>
-                            </div>
-                            <UtilityBillStatsCards
-                                bills={bills}
-                                emptyLabel="Bill status counts appear after you submit bills."
-                            />
+                           
                         </div>
                         <div
                             className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                         >
-                            <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">
-                                Amount Summary
-                            </h3>
-                            <UtilityBillStatsCards
-                                bills={bills}
-                                emptyLabel="Amount totals appear after you submit bills."
-                            />
+                           
                         </div>
                     </div>
 

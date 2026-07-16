@@ -7,10 +7,7 @@ import {
     isMandatoryCardsProfileIncompleteItem,
     PROFILE_INCOMPLETE_TYPE,
 } from '@/utils/employeeProfileIncompleteNotifications';
-import {
-    CARD_DELETED_PROGRESS_TYPE,
-    includesCardDeletedNotificationType,
-} from '@/utils/cardDeletedNotifications';
+import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import {
@@ -25,7 +22,6 @@ export const EMPLOYEE_NOTIFICATION_TYPES = new Set([
     'Employee Document Expiry Reminder',
     'Probation Change',
     'Employee Document Not Renew',
-    CARD_DELETED_PROGRESS_TYPE,
 ]);
 
 /** Hidden from Employees bell + dashboard Command Center. */
@@ -44,11 +40,9 @@ export function buildEmployeePageNotifications(
         (pendingItems || []).filter((item) => {
             const type = String(item?.type || '').trim();
             if (isEmployeeNotificationHiddenType(type)) return false;
+            if (isCardDeletedNotificationHiddenType(type)) return false;
             if (!mandatoryCardsHrLive && isMandatoryCardsProfileIncompleteItem(item)) return false;
-            return (
-                EMPLOYEE_NOTIFICATION_TYPES.has(type) ||
-                includesCardDeletedNotificationType(item?.type)
-            );
+            return EMPLOYEE_NOTIFICATION_TYPES.has(type);
         }),
         employeesList,
     );

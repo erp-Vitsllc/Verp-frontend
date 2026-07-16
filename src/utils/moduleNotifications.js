@@ -23,7 +23,7 @@ import {
     loadCompanyNotificationBundle,
 } from '@/utils/companyPageNotifications';
 import { buildEmployeeListBellFromStats, isEmployeeNotificationHiddenType } from '@/utils/employeePageNotifications';
-import { includesCardDeletedNotificationType } from '@/utils/cardDeletedNotifications';
+import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import {
     fetchAssetPendingInbox,
     fetchFinePendingInbox,
@@ -167,7 +167,9 @@ function resolveHrFlags(statsData, { asEmployeeObjectId = null } = {}) {
 /** Same list as Company page notification bell. */
 export function buildCompanyListBellFromStats(statsData, companiesList = []) {
     const items = Array.isArray(statsData?.items) ? statsData.items : [];
-    const pendingItems = filterActionableDashboardItems(items);
+    const pendingItems = filterActionableDashboardItems(items).filter(
+        (item) => !isCardDeletedNotificationHiddenType(item?.type),
+    );
     const { liveExpiryHrView, mandatoryCardsHrLive } = resolveHrFlags(statsData);
     return buildCompanyPageNotifications(
         pendingItems,
@@ -394,7 +396,9 @@ export function buildModuleNotificationBundle(feeds = {}) {
           ? statsData.items
           : [];
 
-    const pendingItems = filterActionableDashboardItems(items);
+    const pendingItems = filterActionableDashboardItems(items).filter(
+        (item) => !isCardDeletedNotificationHiddenType(item?.type),
+    );
 
     const company = buildCompanyPageNotifications(
         pendingItems,
@@ -403,7 +407,6 @@ export function buildModuleNotificationBundle(feeds = {}) {
         mandatoryCardsHrLive,
     ).map((row) => tagModule(row, 'Company'));
 
-    // Card Deleted lives on Company for shared sidebar/dashboard counts (emp page bell still shows it).
     // Pass the same HR flags as Company so team view never uses the manager's isAdmin()/session viewer.
     const employees = buildEmployeeListBellFromStats(
         statsData || { items, flowchartHrEmployeeObjectId: flags.flowchartHrId },
@@ -414,7 +417,6 @@ export function buildModuleNotificationBundle(feeds = {}) {
             mandatoryCardsHrLive,
         },
     )
-        .filter((row) => !includesCardDeletedNotificationType(row?.type))
         .map((row) => tagModule(row, 'Employees'));
 
     const fine = (Array.isArray(fineItems) ? fineItems : []).map((row) =>
@@ -537,7 +539,6 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         COMPANY_ACTIVATION_INCOMPLETE_TYPE,
         'Document Expiry Reminder',
         'Company Document Not Renew',
-        'Card Deleted Progress',
         'Profile Activation',
         'Profile Incomplete',
         'Employee Document Expiry Reminder',
@@ -575,6 +576,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
     };
 
     const kept = base.filter((item) => {
+        if (isCardDeletedNotificationHiddenType(item?.type)) return false;
         // Notice Request: hide from dashboard (also removed from Employees bell).
         if (isEmployeeNotificationHiddenType(item?.type)) return false;
         if (item?._fromModuleNotifications || item?._fromModulePageNotifications || item?._fromModulePendingInbox) {
@@ -592,7 +594,9 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
     });
 
     return dedupe([...moduleAll, ...kept]).filter(
-        (item) => !isEmployeeNotificationHiddenType(item?.type),
+        (item) =>
+            !isEmployeeNotificationHiddenType(item?.type) &&
+            !isCardDeletedNotificationHiddenType(item?.type),
     );
 }
 
@@ -631,7 +635,8 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
     const pending = filterActionableDashboardItems(items).filter(
         (i) =>
             i?.scope !== 'outgoing' &&
-            !isEmployeeNotificationHiddenType(i?.type),
+            !isEmployeeNotificationHiddenType(i?.type) &&
+            !isCardDeletedNotificationHiddenType(i?.type),
     );
 
     const finePending = pending.filter((i) => {

@@ -12,6 +12,7 @@ import {
     isCommandCenterHiddenType,
 } from '@/utils/dashboardCommandCenterInbox';
 import { isEmployeeNotificationHiddenType } from '@/utils/employeePageNotifications';
+import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import { mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
 import { fetchEmployeeDashboardStats } from '@/utils/employeeDashboardStatsFetch';
 import {
@@ -115,6 +116,7 @@ export const isIncomingCommandCenterItem = (
     if (!item) return false;
     if (isCommandCenterHiddenType(item)) return false;
     if (isEmployeeNotificationHiddenType(item.type)) return false;
+    if (isCardDeletedNotificationHiddenType(item.type)) return false;
 
     if (isModuleNotificationCopy(item)) {
         return allowModuleCopies;

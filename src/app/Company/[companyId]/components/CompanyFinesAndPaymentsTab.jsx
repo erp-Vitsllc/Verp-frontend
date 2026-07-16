@@ -31,10 +31,37 @@ import { crudAccess, isAdmin } from '@/utils/permissions';
 
 const COMPANY_PARTY_ID = 'VEGA-HR-0000';
 
+const PAYABLE_FINE_STATUSES = ['Approved', 'Active', 'Completed', 'Paid'];
+
 function formatMoney(n) {
     const num = Number(n);
     if (!Number.isFinite(num)) return '0.00';
     return num.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function paymentMatchesMonthRange(payment, startMonth, endMonth) {
+    if (!startMonth && !endMonth) return true;
+    const raw = payment?.paymentDate || payment?.createdAt;
+    if (!raw) return false;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return false;
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (startMonth && ym < startMonth) return false;
+    if (endMonth && ym > endMonth) return false;
+    return true;
+}
+
+function utilityBillBelongsToCompany(bill, company) {
+    if (!bill || !company) return false;
+    const companyOid = company?._id ? String(company._id) : '';
+    const companyBusinessId = String(company?.companyId || '').trim();
+    const companyName = String(company?.name || '').trim().toLowerCase();
+    const billCompanyId = String(bill.payByCompanyId || '').trim();
+    const billCompanyName = String(bill.payByCompanyName || '').trim().toLowerCase();
+    if (companyOid && billCompanyId === companyOid) return true;
+    if (companyBusinessId && billCompanyId === companyBusinessId) return true;
+    if (companyName && billCompanyName && billCompanyName === companyName) return true;
+    return false;
 }
 
 /**
@@ -54,8 +81,10 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
     const [companyPayments, setCompanyPayments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [paymentsLoading, setPaymentsLoading] = useState(false);
+    const [activeSubTab, setActiveSubTab] = useState('fines');
     const [filterStartMonth, setFilterStartMonth] = useState('');
     const [filterEndMonth, setFilterEndMonth] = useState('');
+    const [utilityBillById, setUtilityBillById] = useState({});
     const [expandedFineId, setExpandedFineId] = useState(null);
     const [finePayments, setFinePayments] = useState([]);
     const [loadingFinePayments, setLoadingFinePayments] = useState(false);
@@ -88,7 +117,6 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
             const res = await axiosInstance.get('/Payment', {
                 params: {
                     employeeId: COMPANY_PARTY_ID,
-                    paymentType: 'Fine',
                     limit: 1000,
                 },
                 skipToast: true,
@@ -109,6 +137,42 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
     }, [loadFines, loadCompanyPayments, reloadKey]);
 
     useEffect(() => {
+        const utilityPayments = (companyPayments || []).filter(
+            (p) => p.paymentType === 'UtilityBill',
+        );
+        const billIds = [
+            ...new Set(
+                utilityPayments
+                    .map((p) => String(p.relatedEntityId || p.referenceId || '').trim())
+                    .filter(Boolean),
+            ),
+        ];
+        if (!billIds.length) {
+            setUtilityBillById({});
+            return;
+        }
+        let cancelled = false;
+        Promise.all(
+            billIds.map((id) =>
+                axiosInstance
+                    .get(`/UtilityBill/${id}`, { skipToast: true })
+                    .then((res) => [id, res.data?.bill || res.data])
+                    .catch(() => [id, null]),
+            ),
+        ).then((results) => {
+            if (cancelled) return;
+            const map = {};
+            results.forEach(([id, bill]) => {
+                if (bill) map[id] = bill;
+            });
+            setUtilityBillById(map);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [companyPayments]);
+
+    useEffect(() => {
         if (!showAddFine) return;
         axiosInstance
             .get('/Employee', { params: { limit: 2000 }, skipToast: true })
@@ -123,18 +187,39 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
         [fines],
     );
 
-    /** Payments for this company's fines only (company party / VEGA-HR-0000). */
+    const companyFineMongoIds = useMemo(
+        () => new Set(fines.map((f) => String(f._id || '')).filter(Boolean)),
+        [fines],
+    );
+
+    /** Company-share payments: fines for this company and asset bills paid on its behalf. */
     const paymentsForCompany = useMemo(() => {
-        if (!companyFineIds.size) return [];
         return (companyPayments || []).filter((p) => {
-            const ref = String(p.referenceId || '');
-            if (!ref || !companyFineIds.has(ref)) return false;
-            return (
-                shouldShowPaymentInHistory(p.status) ||
-                isPaymentCountableTowardPaid(p.status)
-            );
+            if (
+                !shouldShowPaymentInHistory(p.status) &&
+                !isPaymentCountableTowardPaid(p.status)
+            ) {
+                return false;
+            }
+
+            if (p.paymentType === 'Fine') {
+                const ref = String(p.referenceId || '');
+                const rel = String(p.relatedEntityId || '');
+                return (
+                    (ref && companyFineIds.has(ref)) ||
+                    (rel && companyFineMongoIds.has(rel))
+                );
+            }
+
+            if (p.paymentType === 'UtilityBill') {
+                const billId = String(p.relatedEntityId || p.referenceId || '').trim();
+                const bill = utilityBillById[billId];
+                return utilityBillBelongsToCompany(bill, company);
+            }
+
+            return false;
         });
-    }, [companyPayments, companyFineIds]);
+    }, [companyPayments, companyFineIds, companyFineMongoIds, utilityBillById, company]);
 
     const getCompanyShare = (fine) => resolveCompanyFinePayableAmount(fine);
 
@@ -153,8 +238,8 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
     const getBalanceForFine = (fine) =>
         Math.max(0, getCompanyShare(fine) - getPaidForFine(fine));
 
-    const approvedFines = useMemo(
-        () => (fines || []).filter((f) => ['Approved', 'Paid'].includes(f.fineStatus)),
+    const companyFines = useMemo(
+        () => (fines || []).filter((f) => f.fineStatus !== 'Draft'),
         [fines],
     );
 
@@ -162,14 +247,28 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
 
     const filteredFines = useMemo(
         () =>
-            approvedFines.filter((f) =>
+            companyFines.filter((f) =>
                 fineMatchesDeductionMonthRange(f, filterStartMonth, filterEndMonth),
             ),
-        [approvedFines, filterStartMonth, filterEndMonth],
+        [companyFines, filterStartMonth, filterEndMonth],
+    );
+
+    const filteredPayments = useMemo(
+        () =>
+            paymentsForCompany.filter((p) =>
+                paymentMatchesMonthRange(p, filterStartMonth, filterEndMonth),
+            ),
+        [paymentsForCompany, filterStartMonth, filterEndMonth],
     );
 
     const payableFines = useMemo(
-        () => filteredFines.filter((f) => getBalanceForFine(f) > 0.01 && getCompanyShare(f) > 0.01),
+        () =>
+            filteredFines.filter(
+                (f) =>
+                    PAYABLE_FINE_STATUSES.includes(f.fineStatus) &&
+                    getBalanceForFine(f) > 0.01 &&
+                    getCompanyShare(f) > 0.01,
+            ),
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [filteredFines, paymentsForCompany],
     );
@@ -273,21 +372,52 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
     return (
         <div className="animate-in fade-in duration-500 space-y-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 sm:p-8 min-h-[400px]">
-                <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-end sm:justify-between">
+                <div className="flex flex-col gap-4 mb-4">
                     <div>
                         <h3 className="text-base sm:text-xl font-semibold text-gray-800">
                             Fines and Payment
                         </h3>
                         <p className="text-sm text-gray-400 mt-0.5">
-                            Company fines and company-share payments for{' '}
-                            {company?.name || 'this company'}
+                            Company fines and payments for {company?.name || 'this company'}
                         </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-6 border-b border-gray-100 pb-1">
+                        {[
+                            { id: 'fines', label: 'Fines' },
+                            { id: 'payments', label: 'Payments' },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveSubTab(tab.id)}
+                                className={`pb-2 text-sm font-semibold tracking-tight transition-all relative whitespace-nowrap ${
+                                    activeSubTab === tab.id
+                                        ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+                                        : 'text-gray-400 hover:text-gray-600'
+                                }`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
                         {monthFilterActive ? (
-                            <p className="text-xs text-slate-500 mt-2">
-                                Showing {filteredFines.length} of {approvedFines.length} approved
-                                fine(s) in the selected period
+                            <p className="text-xs text-slate-500">
+                                {activeSubTab === 'fines'
+                                    ? `Showing ${filteredFines.length} of ${companyFines.length} fine(s) in the selected period`
+                                    : `Showing ${filteredPayments.length} of ${paymentsForCompany.length} payment(s) in the selected period`}
                             </p>
-                        ) : null}
+                        ) : (
+                            <p className="text-xs text-slate-500">
+                                {activeSubTab === 'fines'
+                                    ? `${companyFines.length} fine(s) · draft excluded`
+                                    : `${paymentsForCompany.length} payment(s) for fines and assets`}
+                            </p>
+                        )}
                     </div>
 
                     <div className="flex flex-wrap items-end gap-3">
@@ -325,7 +455,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                 Clear
                             </button>
                         ) : null}
-                        {canAddFine ? (
+                        {activeSubTab === 'fines' && canAddFine ? (
                             <button
                                 type="button"
                                 onClick={() => setShowAddFine(true)}
@@ -335,7 +465,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                 Add Fine
                             </button>
                         ) : null}
-                        {canPay && selectedPayable.length > 0 ? (
+                        {activeSubTab === 'fines' && canPay && selectedPayable.length > 0 ? (
                             <button
                                 type="button"
                                 onClick={handlePaySelected}
@@ -348,6 +478,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                     </div>
                 </div>
 
+                {activeSubTab === 'fines' ? (
                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
                     <table className="w-full text-left">
                         <thead className="bg-gray-50/80 border-b border-gray-100">
@@ -421,8 +552,8 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                                 <FileText size={28} className="text-gray-300" />
                                             </div>
                                             <span className="text-sm font-semibold text-gray-400">
-                                                {approvedFines.length === 0
-                                                    ? 'No approved company fines for this company'
+                                                {companyFines.length === 0
+                                                    ? 'No company fines for this company'
                                                     : 'No fines match the selected month range'}
                                             </span>
                                         </div>
@@ -651,18 +782,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                         </tbody>
                     </table>
                 </div>
-            </div>
-
-            {/* All company payments for this company’s fines */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 sm:p-8">
-                <div className="mb-4">
-                    <h3 className="text-base sm:text-lg font-semibold text-gray-800">
-                        Company Payments
-                    </h3>
-                    <p className="text-sm text-gray-400 mt-0.5">
-                        Fine payments recorded against the company share
-                    </p>
-                </div>
+                ) : (
                 <div className="overflow-x-auto rounded-xl border border-gray-100">
                     <table className="w-full text-left text-sm">
                         <thead className="bg-gray-50/80 border-b border-gray-100">
@@ -671,7 +791,10 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                     Payment ID
                                 </th>
                                 <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase">
-                                    Fine Ref
+                                    Type
+                                </th>
+                                <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase">
+                                    Reference
                                 </th>
                                 <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase">
                                     Date
@@ -690,24 +813,29 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                         <tbody className="divide-y divide-gray-50">
                             {paymentsLoading ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
                                         Loading payments…
                                     </td>
                                 </tr>
-                            ) : paymentsForCompany.length === 0 ? (
+                            ) : filteredPayments.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
-                                        No company payments yet
+                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                                        {paymentsForCompany.length === 0
+                                            ? 'No company payments yet'
+                                            : 'No payments match the selected month range'}
                                     </td>
                                 </tr>
                             ) : (
-                                paymentsForCompany.map((pay) => (
+                                filteredPayments.map((pay) => (
                                     <tr
                                         key={pay._id}
                                         className={`hover:bg-slate-50/80 ${getPaymentStatusSurfaceClass(pay.status)}`}
                                     >
                                         <td className="px-4 py-3 font-bold text-slate-700">
                                             {pay.paymentId || '—'}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-600 capitalize">
+                                            {pay.paymentType || '—'}
                                         </td>
                                         <td className="px-4 py-3 text-slate-600 font-mono text-xs">
                                             {pay.referenceId || '—'}
@@ -746,6 +874,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                         </tbody>
                     </table>
                 </div>
+                )}
             </div>
 
             <FineFlowManager

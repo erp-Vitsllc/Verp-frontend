@@ -598,17 +598,7 @@ export default function UtilityBillsPage() {
                         <div
                             className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                         >
-                            <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">
-                                Amount Summary
-                            </h3>
-                            <UtilityBillStatsCards
-                                bills={typeBills}
-                                emptyLabel={
-                                    activeTypeTab
-                                        ? `No ${activeTypeTab} bills yet.`
-                                        : 'Select a utility type to see bill stats.'
-                                }
-                            />
+                            
                         </div>
                     </div>
 

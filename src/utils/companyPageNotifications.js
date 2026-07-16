@@ -6,10 +6,7 @@ import {
     collectCompanyActivationIncompleteNotifications,
     COMPANY_ACTIVATION_INCOMPLETE_TYPE,
 } from '@/utils/companyActivationIncompleteNotifications';
-import {
-    CARD_DELETED_PROGRESS_TYPE,
-    includesCardDeletedNotificationType,
-} from '@/utils/cardDeletedNotifications';
+import { isCardDeletedNotificationHiddenType } from '@/utils/cardDeletedNotifications';
 import {
     clearEmployeeDashboardStatsCache,
     fetchEmployeeDashboardStats,
@@ -22,7 +19,6 @@ const COMPANY_NOTIFICATION_TYPES = new Set([
     COMPANY_ACTIVATION_INCOMPLETE_TYPE,
     'Document Expiry Reminder',
     'Company Document Not Renew',
-    CARD_DELETED_PROGRESS_TYPE,
 ]);
 
 export const COMPANY_EXPIRY_SYNC_TS_KEY = 'verp:company-expiry-sync-at';
@@ -172,10 +168,11 @@ export function buildCompanyPageNotifications(
     hrLive = false,
     mandatoryCardsHrLive = false,
 ) {
-    const companyFiltered = (pendingItems || []).filter((item) =>
-        COMPANY_NOTIFICATION_TYPES.has(String(item?.type || '').trim()) ||
-        includesCardDeletedNotificationType(item?.type),
-    );
+    const companyFiltered = (pendingItems || []).filter((item) => {
+        const type = String(item?.type || '').trim();
+        if (isCardDeletedNotificationHiddenType(type)) return false;
+        return COMPANY_NOTIFICATION_TYPES.has(type);
+    });
 
     const liveExpiry = hrLive
         ? collectCompanyLiveExpiryNotifications(companiesList)
