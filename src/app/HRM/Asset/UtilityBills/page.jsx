@@ -22,6 +22,7 @@ import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import { ASSET_PENDING_INBOX_CHANGED } from '../utils/assetPendingInboxCount';
 import { useToast } from '@/hooks/use-toast';
 import { invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
+import { isAdmin } from '@/utils/permissions';
 import {
     clearUtilityBillDraft,
     entryLifecycleStatus,
@@ -40,6 +41,7 @@ import {
 import {
     createUtilityEntryApi,
     deleteUtilityConfig,
+    deleteUtilityEntryApi,
     fetchUtilityConfigs,
     fetchUtilityEntries,
     saveUtilityConfig,
@@ -242,6 +244,7 @@ function UtilityBillsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { toast } = useToast();
+    const canAdminDelete = isAdmin();
     const [addModalOpen, setAddModalOpen] = useState(false);
     const [editingUtility, setEditingUtility] = useState(null);
     const [createEntryOpen, setCreateEntryOpen] = useState(false);
@@ -443,11 +446,15 @@ function UtilityBillsPageContent() {
     const handleDeleteUtility = async (utility) => {
         const typeName = utility?.type || '';
         if (!typeName) return;
-        if (isUtilityTabUsed(typeName)) {
+        const used = isUtilityTabUsed(typeName);
+        if (used && !canAdminDelete) {
             window.alert(`“${typeName}” has records, so Delete is disabled until those records are removed.`);
             return;
         }
-        if (!window.confirm(`Delete “${typeName}” tab? The type will stay in the dropdown for reuse.`)) return;
+        const confirmMsg = used
+            ? `Delete “${typeName}” and all of its records and bills? This cannot be undone.`
+            : `Delete “${typeName}” tab? The type will stay in the dropdown for reuse.`;
+        if (!window.confirm(confirmMsg)) return;
 
         try {
             if (utility.id) {
@@ -458,13 +465,49 @@ function UtilityBillsPageContent() {
                     (u) => String(u.type || '').toLowerCase() !== String(typeName).toLowerCase(),
                 ),
             );
+            if (used) {
+                setEntries((prev) =>
+                    prev.filter(
+                        (e) => String(e.type || '').toLowerCase() !== String(typeName).toLowerCase(),
+                    ),
+                );
+            }
             if (String(activeTypeTab).toLowerCase() === String(typeName).toLowerCase()) {
                 setActiveTypeTab('');
             }
+            invalidateAssetPendingInbox();
         } catch (err) {
             toast({
                 variant: 'destructive',
                 title: 'Could not delete utility',
+                description: err?.response?.data?.message || 'Please try again.',
+            });
+        }
+    };
+
+    const handleDeleteEntry = async (entry) => {
+        if (!canAdminDelete || !entry?.id) return;
+        const label =
+            entry.values?.accountNumber ||
+            entry.values?.provider ||
+            entry.type ||
+            entry.id;
+        if (
+            !window.confirm(
+                `Delete this ${entry.type || 'utility'} record (${label}) and all of its bills? This cannot be undone.`,
+            )
+        ) {
+            return;
+        }
+        try {
+            await deleteUtilityEntryApi(entry.id);
+            setEntries((prev) => prev.filter((e) => String(e.id) !== String(entry.id)));
+            invalidateAssetPendingInbox();
+            toast({ title: 'Record deleted' });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not delete record',
                 description: err?.response?.data?.message || 'Please try again.',
             });
         }
@@ -812,11 +855,13 @@ function UtilityBillsPageContent() {
                                                         <button
                                                             type="button"
                                                             title={
-                                                                tabUsed
+                                                                tabUsed && !canAdminDelete
                                                                     ? 'Has records — delete disabled'
-                                                                    : 'Delete tab'
+                                                                    : tabUsed
+                                                                      ? 'Delete tab and all records'
+                                                                      : 'Delete tab'
                                                             }
-                                                            disabled={tabUsed}
+                                                            disabled={tabUsed && !canAdminDelete}
                                                             onClick={() => handleDeleteUtility(tab)}
                                                             className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                                                         >
@@ -926,6 +971,11 @@ function UtilityBillsPageContent() {
                                                                 {showAssignColumn ? (
                                                                     <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
                                                                         Assignment
+                                                                    </th>
+                                                                ) : null}
+                                                                {canAdminDelete ? (
+                                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                                                                        Actions
                                                                     </th>
                                                                 ) : null}
                                                             </tr>
@@ -1103,6 +1153,22 @@ function UtilityBillsPageContent() {
                                                                             </div>
                                                                         </td>
                                                                     ) : null}
+                                                                    {canAdminDelete ? (
+                                                                        <td
+                                                                            className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 align-middle whitespace-nowrap text-right"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        >
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Delete record"
+                                                                                onClick={() => handleDeleteEntry(entry)}
+                                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-200 bg-white hover:bg-red-50 text-red-600 text-xs font-medium"
+                                                                            >
+                                                                                <Trash2 size={12} />
+                                                                                Delete
+                                                                            </button>
+                                                                        </td>
+                                                                    ) : null}
                                                                 </tr>
                                                                 </ListTableRowLink>
                                                                 );
@@ -1131,6 +1197,7 @@ function UtilityBillsPageContent() {
                     setEditingUtility(null);
                 }}
                 onSave={handleSaveUtility}
+                onCatalogChanged={reloadUtilitiesAndEntries}
                 utilityType={editingUtility?.type || ''}
                 initialFields={editingUtility?.fields || null}
                 usedTypes={usedTypeNames}

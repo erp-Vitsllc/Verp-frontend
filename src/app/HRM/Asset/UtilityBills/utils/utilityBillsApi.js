@@ -45,6 +45,18 @@ export async function updateUtilityEntryApi(id, patch) {
     return res.data?.entry || null;
 }
 
+export async function deleteUtilityEntryApi(id) {
+    const res = await axiosInstance.delete(
+        `/UtilityBill/entries/${encodeURIComponent(String(id))}`,
+    );
+    return res.data || { ok: true };
+}
+
+export async function deleteUtilityBillApi(id) {
+    const res = await axiosInstance.delete(`/UtilityBill/${encodeURIComponent(String(id))}`);
+    return res.data || { ok: true };
+}
+
 export async function fetchUtilityTypeNames() {
     const res = await axiosInstance.get('/UtilityBill/types', { skipToast: true });
     return Array.isArray(res.data?.types) ? res.data.types : [];

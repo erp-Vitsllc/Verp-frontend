@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
-import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, ChevronDown, Plus, Calendar, CreditCard, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, ChevronDown, Plus, Calendar, CreditCard, TrendingUp, TrendingDown, Trash2 } from 'lucide-react';
 import {
     DETAIL_PAIR_COLUMN,
     DETAIL_PAIR_GRID,
@@ -13,6 +13,7 @@ import {
 } from '@/utils/headerPairLayout';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { isAdmin } from '@/utils/permissions';
 import {
     buildDetailFieldRows,
     clearUtilityBillDraft,
@@ -21,7 +22,12 @@ import {
     isEntryActive,
     normalizeUtilityFields,
 } from '../../utils/utilityBillsStorage';
-import { fetchUtilityEntry, updateUtilityEntryApi } from '../../utils/utilityBillsApi';
+import {
+    deleteUtilityBillApi,
+    deleteUtilityEntryApi,
+    fetchUtilityEntry,
+    updateUtilityEntryApi,
+} from '../../utils/utilityBillsApi';
 import FieldViewModal from '../../components/FieldViewModal';
 import AddBillModal from '../../components/AddBillModal';
 import ViewBillModal from '../../components/ViewBillModal';
@@ -235,6 +241,7 @@ function UtilityBillDetailsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { toast } = useToast();
+    const canAdminDelete = isAdmin();
     const entryId = params?.id ? String(params.id) : '';
 
     const [entry, setEntry] = useState(null);
@@ -583,6 +590,55 @@ function UtilityBillDetailsPageContent() {
         setReviewBatchId('');
     };
 
+    const handleDeleteBill = async (bill) => {
+        if (!canAdminDelete || !bill?._id) return;
+        const label = monthLabelFromKey(bill.billMonth) || 'this bill';
+        if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+        try {
+            await deleteUtilityBillApi(bill._id);
+            setBills((prev) => prev.filter((b) => String(b._id) !== String(bill._id)));
+            if (viewBill && String(viewBill._id) === String(bill._id)) setViewBill(null);
+            invalidateAssetPendingInbox();
+            clearModuleNotificationFeedsCache();
+            toast({ title: 'Bill deleted' });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not delete bill',
+                description: err?.response?.data?.message || 'Please try again.',
+            });
+        }
+    };
+
+    const handleDeleteEntry = async () => {
+        if (!canAdminDelete || !entry?.id) return;
+        const label =
+            entry.values?.accountNumber ||
+            entry.values?.provider ||
+            entry.type ||
+            entry.id;
+        if (
+            !window.confirm(
+                `Delete this ${entry.type || 'utility'} record (${label}) and all of its bills? This cannot be undone.`,
+            )
+        ) {
+            return;
+        }
+        try {
+            await deleteUtilityEntryApi(entry.id);
+            invalidateAssetPendingInbox();
+            clearModuleNotificationFeedsCache();
+            toast({ title: 'Record deleted' });
+            router.push('/HRM/Asset/UtilityBills');
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not delete record',
+                description: err?.response?.data?.message || 'Please try again.',
+            });
+        }
+    };
+
     const renderDetailFields = () => {
         if (detailRows.length === 0) {
             return <p className="text-xs sm:text-sm text-gray-500 px-4 sm:px-5 py-4">No fields configured for this utility.</p>;
@@ -892,6 +948,17 @@ function UtilityBillDetailsPageContent() {
                                                 className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm shadow-amber-100/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
                                             >
                                                 Pay
+                                            </button>
+                                        ) : null}
+                                        {canAdminDelete ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteBill(bill)}
+                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                                title="Delete bill"
+                                            >
+                                                <Trash2 size={12} />
+                                                Delete
                                             </button>
                                         ) : null}
                                     </div>
@@ -1213,26 +1280,38 @@ function UtilityBillDetailsPageContent() {
                                     : 'Utility account details and bills'}
                             </p>
                         </div>
-                        <button
-                            type="button"
-                            onClick={openStatusChangeModal}
-                            disabled={hasPendingStatusChange}
-                            className={`px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium text-xs sm:text-sm border shadow-sm whitespace-nowrap shrink-0 disabled:opacity-60 disabled:cursor-not-allowed ${
-                                entryIsActive
-                                    ? 'bg-white hover:bg-teal-50 text-teal-700 border-teal-200'
-                                    : 'bg-teal-500 hover:bg-teal-600 text-white border-teal-500'
-                            }`}
-                        >
-                            {hasPendingStatusChange
-                                ? `Pending ${
-                                      pendingStatusChange?.requestedStatus === 'Active'
-                                          ? 'activation'
-                                          : 'deactivation'
-                                  }`
-                                : entryIsActive
-                                  ? 'Deactivate'
-                                  : 'Activate'}
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2 shrink-0 self-start sm:self-auto">
+                            {canAdminDelete ? (
+                                <button
+                                    type="button"
+                                    onClick={handleDeleteEntry}
+                                    className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium text-xs sm:text-sm border border-red-200 bg-white hover:bg-red-50 text-red-600 shadow-sm whitespace-nowrap"
+                                >
+                                    <Trash2 size={14} />
+                                    Delete
+                                </button>
+                            ) : null}
+                            <button
+                                type="button"
+                                onClick={openStatusChangeModal}
+                                disabled={hasPendingStatusChange}
+                                className={`px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium text-xs sm:text-sm border shadow-sm whitespace-nowrap shrink-0 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                    entryIsActive
+                                        ? 'bg-white hover:bg-teal-50 text-teal-700 border-teal-200'
+                                        : 'bg-teal-500 hover:bg-teal-600 text-white border-teal-500'
+                                }`}
+                            >
+                                {hasPendingStatusChange
+                                    ? `Pending ${
+                                          pendingStatusChange?.requestedStatus === 'Active'
+                                              ? 'activation'
+                                              : 'deactivation'
+                                      }`
+                                    : entryIsActive
+                                      ? 'Deactivate'
+                                      : 'Activate'}
+                            </button>
+                        </div>
                     </div>
 
                     <div className={HEADER_PAIR_GRID}>

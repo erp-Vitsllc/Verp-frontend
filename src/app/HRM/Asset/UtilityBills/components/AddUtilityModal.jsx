@@ -64,13 +64,14 @@ function YesNoToggle({ name, value, onChange, label }) {
  * Add Utility modal:
  * - Type dropdown (admin can add types; types stay permanently)
  * - Used types are disabled in the dropdown
- * - Admin can delete unused custom types only
+ * - Admin can delete types (force-deletes related tabs/records when in use)
  * - Include fields Yes/No toggles
  */
 export default function AddUtilityModal({
     isOpen,
     onClose,
     onSave,
+    onCatalogChanged,
     utilityType = '',
     initialFields = null,
     usedTypes = [],
@@ -176,9 +177,15 @@ export default function AddUtilityModal({
     };
 
     const handleRemoveType = async (name) => {
-        if (isTypeUsed(name)) {
-            setError(`“${name}” is in use and cannot be removed from the dropdown.`);
-            return;
+        const used = isTypeUsed(name);
+        if (used) {
+            if (
+                !window.confirm(
+                    `“${name}” is in use. Delete it from the dropdown and remove related utility tabs/records? This cannot be undone.`,
+                )
+            ) {
+                return;
+            }
         }
         setBusy(true);
         setError('');
@@ -189,6 +196,7 @@ export default function AddUtilityModal({
                 const firstAvailable = next.find((t) => !isTypeUsed(t));
                 setType(firstAvailable || '');
             }
+            if (used) onCatalogChanged?.();
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not remove type.');
         } finally {
@@ -341,10 +349,10 @@ export default function AddUtilityModal({
                                                 </span>
                                                 <button
                                                     type="button"
-                                                    disabled={used || busy}
+                                                    disabled={busy}
                                                     title={
                                                         used
-                                                            ? 'In use — delete disabled'
+                                                            ? 'In use — deletes related tabs/records'
                                                             : 'Remove from dropdown'
                                                     }
                                                     onClick={() => handleRemoveType(t)}

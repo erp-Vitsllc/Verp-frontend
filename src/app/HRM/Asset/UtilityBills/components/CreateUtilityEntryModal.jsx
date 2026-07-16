@@ -363,7 +363,7 @@ export default function CreateUtilityEntryModal({
                         </p>
                     ) : (
                         <p className="text-xs text-gray-500">
-                            Default: Etisalat, Du. Used providers cannot be deleted.
+                            Default: Etisalat, Du. Admin can remove providers from the dropdown.
                         </p>
                     )}
 
