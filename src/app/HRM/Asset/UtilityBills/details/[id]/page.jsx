@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -108,7 +108,7 @@ function billSortTime(bill) {
 /**
  * Utility entry details — header cards, tabs, 1/2 type details + bills list with HR approval.
  */
-export default function UtilityBillDetailsPage() {
+function UtilityBillDetailsPageContent() {
     const params = useParams();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -1073,5 +1073,19 @@ export default function UtilityBillDetailsPage() {
                 }
             />
         </div>
+    );
+}
+
+export default function UtilityBillDetailsPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen w-full bg-[#F2F6F9] items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+            }
+        >
+            <UtilityBillDetailsPageContent />
+        </Suspense>
     );
 }

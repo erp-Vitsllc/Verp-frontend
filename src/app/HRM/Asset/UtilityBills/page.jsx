@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -131,7 +131,7 @@ function countUtilityBillPending(items = []) {
     ).length;
 }
 
-export default function UtilityBillsPage() {
+function UtilityBillsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { toast } = useToast();
@@ -1031,5 +1031,19 @@ export default function UtilityBillsPage() {
                 onPendingInboxCount={() => fetchPendingInboxCount({ force: true })}
             />
         </div>
+    );
+}
+
+export default function UtilityBillsPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen w-full bg-[#F2F6F9] items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+            }
+        >
+            <UtilityBillsPageContent />
+        </Suspense>
     );
 }
