@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import { Eye, Upload, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ChevronDown, Eye, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -260,7 +260,6 @@ export default function UtilityBillReviewModal({
 }) {
     const { toast } = useToast();
     const router = useRouter();
-    const pathname = usePathname();
     const fileInputRefs = useRef({});
     const [loading, setLoading] = useState(false);
     const [acting, setActing] = useState(false);
@@ -271,7 +270,18 @@ export default function UtilityBillReviewModal({
     const [attachMenuIndex, setAttachMenuIndex] = useState(null);
     const [payByRowIndex, setPayByRowIndex] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
+    const [payMenuOpen, setPayMenuOpen] = useState(false);
+    const payMenuRef = useRef(null);
     const { employeeOptions, companyOptions } = usePayByPartyOptions(isOpen);
+
+    useEffect(() => {
+        if (!payMenuOpen) return undefined;
+        const onDocClick = (e) => {
+            if (!payMenuRef.current?.contains(e.target)) setPayMenuOpen(false);
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, [payMenuOpen]);
 
     useEffect(() => {
         if (!isOpen || !batchId) return;
@@ -739,8 +749,13 @@ export default function UtilityBillReviewModal({
         }
     };
 
-    /** Open Accounts → Add Payment modal with payable utility bills (checkboxes there). */
-    const openPayViaAccounts = () => {
+    /**
+     * Open Purchases → Payments Made (Add Vendor Payment) prefilled from the selected bills.
+     * mode 'bills'      → amount = total Actual bill amount.
+     * mode 'difference' → amount = total |Contract − Actual| difference.
+     * Vendor is auto-selected from the bill provider (providers already include Zoho vendors).
+     */
+    const openPayViaPurchases = (mode) => {
         const payable = rows.filter(
             (r) => r.inBatch && r.billId && String(r.status) === 'Approved',
         );
@@ -754,48 +769,43 @@ export default function UtilityBillReviewModal({
             setError('Select at least one bill to pay.');
             return;
         }
-        const id = batch?.batchId || batchId;
-        if (!id) {
-            setError('Batch id missing.');
-            return;
-        }
         setError('');
-        // Pass all payable bills; payment modal checkboxes start from review selection
-        const billsPayload = payable.map((r) => {
-            const pay = computeRowPayTotals(r);
-            const companyPay = Number(pay.companyPayAmount) || 0;
-            const employeePay = Number(pay.employeePayAmount) || 0;
-            return {
-                _id: r.billId,
-                accountNo: r.accountNo,
-                contractAmount: Number(r.contractAmount) || 0,
-                actualAmount: Number(r.actualAmount) || 0,
-                companyPayAmount: companyPay,
-                employeePayAmount: employeePay,
-                balance: companyPay + employeePay,
-                payBy: r.payBy,
-                payByCompanyName: r.payByCompanyName || '',
-                payByEmployeeName: r.payByEmployeeName || '',
-                payByEmployeeBusinessId: '',
-                referenceId: String(r.billId),
-                selected: anySelected ? Boolean(r.selected) : true,
-            };
-        });
-        const payload = {
-            batchId: id,
-            utilityType: batch?.utilityType || '',
-            billMonth: batch?.billMonth || '',
-            employeeId: 'VEGA-HR-0000',
-            paymentSource: 'Cash',
-            returnTo:
-                typeof window !== 'undefined'
-                    ? `${window.location.pathname}${window.location.search}`
-                    : pathname || '/HRM/Asset/UtilityBills',
-            utilityBills: billsPayload,
+        setPayMenuOpen(false);
+
+        const total = selected.reduce((sum, r) => {
+            const contract = Number(r.contractAmount) || 0;
+            const actual = Number(r.actualAmount) || 0;
+            return mode === 'difference'
+                ? sum + Math.abs(contract - actual)
+                : sum + actual;
+        }, 0);
+
+        const providers = Array.from(
+            new Set(
+                selected
+                    .map((r) => String(r.provider || '').trim())
+                    .filter((p) => p && p !== '—'),
+            ),
+        );
+        const vendorName = providers.length === 1 ? providers[0] : '';
+
+        const typeLabel = batch?.utilityType || '';
+        const monthLabel = batch?.billMonth || '';
+        const accountNos = selected.map((r) => r.accountNo).filter(Boolean).join(', ');
+        const prefill = {
+            vendorName,
+            amount: total > 0 ? total.toFixed(2) : '',
+            referenceNumber: batch?.batchId || batchId || '',
+            notes: `Utility ${mode === 'difference' ? 'difference' : 'bill'} payment · ${typeLabel} ${monthLabel}${
+                accountNos ? ` · Acc ${accountNos}` : ''
+            }`.trim(),
+            utilityType: typeLabel,
+            billMonth: monthLabel,
+            mode,
         };
-        sessionStorage.setItem('utilityBillPaymentPrefill', JSON.stringify(payload));
+        sessionStorage.setItem('utilityVendorPaymentPrefill', JSON.stringify(prefill));
         onClose?.();
-        router.push('/Accounts/Payments?addUtilityPay=1');
+        router.push('/Purchases/PaymentsMade?addUtilityPay=1');
     };
 
     if (!isOpen) return null;
@@ -1326,17 +1336,43 @@ export default function UtilityBillReviewModal({
                                     </>
                                 ) : null}
                                 {canPay ? (
-                                    <button
-                                        type="button"
-                                        disabled={
-                                            acting ||
-                                            !rows.some((r) => r.selected && r.billId)
-                                        }
-                                        onClick={openPayViaAccounts}
-                                        className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
-                                    >
-                                        Pay
-                                    </button>
+                                    <div className="relative" ref={payMenuRef}>
+                                        <button
+                                            type="button"
+                                            disabled={
+                                                acting ||
+                                                !rows.some((r) => r.selected && r.billId)
+                                            }
+                                            onClick={() => setPayMenuOpen((v) => !v)}
+                                            className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
+                                        >
+                                            Pay
+                                            <ChevronDown
+                                                size={16}
+                                                className={`transition-transform ${
+                                                    payMenuOpen ? 'rotate-180' : ''
+                                                }`}
+                                            />
+                                        </button>
+                                        {payMenuOpen ? (
+                                            <div className="absolute right-0 bottom-full mb-1.5 w-48 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden z-10">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openPayViaPurchases('bills')}
+                                                    className="w-full px-4 py-2.5 text-left text-sm font-medium text-gray-700 hover:bg-amber-50"
+                                                >
+                                                    Pay bills
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openPayViaPurchases('difference')}
+                                                    className="w-full px-4 py-2.5 text-left text-sm font-medium text-gray-700 hover:bg-amber-50 border-t border-gray-100"
+                                                >
+                                                    Pay difference
+                                                </button>
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 ) : null}
                             </div>
                         </>

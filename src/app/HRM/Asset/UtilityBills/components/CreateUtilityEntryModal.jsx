@@ -8,6 +8,7 @@ import { UTILITY_TOGGLE_FIELDS } from './AddUtilityModal';
 import {
     addUtilityProviderApi,
     fetchUtilityProvidersApi,
+    fetchUtilityProviderVendorOptionsApi,
     removeUtilityProviderApi,
 } from '../utils/utilityBillsApi';
 
@@ -82,6 +83,7 @@ export default function CreateUtilityEntryModal({
     const [values, setValues] = useState({});
     const [attachment, setAttachment] = useState(null);
     const [providers, setProviders] = useState([]);
+    const [vendorOptions, setVendorOptions] = useState([]);
     const [showAddProvider, setShowAddProvider] = useState(false);
     const [providerMenuOpen, setProviderMenuOpen] = useState(false);
     const [newProviderName, setNewProviderName] = useState('');
@@ -92,6 +94,32 @@ export default function CreateUtilityEntryModal({
         () => [...providers].sort((a, b) => a.localeCompare(b)),
         [providers],
     );
+
+    const addProviderVendorOptions = useMemo(() => {
+        const activeKeys = new Set(providers.map((name) => String(name).toLowerCase()));
+        const uniqueVendors = new Map();
+
+        vendorOptions.forEach((name) => {
+            const trimmed = String(name || '').trim();
+            if (!trimmed) return;
+            const key = trimmed.toLowerCase();
+            if (!uniqueVendors.has(key)) uniqueVendors.set(key, trimmed);
+        });
+
+        // Vendor list for Add provider — always show all vendors (even if removed from Select).
+        return Array.from(uniqueVendors.entries())
+            .sort((a, b) => a[1].localeCompare(b[1]))
+            .map(([key, name]) => ({
+                key,
+                name,
+                alreadyInDropdown: activeKeys.has(key),
+            }));
+    }, [providers, vendorOptions]);
+
+    const applyProviderLists = (result) => {
+        setProviders(Array.isArray(result?.providers) ? result.providers : []);
+        setVendorOptions(Array.isArray(result?.vendorOptions) ? result.vendorOptions : []);
+    };
 
     useEffect(() => {
         if (!isOpen) return;
@@ -105,9 +133,22 @@ export default function CreateUtilityEntryModal({
         (async () => {
             try {
                 const list = await fetchUtilityProvidersApi();
-                if (!cancelled) setProviders(list);
+                if (cancelled) return;
+
+                if (Array.isArray(list.vendorOptions) && list.vendorOptions.length) {
+                    applyProviderLists(list);
+                    return;
+                }
+
+                const vendorOptions = await fetchUtilityProviderVendorOptionsApi();
+                if (!cancelled) {
+                    applyProviderLists({ ...list, vendorOptions });
+                }
             } catch {
-                if (!cancelled) setProviders([]);
+                if (!cancelled) {
+                    setProviders([]);
+                    setVendorOptions([]);
+                }
             }
         })();
         return () => {
@@ -129,15 +170,15 @@ export default function CreateUtilityEntryModal({
 
     if (!isOpen) return null;
 
-    const handleAddProvider = async () => {
-        const name = String(newProviderName || '').trim();
+    const handleAddProvider = async (nameOverride = '') => {
+        const name = String(nameOverride || newProviderName || '').trim();
         if (!name) {
             setError('Enter a provider name.');
             return;
         }
         try {
             const result = await addUtilityProviderApi(name);
-            setProviders(result.providers);
+            applyProviderLists(result);
             setField('provider', name);
             setNewProviderName('');
             setShowAddProvider(false);
@@ -150,10 +191,13 @@ export default function CreateUtilityEntryModal({
     const handleRemoveProvider = async (name) => {
         try {
             const result = await removeUtilityProviderApi(name);
-            setProviders(result.providers);
+            applyProviderLists(result);
             if (String(values.provider || '').toLowerCase() === String(name).toLowerCase()) {
                 setField('provider', '');
             }
+            // Keep Add provider open so admin can see the vendor is still in that list.
+            setShowAddProvider(true);
+            setNewProviderName('');
             setError('');
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not remove provider.');
@@ -338,7 +382,7 @@ export default function CreateUtilityEntryModal({
                                                 {canManageProviders ? (
                                                     <button
                                                         type="button"
-                                                        title="Delete provider"
+                                                        title="Remove from Select provider only (vendor list stays)"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleRemoveProvider(opt);
@@ -359,30 +403,57 @@ export default function CreateUtilityEntryModal({
 
                     {!canManageProviders ? (
                         <p className="text-xs text-gray-500">
-                            Only administrators can add providers to this list.
+                            Only administrators can add providers from the vendor list.
                         </p>
                     ) : (
                         <p className="text-xs text-gray-500">
-                            Default: Etisalat, Du. Admin can remove providers from the dropdown.
+                            Add a vendor → it appears in Select provider. Delete removes it from Select
+                            provider only — the vendor stays in Add provider / vendor list.
                         </p>
                     )}
 
                     {canManageProviders && showAddProvider ? (
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                value={newProviderName}
-                                onChange={(e) => setNewProviderName(e.target.value)}
-                                placeholder="New provider name"
-                                className={`${inputClass} flex-1`}
-                            />
-                            <button
-                                type="button"
-                                onClick={handleAddProvider}
-                                className="px-3 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium whitespace-nowrap"
-                            >
-                                Save
-                            </button>
+                        <div className="space-y-2 rounded-lg border border-teal-100 bg-teal-50/40 p-3">
+                            <label className="block text-xs font-semibold text-slate-600">
+                                Vendor list (Add provider)
+                            </label>
+                            <div className="flex gap-2">
+                                <select
+                                    value={newProviderName}
+                                    onChange={(e) => setNewProviderName(e.target.value)}
+                                    className={`${inputClass} flex-1`}
+                                >
+                                    <option value="">Select vendor to add</option>
+                                    {addProviderVendorOptions.map((opt) => (
+                                        <option
+                                            key={opt.key}
+                                            value={opt.name}
+                                            disabled={opt.alreadyInDropdown}
+                                        >
+                                            {opt.alreadyInDropdown
+                                                ? `${opt.name} (already in Select provider)`
+                                                : opt.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="button"
+                                    onClick={() => handleAddProvider()}
+                                    disabled={!newProviderName}
+                                    className="px-3 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium whitespace-nowrap"
+                                >
+                                    Save
+                                </button>
+                            </div>
+                            {!vendorOptions.length ? (
+                                <p className="text-xs text-amber-700">
+                                    No vendors found. Sync vendors from Purchases → Vendors first.
+                                </p>
+                            ) : (
+                                <p className="text-xs text-slate-500">
+                                    This list is the full vendor list. Delete never removes vendors from here.
+                                </p>
+                            )}
                         </div>
                     ) : null}
                 </div>

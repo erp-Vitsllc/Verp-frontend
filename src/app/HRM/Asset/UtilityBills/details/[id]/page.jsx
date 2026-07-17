@@ -908,6 +908,31 @@ function UtilityBillDetailsPageContent() {
                                         >
                                             View
                                         </button>
+                                        {bill.attachment?.name ? (
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    openUtilityAttachment(bill.attachment, {
+                                                        onError: (msg) =>
+                                                            toast({
+                                                                variant: 'destructive',
+                                                                title: 'Invoice',
+                                                                description:
+                                                                    msg ||
+                                                                    'Could not open bill attachment.',
+                                                            }),
+                                                    })
+                                                }
+                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                                title={
+                                                    bill.attachment.name
+                                                        ? `View bill invoice: ${bill.attachment.name}`
+                                                        : 'View bill invoice attachment'
+                                                }
+                                            >
+                                                Invoice
+                                            </button>
+                                        ) : null}
                                         {(isNotPaid || isPaid) ? (
                                             <button
                                                 type="button"
@@ -917,19 +942,19 @@ function UtilityBillDetailsPageContent() {
                                                     if (!payment) {
                                                         toast({
                                                             variant: 'destructive',
-                                                            title: 'Payment invoice',
+                                                            title: 'Payment receipt',
                                                             description:
                                                                 error ||
-                                                                'Could not open payment invoice.',
+                                                                'Could not open payment receipt.',
                                                         });
                                                         return;
                                                     }
                                                     setPaymentInvoice(payment);
                                                 }}
-                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
                                                 title="Open payment receipt from Accounts → Payments"
                                             >
-                                                Invoice
+                                                Receipt
                                             </button>
                                         ) : null}
                                         {showApprove ? (

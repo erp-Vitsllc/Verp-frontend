@@ -7,6 +7,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import ErpPageHeader from '@/components/ErpPageHeader';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
+import ErpListPagination from '@/components/ErpListPagination';
 import axiosInstance from '@/utils/axios';
 import { mapZohoCustomerListRows } from '@/utils/zohoCustomers';
 import { useZohoCustomers } from '@/hooks/useZohoCustomers';
@@ -41,6 +42,8 @@ export default function CrmCustomersPage() {
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState('name');
     const [sortDirection, setSortDirection] = useState('asc');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
     const [syncing, setSyncing] = useState(false);
     const { connectZoho } = useZohoCustomers({ enabled: false });
 
@@ -104,6 +107,17 @@ export default function CrmCustomersPage() {
 
         return [...next].sort((a, b) => compareRows(a, b, sortKey, sortDirection));
     }, [rows, search, sortKey, sortDirection]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [search, sortKey, sortDirection, pageSize]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize) || 1);
+    const safePage = Math.min(currentPage, totalPages);
+    const pagedRows = useMemo(() => {
+        const start = (safePage - 1) * pageSize;
+        return filteredRows.slice(start, start + pageSize);
+    }, [filteredRows, pageSize, safePage]);
 
     const handleSort = (key) => {
         if (sortKey === key) {
@@ -246,7 +260,7 @@ export default function CrmCustomersPage() {
                                         ) : null}
 
                                         {!loading
-                                            ? filteredRows.map((row) => (
+                                            ? pagedRows.map((row) => (
                                                   <tr
                                                       key={row.id || row.name}
                                                       className="border-b border-slate-100 hover:bg-slate-50/80"
@@ -279,6 +293,17 @@ export default function CrmCustomersPage() {
                                     </tbody>
                                 </table>
                             </div>
+
+                            {!loading && filteredRows.length > 0 ? (
+                                <ErpListPagination
+                                    currentPage={safePage}
+                                    pageSize={pageSize}
+                                    totalItems={filteredRows.length}
+                                    onPageChange={setCurrentPage}
+                                    onPageSizeChange={setPageSize}
+                                    itemLabel="customers"
+                                />
+                            ) : null}
                         </div>
                     </main>
                 </div>

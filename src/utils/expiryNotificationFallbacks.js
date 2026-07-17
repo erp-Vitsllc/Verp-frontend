@@ -242,6 +242,7 @@ export function collectCompanyLiveExpiryNotifications(companies = []) {
             status: 'Pending',
             extra1: `Expiry follow-up required: ${label} (Exp: ${expLabel})`,
             extra2: `${company?.name || ''} (${company?.companyId || ''})`,
+            subjectName: company?.name || '',
             scope: 'inbox',
             ...extraFields,
         });
@@ -315,6 +316,7 @@ export function collectEmployeeLiveExpiryNotifications(employees = []) {
             status: 'Pending',
             extra1: `Expiry follow-up required: ${label} (Exp: ${expLabel})`,
             extra2: `${subjectName} (${eid})`,
+            subjectName,
             scope: 'inbox',
             targetEmployeeId: eid,
         });

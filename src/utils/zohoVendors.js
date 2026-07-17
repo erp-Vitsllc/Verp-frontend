@@ -1,15 +1,37 @@
 export function mapZohoVendor(vendor) {
     if (!vendor || typeof vendor !== 'object') return null;
 
+    const id = String(
+        vendor.contact_id ||
+            vendor.vendor_id ||
+            vendor.zohoContactId ||
+            vendor.zohoVendorId ||
+            vendor.id ||
+            '',
+    ).trim();
+
     const label =
-        String(vendor.contact_name || vendor.vendor_name || vendor.company_name || '').trim() ||
-        'Unnamed vendor';
+        String(
+            vendor.contact_name ||
+                vendor.vendor_name ||
+                vendor.company_name ||
+                vendor.contactName ||
+                vendor.companyName ||
+                '',
+        ).trim() || 'Unnamed vendor';
+
+    if (!id) return null;
 
     return {
-        id: String(vendor.contact_id || vendor.vendor_id || label),
+        id,
         label,
         email: String(vendor.email || '').trim(),
         phone: String(vendor.phone || vendor.mobile || '').trim(),
+        currencyCode: String(vendor.currency_code || vendor.currencyCode || 'AED').trim() || 'AED',
+        locationId: String(vendor.location_id || vendor.locationId || '').trim(),
+        locationName: String(vendor.location_name || vendor.locationName || '').trim(),
+        outstandingPayableAmount:
+            Number(vendor.outstanding_payable_amount ?? vendor.outstandingPayableAmount) || 0,
         raw: vendor,
     };
 }

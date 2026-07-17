@@ -1,45 +1,72 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpDown, Loader2, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+    ArrowUpDown,
+    Loader2,
+    Plus,
+    RefreshCw,
+    Search,
+    SlidersHorizontal,
+} from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import ErpPageHeader from '@/components/ErpPageHeader';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import ErpListPagination from '@/components/ErpListPagination';
-import { mapZohoVendorListRows } from '@/utils/zohoVendors';
 import { useZohoVendors } from '@/hooks/useZohoVendors';
 import { useZohoChunkedList } from '@/hooks/useZohoChunkedList';
+import { mapZohoVendorPaymentListRows } from '@/utils/zohoVendorPayments';
+import AddVendorPaymentModal from './components/AddVendorPaymentModal';
 
 const COLUMNS = [
-    { key: 'name', label: 'NAME' },
-    { key: 'companyName', label: 'COMPANY NAME' },
-    { key: 'email', label: 'EMAIL' },
-    { key: 'workPhone', label: 'WORK PHONE' },
-    { key: 'payables', label: 'PAYABLES', align: 'right' },
+    { key: 'date', label: 'DATE' },
+    { key: 'location', label: 'LOCATION' },
+    { key: 'paymentNumber', label: 'PAYMENT #' },
+    { key: 'referenceNumber', label: 'REFERENCE #' },
+    { key: 'vendorName', label: 'VENDOR NAME' },
+    { key: 'billNumber', label: 'BILL #' },
+    { key: 'mode', label: 'MODE' },
+    { key: 'status', label: 'STATUS' },
+    { key: 'amount', label: 'AMOUNT', align: 'right', sortValue: 'amountValue' },
+    { key: 'unusedAmount', label: 'UNUSED AMOUNT', align: 'right', sortValue: 'unusedAmountValue' },
 ];
 
 function compareRows(a, b, sortKey, direction) {
-    const left = sortKey === 'payables' ? a.payablesAmount : String(a[sortKey] || '').toLowerCase();
-    const right = sortKey === 'payables' ? b.payablesAmount : String(b[sortKey] || '').toLowerCase();
+    const sortColumn = COLUMNS.find((column) => column.key === sortKey);
+    const valueKey = sortColumn?.sortValue || sortKey;
+    const left = valueKey === 'date' ? a.rawDate : a[valueKey];
+    const right = valueKey === 'date' ? b.rawDate : b[valueKey];
 
     if (typeof left === 'number' && typeof right === 'number') {
         return direction === 'asc' ? left - right : right - left;
     }
 
-    const result = String(left).localeCompare(String(right));
+    const result = String(left || '').toLowerCase().localeCompare(String(right || '').toLowerCase());
     return direction === 'asc' ? result : -result;
 }
 
-export default function PurchasesVendorsPage() {
+function statusBadgeClass(status) {
+    const value = String(status || '').toLowerCase();
+    if (value.includes('partial')) return 'bg-amber-50 text-amber-700 border-amber-200';
+    if (value.includes('applied') || value.includes('paid')) return 'bg-teal-50 text-teal-700 border-teal-200';
+    return 'bg-slate-50 text-slate-600 border-slate-200';
+}
+
+function PurchasesPaymentsMadeContent() {
     const [mounted, setMounted] = useState(false);
     const [search, setSearch] = useState('');
-    const [sortKey, setSortKey] = useState('name');
-    const [sortDirection, setSortDirection] = useState('asc');
+    const [sortKey, setSortKey] = useState('date');
+    const [sortDirection, setSortDirection] = useState('desc');
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
+    const [addOpen, setAddOpen] = useState(false);
+    const [paymentPrefill, setPaymentPrefill] = useState(null);
     const { connectZoho } = useZohoVendors({ enabled: false });
+    const searchParams = useSearchParams();
+    const router = useRouter();
     const {
         rows,
         loading,
@@ -47,17 +74,33 @@ export default function PurchasesVendorsPage() {
         error,
         setError,
         syncedCount,
-        load: loadVendors,
+        load: loadPayments,
         chunkLimit,
     } = useZohoChunkedList({
-        endpoint: '/zoho/vendors',
-        mapRows: mapZohoVendorListRows,
+        endpoint: '/zoho/vendorpayments',
+        mapRows: mapZohoVendorPaymentListRows,
         getRowId: (row) => String(row?.id || ''),
     });
 
     useEffect(() => {
         setMounted(true);
     }, []);
+
+    useEffect(() => {
+        if (!mounted) return;
+        if (searchParams.get('addUtilityPay') !== '1') return;
+        try {
+            const raw = sessionStorage.getItem('utilityVendorPaymentPrefill');
+            if (raw) {
+                setPaymentPrefill(JSON.parse(raw));
+                setAddOpen(true);
+                sessionStorage.removeItem('utilityVendorPaymentPrefill');
+            }
+        } catch (err) {
+            console.error('Failed to load vendor payment prefill:', err);
+        }
+        router.replace('/Purchases/PaymentsMade', { scroll: false });
+    }, [mounted, searchParams, router]);
 
     const handleConnectZoho = useCallback(async () => {
         try {
@@ -66,21 +109,32 @@ export default function PurchasesVendorsPage() {
         } catch (err) {
             setError(
                 err?.message ||
-                    'Failed to start Zoho authorization. Check ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, and ZOHO_REDIRECT_URI in the backend .env, then restart the server.',
+                    'Failed to start Zoho authorization. Check Zoho settings in the backend .env, then restart the server.',
             );
         }
     }, [connectZoho, setError]);
 
     useEffect(() => {
         if (!mounted) return;
-        void loadVendors();
-    }, [mounted, loadVendors]);
+        void loadPayments();
+    }, [mounted, loadPayments]);
 
     const filteredRows = useMemo(() => {
         const query = search.trim().toLowerCase();
         const next = query
             ? rows.filter((row) =>
-                  [row.name, row.companyName, row.email, row.workPhone, row.payables]
+                  [
+                      row.date,
+                      row.location,
+                      row.paymentNumber,
+                      row.referenceNumber,
+                      row.vendorName,
+                      row.billNumber,
+                      row.mode,
+                      row.status,
+                      row.amount,
+                      row.unusedAmount,
+                  ]
                       .join(' ')
                       .toLowerCase()
                       .includes(query),
@@ -88,7 +142,7 @@ export default function PurchasesVendorsPage() {
             : rows;
 
         return [...next].sort((a, b) => compareRows(a, b, sortKey, sortDirection));
-    }, [rows, search, sortKey, sortDirection]);
+    }, [rows, search, sortDirection, sortKey]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -107,7 +161,7 @@ export default function PurchasesVendorsPage() {
             return;
         }
         setSortKey(key);
-        setSortDirection('asc');
+        setSortDirection(key === 'date' ? 'desc' : 'asc');
     };
 
     if (!mounted) return null;
@@ -120,24 +174,34 @@ export default function PurchasesVendorsPage() {
                     <Navbar />
                     <main className="flex-1 p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden overflow-y-auto">
                         <ErpPageHeader
-                            title="Vendors"
+                            title="Payments Made"
                             subtitle="Shows cache first, then syncs from Zoho in batches of 400"
                         >
-                            <button
-                                type="button"
-                                onClick={() => void loadVendors()}
-                                disabled={loading || loadingMore}
-                                className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl border border-slate-200 bg-white px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 whitespace-nowrap"
-                            >
-                                <RefreshCw size={16} className={loading || loadingMore ? 'animate-spin' : ''} />
-                                Refresh
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setAddOpen(true)}
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl bg-blue-600 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-white hover:bg-blue-700 whitespace-nowrap"
+                                >
+                                    <Plus size={16} />
+                                    New
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void loadPayments()}
+                                    disabled={loading || loadingMore}
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl border border-slate-200 bg-white px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 whitespace-nowrap"
+                                >
+                                    <RefreshCw size={16} className={loading || loadingMore ? 'animate-spin' : ''} />
+                                    Refresh
+                                </button>
+                            </div>
                         </ErpPageHeader>
 
                         {error ? (
                             <div className="mb-3 sm:mb-4">
                                 <ErpErrorBanner message={error} />
-                                {/not connected|re-authorize|not configured|authorization|oauth/i.test(error) ? (
+                                {/not connected|re-authorize|not configured|not authorized|authorization|oauth/i.test(error) ? (
                                     <button
                                         type="button"
                                         onClick={() => void handleConnectZoho()}
@@ -160,7 +224,10 @@ export default function PurchasesVendorsPage() {
                                         <SlidersHorizontal size={16} />
                                     </button>
                                     <span className="text-xs sm:text-sm font-medium text-slate-600">
-                                        {filteredRows.length} vendor{filteredRows.length === 1 ? '' : 's'}
+                                        All Payments
+                                    </span>
+                                    <span className="text-xs sm:text-sm text-slate-400">
+                                        {filteredRows.length} record{filteredRows.length === 1 ? '' : 's'}
                                         {loadingMore
                                             ? ` · loading next ${chunkLimit}… (${syncedCount} synced)`
                                             : ''}
@@ -174,29 +241,29 @@ export default function PurchasesVendorsPage() {
                                     <input
                                         type="text"
                                         value={search}
-                                        onChange={(e) => setSearch(e.target.value)}
-                                        placeholder="Search vendors"
+                                        onChange={(event) => setSearch(event.target.value)}
+                                        placeholder="Search payments"
                                         className="h-9 sm:h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs sm:text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
                                     />
                                 </div>
                             </div>
 
                             <div className="overflow-x-auto">
-                                <table className="min-w-[640px] w-full border-collapse text-xs sm:text-sm">
+                                <table className="min-w-[1050px] w-full border-collapse text-xs sm:text-sm">
                                     <thead>
                                         <tr className="border-b border-slate-200 bg-[#f8fafc] text-left">
                                             <th className="w-12 px-3 sm:px-4 py-2 sm:py-3">
                                                 <input
                                                     type="checkbox"
                                                     className="h-4 w-4 rounded border-slate-300"
-                                                    aria-label="Select all vendors"
+                                                    aria-label="Select all payments made"
                                                     disabled
                                                 />
                                             </th>
                                             {COLUMNS.map((column) => (
                                                 <th
                                                     key={column.key}
-                                                    className={`px-3 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-[11px] font-bold tracking-[0.08em] text-slate-500 ${
+                                                    className={`px-3 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-[11px] font-bold tracking-[0.08em] text-slate-500 whitespace-nowrap ${
                                                         column.align === 'right' ? 'text-right' : ''
                                                     }`}
                                                 >
@@ -220,7 +287,7 @@ export default function PurchasesVendorsPage() {
                                                 <td colSpan={COLUMNS.length + 1} className="px-3 sm:px-4 py-10 sm:py-16 text-center text-slate-500">
                                                     <div className="inline-flex items-center gap-2">
                                                         <Loader2 size={18} className="animate-spin" />
-                                                        Loading first {chunkLimit} vendors…
+                                                        Loading first {chunkLimit} payments…
                                                     </div>
                                                 </td>
                                             </tr>
@@ -229,9 +296,9 @@ export default function PurchasesVendorsPage() {
                                         {!loading && !filteredRows.length ? (
                                             <tr>
                                                 <td colSpan={COLUMNS.length + 1} className="px-3 sm:px-4 py-10 sm:py-16 text-center text-slate-500">
-                                                    {/not connected|re-authorize|not configured/i.test(error)
-                                                        ? 'Connect Zoho Books to load vendors.'
-                                                        : 'No vendors in local database. Click Refresh to sync from Zoho Books.'}
+                                                    {/not connected|re-authorize|not configured|not authorized/i.test(error)
+                                                        ? 'Connect Zoho Books to load payments made.'
+                                                        : 'No payments made found in Zoho Books.'}
                                                 </td>
                                             </tr>
                                         ) : null}
@@ -239,30 +306,47 @@ export default function PurchasesVendorsPage() {
                                         {!loading
                                             ? pagedRows.map((row) => (
                                                   <tr
-                                                      key={row.id || row.name}
+                                                      key={row.id}
                                                       className="border-b border-slate-100 hover:bg-slate-50/80"
                                                   >
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3">
                                                           <input
                                                               type="checkbox"
                                                               className="h-4 w-4 rounded border-slate-300"
-                                                              aria-label={`Select ${row.name}`}
+                                                              aria-label={`Select payment ${row.paymentNumber}`}
                                                           />
                                                       </td>
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 whitespace-nowrap">
+                                                          {row.date}
+                                                      </td>
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700">
+                                                          {row.location}
+                                                      </td>
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 font-medium text-slate-800 whitespace-nowrap">
+                                                          {row.paymentNumber}
+                                                      </td>
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 whitespace-nowrap">
+                                                          {row.referenceNumber}
+                                                      </td>
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3 font-medium text-slate-800">
-                                                          {row.name}
+                                                          {row.vendorName}
                                                       </td>
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700">
-                                                          {row.companyName}
+                                                          {row.billNumber}
                                                       </td>
-                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700">
-                                                          {row.email}
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 whitespace-nowrap">
+                                                          {row.mode}
                                                       </td>
-                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700">
-                                                          {row.workPhone}
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3">
+                                                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${statusBadgeClass(row.status)}`}>
+                                                              {row.status}
+                                                          </span>
                                                       </td>
-                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 text-right tabular-nums">
-                                                          {row.payables}
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 text-right tabular-nums whitespace-nowrap">
+                                                          {row.amount}
+                                                      </td>
+                                                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 text-right tabular-nums whitespace-nowrap">
+                                                          {row.unusedAmount}
                                                       </td>
                                                   </tr>
                                               ))
@@ -278,13 +362,35 @@ export default function PurchasesVendorsPage() {
                                     totalItems={filteredRows.length}
                                     onPageChange={setCurrentPage}
                                     onPageSizeChange={setPageSize}
-                                    itemLabel="vendors"
+                                    itemLabel="payments"
                                 />
                             ) : null}
                         </div>
                     </main>
                 </div>
             </div>
+
+            <AddVendorPaymentModal
+                isOpen={addOpen}
+                onClose={() => {
+                    setAddOpen(false);
+                    setPaymentPrefill(null);
+                }}
+                onSuccess={() => void loadPayments()}
+                prefill={paymentPrefill}
+            />
         </PermissionGuard>
+    );
+}
+
+export default function PurchasesPaymentsMadePage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex items-center justify-center min-h-screen">Loading...</div>
+            }
+        >
+            <PurchasesPaymentsMadeContent />
+        </Suspense>
     );
 }

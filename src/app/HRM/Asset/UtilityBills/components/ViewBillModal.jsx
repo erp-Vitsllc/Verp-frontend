@@ -1,10 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Eye, X } from 'lucide-react';
+import { Download, Eye, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { billDisplayStatus, formatBillMoney } from '../utils/utilityBillStats';
-import { openUtilityAttachment } from '../utils/openUtilityAttachment';
+import {
+    downloadUtilityAttachment,
+    openUtilityAttachment,
+} from '../utils/openUtilityAttachment';
 import {
     fetchUtilityBillPayment,
     loadUtilityBillPaymentInvoice,
@@ -38,7 +41,7 @@ function payByDisplay(bill) {
 
 /**
  * View a submitted bill using the same fields as Add Bills.
- * Approved / Paid — read-only; Invoice = Accounts Payments RECEIPT.
+ * Approved / Paid — read-only; Receipt = Accounts Payments receipt; Invoice = bill attachment.
  */
 export default function ViewBillModal({
     isOpen,
@@ -94,8 +97,19 @@ export default function ViewBillModal({
         openUtilityAttachment(billFile, {
             onError: (msg) =>
                 toast({
-                    title: 'Bill file',
+                    title: 'Invoice',
                     description: msg || 'Could not open bill attachment.',
+                    variant: 'destructive',
+                }),
+        });
+    };
+
+    const downloadBillFile = () => {
+        downloadUtilityAttachment(billFile, {
+            onError: (msg) =>
+                toast({
+                    title: 'Download',
+                    description: msg || 'Could not download bill attachment.',
                     variant: 'destructive',
                 }),
         });
@@ -113,8 +127,8 @@ export default function ViewBillModal({
             if (!payment) {
                 toast({
                     variant: 'destructive',
-                    title: 'Payment invoice',
-                    description: error || 'Could not open payment invoice.',
+                    title: 'Payment receipt',
+                    description: error || 'Could not open payment receipt.',
                 });
                 return;
             }
@@ -173,32 +187,44 @@ export default function ViewBillModal({
                                     Documents
                                 </p>
                                 <p className="text-[11px] text-indigo-600/80 truncate">
+                                    {billFile?.name
+                                        ? `Invoice: ${billFile.name}`
+                                        : 'No bill invoice'}
                                     {showPaymentInvoice
-                                        ? `Invoice: ${paymentRecord.paymentId || 'Payment receipt'}`
-                                        : 'No payment invoice yet'}
-                                    {billFile?.name ? ` · Bill: ${billFile.name}` : ''}
+                                        ? ` · Receipt: ${paymentRecord.paymentId || 'Payment receipt'}`
+                                        : ''}
                                 </p>
                             </div>
                             <div className="inline-flex items-center gap-1.5 shrink-0">
+                                {billFile?.name ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={openBillFile}
+                                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 text-xs font-semibold"
+                                        >
+                                            <Eye size={12} />
+                                            Invoice
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={downloadBillFile}
+                                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold"
+                                        >
+                                            <Download size={12} />
+                                            Download
+                                        </button>
+                                    </>
+                                ) : null}
                                 {showPaymentInvoice ? (
                                     <button
                                         type="button"
                                         onClick={openPaymentInvoice}
                                         disabled={openingInvoice}
-                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold disabled:opacity-60"
+                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold disabled:opacity-60"
                                     >
                                         <Eye size={12} />
-                                        View Invoice
-                                    </button>
-                                ) : null}
-                                {billFile?.name ? (
-                                    <button
-                                        type="button"
-                                        onClick={openBillFile}
-                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 text-xs font-semibold"
-                                    >
-                                        <Eye size={12} />
-                                        View Bill File
+                                        Receipt
                                     </button>
                                 ) : null}
                             </div>
@@ -271,26 +297,37 @@ export default function ViewBillModal({
                                     </td>
                                     <td className="px-3 py-3.5 text-center align-middle">
                                         {billFile?.name ? (
-                                            <button
-                                                type="button"
-                                                onClick={openBillFile}
-                                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                                                title={billFile.name}
-                                            >
-                                                <Eye size={12} />
-                                                View
-                                            </button>
+                                            <div className="inline-flex flex-col items-center gap-1">
+                                                <div className="inline-flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={openBillFile}
+                                                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                                                        title={billFile.name}
+                                                    >
+                                                        <Eye size={12} />
+                                                        View
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={downloadBillFile}
+                                                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-slate-800"
+                                                        title={`Download ${billFile.name}`}
+                                                    >
+                                                        <Download size={12} />
+                                                        Download
+                                                    </button>
+                                                </div>
+                                                <p
+                                                    className="text-[10px] text-gray-500 truncate max-w-[8rem]"
+                                                    title={billFile.name}
+                                                >
+                                                    {billFile.name}
+                                                </p>
+                                            </div>
                                         ) : (
                                             <span className="text-xs text-gray-400">No file</span>
                                         )}
-                                        {billFile?.name ? (
-                                            <p
-                                                className="mt-1 text-[10px] text-gray-500 truncate max-w-[8rem] mx-auto"
-                                                title={billFile.name}
-                                            >
-                                                {billFile.name}
-                                            </p>
-                                        ) : null}
                                     </td>
                                 </tr>
                             </tbody>
@@ -299,14 +336,33 @@ export default function ViewBillModal({
                 </div>
 
                 <div className="px-4 sm:px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2">
+                    {billFile?.name ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={openBillFile}
+                                className="px-4 py-2 rounded-lg border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 text-sm font-semibold"
+                            >
+                                Invoice
+                            </button>
+                            <button
+                                type="button"
+                                onClick={downloadBillFile}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-sm font-semibold"
+                            >
+                                <Download size={14} />
+                                Download
+                            </button>
+                        </>
+                    ) : null}
                     {showPaymentInvoice ? (
                         <button
                             type="button"
                             onClick={openPaymentInvoice}
                             disabled={openingInvoice}
-                            className="px-4 py-2 rounded-lg border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 text-sm font-semibold disabled:opacity-60"
+                            className="px-4 py-2 rounded-lg border border-violet-200 bg-white text-violet-700 hover:bg-violet-50 text-sm font-semibold disabled:opacity-60"
                         >
-                            View Invoice
+                            Receipt
                         </button>
                     ) : null}
                     {canEdit ? (

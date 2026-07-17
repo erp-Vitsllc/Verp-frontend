@@ -155,6 +155,48 @@ export function resolveNotificationIconVariant(typeOrItem) {
     }
 }
 
+/** Pull document label from "Expiry follow-up required: Passport (Exp: …)". */
+function extractExpiryDocLabel(extra1 = '') {
+    const raw = String(extra1 || '').trim();
+    if (!raw) return '';
+    const prefix = 'Expiry follow-up required:';
+    const body = raw.toLowerCase().startsWith(prefix.toLowerCase())
+        ? raw.slice(prefix.length).trim()
+        : raw;
+    return body.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
+}
+
+/** Subject name from subjectName, or "Name (ID)" in extra2. */
+function extractExpirySubjectName(item = {}) {
+    const fromSubject = String(item.subjectName || '').trim();
+    if (fromSubject) return fromSubject;
+    const extra2 = String(item.extra2 || '').trim();
+    if (!extra2) return '';
+    const withoutId = extra2.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    return withoutId || extra2;
+}
+
+/**
+ * Employee / Company / Vehicle document expiry titles:
+ * "{Name} {Doc} Expiry Reminder" instead of the static requestType.
+ */
+export function buildExpiryReminderTitle(item = {}) {
+    const type = String(item.type || item.requestType || '').trim();
+    const isEmployee = type === 'Employee Document Expiry Reminder';
+    const isCompany = type === 'Document Expiry Reminder';
+    const isVehicle = type === 'Vehicle Document Expiry Reminder';
+    if (!isEmployee && !isCompany && !isVehicle) return type || 'Request';
+
+    const name = extractExpirySubjectName(item);
+    const doc = extractExpiryDocLabel(item.extra1);
+    const fallbackOwner = isEmployee ? 'Employee' : isCompany ? 'Company' : 'Vehicle';
+
+    if (name && doc) return `${name} ${doc} Expiry Reminder`;
+    if (name) return `${name} Document Expiry Reminder`;
+    if (doc) return `${fallbackOwner} ${doc} Expiry Reminder`;
+    return type;
+}
+
 function baseRow(item = {}, index = 0) {
     const type = String(item.requestType || item.type || '').trim();
     const meta = parseExtra3(item.extra3);
@@ -166,7 +208,7 @@ function baseRow(item = {}, index = 0) {
 
     return {
         key,
-        title: type || 'Request',
+        title: buildExpiryReminderTitle(item) || type || 'Request',
         source: String(item.requestedByName || item.requestedBy || item.source || '').trim(),
         category: String(item.extra2 || item.extra1 || '').trim() || 'Pending task',
         highlight: '',
@@ -197,7 +239,7 @@ function baseRow(item = {}, index = 0) {
 export function mapDashboardNotificationToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.type || item.requestType || '').trim();
-    row.title = type || row.title;
+    row.title = buildExpiryReminderTitle(item) || type || row.title;
     if (item.extra1) {
         row.category = String(item.extra1).trim() || row.category;
     }
@@ -213,7 +255,7 @@ export function mapDashboardNotificationToRow(item = {}, index = 0) {
 export function mapPendingInboxToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.requestType || item.type || '').trim();
-    row.title = type || row.title;
+    row.title = buildExpiryReminderTitle(item) || type || row.title;
     if (item.extra1) row.category = String(item.extra1).trim() || row.category;
     return row;
 }
@@ -222,7 +264,7 @@ export function mapPendingInboxToRow(item = {}, index = 0) {
 export function mapAssetPendingInboxToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.requestType || item.type || '').trim();
-    row.title = type || row.title;
+    row.title = buildExpiryReminderTitle(item) || type || row.title;
     if (item.extra1) row.category = String(item.extra1).trim() || row.category;
     if (item.asset?.name) row.entityName = String(item.asset.name).trim();
     if (item.asset?.assetId) row.entityId = String(item.asset.assetId).trim();

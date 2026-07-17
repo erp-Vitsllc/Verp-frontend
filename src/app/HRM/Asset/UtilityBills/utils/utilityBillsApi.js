@@ -1,4 +1,5 @@
 import axiosInstance from '@/utils/axios';
+import { mapZohoVendors } from '@/utils/zohoVendors';
 
 export async function fetchUtilityConfigs() {
     const res = await axiosInstance.get('/UtilityBill/configs', { skipToast: true });
@@ -76,7 +77,10 @@ export async function removeUtilityTypeNameApi(name) {
 
 export async function fetchUtilityProvidersApi() {
     const res = await axiosInstance.get('/UtilityBill/providers', { skipToast: true });
-    return Array.isArray(res.data?.providers) ? res.data.providers : [];
+    return {
+        providers: Array.isArray(res.data?.providers) ? res.data.providers : [],
+        vendorOptions: Array.isArray(res.data?.vendorOptions) ? res.data.vendorOptions : [],
+    };
 }
 
 export async function addUtilityProviderApi(name) {
@@ -84,7 +88,26 @@ export async function addUtilityProviderApi(name) {
     return {
         ok: true,
         providers: Array.isArray(res.data?.providers) ? res.data.providers : [],
+        vendorOptions: Array.isArray(res.data?.vendorOptions) ? res.data.vendorOptions : [],
     };
+}
+
+export async function fetchUtilityProviderVendorOptionsApi() {
+    const res = await axiosInstance.get('/zoho/vendors', {
+        skipToast: true,
+        timeout: 120000,
+        params: { sync: 'false' },
+    });
+
+    const uniqueNames = new Map();
+    mapZohoVendors(res.data?.data).forEach((vendor) => {
+        const name = String(vendor.label || '').trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        if (!uniqueNames.has(key)) uniqueNames.set(key, name);
+    });
+
+    return Array.from(uniqueNames.values()).sort((a, b) => a.localeCompare(b));
 }
 
 export async function removeUtilityProviderApi(name) {
@@ -94,5 +117,6 @@ export async function removeUtilityProviderApi(name) {
     return {
         ok: true,
         providers: Array.isArray(res.data?.providers) ? res.data.providers : [],
+        vendorOptions: Array.isArray(res.data?.vendorOptions) ? res.data.vendorOptions : [],
     };
 }

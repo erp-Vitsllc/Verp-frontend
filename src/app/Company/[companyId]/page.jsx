@@ -6578,7 +6578,7 @@ function CompanyProfilePageContent() {
                                             >
                                                 <div className="flex items-center justify-between px-3 sm:px-6 lg:px-3 sm:px-6 lg:px-8 py-2 sm:py-3 sm:py-4 lg:py-5 border-b border-gray-100">
                                                     <h4 className="text-base sm:text-xl font-semibold text-gray-800">
-                                                        Ejari{ej?.type ? ` â€” ${ej.type}` : ''}
+                                                        Ejari{ej?.type ? ` — ${ej.type}` : ''}
                                                     </h4>
                                                     <div className="flex items-center gap-2">
                                                         {attachUrl && ejariCanDownload && (
@@ -9633,7 +9633,7 @@ function CompanyProfilePageContent() {
                                                                                             <td className="px-6 py-3 text-sm text-gray-600 max-w-[200px] truncate" title={row.userDescription}>{row.userDescription}</td>
                                                                                             <td className="px-6 py-3 text-sm text-gray-600 font-medium">{row.issuedTo}</td>
                                                                                             <td className={`px-6 py-3 text-sm ${row.expiryDate ? getExpiryVisualState(row.expiryDate).className : 'text-gray-400'}`}>
-                                                                                                {row.expiryDate ? formatDate(row.expiryDate) : 'â€”'}
+                                                                                                {row.expiryDate ? formatDate(row.expiryDate) : '—'}
                                                                                             </td>
                                                                                             <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
                                                                                                 {docRowActions({
@@ -9706,7 +9706,7 @@ function CompanyProfilePageContent() {
                                                                                             <td className="px-6 py-3 text-sm text-gray-600 max-w-[200px] truncate" title={row.userDescription}>{row.userDescription}</td>
                                                                                             <td className="px-6 py-3 text-sm text-gray-600 font-medium">{row.issuedTo}</td>
                                                                                             <td className={`px-6 py-3 text-sm ${row.expiryDate ? getExpiryVisualState(row.expiryDate).className : 'text-gray-400'}`}>
-                                                                                                {row.expiryDate ? formatDate(row.expiryDate) : 'â€”'}
+                                                                                                {row.expiryDate ? formatDate(row.expiryDate) : '—'}
                                                                                             </td>
                                                                                             <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
                                                                                                 {docRowActions({

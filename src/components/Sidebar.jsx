@@ -134,7 +134,12 @@ const menuItems = [
         label: 'Purchases',
         icon: ShoppingCart,
         permissionModule: 'purchases',
-        submenu: [{ label: 'Vendors', icon: Users, permissionModule: 'purchases' }],
+        submenu: [
+            { label: 'Vendors', icon: Users, permissionModule: 'purchases' },
+            { label: 'Expenses', icon: HandCoins, permissionModule: 'purchases' },
+            { label: 'Bills', icon: Receipt, permissionModule: 'purchases' },
+            { label: 'Payments Made', icon: CreditCard, permissionModule: 'purchases' },
+        ],
     },
     { id: 'Sales', label: 'Sales', icon: TrendingUp, permissionModule: 'sales' },
     {
@@ -212,6 +217,9 @@ function getSidebarSubmenuHref(parentId, subItem) {
     if (parentId === 'Accounts' && label === 'Payments') return '/Accounts/Payments';
     if (parentId === 'CRM' && label === 'Customers') return '/CRM/Customers';
     if (parentId === 'Purchases' && label === 'Vendors') return '/Purchases/Vendors';
+    if (parentId === 'Purchases' && label === 'Expenses') return '/Purchases/Expenses';
+    if (parentId === 'Purchases' && label === 'Bills') return '/Purchases/Bills';
+    if (parentId === 'Purchases' && label === 'Payments Made') return '/Purchases/PaymentsMade';
     return null;
 }
 
@@ -625,6 +633,12 @@ export default function Sidebar() {
             router.push('/CRM/Customers');
         } else if (parentId === 'Purchases' && subItem.label === 'Vendors') {
             router.push('/Purchases/Vendors');
+        } else if (parentId === 'Purchases' && subItem.label === 'Expenses') {
+            router.push('/Purchases/Expenses');
+        } else if (parentId === 'Purchases' && subItem.label === 'Bills') {
+            router.push('/Purchases/Bills');
+        } else if (parentId === 'Purchases' && subItem.label === 'Payments Made') {
+            router.push('/Purchases/PaymentsMade');
         }
     };
 
@@ -666,6 +680,12 @@ export default function Sidebar() {
             return pathname?.startsWith('/CRM/Customers');
         } else if (parentId === 'Purchases' && subItem.label === 'Vendors') {
             return pathname?.startsWith('/Purchases/Vendors');
+        } else if (parentId === 'Purchases' && subItem.label === 'Expenses') {
+            return pathname?.startsWith('/Purchases/Expenses');
+        } else if (parentId === 'Purchases' && subItem.label === 'Bills') {
+            return pathname?.startsWith('/Purchases/Bills');
+        } else if (parentId === 'Purchases' && subItem.label === 'Payments Made') {
+            return pathname?.startsWith('/Purchases/PaymentsMade');
         }
         return false;
     };
