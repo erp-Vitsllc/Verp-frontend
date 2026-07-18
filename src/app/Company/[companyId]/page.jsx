@@ -369,7 +369,7 @@ function dedupeCompanyDocumentsPayload(documents) {
     return out;
 }
 
-/** Old tab merges `documents` + `oldDocuments`; same file can appear twice after repeated archives â€” show once, prefer `oldDocuments`. */
+/** Old tab merges `documents` + `oldDocuments`; same file can appear twice after repeated archives — show once, prefer `oldDocuments`. */
 function dedupeOldDocumentsMergedSources(docs) {
     if (!Array.isArray(docs) || docs.length === 0) return [];
     const byKey = new Map();
@@ -420,7 +420,7 @@ function memoRowMatchesIssueDateRange(row, startDateStr, endDateStr) {
     return true;
 }
 
-/** Memo / certificate views merge `documents` + `oldDocuments`; the same row can exist in both â€” show once, prefer live `documents` for actions. */
+/** Memo / certificate views merge `documents` + `oldDocuments`; the same row can exist in both — show once, prefer live `documents` for actions. */
 function dedupeMergedDocumentSourcesPreferLive(docs) {
     if (!Array.isArray(docs) || docs.length === 0) return [];
     const byKey = new Map();
@@ -739,7 +739,7 @@ function CompanyProfilePageContent() {
     const [activationProgressFromApi, setActivationProgressFromApi] = useState(null);
     const [activationSubmitModalOpen, setActivationSubmitModalOpen] = useState(false);
     const [activationReviewModalOpen, setActivationReviewModalOpen] = useState(false);
-    /** Nonâ€“Flowchart HR submit modal: queued entry ids included; unchecked rows are dropped on submit. */
+    /** Non–Flowchart HR submit modal: queued entry ids included; unchecked rows are dropped on submit. */
     const [activationSubmitSelectedEntryIds, setActivationSubmitSelectedEntryIds] = useState([]);
     const [activationRowNotesByGroupKey, setActivationRowNotesByGroupKey] = useState({});
     const [activationSelectedChangeIds, setActivationSelectedChangeIds] = useState([]);
@@ -795,7 +795,7 @@ function CompanyProfilePageContent() {
         return n != null && String(n).trim() !== '';
     }, [company?.tradeLicenseNumber]);
 
-    /** On an activated profile, trade license owners are editable only in Renew â€” not in Edit. */
+    /** On an activated profile, trade license owners are editable only in Renew — not in Edit. */
     const tradeLicenseOwnersEditable =
         modalType !== 'tradeLicense' ||
         !isCompanyProfileActivated ||
@@ -2696,7 +2696,7 @@ function CompanyProfilePageContent() {
         return [row];
     };
 
-    /** Live owner rows for PATCH â€” avoids re-submitting pending HR overlay data for other owners. */
+    /** Live owner rows for PATCH — avoids re-submitting pending HR overlay data for other owners. */
     const getOwnersBaseForDocCardSave = () => {
         const live = Array.isArray(company?.owners) ? company.owners.map((o) => ({ ...o })) : [];
         if (live.length > 0) return live;
@@ -3683,7 +3683,7 @@ function CompanyProfilePageContent() {
     const openNotRenewEjariInsurance = (field, index, item) => {
         const label = field === 'ejari' ? 'Ejari' : field === 'insurance' ? 'Insurance' : field.charAt(0).toUpperCase() + field.slice(1);
         const row = item || company[field]?.[index];
-        const detail = row?.type ? `${label} â€” ${row.type}` : label;
+        const detail = row?.type ? `${label} — ${row.type}` : label;
         setNotRenewData({
             kind: field,
             arrayIndex: index,
@@ -3692,7 +3692,7 @@ function CompanyProfilePageContent() {
         });
     };
 
-    /** Admin delete Ejari / Insurance card â€” archived to Deleted Records (attachments kept until purge). */
+    /** Admin delete Ejari / Insurance card — archived to Deleted Records (attachments kept until purge). */
     const handleHardDeleteArrayItem = async (field, index) => {
         const canDelete =
             field === 'ejari'
@@ -3900,7 +3900,7 @@ function CompanyProfilePageContent() {
                     toast({
                         title: 'Not on this profile',
                         description:
-                            'This document is not saved on this companyâ€™s live owner record. Refresh the page to update the view.',
+                            'This document is not saved on this company’s live owner record. Refresh the page to update the view.',
                         variant: 'destructive',
                     });
                     fetchCompany();
@@ -4736,7 +4736,7 @@ function CompanyProfilePageContent() {
     );
 
     const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
-    /** HR review: only cards included in this submission â€” not other queued drafts. */
+    /** HR review: only cards included in this submission — not other queued drafts. */
     const activationReviewPendingChanges = useMemo(() => {
         if (!['submitted', 'hold'].includes(activationStatusValue)) return pendingCompanyChanges;
         let submittedLabels = resolveLatestActivationSubmissionLabels(company?.activationWorkflow || []);
@@ -4762,7 +4762,7 @@ function CompanyProfilePageContent() {
         () => buildCompanyPendingDisplayGroups(activationReviewPendingChanges),
         [activationReviewPendingChanges],
     );
-    /** Ids HR must approve â€” same rules as backend `filterPendingEntriesInCurrentSubmission`. */
+    /** Ids HR must approve — same rules as backend `filterPendingEntriesInCurrentSubmission`. */
     const activationReviewSubmissionScopeIds = useMemo(() => {
         const allPending = company?.pendingReactivationChanges || [];
         if (!['submitted', 'hold'].includes(activationStatusValue)) {
@@ -4778,7 +4778,7 @@ function CompanyProfilePageContent() {
             .map(({ id }) => id);
     }, [company?.pendingReactivationChanges, activationStatusValue, company?.activationWorkflow]);
     const companyStatusValue = String(company?.status || '').toLowerCase();
-    /** Inactive @ 100%: first activation â€” no pending queue; submit whole profile to HR. */
+    /** Inactive @ 100%: first activation — no pending queue; submit whole profile to HR. */
     const isInactiveFirstActivationSubmit = useMemo(
         () =>
             companyStatusValue === 'inactive' &&
@@ -4872,7 +4872,7 @@ function CompanyProfilePageContent() {
         isAdminViewer: isAdmin(),
     });
 
-    /** Hide after submit â€” queued items stay in DB until HR acts; resubmit uses the banner when on hold. */
+    /** Hide after submit — queued items stay in DB until HR acts; resubmit uses the banner when on hold. */
     const activationSubmitAlreadySent =
         activationStatusValue === 'submitted' && !activationHoldResubmitEligible;
     const hasPendingCompanyActivationWork =
@@ -4899,7 +4899,7 @@ function CompanyProfilePageContent() {
         !isCompanyActivationComplete &&
         (companyActivationProgress?.percentage || 0) === 100 &&
         companyStatusValue === 'inactive';
-    /** Active company: editor queued trade license etc. â€” must submit pending to HR. */
+    /** Active company: editor queued trade license etc. — must submit pending to HR. */
     const showActiveCompanyPendingSubmitButton =
         !onCompanyActivationHoldUi &&
         isCompanyProfileActivated &&
@@ -5274,7 +5274,7 @@ function CompanyProfilePageContent() {
                         }`}>
                             <div className={`text-xs sm:text-sm ${onCompanyActivationHoldUi ? 'text-amber-900' : 'text-blue-900'}`}>
                                 <span className="font-semibold">
-                                    {onCompanyActivationHoldUi ? 'Activation on hold â€” HR needs corrections.' : 'Activation request pending HR action.'}
+                                    {onCompanyActivationHoldUi ? 'Activation on hold — HR needs corrections.' : 'Activation request pending HR action.'}
                                 </span>
                                 <span className="ml-1">
                                     {onCompanyActivationHoldUi
@@ -5471,7 +5471,7 @@ function CompanyProfilePageContent() {
                                 </div>
                                 </div>
 
-                                {/* Activation actions / badge (top right) â€” xl+ only (small screens use inline badge above) */}
+                                {/* Activation actions / badge (top right) — xl+ only (small screens use inline badge above) */}
                                 <div className="hidden xl:flex shrink-0 pt-1 flex-col items-end gap-1.5">
                                     {isCompanyActivationComplete && (
                                         <span className="px-2 sm:px-3 py-0.5 sm:py-1.5 rounded-md sm:rounded-lg text-[9px] sm:text-xs font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap shadow-sm">
@@ -7974,7 +7974,7 @@ function CompanyProfilePageContent() {
                                                 documentType: 'Trade License',
                                                 description: company.tradeLicenseNumber
                                                     ? `License No. ${company.tradeLicenseNumber}`
-                                                    : 'â€”',
+                                                    : '—',
                                                 isQueued: checkIsQueued('tradelicense'),
                                                 issueDate: company.tradeLicenseIssueDate,
                                                 expiryDate: company.tradeLicenseExpiry,
@@ -7992,7 +7992,7 @@ function CompanyProfilePageContent() {
                                                 documentType: 'Establishment Card',
                                                 description: company.establishmentCardNumber
                                                     ? `Card No. ${company.establishmentCardNumber}`
-                                                    : 'â€”',
+                                                    : '—',
                                                 isQueued: checkIsQueued('establishmentcard'),
                                                 issueDate: company.establishmentCardIssueDate,
                                                 expiryDate: company.establishmentCardExpiry,
@@ -8042,16 +8042,16 @@ function CompanyProfilePageContent() {
                                                  const label =
                                                      t.includes('ejari') || ctx === 'ejari'
                                                          ? (d.type && !String(d.type).toLowerCase().includes('ejari')
-                                                             ? `Ejari â€” ${d.type}`
+                                                             ? `Ejari — ${d.type}`
                                                              : (d.type || 'Ejari'))
                                                          : t.includes('insurance') || ctx === 'insurance'
                                                            ? (d.type && !String(d.type).toLowerCase().includes('insurance')
-                                                               ? `Insurance â€” ${d.type}`
+                                                               ? `Insurance — ${d.type}`
                                                                : (d.type || 'Insurance'))
                                                            : (d.type || 'Document');
                                                  return rowWithPerms({
                                                      documentType: label,
-                                                     description: d.description || 'â€”',
+                                                     description: d.description || '—',
                                                      issueDate: d.issueDate || d.startDate,
                                                      expiryDate: d.expiryDate,
                                                      attachment: d?.document?.url || d?.attachment,
@@ -8080,7 +8080,7 @@ function CompanyProfilePageContent() {
                                         'owner attachment',
                                     ]);
 
-                                    /** Ejari / Insurance / trade license belong in Basic Details only â€” never Owner Details. */
+                                    /** Ejari / Insurance / trade license belong in Basic Details only — never Owner Details. */
                                     const isCompanyComplianceDocumentRow = (doc) => {
                                         if (!doc || typeof doc !== 'object') return false;
                                         const ctx = String(doc?.context || '').toLowerCase();
@@ -8255,10 +8255,10 @@ function CompanyProfilePageContent() {
                                         return { ownerName, docs };
                                     };
 
-                                    // Old Documents tab lists only explicit renew/not-renew archives â€” not full owner profile snapshots (oldOwners).
+                                    // Old Documents tab lists only explicit renew/not-renew archives — not full owner profile snapshots (oldOwners).
                                     const archivedOwnerGroups = [];
 
-                                    /** Match Owner Details tabs â€” raw `company.owners` can contain duplicate roster rows after renew. */
+                                    /** Match Owner Details tabs — raw `company.owners` can contain duplicate roster rows after renew. */
                                     const liveOwnersForDocTab = dedupeCompanyOwnersForDisplay(company?.owners ?? []);
 
                                     const isSameOwnerDocRow = (a, b) => {
@@ -8385,7 +8385,7 @@ function CompanyProfilePageContent() {
                                         if (isAdmin() || companyPerms.docLiveWithExpiry.view) {
                                         (company.insurance || []).filter(Boolean).forEach((doc, idx) => {
                                             documentWithExpiryRows.push(rowWithPerms({
-                                                documentType: doc?.type ? `Insurance â€” ${doc.type}` : 'Insurance',
+                                                documentType: doc?.type ? `Insurance — ${doc.type}` : 'Insurance',
                                                 isQueued: checkIsQueued('insurance'),
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
@@ -8408,7 +8408,7 @@ function CompanyProfilePageContent() {
                                         if (isAdmin() || companyPerms.ejari.view) {
                                         (company.ejari || []).filter(Boolean).forEach((doc, idx) => {
                                             basicDetailsRows.push(rowWithPerms({
-                                                documentType: doc?.type ? `Ejari â€” ${doc.type}` : 'Ejari',
+                                                documentType: doc?.type ? `Ejari — ${doc.type}` : 'Ejari',
                                                 isQueued: checkIsQueued('ejari'),
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
@@ -8462,7 +8462,7 @@ function CompanyProfilePageContent() {
                                         const isBasicSystemDoc =
                                             t.includes('trade license') ||
                                             t.includes('establishment card');
-                                        // Memo list is driven by DB `context: 'memo'`. Do not use `t.includes('memo')` â€” it matches "memorandum" (MOA).
+                                        // Memo list is driven by DB `context: 'memo'`. Do not use `t.includes('memo')` — it matches "memorandum" (MOA).
                                         const typeTrim = String(doc?.type || '').trim();
                                         const tl = typeTrim.toLowerCase();
                                         const isMemoDoc =
@@ -8480,7 +8480,7 @@ function CompanyProfilePageContent() {
                                             if (isMemoView || isCertificateView || isOldView) return;
                                             if (!isAdmin() && !companyPerms.moa.view) return;
                                             moaRows.push(rowWithPerms({
-                                                documentType: doc.type || 'â€”',
+                                                documentType: doc.type || '—',
                                                 isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
@@ -8582,13 +8582,13 @@ function CompanyProfilePageContent() {
 
                                         if (hasExpiryValue || isExplicitWithExpiry) {
                                             const ctxDoc = String(doc?.context || '').toLowerCase();
-                                            // Ejari / insurance / trade license / establishment â€” Basic Details only, never Document With Expiry.
+                                            // Ejari / insurance / trade license / establishment — Basic Details only, never Document With Expiry.
                                             if (isCompanyComplianceDocumentRow(doc)) {
                                                 return;
                                             }
                                             let expiryDocLabel = doc.type || 'Document';
                                             if (ctxDoc === 'insurance' && isOldDoc(doc)) {
-                                                expiryDocLabel = doc.type ? `Insurance â€” ${doc.type}` : 'Insurance (previous)';
+                                                expiryDocLabel = doc.type ? `Insurance — ${doc.type}` : 'Insurance (previous)';
                                             }
                                             if (isOldView) {
                                                 if (!oldDocCanView) return;
@@ -8711,7 +8711,7 @@ function CompanyProfilePageContent() {
 
                                         const cn = String(company?.name || '').trim();
                                         if (cn && recipientsWithCerts.has(normIssuedToKey(cn))) {
-                                            add(cn, `Company â€” ${cn}`);
+                                            add(cn, `Company — ${cn}`);
                                         }
 
                                         for (const emp of allEmployees || []) {
@@ -8828,7 +8828,7 @@ function CompanyProfilePageContent() {
                                             hasPending ||
                                             showHrActions;
                                         if (!has) {
-                                            return <span className="text-gray-300 text-sm">â€”</span>;
+                                            return <span className="text-gray-300 text-sm">—</span>;
                                         }
                                         return (
                                             <div className="flex h-full min-h-[44px] flex-nowrap items-center justify-end gap-0.5 sm:gap-1">
@@ -8869,7 +8869,7 @@ function CompanyProfilePageContent() {
                                                 {hasPending && (
                                                     <div
                                                         className={`inline-flex max-w-[11rem] sm:max-w-[14rem] flex-nowrap items-center gap-1 rounded-lg border ${isOldView ? 'border-gray-200 bg-gray-50' : 'border-amber-200 bg-amber-50'} px-2 py-1.5 shrink-0`}
-                                                        title={pendingRequest?.reason ? `Pending HR approval â€” ${pendingRequest.reason}` : 'Pending HR approval'}
+                                                        title={pendingRequest?.reason ? `Pending HR approval — ${pendingRequest.reason}` : 'Pending HR approval'}
                                                     >
                                                         <span
                                                             className={`text-[10px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0 ${isOldView ? 'text-gray-700' : 'text-amber-900'}`}
@@ -9124,7 +9124,7 @@ function CompanyProfilePageContent() {
                                                                 <tr key={`moa-${i}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">
                                                                         <div className="flex items-center gap-2">
-                                                                            {row.documentType || 'â€”'}
+                                                                            {row.documentType || '—'}
                                                                             {row.isQueued && (
                                                                                 <span
                                                                                     className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
@@ -9136,7 +9136,7 @@ function CompanyProfilePageContent() {
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-600 max-w-xs truncate" title={row.description || ''}>{row.description || 'â€”'}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600 max-w-xs truncate" title={row.description || ''}>{row.description || '—'}</td>
                                                                     <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                         {docRowActions({
                                                                             onView: row.onView,
@@ -9360,7 +9360,7 @@ function CompanyProfilePageContent() {
                                                                             )}
                                                                         </div>
                                                                     </td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || 'â€”'}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '—'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
                                                                     <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
@@ -9524,7 +9524,7 @@ function CompanyProfilePageContent() {
                                                                                 {sectionPagination.pagedRows.map((row, i) => (
                                                                                     <tr key={row.rowKey || `memo-${section.id}-${i}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                                         <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
-                                                                                        <td className="px-6 py-3 text-sm text-gray-600 max-w-md truncate" title={row.description || ''}>{row.description || 'â€”'}</td>
+                                                                                        <td className="px-6 py-3 text-sm text-gray-600 max-w-md truncate" title={row.description || ''}>{row.description || '—'}</td>
                                                                                         <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                                         <td className="px-6 py-3 text-sm text-gray-600">{row.category || section.label}</td>
                                                                                         <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
@@ -10400,7 +10400,7 @@ function CompanyProfilePageContent() {
                                                         Attachment <span className="text-red-500">*</span>
                                                     </label>
 
-                                                    <span className="text-[10px] text-gray-400 font-medium">PDF only â€” max 5MB</span>
+                                                    <span className="text-[10px] text-gray-400 font-medium">PDF only — max 5MB</span>
 
                                                 </div>
 
@@ -13187,7 +13187,7 @@ function CompanyProfilePageContent() {
 
                                                                         </div>
 
-                                                                        <span className="text-[11px] text-gray-400 font-medium">{emp.designation?.name || emp.designation || 'N/A'} â€¢ {emp.companyName}</span>
+                                                                        <span className="text-[11px] text-gray-400 font-medium">{emp.designation?.name || emp.designation || 'N/A'} • {emp.companyName}</span>
 
                                                                     </div>
 
@@ -13663,7 +13663,7 @@ function CompanyProfilePageContent() {
                                             !activationHrSubmission?.type?.trim()) ? (
                                             <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/50">
                                                 <p className="text-sm text-blue-800 font-medium italic">
-                                                    First-time company activation â€” review each section on the profile and use OK to activate.
+                                                    First-time company activation — review each section on the profile and use OK to activate.
                                                 </p>
                                             </div>
                                         ) : (
@@ -13743,7 +13743,7 @@ function CompanyProfilePageContent() {
                                             </label>
                                         </div>
                                         <p className="text-xs text-gray-500">
-                                            Each card shows current versus edited values. Check every row to fully approve on OK. Unchecked rows need instructions below â€” the submitter sees them on hold and in email.
+                                            Each card shows current versus edited values. Check every row to fully approve on OK. Unchecked rows need instructions below — the submitter sees them on hold and in email.
                                         </p>
                                         <div className="space-y-3 max-h-[min(52vh,480px)] overflow-y-auto pr-1">
                                             {activationReviewDisplayGroups.map((group) => {
@@ -13826,7 +13826,7 @@ function CompanyProfilePageContent() {
                                 {activationReviewPendingChanges.length === 0 && activationStatusValue === 'submitted' && (
                                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
                                         {isCompanyProfileActivated
-                                            ? 'Reactivation submitted â€” review each requested card below when present, or open the company profile sections, then use OK to approve.'
+                                            ? 'Reactivation submitted — review each requested card below when present, or open the company profile sections, then use OK to approve.'
                                             : 'Full company profile submitted for first activation. Review the company cards on this page, then use OK to activate.'}
                                     </div>
                                 )}
@@ -13866,7 +13866,7 @@ function CompanyProfilePageContent() {
                                     disabled={activationDecisionLoading}
                                     className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {activationDecisionLoading ? 'Processingâ€¦' : 'OK'}
+                                    {activationDecisionLoading ? 'Processing…' : 'OK'}
                                 </button>
                             </div>
                         </div>
