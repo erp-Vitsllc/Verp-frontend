@@ -18,6 +18,7 @@ import {
     X,
 } from 'lucide-react';
 import {
+    formatNotificationExpiryRelative,
     formatNotificationPendingSince,
     formatNotificationTime,
     groupNotificationsByDate,
@@ -284,15 +285,22 @@ export default function NotificationInboxModal({
                                     <ul className="divide-y divide-slate-100">
                                         {group.items.map((row) => {
                                             const isUnread = unreadKeys.has(row.key);
-                                            const pendingSince = formatNotificationPendingSince(
-                                                row.requestedDate,
-                                                row.raw,
-                                                row.status,
+                                            const expiryRelative = formatNotificationExpiryRelative(
+                                                row.raw ?? row,
                                             );
-                                            const notificationTime = formatNotificationTime(
-                                                row.requestedDate,
-                                                row.raw,
-                                            );
+                                            const pendingSince = expiryRelative
+                                                ? ''
+                                                : formatNotificationPendingSince(
+                                                      row.requestedDate,
+                                                      row.raw,
+                                                      row.status,
+                                                  );
+                                            const notificationTime = expiryRelative
+                                                ? expiryRelative
+                                                : formatNotificationTime(
+                                                      row.requestedDate,
+                                                      row.raw,
+                                                  );
                                             const itemHref =
                                                 row.href ||
                                                 (typeof getItemHref === 'function'

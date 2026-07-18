@@ -44,3 +44,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local security scan dumps / one-off scripts
+*snyk*
+parse_snyk_fe.js
+temp_lines.txt
+fix_dashboard.ps1

@@ -2,10 +2,46 @@
  * Shared notification / pending-inbox row presentation for bells, Command Center, and modals.
  */
 
+import { parseExpiryLabelToDate } from '@/utils/expiryNotificationFallbacks';
+import { getDaysUntil } from '@/utils/documentExpiryReminderStages';
+
 function asDate(value) {
     if (!value) return null;
     const d = value instanceof Date ? value : new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const EXPIRY_REMINDER_TYPES = new Set([
+    'Employee Document Expiry Reminder',
+    'Document Expiry Reminder',
+    'Vehicle Document Expiry Reminder',
+]);
+
+function extractExpLabelFromExtra1(extra1 = '') {
+    const m = String(extra1 || '').match(/\(Exp:\s*([^)]+)\)/i);
+    return m?.[1] ? String(m[1]).trim() : '';
+}
+
+/**
+ * Footer for document-expiry cards: "expired 8 days ago" / "expires in 2 days"
+ * based on (Exp: …) in extra1 vs today — not the notification sent time.
+ */
+export function formatNotificationExpiryRelative(raw) {
+    const type = String(raw?.type || raw?.requestType || '').trim();
+    if (!EXPIRY_REMINDER_TYPES.has(type)) return '';
+
+    const expDate = parseExpiryLabelToDate(extractExpLabelFromExtra1(raw?.extra1));
+    if (!expDate) return '';
+
+    const days = getDaysUntil(expDate);
+    if (days == null) return '';
+
+    if (days < 0) {
+        const n = Math.abs(days);
+        return n === 1 ? 'expired 1 day ago' : `expired ${n} days ago`;
+    }
+    if (days === 0) return 'expires today';
+    return days === 1 ? 'expires in 1 day' : `expires in ${days} days`;
 }
 
 function parseExtra3(extra3) {
