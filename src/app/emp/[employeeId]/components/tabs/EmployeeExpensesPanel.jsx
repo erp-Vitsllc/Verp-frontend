@@ -66,6 +66,48 @@ export default function EmployeeExpensesPanel({ employee }) {
     }, [load]);
 
     const handlePay = (row) => {
+        const kind = String(row.kind || 'balance').toLowerCase();
+        if (kind === 'balance') {
+            const amount = Number(row.amount) || 0;
+            const prefill = {
+                mode: 'employee_balance',
+                employeeId,
+                organizationId: row.zohoOrganizationId || '',
+                returnTo:
+                    typeof window !== 'undefined'
+                        ? `${window.location.pathname}${window.location.search || ''}`
+                        : '',
+                balance: amount,
+                paymentSource: 'Cash',
+                batchId: row.utilityBatchId || '',
+                utilityType: row.utilityType || '',
+                billMonth: row.billMonth || '',
+                partyExpenseId:
+                    row.id && !String(row.id).startsWith('balance:') ? String(row.id) : '',
+                utilityBills: [
+                    {
+                        _id: row.utilityBillId,
+                        id: row.utilityBillId,
+                        accountNo: row.accountNo || '',
+                        balance: amount,
+                        utilityType: row.utilityType || '',
+                        billMonth: row.billMonth || '',
+                        payByEmployeeBusinessId: employeeId,
+                        zohoBillId: row.zohoBillId || '',
+                        zohoOrganizationId: row.zohoOrganizationId || '',
+                        selected: true,
+                    },
+                ],
+            };
+            try {
+                sessionStorage.setItem('utilityBillPaymentPrefill', JSON.stringify(prefill));
+            } catch {
+                /* ignore */
+            }
+            router.push('/Accounts/Payments?addUtilityPay=1');
+            return;
+        }
+
         const params = new URLSearchParams();
         params.set('addUtilityPay', '1');
         if (row.zohoBillId) params.set('billIds', row.zohoBillId);
@@ -128,8 +170,9 @@ export default function EmployeeExpensesPanel({ employee }) {
             <div className="flex items-start gap-2 text-slate-600">
                 <Wallet size={18} className="text-blue-600 mt-0.5 shrink-0" />
                 <p className="text-sm">
-                    Utility balances, fines, and loan/advance schedules appear here. Loans and advances
-                    show duration and monthly divided parts after Accounts pays with Zoho Chart of Accounts.
+                    Utility balances, fines, and loan/advance schedules appear here. Utility
+                    over-contract balances: Pay opens Accounts → Payments with VEGA/NNIT Zoho
+                    Chart of Accounts (Paid Through as credit).
                 </p>
             </div>
 

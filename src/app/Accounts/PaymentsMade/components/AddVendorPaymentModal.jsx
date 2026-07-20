@@ -1247,7 +1247,11 @@ export default function AddVendorPaymentModal({
                                 .filter(Boolean);
                         }
 
-                        if (utilityBatchId && billIdsToPay.length) {
+                        if (
+                            utilityBatchId &&
+                            billIdsToPay.length &&
+                            String(utilityPrefill?.mode || '').toLowerCase() === 'bills'
+                        ) {
                             try {
                                 await axiosInstance.put(
                                     `/UtilityBill/batch/${utilityBatchId}/pay`,

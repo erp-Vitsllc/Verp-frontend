@@ -64,7 +64,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         paymentType === 'Loan' ||
         paymentType === 'Advance' ||
         Boolean(prefill?.loan);
-    const isZohoStaffPayout = isRewardPayment || isLoanPayment;
+    const isUtilityEmployeeBalance =
+        paymentType === 'UtilityBill' &&
+        String(prefill?.mode || '').toLowerCase() === 'employee_balance';
+    const isZohoStaffPayout = isRewardPayment || isLoanPayment || isUtilityEmployeeBalance;
 
     const {
         options: zohoOrgOptions,
@@ -701,7 +704,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             return;
         }
 
-        if (paymentType === 'Reward' || paymentType === 'Loan' || paymentType === 'Advance') {
+        if (paymentType === 'Reward' || paymentType === 'Loan' || paymentType === 'Advance' || isUtilityEmployeeBalance) {
             if (!zohoOrganizationId) {
                 toast({
                     title: 'Validation Error',
@@ -788,7 +791,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     status: 'Completed',
                     description:
                         type === 'UtilityBill'
-                            ? `Utility bill payment · ${prefill?.utilityType || ''} ${prefill?.billMonth || ''} · ${fineOrLoan.accountNo || ''}`.trim()
+                            ? isUtilityEmployeeBalance
+                                ? `Utility employee balance · ${prefill?.utilityType || ''} ${prefill?.billMonth || ''} · ${fineOrLoan.accountNo || ''}`.trim()
+                                : `Utility bill payment · ${prefill?.utilityType || ''} ${prefill?.billMonth || ''} · ${fineOrLoan.accountNo || ''}`.trim()
                             : `Payment for ${entityRef}`,
                     referenceId: entityRef,
                     relatedEntityType:
@@ -804,7 +809,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     attachment: includeAttachment
                         ? attachmentForApi(attachment, { includeData })
                         : null,
-                    ...(type === 'Reward' || type === 'Loan' || type === 'Advance'
+                    ...(type === 'Reward' ||
+                    type === 'Loan' ||
+                    type === 'Advance' ||
+                    (type === 'UtilityBill' && isUtilityEmployeeBalance)
                         ? {
                               zohoOrganizationId,
                               expenseAccountId,
@@ -839,16 +847,22 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 await submitSinglePayment(
                     {
                         ...first,
-                        referenceId: prefill?.batchId || first.referenceId || first._id,
-                        accountNo: accounts
-                            ? `${checkedBills.length} bill(s) · Acc ${accounts}`
-                            : `${checkedBills.length} bill(s)`,
+                        _id: first._id || first.id,
+                        referenceId: isUtilityEmployeeBalance
+                            ? first._id || first.id || prefill?.batchId
+                            : prefill?.batchId || first.referenceId || first._id,
+                        accountNo: isUtilityEmployeeBalance
+                            ? first.accountNo || accounts
+                            : accounts
+                              ? `${checkedBills.length} bill(s) · Acc ${accounts}`
+                              : `${checkedBills.length} bill(s)`,
                     },
                     payAmt,
                     'UtilityBill',
                     { includeAttachment: Boolean(attachment) },
                 );
-                if (prefill?.batchId) {
+                // Full vendor-side pay only. Employee balance uses Zoho journal credit — do not mark utility Paid.
+                if (prefill?.batchId && !isUtilityEmployeeBalance) {
                     const billIds = checkedBills.map((b) => b._id).filter(Boolean);
                     await axiosInstance.put(`/UtilityBill/batch/${prefill.batchId}/pay`, {
                         billIds,
@@ -870,7 +884,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
 
             toast({
                 title: "Success",
-                description: isUtilityBillPayment
+                description: isUtilityEmployeeBalance
+                    ? 'Utility employee balance paid (Zoho credit posted)'
+                    : isUtilityBillPayment
                     ? "Utility bill payment recorded for selected rows"
                     : isBulkFinePayment
                       ? "Payments recorded successfully for selected fines"
@@ -1400,7 +1416,8 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                         <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                             {paymentType === 'Reward' ||
                             paymentType === 'Loan' ||
-                            paymentType === 'Advance' ? (
+                            paymentType === 'Advance' ||
+                            isUtilityEmployeeBalance ? (
                                 <div className="mb-8 p-6 bg-white border border-indigo-100 shadow-sm rounded-2xl space-y-4">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div>
@@ -1408,7 +1425,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                 Zoho Books · Chart of Accounts
                                             </h3>
                                             <p className="text-xs text-gray-500 mt-0.5">
-                                                Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.
+                                                {isUtilityEmployeeBalance
+                                                    ? 'Pay employee utility balance. Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'
+                                                    : 'Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'}
                                             </p>
                                         </div>
                                         {(showZohoOrgPicker || activeZohoOrg) && (
