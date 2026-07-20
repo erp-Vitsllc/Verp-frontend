@@ -142,6 +142,7 @@ function buildReviewRows(entries, bills) {
                 zohoVendorId: String(bill.zohoVendorId || '').trim(),
                 zohoBillId: String(bill.zohoBillId || '').trim(),
                 zohoOrganizationId: String(bill.zohoOrganizationId || '').trim(),
+                zohoSyncError: String(bill.zohoSyncError || '').trim(),
                 billNumber: String(bill.billNumber || '').trim(),
                 billDate: String(bill.billDate || '').trim(),
                 assignedToType: assigned.assignedToType,
@@ -183,6 +184,7 @@ function buildReviewRows(entries, bills) {
             zohoVendorId: '',
             zohoBillId: '',
             zohoOrganizationId: '',
+            zohoSyncError: '',
             billNumber: '',
             billDate: '',
             assignedToType: assigned.assignedToType,
@@ -228,6 +230,7 @@ function buildReviewRows(entries, bills) {
             zohoVendorId: String(bill.zohoVendorId || '').trim(),
             zohoBillId: String(bill.zohoBillId || '').trim(),
             zohoOrganizationId: String(bill.zohoOrganizationId || '').trim(),
+            zohoSyncError: String(bill.zohoSyncError || '').trim(),
             billNumber: String(bill.billNumber || '').trim(),
             billDate: String(bill.billDate || '').trim(),
             assignedToType: '',
@@ -397,10 +400,17 @@ export default function UtilityBillReviewModal({
                 setRows([...active, ...rest]);
 
                 if (blockedEntryIds.size > 0) {
+                    const payStage =
+                        String(data?.status || '') === 'Approved' ||
+                        Boolean(data?.canPay);
                     setError(
-                        `${blockedEntryIds.size} account(s) already have Approved / Paid for ${
-                            data?.billMonth || 'this month'
-                        } — unchecked and excluded from Approve.`,
+                        payStage
+                            ? `${blockedEntryIds.size} other account(s) already have Approved / Paid for ${
+                                  data?.billMonth || 'this month'
+                              } — shown grayed out (not part of this Pay batch).`
+                            : `${blockedEntryIds.size} account(s) already have Approved / Paid for ${
+                                  data?.billMonth || 'this month'
+                              } — unchecked and excluded from Approve.`,
                     );
                 }
             } catch (err) {
@@ -743,6 +753,25 @@ export default function UtilityBillReviewModal({
             };
             const res = await axiosInstance.put(`/UtilityBill/batch/${id}/respond`, body);
             const label = String(res.data?.statusLabel || res.data?.status || '');
+            const zohoSync = Array.isArray(res.data?.zohoSync) ? res.data.zohoSync : [];
+            const zohoFailed = zohoSync.filter((r) => r && r.ok === false && !r.skipped);
+            const zohoCreated = zohoSync.filter((r) => r && r.ok && !r.skipped);
+
+            if (decision === 'approve' && zohoFailed.length > 0) {
+                const firstMsg =
+                    zohoFailed[0]?.message ||
+                    'Zoho bill was not created. Fix vendor / expense account, then retry.';
+                toast({
+                    variant: 'destructive',
+                    title: 'Approved — Zoho sync failed',
+                    description: firstMsg,
+                });
+                setError(firstMsg);
+                onChanged?.();
+                setReloadKey((k) => k + 1);
+                return;
+            }
+
             toast({
                 title:
                     decision === 'approve'
@@ -752,13 +781,70 @@ export default function UtilityBillReviewModal({
                         : 'Rejected',
                 description:
                     decision === 'approve' && label.toLowerCase() === 'not paid'
-                        ? 'Awaiting Accounts payment.'
+                        ? zohoCreated.length > 0
+                            ? `Awaiting Accounts payment. ${zohoCreated.length} bill(s) created in Zoho.`
+                            : zohoSync.length > 0
+                              ? 'Awaiting Accounts payment. Zoho bills already linked.'
+                              : 'Awaiting Accounts payment.'
                         : label,
             });
             onChanged?.();
             onClose?.();
         } catch (err) {
             setError(readApiError(err, 'Action failed.'));
+        } finally {
+            setActing(false);
+        }
+    };
+
+    const needsZohoRetry = useMemo(
+        () =>
+            rows.some(
+                (r) =>
+                    r.inBatch &&
+                    r.billId &&
+                    String(r.status) === 'Approved' &&
+                    !String(r.zohoBillId || '').trim(),
+            ),
+        [rows],
+    );
+
+    const handleRetryZohoSync = async () => {
+        const id = batch?.batchId || batchId;
+        if (!id) return;
+        setActing(true);
+        setError('');
+        try {
+            const res = await axiosInstance.post(`/UtilityBill/batch/${id}/sync-zoho`);
+            const failed = Number(res.data?.failedCount) || 0;
+            const created = Number(res.data?.createdCount) || 0;
+            if (failed > 0) {
+                const first =
+                    (Array.isArray(res.data?.zohoSync)
+                        ? res.data.zohoSync.find((r) => r && r.ok === false && !r.skipped)
+                        : null)?.message ||
+                    res.data?.message ||
+                    'Zoho sync failed.';
+                toast({
+                    variant: 'destructive',
+                    title: 'Zoho sync incomplete',
+                    description: first,
+                });
+                setError(first);
+            } else {
+                toast({
+                    title: 'Zoho synced',
+                    description:
+                        res.data?.message ||
+                        (created > 0
+                            ? `${created} bill(s) created in Zoho Books.`
+                            : 'Bills already linked in Zoho.'),
+                });
+            }
+            onChanged?.();
+            setReloadKey((k) => k + 1);
+        } catch (err) {
+            setError(readApiError(err, 'Could not sync bills to Zoho.'));
         } finally {
             setActing(false);
         }
@@ -776,6 +862,21 @@ export default function UtilityBillReviewModal({
         );
         if (!payable.length) {
             setError('No bills available to pay.');
+            return;
+        }
+        const missingZoho = payable.filter((r) => !String(r.zohoBillId || '').trim());
+        if (missingZoho.length) {
+            const detail =
+                missingZoho
+                    .map((r) => r.zohoSyncError)
+                    .find(Boolean) ||
+                'Approved bills are not in Zoho yet. Use Retry Zoho sync first.';
+            setError(detail);
+            toast({
+                variant: 'destructive',
+                title: 'Zoho bill missing',
+                description: detail,
+            });
             return;
         }
         const anySelected = payable.some((r) => r.selected);
@@ -1469,6 +1570,34 @@ export default function UtilityBillReviewModal({
 
                             <UtilityBillTotalsBar rows={rows} />
 
+                            {needsZohoRetry ? (
+                                <div className="mx-5 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shrink-0">
+                                    <p className="font-semibold">Not in Zoho Books yet</p>
+                                    <p className="mt-1 text-amber-900/90">
+                                        HR approval succeeded, but the Zoho bill was not created
+                                        (usually missing vendor match for the provider, or expense
+                                        account). Sync Vendors in Accounts if needed, then retry.
+                                    </p>
+                                    {rows
+                                        .filter(
+                                            (r) =>
+                                                r.inBatch &&
+                                                String(r.status) === 'Approved' &&
+                                                !String(r.zohoBillId || '').trim() &&
+                                                r.zohoSyncError,
+                                        )
+                                        .slice(0, 2)
+                                        .map((r) => (
+                                            <p
+                                                key={String(r.billId || r.entryId)}
+                                                className="mt-1 text-xs text-red-700"
+                                            >
+                                                {r.accountNo}: {r.zohoSyncError}
+                                            </p>
+                                        ))}
+                                </div>
+                            ) : null}
+
                             {error ? (
                                 <p className="px-5 pb-2 text-sm text-red-600 shrink-0">{error}</p>
                             ) : null}
@@ -1481,6 +1610,16 @@ export default function UtilityBillReviewModal({
                                 >
                                     Close
                                 </button>
+                                {needsZohoRetry ? (
+                                    <button
+                                        type="button"
+                                        disabled={acting}
+                                        onClick={handleRetryZohoSync}
+                                        className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-100 hover:bg-amber-200 text-amber-950 text-sm font-semibold disabled:opacity-50"
+                                    >
+                                        {acting ? 'Syncing…' : 'Retry Zoho sync'}
+                                    </button>
+                                ) : null}
                                 {canApproveReject ? (
                                     <>
                                         <button
