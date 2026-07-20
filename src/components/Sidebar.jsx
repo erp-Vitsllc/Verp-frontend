@@ -20,7 +20,6 @@ import {
     Car,
     Wrench,
     ContactRound,
-    ShoppingCart,
     TrendingUp,
     Calculator,
     CreditCard,
@@ -129,25 +128,19 @@ const menuItems = [
         permissionModule: 'crm',
         submenu: [{ label: 'Customers', icon: Users, permissionModule: 'crm' }],
     },
-    {
-        id: 'Purchases',
-        label: 'Purchases',
-        icon: ShoppingCart,
-        permissionModule: 'purchases',
-        submenu: [
-            { label: 'Vendors', icon: Users, permissionModule: 'purchases' },
-            { label: 'Expenses', icon: HandCoins, permissionModule: 'purchases' },
-            { label: 'Bills', icon: Receipt, permissionModule: 'purchases' },
-            { label: 'Payments Made', icon: CreditCard, permissionModule: 'purchases' },
-        ],
-    },
     { id: 'Sales', label: 'Sales', icon: TrendingUp, permissionModule: 'sales' },
     {
         id: 'Accounts',
         label: 'Accounts',
         icon: Calculator,
         permissionModule: 'accounts',
-        submenu: [{ label: 'Payments', icon: CreditCard, permissionModule: 'accounts' }],
+        submenu: [
+            { label: 'Vendors', icon: Users, permissionModule: 'purchases' },
+            { label: 'Expenses', icon: HandCoins, permissionModule: 'purchases' },
+            { label: 'Bills', icon: Receipt, permissionModule: 'purchases' },
+            { label: 'Payments Made', icon: CreditCard, permissionModule: 'purchases' },
+            { label: 'Payments', icon: CreditCard, permissionModule: 'accounts' },
+        ],
     },
     { id: 'Production', label: 'Production', icon: Factory, permissionModule: 'production' },
     { id: 'Reports', label: 'Reports', icon: FileBarChart2, permissionModule: 'reports' },
@@ -214,12 +207,12 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Flowchart') return '/Settings/FlowChart';
         if (label === 'Deleted Records') return '/Settings/DeletedRecords';
     }
+    if (parentId === 'Accounts' && label === 'Vendors') return '/Accounts/Vendors';
+    if (parentId === 'Accounts' && label === 'Expenses') return '/Accounts/Expenses';
+    if (parentId === 'Accounts' && label === 'Bills') return '/Accounts/Bills';
+    if (parentId === 'Accounts' && label === 'Payments Made') return '/Accounts/PaymentsMade';
     if (parentId === 'Accounts' && label === 'Payments') return '/Accounts/Payments';
     if (parentId === 'CRM' && label === 'Customers') return '/CRM/Customers';
-    if (parentId === 'Purchases' && label === 'Vendors') return '/Purchases/Vendors';
-    if (parentId === 'Purchases' && label === 'Expenses') return '/Purchases/Expenses';
-    if (parentId === 'Purchases' && label === 'Bills') return '/Purchases/Bills';
-    if (parentId === 'Purchases' && label === 'Payments Made') return '/Purchases/PaymentsMade';
     return null;
 }
 
@@ -524,9 +517,9 @@ export default function Sidebar() {
         else if (pathname.startsWith('/CRM')) {
             setOpenMenu('CRM');
         }
-        // Purchases Detection
-        else if (pathname.startsWith('/Purchases')) {
-            setOpenMenu('Purchases');
+        // Accounts Detection (Vendors, Expenses, Bills, Payments Made, Payments)
+        else if (pathname.startsWith('/Accounts')) {
+            setOpenMenu('Accounts');
         }
         // Settings Detection
         else if (pathname.startsWith('/Settings')) {
@@ -627,18 +620,18 @@ export default function Sidebar() {
             router.push('/Settings/DeletedRecords');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             router.push('/Company');
+        } else if (parentId === 'Accounts' && subItem.label === 'Vendors') {
+            router.push('/Accounts/Vendors');
+        } else if (parentId === 'Accounts' && subItem.label === 'Expenses') {
+            router.push('/Accounts/Expenses');
+        } else if (parentId === 'Accounts' && subItem.label === 'Bills') {
+            router.push('/Accounts/Bills');
+        } else if (parentId === 'Accounts' && subItem.label === 'Payments Made') {
+            router.push('/Accounts/PaymentsMade');
         } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
             router.push('/Accounts/Payments');
         } else if (parentId === 'CRM' && subItem.label === 'Customers') {
             router.push('/CRM/Customers');
-        } else if (parentId === 'Purchases' && subItem.label === 'Vendors') {
-            router.push('/Purchases/Vendors');
-        } else if (parentId === 'Purchases' && subItem.label === 'Expenses') {
-            router.push('/Purchases/Expenses');
-        } else if (parentId === 'Purchases' && subItem.label === 'Bills') {
-            router.push('/Purchases/Bills');
-        } else if (parentId === 'Purchases' && subItem.label === 'Payments Made') {
-            router.push('/Purchases/PaymentsMade');
         }
     };
 
@@ -674,18 +667,23 @@ export default function Sidebar() {
             return pathname?.startsWith('/Settings/DeletedRecords');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             return pathname?.startsWith('/Company');
+        } else if (parentId === 'Accounts' && subItem.label === 'Vendors') {
+            return pathname?.startsWith('/Accounts/Vendors');
+        } else if (parentId === 'Accounts' && subItem.label === 'Expenses') {
+            return pathname?.startsWith('/Accounts/Expenses');
+        } else if (parentId === 'Accounts' && subItem.label === 'Bills') {
+            return pathname?.startsWith('/Accounts/Bills');
+        } else if (parentId === 'Accounts' && subItem.label === 'Payments Made') {
+            return pathname?.startsWith('/Accounts/PaymentsMade');
         } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
-            return pathname?.startsWith('/Accounts/Payments') || pathname?.startsWith('/Accounts/Payment');
+            return (
+                pathname === '/Accounts/Payments' ||
+                pathname?.startsWith('/Accounts/Payments/') ||
+                (pathname?.startsWith('/Accounts/Payment') &&
+                    !pathname?.startsWith('/Accounts/PaymentsMade'))
+            );
         } else if (parentId === 'CRM' && subItem.label === 'Customers') {
             return pathname?.startsWith('/CRM/Customers');
-        } else if (parentId === 'Purchases' && subItem.label === 'Vendors') {
-            return pathname?.startsWith('/Purchases/Vendors');
-        } else if (parentId === 'Purchases' && subItem.label === 'Expenses') {
-            return pathname?.startsWith('/Purchases/Expenses');
-        } else if (parentId === 'Purchases' && subItem.label === 'Bills') {
-            return pathname?.startsWith('/Purchases/Bills');
-        } else if (parentId === 'Purchases' && subItem.label === 'Payments Made') {
-            return pathname?.startsWith('/Purchases/PaymentsMade');
         }
         return false;
     };
@@ -718,6 +716,11 @@ export default function Sidebar() {
                 hasAnyPermission('hrm_asset_tools'),
             );
             if (vehicleOk || toolsOk) return true;
+        }
+
+        // Accounts hosts both ERP Payments (accounts) and Zoho AP pages (purchases)
+        if (item.id === 'Accounts' && (hasAnyPermission('accounts') || hasAnyPermission('purchases'))) {
+            return true;
         }
 
         // Check if user has isView permission for this module

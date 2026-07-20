@@ -8,6 +8,11 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { EMIRATES, EMIRATE_PLATE_IMAGE, parsePlateParts } from '../lib/vehiclePlateConfig';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
+import {
+    buildBasicProposedRows,
+    buildVehicleProfileEditSnapshots,
+} from '../lib/vehicleProfileEditSnapshots';
 
 const emptyForm = () => ({
     manufacture: '',
@@ -19,9 +24,6 @@ const emptyForm = () => ({
     plateDigits: '',
     purchaseValue: '',
     purchaseYearMonth: '',
-    warrantyEnabled: 'No',
-    warrantyKm: '',
-    warrantyExpiryDate: '',
     invoiceFileName: '',
     invoiceAttachment: '',
     category: '',
@@ -29,7 +31,15 @@ const emptyForm = () => ({
     photo: '',
 });
 
-export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetId = null, modalTitle }) {
+export default function AddVehicleModal({
+    isOpen,
+    onClose,
+    onSuccess,
+    editAssetId = null,
+    modalTitle,
+    isLocatorSetup = false,
+    asset = null,
+}) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [loadEdit, setLoadEdit] = useState(false);
@@ -43,6 +53,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
     const yearOptions = Array.from({ length: 41 }, (_, i) => String(new Date().getFullYear() - i));
 
     const isEditMode = Boolean(editAssetId);
+    const showInvoiceUpload = true;
 
     const fetchNextFleetAssetId = useCallback(async () => {
         try {
@@ -85,23 +96,25 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             const { data: a } = await axiosInstance.get(`/AssetItem/detail/${editAssetId}`);
             const { code, digits } = parsePlateParts(a.plateNumber);
             const pd = a.purchaseDate ? new Date(a.purchaseDate).toISOString().slice(0, 10) : '';
+            // Locator stubs often store GPS device name as model and type name as brand — match Add Vehicle blanks.
+            const plateMissing = !String(a.plateNumber || '').trim();
+            const locatorFresh = isLocatorSetup && plateMissing;
             setFormData({
                 ...emptyForm(),
-                manufacture: getVehicleBrandLabel(a),
-                name: a.name || '',
+                manufacture: locatorFresh
+                    ? String(a.vehicleBrand || '').trim()
+                    : getVehicleBrandLabel(a),
+                name: locatorFresh ? '' : a.name || '',
                 modelYear: a.modelYear ? String(a.modelYear) : '',
                 plateEmirate: a.plateEmirate || 'Dubai',
                 plateCode: code,
                 plateDigits: digits,
                 purchaseValue: a.assetValue != null ? String(a.assetValue) : '',
-                purchaseYearMonth: pd ? pd.slice(0, 7) : '',
-                warrantyEnabled: a.warrantyEnabled ? 'Yes' : 'No',
-                warrantyKm: a.warrantyEnabled ? String(a.warrantyKm ?? '') : '',
-                warrantyExpiryDate: a.warrantyEnabled && a.warrantyExpiryDate
-                    ? new Date(a.warrantyExpiryDate).toISOString().slice(0, 10)
-                    : '',
+                purchaseYearMonth: locatorFresh ? '' : pd ? pd.slice(0, 7) : '',
                 category: a.categoryId?.name || '',
                 assetValue: a.assetValue || 0,
+                invoiceFileName: a.invoiceFile ? 'Existing invoice on file' : '',
+                invoiceAttachment: '',
             });
             setNextFleetAssetId(a.assetId || '');
         } catch (e) {
@@ -110,7 +123,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
         } finally {
             setLoadEdit(false);
         }
-    }, [editAssetId, onClose, toast]);
+    }, [editAssetId, isLocatorSetup, onClose, toast]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -155,10 +168,6 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             e.plateDigits = 'Plate number required';
         }
         if (!formData.purchaseYearMonth) e.purchaseYearMonth = 'Required';
-        if (formData.warrantyEnabled === 'Yes') {
-            if (!formData.warrantyKm) e.warrantyKm = 'Required';
-            if (!formData.warrantyExpiryDate) e.warrantyExpiryDate = 'Required';
-        }
         setErrors(e);
         return Object.keys(e).length === 0;
     };
@@ -197,9 +206,6 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             purchaseValue: Number(formData.purchaseValue || 0),
             purchaseYearMonth: formData.purchaseYearMonth,
             purchaseDate: purchaseYmToDateValue(formData.purchaseYearMonth),
-            warrantyEnabled: formData.warrantyEnabled === 'Yes',
-            warrantyKm: formData.warrantyEnabled === 'Yes' ? Number(formData.warrantyKm || 0) : 0,
-            warrantyExpiryDate: formData.warrantyEnabled === 'Yes' ? formData.warrantyExpiryDate : '',
             invoiceFile: formData.invoiceAttachment || null,
             photo: formData.photo,
             quantity: 1,
@@ -218,9 +224,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
         plateEmirate: formData.plateEmirate,
         assetValue: Number(formData.purchaseValue || 0),
         purchaseDate: purchaseYmToDateValue(formData.purchaseYearMonth),
-        warrantyEnabled: formData.warrantyEnabled === 'Yes',
-        warrantyKm: formData.warrantyEnabled === 'Yes' ? Number(formData.warrantyKm || 0) : 0,
-        warrantyExpiryDate: formData.warrantyEnabled === 'Yes' ? formData.warrantyExpiryDate : '',
+        ...(formData.invoiceAttachment ? { invoiceFile: formData.invoiceAttachment } : {}),
     });
 
     const submitCreate = async (creationIntent) => {
@@ -251,8 +255,41 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
         if (!validate()) return;
         try {
             setLoading(true);
-            await axiosInstance.put(`/AssetType/${editAssetId}`, buildUpdatePayload());
-            toast({ title: 'Saved', description: 'Vehicle draft updated.' });
+            const body = buildUpdatePayload();
+            if (asset) {
+                const snapshotForm = {
+                    assetId: nextFleetAssetId || asset.assetId || '',
+                    brand: String(formData.manufacture || '').trim(),
+                    name: formData.name,
+                    plateEmirate: formData.plateEmirate,
+                    plateCode: formData.plateCode,
+                    plateDigits: formData.plateDigits,
+                    modelYear: formData.modelYear,
+                };
+                const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
+                    sectionId: 'basic',
+                    asset,
+                    proposedRows: buildBasicProposedRows(snapshotForm, asset),
+                });
+                const result = await saveVehicleSectionOrQueue({
+                    asset,
+                    assetId: editAssetId,
+                    sectionId: 'basic',
+                    action: 'edit',
+                    steps: [{ op: 'put_asset_type', body }],
+                    previousRows,
+                    proposedRows,
+                });
+                toast({
+                    title: 'Saved',
+                    description: result.queued
+                        ? 'Basic details saved. Submit for HR approval when ready.'
+                        : 'Vehicle details saved.',
+                });
+            } else {
+                await axiosInstance.put(`/AssetType/${editAssetId}`, body);
+                toast({ title: 'Saved', description: 'Vehicle details saved.' });
+            }
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
@@ -269,7 +306,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                     <h3 className="text-lg font-bold text-gray-800">
@@ -424,7 +461,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Purchase Value</label>
                                     <input
@@ -447,59 +484,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                     />
                                     {errors.purchaseYearMonth && <p className="text-xs text-red-500">{errors.purchaseYearMonth}</p>}
                                 </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Warranty</label>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setFormData({ ...formData, warrantyEnabled: 'Yes' })}
-                                            className={`px-3 py-2 rounded-lg text-sm font-semibold border ${formData.warrantyEnabled === 'Yes' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
-                                        >
-                                            Yes
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setFormData({ ...formData, warrantyEnabled: 'No', warrantyKm: '', warrantyExpiryDate: '' })
-                                            }
-                                            className={`px-3 py-2 rounded-lg text-sm font-semibold border ${formData.warrantyEnabled === 'No' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
-                                        >
-                                            No
-                                        </button>
-                                    </div>
-                                </div>
                             </div>
 
-                            {formData.warrantyEnabled === 'Yes' && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                            Warranty KM <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={formData.warrantyKm}
-                                            onChange={(e) => setFormData({ ...formData, warrantyKm: e.target.value })}
-                                            className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm ${errors.warrantyKm ? 'border-red-300' : 'border-gray-200'}`}
-                                        />
-                                        {errors.warrantyKm && <p className="text-xs text-red-500">{errors.warrantyKm}</p>}
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                            Warranty End Date <span className="text-red-500">*</span>
-                                        </label>
-                                        <DatePicker
-                                            value={formData.warrantyExpiryDate}
-                                            onChange={(v) => setFormData({ ...formData, warrantyExpiryDate: v || '' })}
-                                            placeholder="Select warranty end date"
-                                        />
-                                        {errors.warrantyExpiryDate && <p className="text-xs text-red-500">{errors.warrantyExpiryDate}</p>}
-                                    </div>
-                                </div>
-                            )}
-
-                            {!isEditMode ? (
+                            {showInvoiceUpload ? (
                                 <div className="space-y-2">
                                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Invoice Upload</label>
                                     <input

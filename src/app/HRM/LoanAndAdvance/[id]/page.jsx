@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 
@@ -29,6 +29,10 @@ import LoanApprovedAttachmentsTab from '../components/LoanApprovedAttachmentsTab
 import { canEditApprovedLoanSchedule } from '../utils/loanApprovedEdit';
 import { buildLoanFormSummaries, EMPTY_LOAN_FORM_SUMMARIES } from '../utils/buildLoanFormSummaries';
 import { isApprovedLoanRecord } from '../utils/loanScheduleUtils';
+import {
+    canAccountsPayLoan,
+    buildLoanPaymentPrefill,
+} from '../utils/loanPaymentPrefill';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
@@ -39,6 +43,7 @@ import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 
 export default function LoanRequestDetails() {
     const { id: rawId } = useParams();
+    const router = useRouter();
     const handleListReturnBack = useListReturnBack();
     // Clean ID (Extract from combined string like Loan-696e1... or Advance-696e1...)
     const id = rawId && rawId.includes('-') ? rawId.split('-').pop() : rawId;
@@ -877,12 +882,37 @@ export default function LoanRequestDetails() {
                                     canApproveLoan={canApproveLoan}
                                     canSubmitDraft={canSubmitDraft}
                                     canResubmit={canResubmit}
+                                    canPayLoan={canAccountsPayLoan(loan, currentUser)}
                                     onDownload={handleDownloadPDF}
                                     onApprove={handleApprove}
                                     onReject={handleReject}
                                     onSubmit={() => handleUpdateStatus('Pending')}
                                     onCancel={() => handleUpdateStatus('Cancelled')}
                                     onResubmit={() => setIsResubmittingModal(true)}
+                                    onPay={() => {
+                                        const companyId = String(
+                                            employee?.company?._id ||
+                                                employee?.company ||
+                                                employee?.companyId ||
+                                                '',
+                                        ).trim();
+                                        const prefill = buildLoanPaymentPrefill(loan, {
+                                            returnTo:
+                                                typeof window !== 'undefined'
+                                                    ? `${window.location.pathname}${window.location.search}`
+                                                    : '',
+                                            companyId,
+                                        });
+                                        try {
+                                            sessionStorage.setItem(
+                                                'loanPaymentPrefill',
+                                                JSON.stringify(prefill),
+                                            );
+                                        } catch (err) {
+                                            console.error(err);
+                                        }
+                                        router.push('/Accounts/Payments?addLoanPay=1');
+                                    }}
                                 />
                             </div>
                         </div>

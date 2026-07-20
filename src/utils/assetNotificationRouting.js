@@ -297,6 +297,13 @@ export function buildAssetNotificationPath(rawItem) {
             : '';
     }
 
+    if (type.includes('vehicle delete')) {
+        const vehicleId = meta?.vehicleMongoId || assetId;
+        return vehicleId
+            ? buildVehicleDetailPath(vehicleId, { tab: 'basic', vehicleDeleteReview: '1' })
+            : '';
+    }
+
     if (type.includes('vehicle disposition')) {
         const vehicleId = meta?.vehicleMongoId || assetId;
         if (!vehicleId) return '';

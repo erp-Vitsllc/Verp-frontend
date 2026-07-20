@@ -36,6 +36,23 @@ const WORKFLOW_STAGE_TITLE = {
     pending_management: 'Management',
 };
 
+/** Invoice may live on `entry.file` or under `details.invoiceFile` (create/update). */
+function resolveHistoryAttachment(entry) {
+    const fromFile = entry?.file;
+    if (fromFile) return fromFile;
+    const d = entry?.details;
+    if (!d || typeof d !== 'object') return null;
+    return d.invoiceFile || d.invoice || d.attachment || null;
+}
+
+function historyHasInvoiceAttachment(entry) {
+    const d = entry?.details;
+    if (entry?.file && (d?.invoiceUpdated || d?.invoiceAttached || d?.invoiceFile || d?.invoiceStatus === 'Received')) {
+        return true;
+    }
+    return Boolean(d?.invoiceFile || d?.invoice || (d?.invoiceAttached && entry?.file));
+}
+
 /** History rows may embed an asset snapshot in `details` (e.g. assignment/handover); print route uses these ids. */
 export function historyHasSnapshotDocument(entry) {
     return Boolean(
@@ -167,7 +184,17 @@ function buildCardTitle(entry, copyMode = 'vehicle') {
               : 'Vehicle returned or unassigned';
     }
     if (a === 'Created') {
+        const withInvoice = historyHasInvoiceAttachment(entry) || resolveHistoryAttachment(entry);
+        if (withInvoice) {
+            return actor ? `${actor} added this asset with invoice` : 'Asset created with invoice';
+        }
         return actor ? `${actor} added this asset` : 'This asset was created';
+    }
+    if (a === 'Update') {
+        if (entry.details?.invoiceUpdated || historyHasInvoiceAttachment(entry)) {
+            return actor ? `${actor} updated basic details (invoice)` : 'Basic details updated with invoice';
+        }
+        return actor ? `${actor} updated basic details` : 'Basic details updated';
     }
     if (a === 'Extend') {
         const days = d.extensionDays;
@@ -219,9 +246,21 @@ function buildRequestSummary(entry, copyMode = 'vehicle') {
         return `The ${itemWord} was returned or unassigned from the current holder.`;
     }
     if (a === 'Created') {
+        const hasInvoice = Boolean(resolveHistoryAttachment(entry) || entry.details?.invoiceFile);
+        if (hasInvoice) {
+            return isAsset
+                ? `The asset record was created with an **invoice** attachment. Use View invoice below to open it.`
+                : `The vehicle record was created with an **invoice** attachment. Use View invoice below to open it.`;
+        }
         return isAsset
             ? `The asset record was created in the system.`
             : `The vehicle record was created in the system.`;
+    }
+    if (a === 'Update') {
+        if (entry.details?.invoiceUpdated || resolveHistoryAttachment(entry)) {
+            return `Basic details were updated and an **invoice** attachment was saved. Use View invoice below to open it.`;
+        }
+        return `Basic details were updated for this ${itemWord}.`;
     }
     if (a === 'Extend' || a === 'Service' || a === 'Service Send' || a === 'Service Receive') {
         const wd = entry.details || {};
@@ -357,7 +396,9 @@ export default function VehicleAssetHistoryTab({
                             : fmtPerson(entry.assignedTo);
                     const expandedNow = expanded.has(id);
                     const requestSummary = buildRequestSummary(entry, copyMode);
-                    const hasFile = !!entry.file;
+                    const attachmentUrl = resolveHistoryAttachment(entry);
+                    const hasFile = Boolean(attachmentUrl);
+                    const invoiceAttachment = historyHasInvoiceAttachment(entry) || Boolean(entry.details?.invoiceFile);
                     const showHandoverDoc = historyHasSnapshotDocument(entry);
 
                     return (
@@ -473,11 +514,11 @@ export default function VehicleAssetHistoryTab({
                                                 {hasFile && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => onViewFile?.(entry.file)}
+                                                        onClick={() => onViewFile?.(attachmentUrl)}
                                                         className="inline-flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-white border border-emerald-200 text-emerald-800 text-[11px] font-bold uppercase tracking-wide hover:bg-emerald-50 transition-colors"
                                                     >
                                                         <Eye size={14} />
-                                                        View attachment
+                                                        {invoiceAttachment ? 'View invoice' : 'View attachment'}
                                                     </button>
                                                 )}
                                             </div>
@@ -621,17 +662,19 @@ export default function VehicleAssetHistoryTab({
                                     )}
                                 </div>
 
-                                {detailEntry.file && (
+                                {resolveHistoryAttachment(detailEntry) && (
                                     <div className="pt-2">
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                onViewFile?.(detailEntry.file);
+                                                onViewFile?.(resolveHistoryAttachment(detailEntry));
                                             }}
                                             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold uppercase tracking-wide hover:bg-emerald-700 transition-colors w-full sm:w-auto justify-center"
                                         >
                                             <FileText size={16} />
-                                            View attachment
+                                            {historyHasInvoiceAttachment(detailEntry) || detailEntry.details?.invoiceFile
+                                                ? 'View invoice'
+                                                : 'View attachment'}
                                         </button>
                                     </div>
                                 )}

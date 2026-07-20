@@ -10,124 +10,152 @@ function createSyncToken() {
 }
 
 /**
- * Progressive Zoho list loader:
- * 1) Show local DB cache immediately (if any)
- * 2) Sync from Zoho in chunks of 400 and merge into the table
+ * Zoho list loader:
+ * - Default: paged local DB (fast, lean payload)
+ * - sync:true (Refresh): sync from Zoho in chunks, then reload current page
  */
-export function useZohoChunkedList({ endpoint, mapRows, getRowId }) {
+export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId = '' }) {
     const [rows, setRows] = useState([]);
+    const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState('');
     const [syncedCount, setSyncedCount] = useState(0);
     const abortRef = useRef(0);
+    const listQueryRef = useRef({
+        page: 1,
+        pageSize: 10,
+        search: '',
+        sortBy: '',
+        sortDir: '',
+    });
+    const orgId = String(organizationId || '').trim();
 
-    const mergeRows = useCallback(
-        (incoming) => {
-            setRows((prev) => {
-                const byId = new Map();
-                prev.forEach((row) => {
-                    const id = getRowId(row);
-                    if (id) byId.set(id, row);
-                });
-                incoming.forEach((row) => {
-                    const id = getRowId(row);
-                    if (id) byId.set(id, row);
-                });
-                return Array.from(byId.values());
+    const fetchPage = useCallback(
+        async (listQuery, requestId) => {
+            const response = await axiosInstance.get(endpoint, {
+                skipToast: true,
+                timeout: 30000,
+                params: {
+                    sync: 'false',
+                    page: listQuery.page,
+                    pageSize: listQuery.pageSize,
+                    search: listQuery.search || undefined,
+                    sortBy: listQuery.sortBy || undefined,
+                    sortDir: listQuery.sortDir || undefined,
+                    ...(orgId ? { organizationId: orgId } : {}),
+                },
             });
+
+            if (abortRef.current !== requestId) return null;
+
+            const meta = response?.data?.meta || {};
+            const mapped = mapRows(response?.data?.data);
+            setRows(mapped);
+            setTotalCount(Number(meta.total ?? mapped.length) || 0);
+            return mapped;
         },
-        [getRowId],
+        [endpoint, mapRows, orgId],
     );
 
-    const load = useCallback(async () => {
-        const requestId = abortRef.current + 1;
-        abortRef.current = requestId;
+    const load = useCallback(
+        async ({
+            sync = false,
+            page,
+            pageSize,
+            search,
+            sortBy,
+            sortDir,
+        } = {}) => {
+            const requestId = abortRef.current + 1;
+            abortRef.current = requestId;
 
-        setLoading(true);
-        setLoadingMore(false);
-        setError('');
-        setSyncedCount(0);
-        let painted = false;
+            const nextQuery = {
+                ...listQueryRef.current,
+                ...(page !== undefined ? { page } : {}),
+                ...(pageSize !== undefined ? { pageSize } : {}),
+                ...(search !== undefined ? { search } : {}),
+                ...(sortBy !== undefined ? { sortBy } : {}),
+                ...(sortDir !== undefined ? { sortDir } : {}),
+            };
+            listQueryRef.current = nextQuery;
 
-        try {
-            // 1) Instant cache paint
+            setLoading(true);
+            setLoadingMore(false);
+            setError('');
+            if (sync) setSyncedCount(0);
+
             try {
-                const cached = await axiosInstance.get(endpoint, {
-                    skipToast: true,
-                    timeout: 30000,
-                    params: { sync: 'false' },
-                });
-                if (abortRef.current !== requestId) return;
-
-                const cachedRows = mapRows(cached?.data?.data);
-                if (cachedRows.length) {
-                    setRows(cachedRows);
-                    painted = true;
+                try {
+                    await fetchPage(nextQuery, requestId);
+                    if (abortRef.current !== requestId) return;
                     setLoading(false);
-                    setLoadingMore(true);
-                } else {
+                } catch (cacheErr) {
+                    if (!sync) throw cacheErr;
                     setRows([]);
-                }
-            } catch {
-                // Cache miss is fine — continue with Zoho chunks
-            }
-
-            // 2) Progressive Zoho sync in chunks of 400
-            const syncToken = createSyncToken();
-            let zohoPage = 1;
-            let totalSynced = 0;
-
-            while (true) {
-                if (abortRef.current !== requestId) return;
-
-                const response = await axiosInstance.get(endpoint, {
-                    skipToast: true,
-                    timeout: 120000,
-                    params: {
-                        sync: 'true',
-                        zohoPage,
-                        chunkLimit: CHUNK_LIMIT,
-                        syncToken,
-                    },
-                });
-
-                if (abortRef.current !== requestId) return;
-
-                const chunkRows = mapRows(response?.data?.data);
-                totalSynced += chunkRows.length;
-                setSyncedCount(totalSynced);
-                mergeRows(chunkRows);
-
-                if (!painted) {
-                    painted = true;
+                    setTotalCount(0);
                     setLoading(false);
                 }
 
-                const meta = response?.data?.meta || {};
-                setLoadingMore(Boolean(meta.hasMore));
-                if (!meta.hasMore) break;
+                if (!sync) return;
 
-                zohoPage = Number(meta.nextZohoPage) || zohoPage + 2;
+                // Refresh: sync Zoho in background, then reload the current page
+                setLoadingMore(true);
+                const syncToken = createSyncToken();
+                let zohoPage = 1;
+                let totalSynced = 0;
+
+                while (true) {
+                    if (abortRef.current !== requestId) return;
+
+                    const response = await axiosInstance.get(endpoint, {
+                        skipToast: true,
+                        timeout: 120000,
+                        params: {
+                            sync: 'true',
+                            zohoPage,
+                            chunkLimit: CHUNK_LIMIT,
+                            syncToken,
+                            ...(orgId ? { organizationId: orgId } : {}),
+                        },
+                    });
+
+                    if (abortRef.current !== requestId) return;
+
+                    const chunkCount = Array.isArray(response?.data?.data)
+                        ? response.data.data.length
+                        : Number(response?.data?.meta?.upserted) || 0;
+                    totalSynced += chunkCount;
+                    setSyncedCount(totalSynced);
+
+                    const meta = response?.data?.meta || {};
+                    if (!meta.hasMore) break;
+                    zohoPage = Number(meta.nextZohoPage) || zohoPage + 2;
+                }
+
+                if (abortRef.current !== requestId) return;
+                await fetchPage(listQueryRef.current, requestId);
+            } catch (err) {
+                if (abortRef.current !== requestId) return;
+                const message =
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    'Failed to load data from Zoho Books';
+                setError(message);
+            } finally {
+                if (abortRef.current === requestId) {
+                    setLoading(false);
+                    setLoadingMore(false);
+                }
             }
-        } catch (err) {
-            if (abortRef.current !== requestId) return;
-            const message =
-                err?.response?.data?.message ||
-                err?.message ||
-                'Failed to load data from Zoho Books';
-            setError(message);
-        } finally {
-            if (abortRef.current === requestId) {
-                setLoading(false);
-                setLoadingMore(false);
-            }
-        }
-    }, [endpoint, mapRows, mergeRows]);
+        },
+        [endpoint, fetchPage, orgId],
+    );
 
     return {
         rows,
         setRows,
+        totalCount,
         loading,
         loadingMore,
         error,
@@ -135,5 +163,6 @@ export function useZohoChunkedList({ endpoint, mapRows, getRowId }) {
         syncedCount,
         load,
         chunkLimit: CHUNK_LIMIT,
+        getRowId,
     };
 }

@@ -9,10 +9,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList, Trash2, Filter, Pencil, Wrench } from 'lucide-react';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import {
-    canAdminDeleteActivatedVehicleRecord,
     isVehicleProfileActivationActive,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAdminDeleteAccess';
-import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessCreateService, canEditVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessCreateService, canEditVehicleAsset, canDeleteVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 
 import {
     AlertDialog,
@@ -35,7 +34,6 @@ import {
     vehicleProfileStatusBadgeClass,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import VehicleListAssignmentStatusCell from '@/app/HRM/Asset/Vehicle/components/VehicleListAssignmentStatusCell';
-import VehicleLocatorAddPlateModal from '@/app/HRM/Asset/Vehicle/components/VehicleLocatorAddPlateModal';
 import VehicleCreateServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleCreateServiceModal';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
@@ -256,7 +254,6 @@ export default function VehicleAssetPage() {
     const [vehicleInboxCount, setVehicleInboxCount] = useState(0);
     const vehicleInboxWarmRef = useRef(false);
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, vehicle: null });
-    const [plateModalVehicle, setPlateModalVehicle] = useState(null);
     const [createServiceModalOpen, setCreateServiceModalOpen] = useState(false);
 
     const openInactiveVehicleEdit = useCallback(async (vehicle, e) => {
@@ -280,7 +277,11 @@ export default function VehicleAssetPage() {
                 throw new Error('Vehicle record not found');
             }
             setAddVehicleEditId(String(editId));
-            setAddVehicleModalTitle(vehicle.needsLocatorSetup ? 'Setup Locator vehicle' : undefined);
+            setAddVehicleModalTitle(
+                vehicle.needsLocatorSetup || !String(vehicle.plateNumber || '').trim()
+                    ? 'Setup Locator vehicle'
+                    : undefined,
+            );
             setIsAddVehicleModalOpen(true);
         } catch (error) {
             toast({
@@ -363,36 +364,34 @@ export default function VehicleAssetPage() {
         }
     }, [toast]);
 
-    const patchVehiclePlateInList = useCallback((deviceId, plateData) => {
-        if (!deviceId || !plateData) return;
-        setVehicles((prev) =>
-            prev.map((row) => {
-                if (String(row.locator?.deviceId) !== String(deviceId)) return row;
-                return {
-                    ...row,
-                    _id: plateData._id || row._id,
-                    assetId: plateData.assetId || row.assetId,
-                    plateEmirate: plateData.plateEmirate || row.plateEmirate,
-                    plateNumber: plateData.plateNumber || row.plateNumber,
-                    needsPlate: false,
-                    isLocatorOnly: false,
-                };
-            }),
-        );
-    }, []);
-
     const handleDeleteVehicle = useCallback(async () => {
         if (!deleteConfirm.vehicle?._id) return;
+        const vehicle = deleteConfirm.vehicle;
+        const profileActive = isVehicleProfileActivationActive(vehicle);
         try {
-            await axiosInstance.delete(`/AssetItem/${deleteConfirm.vehicle._id}`);
-            toast({ title: 'Deleted', description: 'Vehicle deleted successfully.' });
+            if (profileActive) {
+                const res = await axiosInstance.post(`/AssetItem/${vehicle._id}/request-vehicle-delete`, null, {
+                    skipToast: true,
+                });
+                if (res.data?.deleted) {
+                    toast({ title: 'Deleted', description: 'Vehicle deleted successfully.' });
+                } else {
+                    toast({
+                        title: 'Delete request sent',
+                        description: res.data?.message || 'HR approval is required for active vehicles.',
+                    });
+                }
+            } else {
+                await axiosInstance.delete(`/AssetItem/${vehicle._id}`, { skipToast: true });
+                toast({ title: 'Deleted', description: 'Vehicle deleted successfully.' });
+            }
             setDeleteConfirm({ isOpen: false, vehicle: null });
             fetchVehicles();
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Delete failed',
-                description: error.response?.data?.message || 'Could not delete vehicle.',
+                description: error?.response?.data?.message || 'Could not delete vehicle.',
             });
         }
     }, [deleteConfirm.vehicle, fetchVehicles, toast]);
@@ -400,7 +399,8 @@ export default function VehicleAssetPage() {
     const isFleetAdmin = mounted && isAdmin();
     const canEditInactiveVehicleFromList =
         mounted && (isAdmin() || canEditVehicleAsset());
-    const showVehicleRowActions = canEditInactiveVehicleFromList || isFleetAdmin;
+    const canDeleteVehicleFromList = mounted && (isAdmin() || canDeleteVehicleAsset());
+    const showVehicleRowActions = canEditInactiveVehicleFromList || canDeleteVehicleFromList || isFleetAdmin;
     const tableColSpan = showVehicleRowActions ? 9 : 8;
 
     useEffect(() => {
@@ -934,10 +934,11 @@ export default function VehicleAssetPage() {
                                                         ? `/HRM/Asset/Vehicle/details/locator-${locatorDeviceId}${locatorNameParam}`
                                                         : `/HRM/Asset/Vehicle/details/${vehicle._id}`;
                                                 const listReturn = qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle';
-                                                const showRowDelete = !isLocatorOnly && canAdminDeleteActivatedVehicleRecord({
-                                                    isAdminUser: isFleetAdmin,
-                                                    profileActive: isVehicleProfileActivationActive(vehicle),
-                                                });
+                                                const showRowDelete =
+                                                    !isLocatorOnly &&
+                                                    canDeleteVehicleFromList &&
+                                                    !String(vehicle._id).startsWith('locator-');
+                                                const deleteNeedsHr = isVehicleProfileActivationActive(vehicle);
                                                 const displayKm =
                                                     vehicle.locator?.currentKilometer != null
                                                         ? vehicle.locator.currentKilometer
@@ -964,10 +965,7 @@ export default function VehicleAssetPage() {
                                                             ) : (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setPlateModalVehicle(vehicle);
-                                                                    }}
+                                                                    onClick={(e) => openInactiveVehicleEdit(vehicle, e)}
                                                                     className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold text-gray-400 bg-gray-50 ring-1 ring-gray-200 hover:bg-gray-100 hover:text-gray-600 transition-colors whitespace-nowrap"
                                                                 >
                                                                     No plate
@@ -1037,7 +1035,7 @@ export default function VehicleAssetPage() {
                                                                                 <Pencil size={18} />
                                                                             </button>
                                                                         )}
-                                                                    {isFleetAdmin && showRowDelete && (
+                                                                    {showRowDelete && (
                                                                         <button
                                                                             type="button"
                                                                             onClick={(e) => {
@@ -1045,7 +1043,11 @@ export default function VehicleAssetPage() {
                                                                                 setDeleteConfirm({ isOpen: true, vehicle });
                                                                             }}
                                                                             className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                            title="Delete vehicle (admin, profile active)"
+                                                                            title={
+                                                                                deleteNeedsHr
+                                                                                    ? 'Request delete (HR approval required for active vehicles)'
+                                                                                    : 'Delete vehicle'
+                                                                            }
                                                                         >
                                                                             <Trash2 size={18} />
                                                                         </button>
@@ -1095,6 +1097,7 @@ export default function VehicleAssetPage() {
                     isOpen={isAddVehicleModalOpen}
                     editAssetId={addVehicleEditId}
                     modalTitle={addVehicleModalTitle}
+                    isLocatorSetup={Boolean(addVehicleModalTitle)}
                     onClose={() => {
                         setIsAddVehicleModalOpen(false);
                         setAddVehicleEditId(null);
@@ -1114,17 +1117,6 @@ export default function VehicleAssetPage() {
                 />
             )}
 
-            <VehicleLocatorAddPlateModal
-                isOpen={Boolean(plateModalVehicle)}
-                vehicle={plateModalVehicle}
-                onClose={() => setPlateModalVehicle(null)}
-                onSuccess={(plateData) => {
-                    patchVehiclePlateInList(plateModalVehicle?.locator?.deviceId, plateData);
-                    setPlateModalVehicle(null);
-                    void fetchVehicles({ silent: true });
-                }}
-            />
-
             <VehicleCreateServiceModal
                 isOpen={createServiceModalOpen}
                 vehicles={vehicles}
@@ -1142,11 +1134,27 @@ export default function VehicleAssetPage() {
                     <AlertDialogHeader>
                         <AlertDialogTitle className="text-xl font-bold">Delete vehicle</AlertDialogTitle>
                         <AlertDialogDescription className="text-sm text-gray-500">
-                            Permanently delete{' '}
-                            <span className="font-bold text-gray-900">
-                                {deleteConfirm.vehicle?.assetId || deleteConfirm.vehicle?.plateNumber || 'this vehicle'}
-                            </span>
-                            ? Management will be notified by email. This cannot be undone.
+                            {isVehicleProfileActivationActive(deleteConfirm.vehicle) ? (
+                                <>
+                                    Request deletion of{' '}
+                                    <span className="font-bold text-gray-900">
+                                        {deleteConfirm.vehicle?.assetId ||
+                                            deleteConfirm.vehicle?.plateNumber ||
+                                            'this vehicle'}
+                                    </span>
+                                    ? Active vehicles require HR approval before they are removed.
+                                </>
+                            ) : (
+                                <>
+                                    Permanently delete{' '}
+                                    <span className="font-bold text-gray-900">
+                                        {deleteConfirm.vehicle?.assetId ||
+                                            deleteConfirm.vehicle?.plateNumber ||
+                                            'this vehicle'}
+                                    </span>
+                                    ? Inactive vehicles can be deleted without HR approval. This cannot be undone.
+                                </>
+                            )}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="gap-2">

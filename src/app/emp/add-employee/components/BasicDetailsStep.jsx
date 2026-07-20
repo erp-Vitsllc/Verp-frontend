@@ -90,7 +90,7 @@ export default function BasicDetailsStep({
                         readOnly
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="Auto-generated serial"
-                        title="Serial employee ID is generated automatically from company rules"
+                        title="Serial employee ID uses VEGA-HR or NNIT-HR from the selected company, then +1"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                         Assigned automatically when you select a company (e.g. VEGA-HR-00001).

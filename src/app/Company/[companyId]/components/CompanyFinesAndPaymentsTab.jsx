@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import { fineMatchesDeductionMonthRange } from '@/app/HRM/Fine/utils/fineScheduleUtils';
 import FineFlowManager from '@/app/HRM/Fine/components/FineFlowManager';
+import { buildFineVendorPaymentPrefill } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 import {
     getPaymentAmountTextClass,
@@ -328,6 +329,30 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
             });
             return;
         }
+
+        const zohoReady = selectedPayable.filter((f) => String(f.zohoBillId || '').trim());
+        if (
+            zohoReady.length === selectedPayable.length &&
+            zohoReady.length === 1 &&
+            String(zohoReady[0].vendorBillStatus || '').toLowerCase() !== 'paid'
+        ) {
+            const prefill = buildFineVendorPaymentPrefill(zohoReady[0], {
+                returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+            });
+            if (prefill?.zohoBillIds?.length) {
+                sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
+                const params = new URLSearchParams();
+                params.set('addFinePay', '1');
+                if (prefill.organizationId) params.set('organizationId', prefill.organizationId);
+                if (prefill.companyId || companyOid) {
+                    params.set('companyId', prefill.companyId || companyOid);
+                }
+                if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
+                router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
+                return;
+            }
+        }
+
         const payload = {
             employeeId: COMPANY_PARTY_ID,
             returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,

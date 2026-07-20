@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { mapZohoVendors } from '@/utils/zohoVendors';
 
-export function useZohoVendors({ enabled = true, sync = false } = {}) {
+export function useZohoVendors({ enabled = true, sync = false, organizationId = '', companyId = '' } = {}) {
     const [vendors, setVendors] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -21,7 +21,11 @@ export function useZohoVendors({ enabled = true, sync = false } = {}) {
             const response = await axiosInstance.get('/zoho/vendors', {
                 skipToast: true,
                 timeout: shouldSync ? 120000 : 30000,
-                params: shouldSync ? { sync: 'true' } : { sync: 'false' },
+                params: {
+                    sync: shouldSync ? 'true' : 'false',
+                    ...(organizationId ? { organizationId } : {}),
+                    ...(companyId ? { companyId } : {}),
+                },
             });
             const list = mapZohoVendors(response?.data?.data);
             setVendors(list);
@@ -37,11 +41,17 @@ export function useZohoVendors({ enabled = true, sync = false } = {}) {
         } finally {
             setLoading(false);
         }
-    }, [enabled, sync]);
+    }, [companyId, enabled, organizationId, sync]);
 
     const connectZoho = useCallback(async () => {
         try {
-            const response = await axiosInstance.get('/zoho/auth-url', { skipToast: true });
+            const response = await axiosInstance.get('/zoho/auth-url', {
+                skipToast: true,
+                params: {
+                    ...(organizationId ? { organizationId } : {}),
+                    ...(companyId ? { companyId } : {}),
+                },
+            });
             const authorizationUrl = response?.data?.data?.authorizationUrl;
             if (!authorizationUrl) {
                 throw new Error('Authorization URL was not returned');
@@ -61,7 +71,7 @@ export function useZohoVendors({ enabled = true, sync = false } = {}) {
             setNeedsConnect(true);
             throw new Error(message);
         }
-    }, []);
+    }, [companyId, organizationId]);
 
     useEffect(() => {
         void load();

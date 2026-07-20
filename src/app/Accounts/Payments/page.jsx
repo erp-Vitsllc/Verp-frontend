@@ -191,10 +191,18 @@ function PaymentsPageContent() {
         if (!mounted) return;
         const addFine = searchParams.get('addFinePay') === '1';
         const addUtility = searchParams.get('addUtilityPay') === '1';
-        if (!addFine && !addUtility) return;
+        const addReward = searchParams.get('addRewardPay') === '1';
+        const addLoan = searchParams.get('addLoanPay') === '1';
+        if (!addFine && !addUtility && !addReward && !addLoan) return;
 
         try {
-            const storageKey = addUtility ? 'utilityBillPaymentPrefill' : 'finePaymentPrefill';
+            const storageKey = addUtility
+                ? 'utilityBillPaymentPrefill'
+                : addReward
+                  ? 'rewardPaymentPrefill'
+                  : addLoan
+                    ? 'loanPaymentPrefill'
+                    : 'finePaymentPrefill';
             const raw = sessionStorage.getItem(storageKey);
             if (raw) {
                 const parsed = JSON.parse(raw);

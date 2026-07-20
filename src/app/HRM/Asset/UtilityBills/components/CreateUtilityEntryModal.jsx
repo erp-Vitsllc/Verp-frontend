@@ -447,7 +447,7 @@ export default function CreateUtilityEntryModal({
                             </div>
                             {!vendorOptions.length ? (
                                 <p className="text-xs text-amber-700">
-                                    No vendors found. Sync vendors from Purchases → Vendors first.
+                                    No vendors found. Sync vendors from Accounts → Vendors first.
                                 </p>
                             ) : (
                                 <p className="text-xs text-slate-500">

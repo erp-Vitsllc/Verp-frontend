@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, X, Download, Edit, Lock, Send, Trash2 } from 'lucide-react';
+import { Check, X, Download, Edit, Lock, Send, Trash2, Wallet } from 'lucide-react';
 
 export default function LoanActionPanel({
     loan,
@@ -9,12 +9,14 @@ export default function LoanActionPanel({
     canApproveLoan,
     canSubmitDraft,
     canResubmit,
+    canPayLoan = false,
     onDownload,
     onApprove,
     onReject,
     onSubmit,
     onCancel,
     onResubmit,
+    onPay,
 }) {
     if (!loan) return null;
 
@@ -92,6 +94,20 @@ export default function LoanActionPanel({
                 </span>
             </div>
         );
+        if (canPayLoan && remainingAmount > 0.01) {
+            cells.push(
+                <button
+                    key="pay"
+                    type="button"
+                    onClick={onPay}
+                    disabled={isProcessing}
+                    className={`${compactBox} border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50`}
+                >
+                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Pay</span>
+                    <Wallet className="w-5 h-5 shrink-0" />
+                </button>,
+            );
+        }
     } else if (status === 'Rejected' && canResubmit) {
         cells.push(
             <button

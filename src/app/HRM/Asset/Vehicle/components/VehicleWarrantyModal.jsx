@@ -89,19 +89,28 @@ export default function VehicleWarrantyModal({
               }
             : emptyCertificate();
 
+    const resolveVehicleCurrentKm = () => {
+        const raw = asset?.locator?.currentKilometer ?? asset?.currentKilometer;
+        if (raw == null || raw === '') return '';
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0) return '';
+        return String(Math.round(n));
+    };
+
     const loadFromParsed = (existing, parsed, attachmentRows) => {
         const { cert, extras } = splitAttachments(attachmentRows);
+        const fromDoc =
+            parsed.currentKm != null
+                ? String(parsed.currentKm)
+                : parsed.km != null
+                  ? String(parsed.km)
+                  : '';
         return {
             warrantyBy: parsed.warrantyBy || '',
             warrantyCovered: Array.isArray(parsed.warrantyCovered) ? parsed.warrantyCovered : [],
             startDate: existing.issueDate ? String(existing.issueDate).substring(0, 10) : '',
             endDate: existing.expiryDate ? String(existing.expiryDate).substring(0, 10) : '',
-            currentKm:
-                parsed.currentKm != null
-                    ? String(parsed.currentKm)
-                    : parsed.km != null
-                      ? String(parsed.km)
-                      : '',
+            currentKm: fromDoc || resolveVehicleCurrentKm(),
             endKm: parsed.endKm != null ? String(parsed.endKm) : '',
             certificate: mapCertificate(cert),
             extraRows: extras.map(mapAttachmentRow),
@@ -111,13 +120,15 @@ export default function VehicleWarrantyModal({
     useEffect(() => {
         if (!isOpen) return;
 
+        const vehicleKm = resolveVehicleCurrentKm();
+
         if (isRenew) {
             setFormData({
                 warrantyBy: '',
                 warrantyCovered: [],
                 startDate: '',
                 endDate: '',
-                currentKm: '',
+                currentKm: vehicleKm,
                 endKm: '',
                 certificate: emptyCertificate(),
                 extraRows: [],
@@ -143,7 +154,7 @@ export default function VehicleWarrantyModal({
                 warrantyCovered: [],
                 startDate: '',
                 endDate: '',
-                currentKm: '',
+                currentKm: vehicleKm,
                 endKm: '',
                 certificate: emptyCertificate(),
                 extraRows: [],
@@ -151,7 +162,7 @@ export default function VehicleWarrantyModal({
         }
         setDeletedDocIds([]);
         setErrors({});
-    }, [isOpen, existingDoc, isRenew, existingAttachmentRows]);
+    }, [isOpen, existingDoc, isRenew, existingAttachmentRows, asset]);
 
     if (!isOpen) return null;
 

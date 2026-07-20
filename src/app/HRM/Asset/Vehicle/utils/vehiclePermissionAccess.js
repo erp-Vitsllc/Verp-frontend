@@ -95,6 +95,15 @@ export function canEditVehicleAsset() {
     );
 }
 
+/** Delete vehicle assets — uses Add Vehicle Delete (inactive = direct; active = HR approval). */
+export function canDeleteVehicleAsset() {
+    return (
+        isAdmin() ||
+        hasPermission('hrm_asset_vehicle_add', 'isDelete') ||
+        hasPermission('hrm_asset_vehicle', 'isDelete')
+    );
+}
+
 export function canAccessCreateService() {
     return (
         isAdmin() ||

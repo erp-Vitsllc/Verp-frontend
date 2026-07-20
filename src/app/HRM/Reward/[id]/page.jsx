@@ -25,11 +25,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import { calculateDaysUntilExpiry, calculateTenure, formatDurationParts, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
-import { Download, Check, X, Edit, Loader2, Lock, Send, Trash2, FileText, Paperclip } from 'lucide-react';
+import { Download, Check, X, Edit, Loader2, Lock, Send, Trash2, FileText, Paperclip, Wallet } from 'lucide-react';
 import CertificateEditModal from '../components/CertificateEditModal';
 import RewardFormCards from '../components/RewardFormCards';
 import RewardAttachmentTab from '../components/RewardAttachmentTab';
 import { formatRewardStatusLabel, isRewardPaymentEligible, formatRewardPaymentLabel } from '../utils/rewardStatusDisplay';
+import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '../utils/rewardPaymentPrefill';
 import { canEditRewardCertificate } from '../utils/rewardPermissionAccess';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 
@@ -839,6 +840,7 @@ export default function RewardDetailsPage({ params }) {
                                     const paidAmount = Number(reward?.paidAmount || 0);
                                     const remainingAmount = Math.max(0, totalAmount - paidAmount);
                                     const awaitingPay = isRewardPaymentEligible(reward);
+                                    const canPayReward = canAccountsPayCashReward(reward, currentUser);
                                     const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
                                     const statusLabel = formatRewardStatusLabel(status, reward?.rewardType);
                                     const paymentLabel = formatRewardPaymentLabel(reward);
@@ -897,6 +899,44 @@ export default function RewardDetailsPage({ params }) {
                                                                                                 </span>
                                                                                             </div>
                                         );
+                                        if (canPayReward) {
+                                            cells.push(
+                                                <button
+                                                    key="pay-reward"
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const companyId = String(
+                                                            employee?.company?._id ||
+                                                                employee?.company ||
+                                                                employee?.companyId ||
+                                                                '',
+                                                        ).trim();
+                                                        const prefill = buildRewardPaymentPrefill(reward, {
+                                                            returnTo:
+                                                                typeof window !== 'undefined'
+                                                                    ? `${window.location.pathname}${window.location.search}`
+                                                                    : '',
+                                                            companyId,
+                                                        });
+                                                        try {
+                                                            sessionStorage.setItem(
+                                                                'rewardPaymentPrefill',
+                                                                JSON.stringify(prefill),
+                                                            );
+                                                        } catch (err) {
+                                                            console.error(err);
+                                                        }
+                                                        router.push('/Accounts/Payments?addRewardPay=1');
+                                                    }}
+                                                    className={`${compactBox} border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100`}
+                                                >
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">
+                                                        Pay
+                                                    </span>
+                                                    <Wallet className="w-5 h-5 shrink-0" />
+                                                </button>,
+                                            );
+                                        }
                                         if (paymentLabel !== '—') {
                                             const paymentPaid = paymentLabel === 'Paid';
                                             cells.push(

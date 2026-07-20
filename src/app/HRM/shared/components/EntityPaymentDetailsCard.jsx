@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Banknote, FileText, Loader2, Plus, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import AddPaymentModal from '@/app/Accounts/Payments/components/AddPaymentModal';
@@ -9,6 +9,8 @@ import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 import { FineFormCard, formatMoney } from '../../Fine/components/FineFormCardShared';
 import { buildEntityPaymentSchedule } from '../utils/buildEntityPaymentSchedule';
 import EntityPaymentScheduleBoxes from './EntityPaymentScheduleBoxes';
+import { buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
+import { buildLoanPaymentPrefill } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentPrefill';
 import {
     getPaymentAmountTextClass,
     getPaymentStatusBadgeClass,
@@ -175,26 +177,6 @@ function buildLoanPrefill(loan, balance, pathname) {
     };
 }
 
-function buildRewardPrefill(reward, balance, pathname) {
-    return {
-        employeeId: reward.employeeId,
-        returnTo: pathname,
-        balance,
-        paymentSource: 'Cash',
-        reward: {
-            _id: reward._id,
-            id: reward._id,
-            rewardId: reward.rewardId,
-            amount: reward.amount,
-            paidAmount: reward.paidAmount || 0,
-            rewardType: reward.rewardType,
-            employeeId: reward.employeeId,
-            employeeName: reward.employeeName,
-            title: reward.title,
-        },
-    };
-}
-
 export default function EntityPaymentDetailsCard({
     entityType = 'Loan',
     referenceId,
@@ -208,6 +190,7 @@ export default function EntityPaymentDetailsCard({
     onPaymentSuccess,
 }) {
     const pathname = usePathname();
+    const router = useRouter();
     const [payments, setPayments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState('');
@@ -272,10 +255,34 @@ export default function EntityPaymentDetailsCard({
     const handleOpenPayModal = () => {
         if (!entityRecord) return;
 
+        if (entityType === 'Reward') {
+            const prefill = buildRewardPaymentPrefill(entityRecord, {
+                returnTo: pathname,
+            });
+            try {
+                sessionStorage.setItem('rewardPaymentPrefill', JSON.stringify(prefill));
+            } catch (err) {
+                console.error(err);
+            }
+            router.push('/Accounts/Payments?addRewardPay=1');
+            return;
+        }
+
+        if (entityType === 'Loan' || entityType === 'Advance') {
+            const prefill = buildLoanPaymentPrefill(entityRecord, {
+                returnTo: pathname,
+            });
+            try {
+                sessionStorage.setItem('loanPaymentPrefill', JSON.stringify(prefill));
+            } catch (err) {
+                console.error(err);
+            }
+            router.push('/Accounts/Payments?addLoanPay=1');
+            return;
+        }
+
         if (entityType === 'Fine') {
             setPaymentPrefill(buildFinePrefill(entityRecord, employeeId, remaining, pathname));
-        } else if (entityType === 'Reward') {
-            setPaymentPrefill(buildRewardPrefill(entityRecord, remaining, pathname));
         } else {
             setPaymentPrefill(buildLoanPrefill(entityRecord, remaining, pathname));
         }

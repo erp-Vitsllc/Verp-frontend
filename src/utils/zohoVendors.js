@@ -71,7 +71,6 @@ export function mapZohoVendorListRow(vendor) {
         payables: formatZohoVendorPayables(vendor),
         payablesAmount: Number(vendor.outstanding_payable_amount) || 0,
         currencyCode: vendor.currency_code || 'AED',
-        raw: vendor,
     };
 }
 

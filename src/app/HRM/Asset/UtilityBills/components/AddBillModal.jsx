@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Eye, Upload, X } from 'lucide-react';
+import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
 import {
     getLoggedInUtilityUserKey,
     isEntryActive,
@@ -43,6 +45,24 @@ const MONTH_SHORT = [
 
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
+
+/** Bill month YYYY-MM + payment day (1–31) → bill date. Clamps to last day of month. */
+function billDateFromMonth(billMonth, paymentDay = 16) {
+    const month = String(billMonth || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(month)) return '';
+
+    const [yearStr, monthStr] = month.split('-');
+    const year = Number(yearStr);
+    const monthIndex = Number(monthStr) - 1;
+    if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) return '';
+
+    const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+    let day = Number(paymentDay);
+    if (!Number.isInteger(day) || day < 1) day = 16;
+    day = Math.min(day, lastDay);
+
+    return `${month}-${String(day).padStart(2, '0')}`;
+}
 
 function resolvePayShares(payBy, difference) {
     // Never use a negative share — under/over both allocate as a positive amount
@@ -189,6 +209,12 @@ function entryProvider(entry) {
     return String(entry?.values?.provider || '').trim() || '—';
 }
 
+function entryPaymentDay(entry) {
+    const day = Number(entry?.values?.paymentDay ?? entry?.values?.paymentDate);
+    if (Number.isInteger(day) && day >= 1 && day <= 31) return day;
+    return null;
+}
+
 function entryContractAmount(entry) {
     const n = Number(entry?.values?.monthlyRental);
     return Number.isFinite(n) ? n : 0;
@@ -223,10 +249,12 @@ function buildRowsFromEntries(entries, draftRows = []) {
             selected: draft ? draft.selected !== false : true,
             accountNo: entryAccountNo(entry),
             provider: entryProvider(entry),
+            paymentDay: entryPaymentDay(entry),
             assignedToType: assigned.assignedToType,
             assignedToId: assigned.assignedToId,
             assignedToName: assigned.assignedToName,
             contractAmount: entryContractAmount(entry),
+            billNumber: draft?.billNumber != null ? String(draft.billNumber) : '',
             actualAmount:
                 draft?.actualAmount != null && draft.actualAmount !== ''
                     ? String(draft.actualAmount)
@@ -257,6 +285,7 @@ function resetUncheckedRow(row) {
     return {
         ...row,
         selected: false,
+        billNumber: '',
         actualAmount: '',
         payBy: '',
         companyDiffAmount: '',
@@ -291,15 +320,54 @@ function openAttachmentView(file, toast) {
     });
 }
 
-function collectPayloadRows(rows, utilityAttachment) {
+function collectPayloadRows(
+    rows,
+    utilityAttachment,
+    { expenseAccountId, expenseAccountName, billMonth } = {},
+) {
     const payloadRows = [];
+    const accountId = String(expenseAccountId || '').trim();
+    if (!accountId) {
+        return {
+            error: 'Select an expense account (required for Zoho after HR approval).',
+            payloadRows: null,
+        };
+    }
+
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if (!row.selected) continue;
-        const actual = Number(row.actualAmount);
-        if (!Number.isFinite(actual) || row.actualAmount === '' || actual < 0) {
+        const billNumber = String(row.billNumber || '').trim();
+        if (!billNumber) {
             return {
-                error: `Enter a valid actual amount for account ${row.accountNo}.`,
+                error: `Enter a bill number for account ${row.accountNo}.`,
+                payloadRows: null,
+            };
+        }
+        if (!String(row.provider || '').trim()) {
+            return {
+                error: `Provider is missing for account ${row.accountNo} (maps to Zoho vendor).`,
+                payloadRows: null,
+            };
+        }
+        const paymentDay = row.paymentDay;
+        if (!Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 31) {
+            return {
+                error: `Payment day is missing for account ${row.accountNo}. Set Payment Day on the utility entry.`,
+                payloadRows: null,
+            };
+        }
+        const rowBillDate = billDateFromMonth(billMonth, paymentDay);
+        if (!rowBillDate) {
+            return {
+                error: `Could not build bill date for account ${row.accountNo}.`,
+                payloadRows: null,
+            };
+        }
+        const actual = Number(row.actualAmount);
+        if (!Number.isFinite(actual) || row.actualAmount === '' || actual <= 0) {
+            return {
+                error: `Enter an actual amount greater than 0 for account ${row.accountNo}.`,
                 payloadRows: null,
             };
         }
@@ -347,11 +415,14 @@ function collectPayloadRows(rows, utilityAttachment) {
         payloadRows.push({
             entryId: row.entryId,
             accountNo: row.accountNo,
+            provider: String(row.provider || '').trim(),
+            paymentDay: row.paymentDay,
+            billNumber,
+            billDate: rowBillDate,
             contractAmount: contract,
             actualAmount: actual,
             difference,
             payBy,
-            // Diff shares (UI) — kept for reference; totals stored for pay
             companyDiffAmount: shares.companyAmount,
             employeeDiffAmount: shares.employeeAmount,
             companyPayAmount: payTotals.companyPayAmount,
@@ -360,6 +431,8 @@ function collectPayloadRows(rows, utilityAttachment) {
             payByCompanyName: payBy === PAY_BY_COMPANY ? row.payByCompanyName || '' : '',
             payByEmployeeId: payBy === PAY_BY_EMPLOYEE ? row.payByEmployeeId || '' : '',
             payByEmployeeName: payBy === PAY_BY_EMPLOYEE ? row.payByEmployeeName || '' : '',
+            expenseAccountId: accountId,
+            expenseAccountName: String(expenseAccountName || '').trim(),
             attachment: attachment || null,
             sendForHr: actual > contract,
         });
@@ -392,10 +465,49 @@ export default function AddBillModal({
     const [sessionBilled, setSessionBilled] = useState([]);
     const [monthPickerOpen, setMonthPickerOpen] = useState(false);
     const [pickerYear, setPickerYear] = useState(() => yearFromBillMonth(currentBillMonthValue()));
+    const [expenseAccounts, setExpenseAccounts] = useState([]);
+    const [expenseAccountId, setExpenseAccountId] = useState('');
     const fileInputRefs = useRef({});
     const monthPickerRef = useRef(null);
     const { toast } = useToast();
     const { employeeOptions, companyOptions } = usePayByPartyOptions(isOpen);
+
+    const expenseAccountName = useMemo(() => {
+        const match = expenseAccounts.find((a) => a.id === expenseAccountId);
+        return match?.name || '';
+    }, [expenseAccountId, expenseAccounts]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setExpenseAccounts([]);
+            setExpenseAccountId('');
+            return;
+        }
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const response = await axiosInstance.get('/zoho/bills/support', {
+                    skipToast: true,
+                    timeout: 45000,
+                });
+                if (cancelled) return;
+                const mapped = mapZohoPaymentAccounts(response?.data?.data?.accounts);
+                setExpenseAccounts(mapped);
+                if (mapped.length) {
+                    setExpenseAccountId((prev) => prev || mapped[0].id);
+                }
+            } catch {
+                if (!cancelled) {
+                    setExpenseAccounts([]);
+                }
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen]);
 
     /** Add Bills shows Active (approved) records only — deactivated are excluded. */
     const listEntries = useMemo(() => {
@@ -700,6 +812,8 @@ export default function AddBillModal({
             entryId: r.entryId,
             selected: r.selected,
             accountNo: r.accountNo,
+            provider: r.provider,
+            billNumber: r.billNumber,
             contractAmount: r.contractAmount,
             actualAmount: r.actualAmount,
             payBy: r.payBy,
@@ -748,19 +862,24 @@ export default function AddBillModal({
             setError('Select at least one account.');
             return;
         }
-        const { error: rowError, payloadRows } = collectPayloadRows(rows, utilityAttachment);
+        const snapshotMonth = billMonth;
+        const { error: rowError, payloadRows } = collectPayloadRows(rows, utilityAttachment, {
+            expenseAccountId,
+            expenseAccountName,
+            billMonth: snapshotMonth,
+        });
         if (rowError) {
             setError(rowError);
             return;
         }
-
-        const snapshotMonth = billMonth;
 
         try {
             const result = await onSubmit?.({
                 billMonth: snapshotMonth,
                 billMonthLabel: titleFromBillMonth(snapshotMonth),
                 utilityType,
+                expenseAccountId,
+                expenseAccountName,
                 rows: payloadRows,
                 amount: payloadRows[0]?.actualAmount,
                 notes: '',
@@ -786,7 +905,7 @@ export default function AddBillModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/45">
-            <div className="bg-white rounded-xl shadow-lg w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col border border-gray-200">
+            <div className="bg-white rounded-xl shadow-lg w-full max-w-7xl max-h-[92vh] overflow-hidden flex flex-col border border-gray-200">
                 <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
                     <div className="min-w-0 relative" ref={monthPickerRef}>
                         <button
@@ -943,19 +1062,25 @@ export default function AddBillModal({
                                                 aria-label="Select all"
                                             />
                                         </th>
-                                        <th className="w-[14%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Account No
                                         </th>
                                         <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Provider
                                         </th>
-                                        <th className="w-[14%] px-3 py-3 text-center font-semibold whitespace-nowrap">
-                                            Contract Amount
+                                        <th className="w-[10%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                            Bill #
                                         </th>
-                                        <th className="w-[14%] px-3 py-3 text-center font-semibold whitespace-nowrap">
-                                            Actual Amount
+                                        <th className="w-[10%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                            Bill Date
                                         </th>
                                         <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                            Contract Amount
+                                        </th>
+                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                            Actual Amount
+                                        </th>
+                                        <th className="w-[10%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Difference
                                         </th>
                                         <th className="w-[14%] px-2 py-3 text-center font-semibold whitespace-nowrap">
@@ -1006,6 +1131,39 @@ export default function AddBillModal({
                                                 </td>
                                                 <td className="px-3 py-3.5 text-center align-middle text-gray-700 font-medium truncate max-w-[8rem]" title={row.provider}>
                                                     {row.provider || '—'}
+                                                </td>
+                                                <td className="px-2 py-3.5 text-center align-middle">
+                                                    <input
+                                                        type="text"
+                                                        value={row.billNumber || ''}
+                                                        disabled={!row.selected}
+                                                        onChange={(e) =>
+                                                            setRows((prev) =>
+                                                                prev.map((r, i) =>
+                                                                    i === index
+                                                                        ? {
+                                                                              ...r,
+                                                                              billNumber: e.target.value,
+                                                                          }
+                                                                        : r,
+                                                                ),
+                                                            )
+                                                        }
+                                                        placeholder="Bill #"
+                                                        className="w-full min-w-[5.5rem] h-9 rounded-lg border border-gray-200 bg-white px-2 text-center text-sm text-gray-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 disabled:bg-gray-50 disabled:opacity-60"
+                                                    />
+                                                </td>
+                                                <td
+                                                    className="px-2 py-3.5 text-center align-middle text-xs tabular-nums text-gray-700"
+                                                    title={
+                                                        row.paymentDay
+                                                            ? `Payment day ${row.paymentDay}`
+                                                            : 'Set Payment Day on utility entry'
+                                                    }
+                                                >
+                                                    {row.paymentDay
+                                                        ? billDateFromMonth(billMonth, row.paymentDay) || '—'
+                                                        : '—'}
                                                 </td>
                                                 <td className="px-3 py-3.5 text-center align-middle tabular-nums text-gray-700">
                                                     {formatMoney(row.contractAmount)}

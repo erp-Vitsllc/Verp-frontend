@@ -13,7 +13,7 @@ import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import { buildHtml2CanvasOptions } from '@/utils/html2canvasSafeCapture';
 import { jsPDF } from 'jspdf';
-import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText } from 'lucide-react';
+import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText, Wallet } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import { format } from 'date-fns';
@@ -26,6 +26,11 @@ import AddLossDamageModal from '../components/AddLossDamageModal';
 import FineFormCards from '../components/FineFormCards';
 import FineApprovedAttachmentsTab from '../components/FineApprovedAttachmentsTab';
 import FineWorkflowHistoryPanel from '../components/FineWorkflowHistoryPanel';
+import FineManagementZohoFields from '../components/FineManagementZohoFields';
+import {
+    buildFineVendorPaymentPrefill,
+    canAccountsPayFineVendorBill,
+} from '../utils/fineVendorPaymentPrefill';
 import {
     isLossDamageFineType,
     buildLossDamageFormFields,
@@ -190,6 +195,13 @@ function FineDetailsPageContent() {
     const [summaryViewMode, setSummaryViewMode] = useState('count'); // 'count', 'amount', 'remaining'
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
+    const [managementZoho, setManagementZoho] = useState({
+        zohoVendorId: '',
+        zohoVendorName: '',
+        expenseAccountId: '',
+        expenseAccountName: '',
+        zohoOrganizationId: '',
+    });
     const [confirmConfig, setConfirmConfig] = useState({
         action: null, // 'approve' | 'reject' | 'updateStatus'
         status: null, // for updateStatus
@@ -227,7 +239,24 @@ function FineDetailsPageContent() {
             }
 
             if (action === 'approve') {
-                res = await axiosInstance.put(`/Fine/${targetId}/approve`, { finePdf });
+                if (
+                    fine.fineStatus === 'Pending Authorization' &&
+                    (!managementZoho.zohoVendorId || !managementZoho.expenseAccountId)
+                ) {
+                    toast({
+                        title: 'Zoho vendor required',
+                        description:
+                            'Select a Zoho vendor and expense account before management approval.',
+                        variant: 'destructive',
+                    });
+                    setActionLoading(false);
+                    return;
+                }
+                const approveBody = { finePdf };
+                if (fine.fineStatus === 'Pending Authorization') {
+                    Object.assign(approveBody, managementZoho);
+                }
+                res = await axiosInstance.put(`/Fine/${targetId}/approve`, approveBody);
                 toast({
                     title: "Success",
                     description: res.data.message || "Fine approved successfully.",
@@ -357,15 +386,51 @@ function FineDetailsPageContent() {
 
     const handleApprove = () => {
         if (!validateWorkflowAssignments()) return;
-        
+
         openConfirmation({
             action: 'approve',
-            title: 'Approve Fine',
-            description: 'Are you sure you want to approve this fine?',
+            title:
+                fine?.fineStatus === 'Pending Authorization'
+                    ? 'Approve fine & create Zoho bill'
+                    : 'Approve Fine',
+            description:
+                fine?.fineStatus === 'Pending Authorization'
+                    ? 'Choose the Zoho vendor and expense account. A vendor bill will be created for Accounts to pay.'
+                    : 'Are you sure you want to approve this fine?',
             confirmText: 'Approve',
-            variant: 'default' // Green in CSS if possible, but default blue is fine
+            variant: 'default',
         });
-    }
+    };
+
+    const handlePayVendorBill = () => {
+        const prefill = buildFineVendorPaymentPrefill(fine, {
+            returnTo:
+                typeof window !== 'undefined'
+                    ? `${window.location.pathname}${window.location.search}`
+                    : '',
+        });
+        if (!prefill?.zohoBillIds?.length) {
+            toast({
+                variant: 'destructive',
+                title: 'Bill not ready',
+                description:
+                    fine?.zohoSyncError ||
+                    'No Zoho bill is linked to this fine yet. Check management approval sync.',
+            });
+            return;
+        }
+        try {
+            sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
+        } catch (err) {
+            console.error(err);
+        }
+        const params = new URLSearchParams();
+        params.set('addFinePay', '1');
+        if (prefill.organizationId) params.set('organizationId', prefill.organizationId);
+        if (prefill.companyId) params.set('companyId', prefill.companyId);
+        if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
+        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
+    };
 
     const handleReject = () => {
         openConfirmation({
@@ -1087,6 +1152,10 @@ function FineDetailsPageContent() {
         });
     };
 
+    const canPayVendorFineBill = useMemo(() => {
+        return canAccountsPayFineVendorBill(fine, currentUser);
+    }, [fine, currentUser]);
+
     const approvedScheduleOnlyEdit = useMemo(
         () => isHr && isApprovedFineStatus(fine?.fineStatus),
         [isHr, fine],
@@ -1292,6 +1361,14 @@ function FineDetailsPageContent() {
                                         />
                                     </div>
                                 )}
+                                {confirmConfig.action === 'approve' &&
+                                    fine?.fineStatus === 'Pending Authorization' && (
+                                        <FineManagementZohoFields
+                                            organizationId={managementZoho.zohoOrganizationId || fine?.zohoOrganizationId || ''}
+                                            value={managementZoho}
+                                            onChange={setManagementZoho}
+                                        />
+                                    )}
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                                 <AlertDialogCancel className="border-gray-200 hover:bg-gray-50 text-gray-600 font-bold">
@@ -1302,6 +1379,19 @@ function FineDetailsPageContent() {
                                         e.preventDefault();
                                         if ((confirmConfig.action === 'reject' || (confirmConfig.action === 'updateStatus' && confirmConfig.status === 'Rejected')) && (!rejectionReason || rejectionReason.trim().length === 0)) {
                                             toast({ title: "Reason Required", description: "Please enter a reason for rejection.", variant: "destructive" });
+                                            return;
+                                        }
+                                        if (
+                                            confirmConfig.action === 'approve' &&
+                                            fine?.fineStatus === 'Pending Authorization' &&
+                                            (!managementZoho.zohoVendorId || !managementZoho.expenseAccountId)
+                                        ) {
+                                            toast({
+                                                title: 'Zoho vendor required',
+                                                description:
+                                                    'Select a Zoho vendor and expense account before approval.',
+                                                variant: 'destructive',
+                                            });
                                             return;
                                         }
                                         handleConfirmAction();
@@ -1568,6 +1658,21 @@ function FineDetailsPageContent() {
                                                 );
                                             }
                                         } else if (isFinalized) {
+                                            if (canPayVendorFineBill) {
+                                                cells.push(
+                                                    <button
+                                                        key="pay-vendor"
+                                                        type="button"
+                                                        onClick={handlePayVendorBill}
+                                                        className={`${compactBox} border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100`}
+                                                    >
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">
+                                                            Pay vendor bill
+                                                        </span>
+                                                        <Wallet className="w-5 h-5 shrink-0" />
+                                                    </button>,
+                                                );
+                                            }
                                             cells.push(
                                                 <div key="done-a" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
                                                     <span className="text-[10px] font-medium uppercase tracking-wide">Workflow</span>

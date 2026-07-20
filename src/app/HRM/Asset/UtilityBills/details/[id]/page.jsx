@@ -259,6 +259,9 @@ function UtilityBillDetailsPageContent() {
     const [statusChangeOpen, setStatusChangeOpen] = useState(false);
     const [statusChangeSaving, setStatusChangeSaving] = useState(false);
     const [pendingStatusChange, setPendingStatusChange] = useState(null);
+    /** Bill card that should flash light green (2 on/off pulses). */
+    const [pulseBillId, setPulseBillId] = useState('');
+    const [pulseBillOn, setPulseBillOn] = useState(false);
     /** Bills tab accordion: open year keeps other years visible; open month keeps other months visible */
     const [billsBrowseYear, setBillsBrowseYear] = useState(null);
     const [billsBrowseMonth, setBillsBrowseMonth] = useState(null);
@@ -268,6 +271,30 @@ function UtilityBillDetailsPageContent() {
     const [monthSort, setMonthSort] = useState('asc');
 
     const focusBillId = searchParams?.get('billId') || '';
+
+    const triggerBillPulse = useCallback((billId) => {
+        const id = String(billId || '').trim();
+        if (!id) return;
+        setPulseBillId(id);
+        setPulseBillOn(true);
+    }, []);
+
+    useEffect(() => {
+        if (!pulseBillId) return undefined;
+        let step = 0;
+        const timer = window.setInterval(() => {
+            step += 1;
+            // Start ON; then off → on → off (2 light-green flashes)
+            if (step >= 4) {
+                window.clearInterval(timer);
+                setPulseBillOn(false);
+                setPulseBillId('');
+                return;
+            }
+            setPulseBillOn(step % 2 === 0);
+        }, 350);
+        return () => window.clearInterval(timer);
+    }, [pulseBillId]);
 
     const overviewBills = useMemo(
         () =>
@@ -442,9 +469,10 @@ function UtilityBillDetailsPageContent() {
             document
                 .getElementById(`bill-${focusBillId}`)
                 ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            triggerBillPulse(focusBillId);
         }, 80);
         return () => window.clearTimeout(t);
-    }, [focusBillId, bills, overviewBills]);
+    }, [focusBillId, bills, overviewBills, triggerBillPulse]);
 
     const detailRows = useMemo(
         () => (entry ? buildDetailFieldRows(entry, utilityConfig) : []),
@@ -483,6 +511,12 @@ function UtilityBillDetailsPageContent() {
                     actualAmount: row.actualAmount,
                     contractAmount: row.contractAmount ?? monthlyRental,
                     accountNo: row.accountNo || entry.values?.accountNumber || '',
+                    provider: row.provider || entry.values?.provider || '',
+                    paymentDay: row.paymentDay ?? entry.values?.paymentDay ?? entry.values?.paymentDate,
+                    billNumber: row.billNumber,
+                    billDate: row.billDate || '',
+                    expenseAccountId: row.expenseAccountId || payload.expenseAccountId,
+                    expenseAccountName: row.expenseAccountName || payload.expenseAccountName,
                     differenceAmount: row.difference,
                     payBy: row.payBy,
                     companyDiffAmount: row.companyDiffAmount,
@@ -753,6 +787,8 @@ function UtilityBillDetailsPageContent() {
                         const difference = contract - actual;
                         const over = actual > contract;
                         const focused = String(bill._id) === String(focusBillId);
+                        const pulsing =
+                            String(bill._id) === String(pulseBillId) && pulseBillOn;
                         const isNotPaid = bill.status === 'Approved';
                         const isPaid = bill.status === 'Paid';
                         const canPay = Boolean(bill.canPay);
@@ -787,10 +823,12 @@ function UtilityBillDetailsPageContent() {
                             <div
                                 key={bill._id}
                                 id={`bill-${bill._id}`}
-                                className={`rounded-xl border-t border-r border-b border-l-4 bg-white px-4 py-3.5 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-md transition-all duration-200 ${statusLBorder} ${
-                                    focused
-                                        ? 'ring-2 ring-teal-500/20 border-teal-500/60 shadow-md'
-                                        : 'border-gray-200/80'
+                                className={`rounded-xl border-t border-r border-b border-l-4 px-4 py-3.5 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-md transition-all duration-200 ${statusLBorder} ${
+                                    pulsing
+                                        ? 'bg-emerald-100 border-emerald-300 ring-2 ring-emerald-300/70 shadow-md'
+                                        : focused
+                                          ? 'bg-white ring-2 ring-teal-500/20 border-teal-500/60 shadow-md'
+                                          : 'bg-white border-gray-200/80'
                                 }`}
                             >
                                 <div className="flex items-center justify-between gap-3 mb-3">
@@ -1448,7 +1486,18 @@ function UtilityBillDetailsPageContent() {
 
             <ViewBillModal
                 isOpen={Boolean(viewBill)}
-                onClose={() => setViewBill(null)}
+                onClose={() => {
+                    const id = viewBill?._id;
+                    setViewBill(null);
+                    if (id) {
+                        window.setTimeout(() => {
+                            document
+                                .getElementById(`bill-${id}`)
+                                ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            triggerBillPulse(id);
+                        }, 50);
+                    }
+                }}
                 bill={viewBill}
                 onEdit={(bill) => openBillReview(bill)}
             />

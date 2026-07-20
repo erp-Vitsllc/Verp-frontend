@@ -42,8 +42,15 @@ export function formatZohoPaymentDate(value) {
 
 function paymentStatus(row) {
     const balance = numberValue(row?.balance);
-    if (balance > 0) return 'Partially Applied';
-    return 'Applied';
+    const raw = String(row?.status || '').trim().toLowerCase();
+    if (raw.includes('void')) return 'Void';
+    if (raw.includes('draft')) return 'Draft';
+    if (raw.includes('pending')) return 'Pending Approval';
+    if (raw.includes('partial') || balance > 0) return 'Partially Paid';
+    if (raw.includes('paid') || raw.includes('applied') || raw.includes('approved') || !raw) {
+        return 'Paid';
+    }
+    return String(row?.status || 'Paid').trim() || 'Paid';
 }
 
 export function mapZohoVendorPaymentListRow(payment) {
@@ -64,13 +71,18 @@ export function mapZohoVendorPaymentListRow(payment) {
         vendorName: cleanText(payment.vendor_name),
         billNumber: cleanText(payment.bill_numbers || payment.bill_number),
         mode: cleanText(payment.payment_mode),
-        status: cleanText(payment.status || paymentStatus(payment)),
+        status: paymentStatus(payment),
+        paidThroughAccountId: String(
+            payment.paid_through_account_id || payment.account_id || '',
+        ).trim(),
+        paidThrough: cleanText(
+            payment.paid_through_account_name || payment.account_name || payment.paid_through,
+        ),
         amount: formatZohoPaymentMoney(amount, currencyCode),
         amountValue: amount,
         unusedAmount: formatZohoPaymentMoney(unusedAmount, currencyCode),
         unusedAmountValue: unusedAmount,
         currencyCode,
-        raw: payment,
     };
 }
 
@@ -104,7 +116,6 @@ export function mapZohoBillListRow(bill) {
         balanceAmount: formatZohoPaymentMoney(balance, currencyCode),
         balanceValue: balance,
         currencyCode,
-        raw: bill,
     };
 }
 
@@ -136,7 +147,6 @@ export function mapZohoExpenseListRow(expense) {
         amount: formatZohoPaymentMoney(total, currencyCode),
         amountValue: total,
         currencyCode,
-        raw: expense,
     };
 }
 
@@ -206,7 +216,10 @@ export function mapZohoExpenseOption(expense) {
         id,
         recordType: 'expense',
         billNumber: cleanText(
-            expense.reference_number || expense.account_name || `EXP-${id.slice(-6)}`,
+            expense.expense_number ||
+                expense.reference_number ||
+                expense.account_name ||
+                `EXP-${id.slice(-6)}`,
         ),
         poNumber: '—',
         locationId: String(expense.location_id || '').trim(),
@@ -332,6 +345,47 @@ export function buildAutoBillAmounts(payables) {
         const balance = Number(row?.balance) || 0;
         if (balance > 0) {
             amounts[row.id] = balance.toFixed(2);
+            totalDue += balance;
+        }
+    });
+
+    return {
+        billAmounts: amounts,
+        suggestedPaymentAmount: totalDue > 0 ? totalDue.toFixed(2) : '',
+    };
+}
+
+/**
+ * Apply amounts only for the given bill ids (checkbox-selected / utility prefill).
+ * Unlisted rows stay unchecked with no payment amount.
+ * Optionally also match by bill number when Zoho ids are not yet known.
+ */
+export function buildSelectedBillAmounts(payables, selectedBillIds = [], selectedBillNumbers = []) {
+    const selected = new Set(
+        (Array.isArray(selectedBillIds) ? selectedBillIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean),
+    );
+    const selectedNumbers = new Set(
+        (Array.isArray(selectedBillNumbers) ? selectedBillNumbers : [])
+            .map((n) => String(n || '').trim().toLowerCase())
+            .filter(Boolean),
+    );
+    const amounts = {};
+    let totalDue = 0;
+
+    (Array.isArray(payables) ? payables : []).forEach((row) => {
+        if (row?.recordType === 'expense') return;
+        const id = String(row?.id || '').trim();
+        if (!id) return;
+        const billNumber = String(row?.billNumber || '').trim().toLowerCase();
+        const matched =
+            (selected.size && selected.has(id)) ||
+            (selectedNumbers.size && billNumber && selectedNumbers.has(billNumber));
+        if (!matched) return;
+        const balance = Number(row?.balance) || 0;
+        if (balance > 0) {
+            amounts[id] = balance.toFixed(2);
             totalDue += balance;
         }
     });

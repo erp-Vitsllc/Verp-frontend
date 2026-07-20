@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import { isPaymentCountableTowardPaid } from '@/utils/paymentStatusDisplay';
+import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
+import ZohoOrganizationPicker from '@/components/ZohoOrganizationPicker';
+import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
 import { X, FileText } from 'lucide-react';
 
 /** Base64 data URLs above this size freeze the tab on JSON.stringify / re-render. */
@@ -46,11 +49,52 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     const [attachment, setAttachment] = useState(null);
     const [attachmentName, setAttachmentName] = useState('');
     const [paymentSource, setPaymentSource] = useState('');
+    const [rewardCompanyId, setRewardCompanyId] = useState('');
+    const [zohoAccounts, setZohoAccounts] = useState([]);
+    const [expenseAccountId, setExpenseAccountId] = useState('');
+    const [paidThroughAccountId, setPaidThroughAccountId] = useState('');
+    const [zohoAccountsLoading, setZohoAccountsLoading] = useState(false);
+
+    const preferredRewardOrgId = String(prefill?.organizationId || '').trim();
+    const preferredRewardCompanyId = String(
+        rewardCompanyId || prefill?.companyId || '',
+    ).trim();
+    const isRewardPayment = paymentType === 'Reward' || Boolean(prefill?.reward);
+    const isLoanPayment =
+        paymentType === 'Loan' ||
+        paymentType === 'Advance' ||
+        Boolean(prefill?.loan);
+    const isZohoStaffPayout = isRewardPayment || isLoanPayment;
+
+    const {
+        options: zohoOrgOptions,
+        organizationId: zohoOrganizationId,
+        setOrganizationId: setZohoOrganizationId,
+        active: activeZohoOrg,
+        showPicker: showZohoOrgPicker,
+        loading: zohoOrgLoading,
+    } = useZohoOrganizations({
+        enabled: isOpen && isZohoStaffPayout,
+        preferredOrganizationId: preferredRewardOrgId,
+        preferredCompanyId: preferredRewardCompanyId,
+    });
+
+    const expenseAccountOptions = useMemo(
+        () =>
+            zohoAccounts.map((a) => ({
+                id: a.id,
+                label: a.label || a.name || a.id,
+                name: a.name || a.label || '',
+            })),
+        [zohoAccounts],
+    );
+
+    const selectedExpenseAccount = expenseAccountOptions.find((a) => a.id === expenseAccountId);
+    const selectedPaidThrough = expenseAccountOptions.find((a) => a.id === paidThroughAccountId);
 
     // Fetch fines and loans when payment type changes (or apply prefill once)
     useEffect(() => {
         if (!isOpen) {
-            // Reset state when modal closes
             prefillAppliedKeyRef.current = '';
             setPaymentType('');
             setSelectedFineId('');
@@ -64,6 +108,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             setPaymentSource('');
             setBulkFines([]);
             setUtilityBills([]);
+            setRewardCompanyId('');
+            setZohoAccounts([]);
+            setExpenseAccountId('');
+            setPaidThroughAccountId('');
             setLoading(false);
             return;
         }
@@ -190,6 +238,76 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         // toast omitted from deps on purpose — unstable identity caused freeze loops
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [paymentType, isOpen, prefill]);
+
+    // Resolve employee company → VEGA / NNIT Zoho org for cash reward / loan / advance pay
+    useEffect(() => {
+        if (!isOpen || !isZohoStaffPayout) return;
+        const empId = String(
+            selectedEntity?.employeeId ||
+                prefill?.employeeId ||
+                prefill?.reward?.employeeId ||
+                prefill?.loan?.employeeId ||
+                '',
+        ).trim();
+        if (!empId) return;
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await axiosInstance.get(`/Employee/${encodeURIComponent(empId)}`, {
+                    skipToast: true,
+                    validateStatus: (s) => s === 200 || s === 404,
+                });
+                if (cancelled || res.status !== 200) return;
+                const emp = res.data?.employee || res.data;
+                const companyId = String(
+                    emp?.company?._id || emp?.company || emp?.companyId || '',
+                ).trim();
+                if (companyId) setRewardCompanyId(companyId);
+            } catch {
+                /* ignore — org picker still works manually */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, isZohoStaffPayout, selectedEntity, prefill]);
+
+    // Load Zoho Chart of Accounts for the active VEGA/NNIT org
+    useEffect(() => {
+        if (!isOpen || !isZohoStaffPayout || !zohoOrganizationId) {
+            return undefined;
+        }
+
+        let cancelled = false;
+        setZohoAccountsLoading(true);
+        (async () => {
+            try {
+                const response = await axiosInstance.get('/zoho/bills/support', {
+                    params: { organizationId: zohoOrganizationId },
+                    skipToast: true,
+                    timeout: 45000,
+                });
+                if (cancelled) return;
+                const mapped = mapZohoPaymentAccounts(response?.data?.data?.accounts);
+                setZohoAccounts(mapped);
+                setExpenseAccountId((prev) =>
+                    prev && mapped.some((a) => a.id === prev) ? prev : '',
+                );
+                setPaidThroughAccountId((prev) =>
+                    prev && mapped.some((a) => a.id === prev) ? prev : '',
+                );
+            } catch {
+                if (!cancelled) setZohoAccounts([]);
+            } finally {
+                if (!cancelled) setZohoAccountsLoading(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, isZohoStaffPayout, zohoOrganizationId]);
 
     // Fetch existing payments when entity is selected (not for utility bills)
     useEffect(() => {
@@ -583,6 +701,34 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             return;
         }
 
+        if (paymentType === 'Reward' || paymentType === 'Loan' || paymentType === 'Advance') {
+            if (!zohoOrganizationId) {
+                toast({
+                    title: 'Validation Error',
+                    description: 'Select the Zoho organization (VEGA or NNIT) for this employee/company.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+            if (!expenseAccountId || !paidThroughAccountId) {
+                toast({
+                    title: 'Validation Error',
+                    description:
+                        'Select Expense account and Paid Through from Zoho Chart of Accounts.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+            if (expenseAccountId === paidThroughAccountId) {
+                toast({
+                    title: 'Validation Error',
+                    description: 'Expense account and Paid Through must be different.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+        }
+
         // Drop any huge base64 from state before re-render / network (letterhead PDFs etc.)
         if (typeof attachment?.data === 'string' && attachment.data.length > MAX_INLINE_ATTACHMENT_CHARS) {
             setAttachment({
@@ -658,6 +804,15 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     attachment: includeAttachment
                         ? attachmentForApi(attachment, { includeData })
                         : null,
+                    ...(type === 'Reward' || type === 'Loan' || type === 'Advance'
+                        ? {
+                              zohoOrganizationId,
+                              expenseAccountId,
+                              expenseAccountName: selectedExpenseAccount?.name || '',
+                              paidThroughAccountId,
+                              paidThroughAccountName: selectedPaidThrough?.name || '',
+                          }
+                        : {}),
                 };
 
                 await axiosInstance.post('/Payment', paymentData);
@@ -1243,6 +1398,78 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
 
                     {(selectedEntity || isBulkFinePayment) && paymentType && (
                         <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+                            {paymentType === 'Reward' ||
+                            paymentType === 'Loan' ||
+                            paymentType === 'Advance' ? (
+                                <div className="mb-8 p-6 bg-white border border-indigo-100 shadow-sm rounded-2xl space-y-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-800">
+                                                Zoho Books · Chart of Accounts
+                                            </h3>
+                                            <p className="text-xs text-gray-500 mt-0.5">
+                                                Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.
+                                            </p>
+                                        </div>
+                                        {(showZohoOrgPicker || activeZohoOrg) && (
+                                            <ZohoOrganizationPicker
+                                                options={zohoOrgOptions}
+                                                value={zohoOrganizationId}
+                                                onChange={setZohoOrganizationId}
+                                                loading={zohoOrgLoading || zohoAccountsLoading}
+                                                size="sm"
+                                            />
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-800 mb-2">
+                                                Expense account <span className="text-red-500">*</span>
+                                            </label>
+                                            <select
+                                                value={expenseAccountId}
+                                                onChange={(e) => setExpenseAccountId(e.target.value)}
+                                                disabled={zohoAccountsLoading || !zohoAccounts.length}
+                                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50"
+                                            >
+                                                <option value="">
+                                                    {zohoAccountsLoading
+                                                        ? 'Loading Chart of Accounts…'
+                                                        : 'Select expense account'}
+                                                </option>
+                                                {expenseAccountOptions.map((opt) => (
+                                                    <option key={opt.id} value={opt.id}>
+                                                        {opt.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-800 mb-2">
+                                                Paid Through (credit) <span className="text-red-500">*</span>
+                                            </label>
+                                            <select
+                                                value={paidThroughAccountId}
+                                                onChange={(e) => setPaidThroughAccountId(e.target.value)}
+                                                disabled={zohoAccountsLoading || !zohoAccounts.length}
+                                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50"
+                                            >
+                                                <option value="">
+                                                    {zohoAccountsLoading
+                                                        ? 'Loading Chart of Accounts…'
+                                                        : 'Select Paid Through account'}
+                                                </option>
+                                                {expenseAccountOptions.map((opt) => (
+                                                    <option key={`pt-${opt.id}`} value={opt.id}>
+                                                        {opt.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
+
                             <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
                                     <label className="block text-sm font-bold text-gray-800 mb-2">

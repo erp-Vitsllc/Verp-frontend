@@ -122,18 +122,44 @@ export function extractStorageReference(attachment) {
     const input = coalesceAttachmentInput(attachment);
     if (input == null || input === '') return null;
 
+    const toKey = (raw) => {
+        const s = String(raw || '').trim();
+        if (!s) return '';
+        if (looksLikeS3StorageKey(s)) return s.replace(/^\/+/, '');
+        if (isHttpUrl(s) || storagePrefixInString(s)) {
+            for (const folder of S3_STORAGE_FOLDER_PREFIXES) {
+                const idx = s.indexOf(folder);
+                if (idx !== -1) {
+                    try {
+                        return decodeURIComponent(s.substring(idx).split('?')[0]);
+                    } catch {
+                        return s.substring(idx).split('?')[0];
+                    }
+                }
+            }
+        }
+        return s;
+    };
+
     if (typeof input === 'object' && !Array.isArray(input)) {
         const publicId = input.publicId ? String(input.publicId).trim() : '';
         const url = input.url || input.href;
         const urlStr = url ? String(url).trim() : '';
-        if (publicId) return { key: publicId, url: urlStr || publicId, name: input.name || input.fileName };
-        if (urlStr) return { key: urlStr, url: urlStr, name: input.name || input.fileName };
+        if (publicId) {
+            const key = toKey(publicId) || publicId;
+            return { key, url: urlStr || publicId, name: input.name || input.fileName };
+        }
+        if (urlStr) {
+            const key = toKey(urlStr) || urlStr;
+            return { key, url: urlStr, name: input.name || input.fileName };
+        }
         return null;
     }
 
     const s = String(input).trim();
     if (!s || s.startsWith('data:')) return null;
-    return { key: s, url: s, name: null };
+    const key = toKey(s) || s;
+    return { key, url: s, name: null };
 }
 
 export function isAllowedAttachmentFile(file) {

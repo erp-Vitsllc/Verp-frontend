@@ -43,6 +43,7 @@ import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
+import { buildFineVendorPaymentPrefill } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 import AssetCheckboxAssignModal from '../modals/AssetCheckboxAssignModal';
@@ -69,6 +70,7 @@ import {
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import EmployeeSalaryVehicleUtilityPanel from './EmployeeSalaryVehicleUtilityPanel';
+import EmployeeExpensesPanel from './EmployeeExpensesPanel';
 
 
 /** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
@@ -83,6 +85,7 @@ const SALARY_ACTION_TO_MODULE = {
     Vehicle: 'hrm_asset',
     'Utility Bills': 'hrm_asset',
     CTC: 'hrm_employees_view_salary',
+    Expenses: 'hrm_employees_view_salary',
 };
 
 const SALARY_ACTION_ORDER = [
@@ -96,6 +99,7 @@ const SALARY_ACTION_ORDER = [
     'Vehicle',
     'Utility Bills',
     'CTC',
+    'Expenses',
 ];
 
 /** Vehicle / fleet rows belong under Salary → Vehicle only — never Tools Asset. */
@@ -1114,6 +1118,26 @@ export default function SalaryTab({
                 description: 'Select one or more fines with an outstanding balance to pay.',
             });
             return;
+        }
+
+        const zohoReady = selectedPayableFines.filter((f) => String(f.zohoBillId || '').trim());
+        if (
+            zohoReady.length === selectedPayableFines.length &&
+            zohoReady.length === 1 &&
+            String(zohoReady[0].vendorBillStatus || '').toLowerCase() !== 'paid'
+        ) {
+            const prefill = buildFineVendorPaymentPrefill(zohoReady[0], {
+                returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+            });
+            if (prefill?.zohoBillIds?.length) {
+                sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
+                const params = new URLSearchParams();
+                params.set('addFinePay', '1');
+                if (prefill.organizationId) params.set('organizationId', prefill.organizationId);
+                if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
+                router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
+                return;
+            }
         }
 
         const payload = {
@@ -2153,7 +2177,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Tools Asset', 'Vehicle', 'Utility Bills', 'CTC'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Tools Asset', 'Vehicle', 'Utility Bills', 'CTC', 'Expenses'].map((action) => {
                     if (!canSeeSalaryActionButton(action)) {
                         return null;
                     }
@@ -2712,6 +2736,8 @@ export default function SalaryTab({
                         assets={yourAssetsAllRows}
                         formatDate={formatDate}
                     />
+                ) : selectedSalaryAction === 'Expenses' ? (
+                    <EmployeeExpensesPanel employee={employee} />
                 ) : (
                 <div className="overflow-x-auto w-full max-w-full">
                     <table className="w-full min-w-0 table-auto">

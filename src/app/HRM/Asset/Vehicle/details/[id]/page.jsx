@@ -74,7 +74,7 @@ import {
 import AssignAssetModal from '../../../components/AssignAssetModal';
 import HandoverFormModal from '../../../components/HandoverFormModal';
 import VehicleGeneralDocumentModal from '../../components/VehicleGeneralDocumentModal';
-import EditVehicleBasicDetailsModal from '../../components/EditVehicleBasicDetailsModal';
+import AddVehicleModal from '../../components/AddVehicleModal';
 
 
 import VehicleRegistrationModal from '../../components/VehicleRegistrationModal';
@@ -167,7 +167,8 @@ import {
     canUserManageCarWash,
     canUserValidateCarWashAccounts,
 } from '../../utils/vehicleCarWashAccess';
-import { canAdminDeleteActivatedVehicleRecord } from '../../utils/vehicleAdminDeleteAccess';
+import { canAdminDeleteActivatedVehicleRecord, isVehicleProfileActivationActive } from '../../utils/vehicleAdminDeleteAccess';
+import { canDeleteVehicleAsset } from '../../utils/vehiclePermissionAccess';
 import { parseServiceRemark } from '../../components/vehicleServicePayload';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
@@ -1096,24 +1097,70 @@ function VehicleDetailsPageContent() {
     );
 
     const handleDeleteVehicle = () => {
+        const profileActive = isVehicleProfileActivationActive(asset);
+        const needsHr = profileActive && !isFlowchartHr && !checkIsAdmin();
         setConfirmDialog({
             isOpen: true,
-            title: 'Delete Vehicle?',
-            description: 'Are you sure you want to delete this vehicle? This action cannot be undone.',
+            title: needsHr ? 'Request vehicle delete?' : 'Delete Vehicle?',
+            description: needsHr
+                ? 'This vehicle profile is active. Deleting it requires HR approval. Submit a delete request?'
+                : profileActive
+                  ? 'You are HR/Admin — this will permanently delete the active vehicle. This cannot be undone.'
+                  : 'Inactive vehicle — delete without HR approval. This cannot be undone.',
             onConfirm: async () => {
                 try {
-                    await axiosInstance.delete(`/AssetItem/${assetId}`);
+                    if (profileActive && !isFlowchartHr && !checkIsAdmin()) {
+                        const res = await axiosInstance.post(
+                            `/AssetItem/${assetId}/request-vehicle-delete`,
+                            null,
+                            { skipToast: true },
+                        );
+                        if (res.data?.deleted) {
+                            toast({ title: 'Deleted', description: 'Vehicle deleted successfully' });
+                            router.push('/HRM/Asset/Vehicle');
+                            return;
+                        }
+                        toast({
+                            title: 'Delete request sent',
+                            description: res.data?.message || 'Awaiting HR approval.',
+                        });
+                        refreshData();
+                        return;
+                    }
+                    if (profileActive && (isFlowchartHr || checkIsAdmin()) && vehicleDeletePendingHr) {
+                        await axiosInstance.post(`/AssetItem/${assetId}/approve-vehicle-delete`, null, {
+                            skipToast: true,
+                        });
+                    } else {
+                        await axiosInstance.delete(`/AssetItem/${assetId}`, { skipToast: true });
+                    }
                     toast({ title: 'Deleted', description: 'Vehicle deleted successfully' });
                     router.push('/HRM/Asset/Vehicle');
                 } catch (error) {
                     toast({
                         variant: 'destructive',
                         title: 'Error',
-                        description: error.response?.data?.message || 'Failed to delete vehicle'
+                        description: error.response?.data?.message || 'Failed to delete vehicle',
                     });
                 }
-            }
+            },
         });
+    };
+
+    const handleRejectVehicleDelete = async () => {
+        try {
+            await axiosInstance.post(`/AssetItem/${assetId}/reject-vehicle-delete`, { comment: 'Rejected' }, {
+                skipToast: true,
+            });
+            toast({ title: 'Rejected', description: 'Vehicle delete request rejected.' });
+            refreshData();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to reject delete request',
+            });
+        }
     };
 
     const resolveAssetDocMongoId = (doc) => {
@@ -1413,6 +1460,11 @@ function VehicleDetailsPageContent() {
         isAdminUser: canAdminDeleteVehicleRecords,
         profileActive: isVehicleProfileActive,
     });
+    const canDeleteWholeVehicle =
+        permissionsMounted &&
+        (canDeleteVehicleAsset() || canAdminDeleteVehicleRecords || isFlowchartHr);
+    const vehicleDeletePendingHr =
+        String(asset?.vehicleDeleteStatus || '').toLowerCase() === 'pending_hr';
     const showVehicleCardRenewActions = isVehicleProfileActive;
     const showVehicleCardDelete = !isVehicleProfileActive || canAdminDeleteVehicleRecords;
 
@@ -1808,6 +1860,20 @@ function VehicleDetailsPageContent() {
         ).length;
         if (basicDetailCount > 0) {
             extras.push({ label: 'Basic detail documents', value: `${basicDetailCount} file(s)` });
+        }
+        if (a.invoiceFile) {
+            extras.push({
+                label: 'Invoice',
+                value: (
+                    <button
+                        type="button"
+                        onClick={() => openFilePreview(a.invoiceFile, 'Invoice')}
+                        className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[12px] ml-auto"
+                    >
+                        View
+                    </button>
+                ),
+            });
         }
         return [...base, ...extras];
     };
@@ -3149,6 +3215,38 @@ function VehicleDetailsPageContent() {
                                     </p>
                                 </div>
                             )}
+                        {asset && vehicleDeletePendingHr && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm mt-3">
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-black text-rose-700 uppercase tracking-widest leading-none mb-1">
+                                        Vehicle delete request
+                                    </p>
+                                    <p className="text-[13px] font-bold text-rose-950">
+                                        {isFlowchartHr || canAdminDeleteVehicleRecords
+                                            ? 'HR review required — approve to permanently delete, or reject.'
+                                            : 'Your delete request is awaiting HR approval.'}
+                                    </p>
+                                </div>
+                                {(isFlowchartHr || canAdminDeleteVehicleRecords) && (
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={handleRejectVehicleDelete}
+                                            className="px-4 py-2 rounded-xl border border-rose-200 bg-white text-rose-700 text-[10px] font-black uppercase tracking-widest hover:bg-rose-50"
+                                        >
+                                            Reject
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleDeleteVehicle}
+                                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest shadow-sm"
+                                        >
+                                            Approve delete
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         {asset && showDispositionReviewControl && (
                             <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm mt-3">
                                 <div className="min-w-0 flex-1">
@@ -3478,12 +3576,18 @@ function VehicleDetailsPageContent() {
                                                                 <PencilLine size={18} />
                                                             </button>
                                                         )}
-                                                        {canDeleteVehicleServiceRecords && (
+                                                        {canDeleteWholeVehicle && (
                                                             <button
                                                                 type="button"
                                                                 onClick={handleDeleteVehicle}
                                                                 className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                title="Delete vehicle (admin, profile active)"
+                                                                title={
+                                                                    isVehicleProfileActive
+                                                                        ? isFlowchartHr || canAdminDeleteVehicleRecords
+                                                                            ? 'Delete vehicle (HR/Admin)'
+                                                                            : 'Request delete (HR approval)'
+                                                                        : 'Delete inactive vehicle'
+                                                                }
                                                             >
                                                                 <Trash2 size={18} />
                                                             </button>
@@ -5649,30 +5753,19 @@ function VehicleDetailsPageContent() {
                 onSuccess={refreshData}
             />
 
-            <EditVehicleBasicDetailsModal
-                isOpen={editBasicDetailsModalOpen}
-                assetMongoId={assetId}
-                asset={asset}
-                profileActivated={vehicleActPhase === 'active'}
-                dispositionWorkflowStage={dispositionWorkflowStage}
-                canOpenDispositionReview={showDispositionReviewControl}
-                onOpenDispositionReview={() => {
-                    setEditBasicDetailsModalOpen(false);
-                    if (canReviewDispositionHr) setDispositionReviewMode('hr');
-                    else if (canSubmitDispositionAccounts) setDispositionReviewMode('accounts');
-                    else setDispositionReviewMode('management');
-                    setShowDispositionReviewModal(true);
-                }}
-                onOpenDispositionRequest={(target) => {
-                    setDispositionRequestTarget(target);
-                    setShowDispositionRequestModal(true);
-                }}
-                onClose={() => setEditBasicDetailsModalOpen(false)}
-                onSuccess={(updatedAsset) => {
-                    if (updatedAsset) setAsset(updatedAsset);
-                    setEditBasicDetailsModalOpen(false);
-                }}
-            />
+            {editBasicDetailsModalOpen && (
+                <AddVehicleModal
+                    isOpen={editBasicDetailsModalOpen}
+                    editAssetId={assetId}
+                    asset={asset}
+                    modalTitle="Edit basic details"
+                    onClose={() => setEditBasicDetailsModalOpen(false)}
+                    onSuccess={() => {
+                        refreshData();
+                        setEditBasicDetailsModalOpen(false);
+                    }}
+                />
+            )}
 
             <VehicleDispositionRequestModal
                 isOpen={showDispositionRequestModal}
