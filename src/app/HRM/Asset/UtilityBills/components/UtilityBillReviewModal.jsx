@@ -1574,9 +1574,9 @@ export default function UtilityBillReviewModal({
                                 <div className="mx-5 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shrink-0">
                                     <p className="font-semibold">Not in Zoho Books yet</p>
                                     <p className="mt-1 text-amber-900/90">
-                                        HR approval succeeded, but the Zoho bill was not created
-                                        (usually missing vendor match for the provider, or expense
-                                        account). Sync Vendors in Accounts if needed, then retry.
+                                        HR approval in ERP worked. Zoho Books still rejected creating
+                                        the bill (vendor, expense account, wrong org, or Zoho login
+                                        permissions). Fix Zoho access, then retry.
                                     </p>
                                     {rows
                                         .filter(
