@@ -204,8 +204,13 @@ export function buildAssetNotificationPath(rawItem) {
         if (meta?.statusChangeId) {
             return `/HRM/Asset/UtilityBills?statusChangeId=${encodeURIComponent(String(meta.statusChangeId))}&review=1`;
         }
-        if (meta?.batchId) {
-            return `/HRM/Asset/UtilityBills?batchId=${encodeURIComponent(String(meta.batchId))}&review=1`;
+        // requestId on DashboardAction is the batchId for Utility Bill Payment
+        const batchId = String(meta?.batchId || item.id || '').trim();
+        if (batchId && type.includes('utility bill payment')) {
+            const q = new URLSearchParams({ batchId, review: '1' });
+            if (meta?.utilityType) q.set('type', String(meta.utilityType));
+            if (meta?.billMonth) q.set('billMonth', String(meta.billMonth));
+            return `/HRM/Asset/UtilityBills?${q.toString()}`;
         }
         if (meta?.entryId) {
             const billQ = meta.billId ? `?billId=${encodeURIComponent(String(meta.billId))}` : '';

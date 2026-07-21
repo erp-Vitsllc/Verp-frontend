@@ -434,8 +434,8 @@ export default function AddVendorPaymentModal({
                 const vendorPromise = loadVendorsForOrg().catch((err) => {
                     throw new Error(
                         err?.response?.data?.message ||
-                            err?.message ||
-                            'Failed to load vendors',
+                        err?.message ||
+                        'Failed to load vendors',
                     );
                 });
 
@@ -555,15 +555,15 @@ export default function AddVendorPaymentModal({
                         vendorId,
                         locationId: String(
                             existingPayment.location_id ||
-                                support.vendorDefaults?.location_id ||
-                                primaryLocation?.id ||
-                                '',
+                            support.vendorDefaults?.location_id ||
+                            primaryLocation?.id ||
+                            '',
                         ).trim(),
                         locationName: String(
                             existingPayment.location_name ||
-                                support.vendorDefaults?.location_name ||
-                                primaryLocation?.name ||
-                                '',
+                            support.vendorDefaults?.location_name ||
+                            primaryLocation?.name ||
+                            '',
                         ).trim(),
                         currencyCode:
                             String(existingPayment.currency_code || 'AED').trim() || 'AED',
@@ -574,8 +574,8 @@ export default function AddVendorPaymentModal({
                         amount: String(existingPayment.amount ?? ''),
                         paidThroughAccountId: String(
                             existingPayment.paid_through_account_id ||
-                                existingPayment.account_id ||
-                                '',
+                            existingPayment.account_id ||
+                            '',
                         ).trim(),
                         paymentMode:
                             String(existingPayment.payment_mode || '').trim() || defaultPaymentMode,
@@ -614,8 +614,8 @@ export default function AddVendorPaymentModal({
                 if (cancelled) return;
                 setError(
                     err?.response?.data?.message ||
-                        err?.message ||
-                        'Failed to load Zoho payment form data',
+                    err?.message ||
+                    'Failed to load Zoho payment form data',
                 );
             } finally {
                 if (!cancelled) setLoading(false);
@@ -702,10 +702,10 @@ export default function AddVendorPaymentModal({
                     selectedBillIds.length > 0 || selectedBillNumbers.length > 0;
                 const { billAmounts: nextBillAmounts, suggestedPaymentAmount } = hasPrefillBills
                     ? buildSelectedBillAmounts(
-                          billPayables,
-                          selectedBillIds,
-                          selectedBillNumbers,
-                      )
+                        billPayables,
+                        selectedBillIds,
+                        selectedBillNumbers,
+                    )
                     : { billAmounts: {}, suggestedPaymentAmount: '' };
 
                 const primaryLocation =
@@ -731,8 +731,8 @@ export default function AddVendorPaymentModal({
                 );
                 const employeeName = String(
                     overrides.payByEmployeeName ||
-                        utilityPrefillRef.current?.payByEmployeeName ||
-                        '',
+                    utilityPrefillRef.current?.payByEmployeeName ||
+                    '',
                 ).trim();
                 let paidThroughAccountId = String(overrides.paidThroughAccountId || '').trim();
                 if (!paidThroughAccountId && payBy === 'employee' && employeeName) {
@@ -768,8 +768,8 @@ export default function AddVendorPaymentModal({
             } catch (err) {
                 setError(
                     err?.response?.data?.message ||
-                        err?.message ||
-                        'Failed to load vendor payment details from Zoho Books',
+                    err?.message ||
+                    'Failed to load vendor payment details from Zoho Books',
                 );
             } finally {
                 setLoadingBills(false);
@@ -812,17 +812,17 @@ export default function AddVendorPaymentModal({
         const selectedBillIds = Array.isArray(prefill.selectedBillIds)
             ? prefill.selectedBillIds
             : Array.isArray(prefill.zohoBillIds)
-              ? prefill.zohoBillIds
-              : [];
+                ? prefill.zohoBillIds
+                : [];
         const selectedBillNumbers = Array.isArray(prefill.utilityBillLinks)
             ? prefill.utilityBillLinks
-                  .map((link) => String(link?.billNumber || '').trim())
-                  .filter(Boolean)
+                .map((link) => String(link?.billNumber || '').trim())
+                .filter(Boolean)
             : Array.isArray(prefill.fineBillLinks)
-              ? prefill.fineBillLinks
+                ? prefill.fineBillLinks
                     .map((link) => String(link?.billNumber || '').trim())
                     .filter(Boolean)
-              : [];
+                : [];
 
         const key = JSON.stringify({
             v: prefill.vendorId || '',
@@ -967,8 +967,13 @@ export default function AddVendorPaymentModal({
         };
     }, [isCrossOrgPaidThrough, paidThroughOrgId]);
 
-    // New payment org context → Paid Through defaults back to that org's accounts.
+    // Reset Paid Through org only on a real org switch — the initial org settle
+    // (prefill / connections resolving) must not wipe the user's VEGA/NNIT choice.
+    const prevPaymentOrgIdRef = useRef(organizationId);
     useEffect(() => {
+        const prev = prevPaymentOrgIdRef.current;
+        prevPaymentOrgIdRef.current = organizationId;
+        if (!prev || !organizationId || prev === organizationId) return;
         setPaidThroughOrgId('');
         setCrossOrgAccounts([]);
     }, [organizationId]);
@@ -1141,8 +1146,8 @@ export default function AddVendorPaymentModal({
                     apply > 0
                         ? apply.toFixed(2)
                         : (Number(row.balance) || 0) > 0
-                          ? (Number(row.balance) || 0).toFixed(2)
-                          : '';
+                            ? (Number(row.balance) || 0).toFixed(2)
+                            : '';
                 remaining = Math.max(remaining - apply, 0);
             }
             return next;
@@ -1226,22 +1231,22 @@ export default function AddVendorPaymentModal({
                 ...(organizationId ? { organizationId } : {}),
                 ...(isCrossOrgPaidThrough
                     ? {
-                          paid_through_organization_id: paidThroughOrgId,
-                          paid_through_org_brand: paidThroughOrgOption?.brand || '',
-                          payment_org_brand: activeZohoOrg?.brand || '',
-                      }
+                        paid_through_organization_id: paidThroughOrgId,
+                        paid_through_org_brand: paidThroughOrgOption?.brand || '',
+                        payment_org_brand: activeZohoOrg?.brand || '',
+                    }
                     : {}),
                 ...(fineMongoIds.length
                     ? { fineMongoIds, mode: prefillRef?.mode || 'fine_bills' }
                     : {}),
                 ...(!asDraft && partyExpensesPayload.length
                     ? {
-                          party_expenses: partyExpensesPayload,
-                          mode: utilityPrefillRef.current?.mode || 'difference',
-                          utilityType: utilityPrefillRef.current?.utilityType || '',
-                          billMonth: utilityPrefillRef.current?.billMonth || '',
-                          utilityBatchId: utilityPrefillRef.current?.utilityBatchId || '',
-                      }
+                        party_expenses: partyExpensesPayload,
+                        mode: utilityPrefillRef.current?.mode || 'difference',
+                        utilityType: utilityPrefillRef.current?.utilityType || '',
+                        billMonth: utilityPrefillRef.current?.billMonth || '',
+                        utilityBatchId: utilityPrefillRef.current?.utilityBatchId || '',
+                    }
                     : {}),
             };
 
@@ -1265,9 +1270,9 @@ export default function AddVendorPaymentModal({
                     createRes?.data?.data || createRes?.data?.vendorpayment || createRes?.data || {};
                 const zohoPaymentId = String(
                     zohoPayment.payment_id ||
-                        zohoPayment.vendorpayment_id ||
-                        zohoPayment.id ||
-                        '',
+                    zohoPayment.vendorpayment_id ||
+                    zohoPayment.id ||
+                    '',
                 ).trim();
                 const zohoPaymentNumber = String(
                     zohoPayment.payment_number || zohoPayment.payment_no || '',
@@ -1280,8 +1285,8 @@ export default function AddVendorPaymentModal({
                             ? `Draft payment saved in ${activeZohoOrg.brand} Zoho Books (status: Draft).`
                             : `Payment recorded as Paid in ${activeZohoOrg.brand} Zoho Books.`
                         : asDraft
-                          ? 'Draft payment saved in Zoho Books (status: Draft).'
-                          : 'Payment recorded as Paid in Zoho Books.',
+                            ? 'Draft payment saved in Zoho Books (status: Draft).'
+                            : 'Payment recorded as Paid in Zoho Books.',
                 });
 
                 // Paid only: settle utility bills + post ERP Accounts / party expense ledger.
@@ -1381,10 +1386,10 @@ export default function AddVendorPaymentModal({
         } catch (err) {
             setError(
                 err?.response?.data?.message ||
-                    err?.message ||
-                    (isEdit
-                        ? 'Failed to update payment made in Zoho Books'
-                        : 'Failed to create payment made in Zoho Books'),
+                err?.message ||
+                (isEdit
+                    ? 'Failed to update payment made in Zoho Books'
+                    : 'Failed to create payment made in Zoho Books'),
             );
         } finally {
             setSaving(false);
@@ -1405,10 +1410,10 @@ export default function AddVendorPaymentModal({
         const rows =
             partyRows.length > 0
                 ? partyRows.filter((row) =>
-                      billIdsToPay.length
-                          ? billIdsToPay.includes(String(row.utilityBillId || ''))
-                          : true,
-                  )
+                    billIdsToPay.length
+                        ? billIdsToPay.includes(String(row.utilityBillId || ''))
+                        : true,
+                )
                 : [];
 
         // Fallback: single party from prefill header fields (difference pay flow).
@@ -1579,10 +1584,10 @@ export default function AddVendorPaymentModal({
         const rows =
             partyRows.length > 0
                 ? partyRows.filter((row) =>
-                      billIdsToPay.length
-                          ? billIdsToPay.includes(String(row.utilityBillId || ''))
-                          : true,
-                  )
+                    billIdsToPay.length
+                        ? billIdsToPay.includes(String(row.utilityBillId || ''))
+                        : true,
+                )
                 : [];
 
         if (!rows.length && utilityPrefill) {
@@ -1695,267 +1700,267 @@ export default function AddVendorPaymentModal({
     const formScrollClass = isPage ? '' : 'overflow-y-auto max-h-[calc(94vh-73px)]';
 
     const content = (
-            <div className={shellClass}>
-                <div className="flex flex-col gap-3 border-b border-slate-200 px-4 sm:px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                        <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                            {isEdit ? 'Edit Payment' : 'Record Payment'}
-                        </h2>
-                        <p className="text-xs sm:text-sm text-slate-500">
-                            {isEdit
-                                ? 'Update this vendor payment in Zoho Books.'
-                                : 'Add a payment made to a vendor in Zoho Books.'}
-                            {activeZohoOrg?.brand ? (
-                                <span className="ml-1 font-semibold text-slate-700">
-                                    ({activeZohoOrg.brand})
-                                </span>
-                            ) : null}
-                        </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                        {zohoOrgOptions.length > 1 ? (
-                            <ZohoOrganizationPicker
-                                options={zohoOrgOptions}
-                                value={organizationId}
-                                onChange={(nextOrgId) => {
-                                    if (nextOrgId === organizationId) return;
-                                    rememberZohoOrganizationId(nextOrgId);
-                                    setOrganizationId(nextOrgId);
-                                    setForm((prev) => ({
-                                        ...prev,
-                                        vendorId: '',
-                                        paidThroughAccountId: '',
-                                        paymentMode: 'Cash',
-                                        paymentNumber: '',
-                                        amount: '',
-                                        referenceNumber: '',
-                                        notes: '',
-                                    }));
-                                    setVendors([]);
-                                    setAccounts([]);
-                                    setPaymentModes([]);
-                                    setPayables([]);
-                                    setBillAmounts({});
-                                    setSelectedPayableIds(new Set());
-                                    setVendorDetails(null);
-                                    setVendorPanelOpen(false);
-                                    utilityPrefillRef.current = null;
-                                    setError('');
-                                }}
-                                disabled={saving || isEdit}
-                                loading={loadingOrgs || loading}
-                                size="sm"
-                            />
+        <div className={shellClass}>
+            <div className="flex flex-col gap-3 border-b border-slate-200 px-4 sm:px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                        {isEdit ? 'Edit Payment' : 'Record Payment'}
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-500">
+                        {isEdit
+                            ? 'Update this vendor payment in Zoho Books.'
+                            : 'Add a payment made to a vendor in Zoho Books.'}
+                        {activeZohoOrg?.brand ? (
+                            <span className="ml-1 font-semibold text-slate-700">
+                                ({activeZohoOrg.brand})
+                            </span>
                         ) : null}
-                        {!isPage ? (
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
-                                aria-label="Close"
-                            >
-                                <X size={18} />
-                            </button>
-                        ) : null}
-                    </div>
+                    </p>
                 </div>
+                <div className="flex shrink-0 items-center gap-3">
+                    {zohoOrgOptions.length > 1 ? (
+                        <ZohoOrganizationPicker
+                            options={zohoOrgOptions}
+                            value={organizationId}
+                            onChange={(nextOrgId) => {
+                                if (nextOrgId === organizationId) return;
+                                rememberZohoOrganizationId(nextOrgId);
+                                setOrganizationId(nextOrgId);
+                                setForm((prev) => ({
+                                    ...prev,
+                                    vendorId: '',
+                                    paidThroughAccountId: '',
+                                    paymentMode: 'Cash',
+                                    paymentNumber: '',
+                                    amount: '',
+                                    referenceNumber: '',
+                                    notes: '',
+                                }));
+                                setVendors([]);
+                                setAccounts([]);
+                                setPaymentModes([]);
+                                setPayables([]);
+                                setBillAmounts({});
+                                setSelectedPayableIds(new Set());
+                                setVendorDetails(null);
+                                setVendorPanelOpen(false);
+                                utilityPrefillRef.current = null;
+                                setError('');
+                            }}
+                            disabled={saving || isEdit}
+                            loading={loadingOrgs || loading}
+                            size="sm"
+                        />
+                    ) : null}
+                    {!isPage ? (
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+                            aria-label="Close"
+                        >
+                            <X size={18} />
+                        </button>
+                    ) : null}
+                </div>
+            </div>
 
-                <form
-                    onSubmit={(event) => handleSubmit(event, 'paid')}
-                    className={formScrollClass}
-                >
-                    <div className="space-y-5 px-4 sm:px-6 py-5">
-                        {error ? (
-                            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                                {error}
-                            </div>
-                        ) : null}
+            <form
+                onSubmit={(event) => handleSubmit(event, 'paid')}
+                className={formScrollClass}
+            >
+                <div className="space-y-5 px-4 sm:px-6 py-5">
+                    {error ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            {error}
+                        </div>
+                    ) : null}
 
-                        {loading || loadingOrgs || !organizationId ? (
-                            <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
-                                <Loader2 size={18} className="animate-spin" />
-                                {loadingOrgs || !organizationId
-                                    ? 'Loading Zoho organization...'
-                                    : `Loading ${activeZohoOrg?.brand || 'Zoho'} vendors & accounts...`}
-                            </div>
-                        ) : (
-                            <>
-                                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,520px)_1fr] gap-5">
-                                    <div className="space-y-3">
-                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
-                                            <span className="text-xs font-bold text-red-600">
-                                                Vendor Name <span className="text-blue-600">*</span>
-                                            </span>
-                                            <Select
-                                                classNamePrefix="zoho-vendor-payment"
-                                                instanceId="zoho-vendor-payment"
-                                                value={selectedVendorOption}
-                                                onChange={handleVendorChange}
-                                                options={vendorOptions}
-                                                isClearable
-                                                isSearchable
-                                                isDisabled={loading || saving}
-                                                placeholder={
-                                                    vendors.length
-                                                        ? `Select vendor (${vendors.length})`
-                                                        : 'Select vendor'
-                                                }
-                                                noOptionsMessage={() =>
-                                                    'No vendors found — refresh Accounts → Vendors'
-                                                }
-                                                styles={locationSelectStyles}
-                                                menuPortalTarget={
-                                                    typeof document !== 'undefined' ? document.body : null
-                                                }
-                                                menuPosition="fixed"
-                                                filterOption={(option, inputValue) => {
-                                                    const query = String(inputValue || '')
-                                                        .trim()
-                                                        .toLowerCase();
-                                                    if (!query) return true;
-                                                    const label = String(option?.label || '').toLowerCase();
-                                                    const email = String(option?.data?.email || option?.email || '').toLowerCase();
-                                                    return label.includes(query) || email.includes(query);
-                                                }}
-                                            />
-                                        </label>
+                    {loading || loadingOrgs || !organizationId ? (
+                        <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
+                            <Loader2 size={18} className="animate-spin" />
+                            {loadingOrgs || !organizationId
+                                ? 'Loading Zoho organization...'
+                                : `Loading ${activeZohoOrg?.brand || 'Zoho'} vendors & accounts...`}
+                        </div>
+                    ) : (
+                        <>
+                            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,520px)_1fr] gap-5">
+                                <div className="space-y-3">
+                                    <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
+                                        <span className="text-xs font-bold text-red-600">
+                                            Vendor Name <span className="text-blue-600">*</span>
+                                        </span>
+                                        <Select
+                                            classNamePrefix="zoho-vendor-payment"
+                                            instanceId="zoho-vendor-payment"
+                                            value={selectedVendorOption}
+                                            onChange={handleVendorChange}
+                                            options={vendorOptions}
+                                            isClearable
+                                            isSearchable
+                                            isDisabled={loading || saving}
+                                            placeholder={
+                                                vendors.length
+                                                    ? `Select vendor (${vendors.length})`
+                                                    : 'Select vendor'
+                                            }
+                                            noOptionsMessage={() =>
+                                                'No vendors found — refresh Accounts → Vendors'
+                                            }
+                                            styles={locationSelectStyles}
+                                            menuPortalTarget={
+                                                typeof document !== 'undefined' ? document.body : null
+                                            }
+                                            menuPosition="fixed"
+                                            filterOption={(option, inputValue) => {
+                                                const query = String(inputValue || '')
+                                                    .trim()
+                                                    .toLowerCase();
+                                                if (!query) return true;
+                                                const label = String(option?.label || '').toLowerCase();
+                                                const email = String(option?.data?.email || option?.email || '').toLowerCase();
+                                                return label.includes(query) || email.includes(query);
+                                            }}
+                                        />
+                                    </label>
 
-                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
-                                            <span className="text-xs font-semibold text-slate-600">Location</span>
-                                            <Select
-                                                classNamePrefix="zoho-location"
-                                                instanceId="zoho-payment-location"
-                                                value={selectedLocation}
-                                                onChange={handleLocationChange}
-                                                options={locationOptions}
-                                                isClearable
-                                                isSearchable
-                                                placeholder="Select location"
-                                                noOptionsMessage={() =>
-                                                    'No locations found — reconnect Zoho with settings.READ'
-                                                }
-                                                styles={locationSelectStyles}
-                                                menuPortalTarget={
-                                                    typeof document !== 'undefined' ? document.body : null
-                                                }
-                                                menuPosition="fixed"
-                                            />
-                                        </label>
+                                    <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
+                                        <span className="text-xs font-semibold text-slate-600">Location</span>
+                                        <Select
+                                            classNamePrefix="zoho-location"
+                                            instanceId="zoho-payment-location"
+                                            value={selectedLocation}
+                                            onChange={handleLocationChange}
+                                            options={locationOptions}
+                                            isClearable
+                                            isSearchable
+                                            placeholder="Select location"
+                                            noOptionsMessage={() =>
+                                                'No locations found — reconnect Zoho with settings.READ'
+                                            }
+                                            styles={locationSelectStyles}
+                                            menuPortalTarget={
+                                                typeof document !== 'undefined' ? document.body : null
+                                            }
+                                            menuPosition="fixed"
+                                        />
+                                    </label>
 
-                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
-                                            <span className="text-xs font-bold text-red-600">
-                                                Payment # <span className="text-blue-600">*</span>
+                                    <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
+                                        <span className="text-xs font-bold text-red-600">
+                                            Payment # <span className="text-blue-600">*</span>
+                                        </span>
+                                        <input
+                                            type="text"
+                                            value={
+                                                loading || loadingBills
+                                                    ? 'Loading...'
+                                                    : form.paymentNumber || '—'
+                                            }
+                                            readOnly
+                                            className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-800 tabular-nums"
+                                            title="Next payment number fetched from Zoho Books"
+                                        />
+                                    </label>
+
+                                    <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
+                                        <span className="text-xs font-bold text-red-600">
+                                            Payment Made <span className="text-blue-600">*</span>
+                                        </span>
+                                        <div className="flex h-10 rounded-lg border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15">
+                                            <span className="inline-flex items-center border-r border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600">
+                                                {form.currencyCode || 'AED'}
                                             </span>
                                             <input
-                                                type="text"
-                                                value={
-                                                    loading || loadingBills
-                                                        ? 'Loading...'
-                                                        : form.paymentNumber || '—'
-                                                }
-                                                readOnly
-                                                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-800 tabular-nums"
-                                                title="Next payment number fetched from Zoho Books"
-                                            />
-                                        </label>
-
-                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
-                                            <span className="text-xs font-bold text-red-600">
-                                                Payment Made <span className="text-blue-600">*</span>
-                                            </span>
-                                            <div className="flex h-10 rounded-lg border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15">
-                                                <span className="inline-flex items-center border-r border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600">
-                                                    {form.currencyCode || 'AED'}
-                                                </span>
-                                                <input
-                                                    type="number"
-                                                    min="0.01"
-                                                    step="0.01"
-                                                    value={form.amount}
-                                                    onChange={(event) => setField('amount', event.target.value)}
-                                                    className="min-w-0 flex-1 rounded-r-lg px-3 text-sm text-slate-700 outline-none"
-                                                    required
-                                                />
-                                            </div>
-                                        </label>
-
-                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
-                                            <span className="text-xs font-bold text-red-600">
-                                                Payment Date <span className="text-blue-600">*</span>
-                                            </span>
-                                            <input
-                                                type="date"
-                                                value={form.date}
-                                                onChange={(event) => setField('date', event.target.value)}
-                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                                type="number"
+                                                min="0.01"
+                                                step="0.01"
+                                                value={form.amount}
+                                                onChange={(event) => setField('amount', event.target.value)}
+                                                className="min-w-0 flex-1 rounded-r-lg px-3 text-sm text-slate-700 outline-none"
                                                 required
                                             />
-                                        </label>
+                                        </div>
+                                    </label>
 
-                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
-                                            <span className="text-xs font-bold text-red-600">
-                                                Payment Mode <span className="text-blue-600">*</span>
-                                            </span>
-                                            <ZohoPaymentModeSelect
-                                                value={form.paymentMode}
-                                                options={paymentModes}
-                                                defaultMode={
-                                                    paymentModes.find(
-                                                        (mode) =>
-                                                            String(mode).toLowerCase() === 'cash',
-                                                    ) ||
-                                                    paymentModes[0] ||
-                                                    'Cash'
-                                                }
-                                                onChange={(mode) => setField('paymentMode', mode)}
-                                                onOptionsChange={setPaymentModes}
-                                                disabled={loading || saving}
-                                            />
-                                        </label>
+                                    <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
+                                        <span className="text-xs font-bold text-red-600">
+                                            Payment Date <span className="text-blue-600">*</span>
+                                        </span>
+                                        <input
+                                            type="date"
+                                            value={form.date}
+                                            onChange={(event) => setField('date', event.target.value)}
+                                            className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                            required
+                                        />
+                                    </label>
 
-                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-start gap-1.5 sm:gap-3">
-                                            <span className="text-xs font-bold text-red-600 sm:pt-2.5">
-                                                Paid Through <span className="text-blue-600">*</span>
-                                            </span>
-                                            <div className="space-y-1.5">
-                                                {zohoOrgOptions.length > 1 && (
-                                                    <div className="flex items-center gap-1.5">
-                                                        {zohoOrgOptions.map((opt) => {
-                                                            const isActiveTab =
-                                                                opt.organizationId ===
-                                                                effectivePaidThroughOrgId;
-                                                            return (
-                                                                <button
-                                                                    key={opt.organizationId}
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        handlePaidThroughOrgSwitch(
-                                                                            opt.organizationId,
-                                                                        )
-                                                                    }
-                                                                    disabled={saving}
-                                                                    className={`rounded-md border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide transition ${
-                                                                        isActiveTab
-                                                                            ? 'border-blue-600 bg-blue-600 text-white'
-                                                                            : 'border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:text-blue-600'
+                                    <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
+                                        <span className="text-xs font-bold text-red-600">
+                                            Payment Mode <span className="text-blue-600">*</span>
+                                        </span>
+                                        <ZohoPaymentModeSelect
+                                            value={form.paymentMode}
+                                            options={paymentModes}
+                                            defaultMode={
+                                                paymentModes.find(
+                                                    (mode) =>
+                                                        String(mode).toLowerCase() === 'cash',
+                                                ) ||
+                                                paymentModes[0] ||
+                                                'Cash'
+                                            }
+                                            onChange={(mode) => setField('paymentMode', mode)}
+                                            onOptionsChange={setPaymentModes}
+                                            disabled={loading || saving}
+                                        />
+                                    </label>
+
+                                    {/* div, not label: label would forward VEGA/NNIT button clicks to the select and flicker its menu */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-start gap-1.5 sm:gap-3">
+                                        <span className="text-xs font-bold text-red-600 sm:pt-2.5">
+                                            Paid Through <span className="text-blue-600">*</span>
+                                        </span>
+                                        <div className="space-y-1.5">
+                                            {zohoOrgOptions.length > 1 && (
+                                                <div className="flex items-center gap-1.5">
+                                                    {zohoOrgOptions.map((opt) => {
+                                                        const isActiveTab =
+                                                            opt.organizationId ===
+                                                            effectivePaidThroughOrgId;
+                                                        return (
+                                                            <button
+                                                                key={opt.organizationId}
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    handlePaidThroughOrgSwitch(
+                                                                        opt.organizationId,
+                                                                    )
+                                                                }
+                                                                disabled={saving}
+                                                                className={`rounded-md border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide transition ${isActiveTab
+                                                                        ? 'border-blue-600 bg-blue-600 text-white'
+                                                                        : 'border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:text-blue-600'
                                                                     }`}
-                                                                    title={`Show ${opt.brand || opt.label} Chart of Accounts`}
-                                                                >
-                                                                    {opt.brand || opt.label}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                        {isCrossOrgPaidThrough && (
-                                                            <span className="text-[10px] text-amber-600">
-                                                                Payment stays in{' '}
-                                                                {activeZohoOrg?.brand || 'this org'};
-                                                                credit posts in{' '}
-                                                                {paidThroughOrgOption?.brand || 'other org'}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                )}
-                                                <Select
+                                                                title={`Show ${opt.brand || opt.label} Chart of Accounts`}
+                                                            >
+                                                                {opt.brand || opt.label}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                    {isCrossOrgPaidThrough && (
+                                                        <span className="text-[10px] text-amber-600">
+                                                            Payment stays in{' '}
+                                                            {activeZohoOrg?.brand || 'this org'};
+                                                            credit posts in{' '}
+                                                            {paidThroughOrgOption?.brand || 'other org'}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                            <Select
                                                 classNamePrefix="zoho-paid-through"
                                                 instanceId="zoho-paid-through"
                                                 value={selectedPaidThrough}
@@ -1970,8 +1975,8 @@ export default function AddVendorPaymentModal({
                                                     loadingCrossOrgAccounts
                                                         ? `Loading ${paidThroughOrgOption?.brand || ''} accounts…`
                                                         : paidThroughOrgOption?.brand
-                                                          ? `Select ${paidThroughOrgOption.brand} Chart of Accounts`
-                                                          : 'Select Chart of Accounts'
+                                                            ? `Select ${paidThroughOrgOption.brand} Chart of Accounts`
+                                                            : 'Select Chart of Accounts'
                                                 }
                                                 noOptionsMessage={() =>
                                                     'No accounts found in Zoho Chart of Accounts'
@@ -1992,334 +1997,71 @@ export default function AddVendorPaymentModal({
                                                 }
                                                 menuPosition="fixed"
                                                 menuPlacement="auto"
-                                                />
-                                            </div>
-                                        </label>
+                                            />
+                                        </div>
                                     </div>
+                                </div>
 
-                                    <div className="flex items-start justify-end">
+                                <div className="flex items-start justify-end">
+                                    <button
+                                        type="button"
+                                        disabled={!form.vendorId || loadingVendor}
+                                        onClick={() => {
+                                            if (!form.vendorId) return;
+                                            if (vendorDetails) {
+                                                setVendorPanelOpen(true);
+                                                return;
+                                            }
+                                            void loadVendorDetails(form.vendorId, {
+                                                openPanel: true,
+                                            });
+                                        }}
+                                        className="inline-flex max-w-full items-center justify-center gap-2 rounded-xl bg-slate-700 px-4 py-2 text-xs font-bold text-white shadow hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                        title={
+                                            form.vendorId
+                                                ? 'Show vendor details'
+                                                : 'Select a vendor first'
+                                        }
+                                    >
+                                        {loadingVendor ? (
+                                            <Loader2 size={14} className="animate-spin" />
+                                        ) : null}
+                                        <span className="truncate">
+                                            {loadingVendor
+                                                ? 'Loading vendor…'
+                                                : selectedVendor?.label || 'Select Vendor'}
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                <div className="flex flex-col gap-2 border-b border-slate-200 px-3 sm:px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <label className="flex min-w-0 flex-1 items-center gap-2">
+                                        <span className="shrink-0 text-xs font-semibold text-slate-600">
+                                            Reference#
+                                        </span>
+                                        <input
+                                            type="text"
+                                            value={form.referenceNumber}
+                                            onChange={(event) =>
+                                                setField('referenceNumber', event.target.value)
+                                            }
+                                            placeholder="Enter reference"
+                                            className="h-9 w-full max-w-md rounded-md border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                        />
+                                    </label>
+                                    <div className="flex items-center justify-between gap-4 sm:justify-end">
                                         <button
                                             type="button"
-                                            disabled={!form.vendorId || loadingVendor}
-                                            onClick={() => {
-                                                if (!form.vendorId) return;
-                                                if (vendorDetails) {
-                                                    setVendorPanelOpen(true);
-                                                    return;
-                                                }
-                                                void loadVendorDetails(form.vendorId, {
-                                                    openPanel: true,
-                                                });
-                                            }}
-                                            className="inline-flex max-w-full items-center justify-center gap-2 rounded-xl bg-slate-700 px-4 py-2 text-xs font-bold text-white shadow hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                                            title={
-                                                form.vendorId
-                                                    ? 'Show vendor details'
-                                                    : 'Select a vendor first'
-                                            }
+                                            onClick={handleClearApplied}
+                                            className="text-xs font-semibold text-blue-600 hover:underline"
                                         >
-                                            {loadingVendor ? (
-                                                <Loader2 size={14} className="animate-spin" />
-                                            ) : null}
-                                            <span className="truncate">
-                                                {loadingVendor
-                                                    ? 'Loading vendor…'
-                                                    : selectedVendor?.label || 'Select Vendor'}
-                                            </span>
+                                            Clear Applied Amount
                                         </button>
-                                    </div>
-                                </div>
-
-                                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-                                    <div className="flex flex-col gap-2 border-b border-slate-200 px-3 sm:px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                        <label className="flex min-w-0 flex-1 items-center gap-2">
-                                            <span className="shrink-0 text-xs font-semibold text-slate-600">
-                                                Reference#
-                                            </span>
-                                            <input
-                                                type="text"
-                                                value={form.referenceNumber}
-                                                onChange={(event) =>
-                                                    setField('referenceNumber', event.target.value)
-                                                }
-                                                placeholder="Enter reference"
-                                                className="h-9 w-full max-w-md rounded-md border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
-                                            />
-                                        </label>
-                                        <div className="flex items-center justify-between gap-4 sm:justify-end">
-                                            <button
-                                                type="button"
-                                                onClick={handleClearApplied}
-                                                className="text-xs font-semibold text-blue-600 hover:underline"
-                                            >
-                                                Clear Applied Amount
-                                            </button>
-                                            <div className="text-xs font-semibold text-slate-600">
-                                                Remaining:{' '}
-                                                <span className="tabular-nums text-slate-800">
-                                                    {formatZohoPaymentMoney(
-                                                        remainingAmount,
-                                                        form.currencyCode,
-                                                    )}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex min-h-[320px] flex-col">
-                                        <div className="flex items-center justify-between border-b border-slate-200 bg-[#f8fafc] px-4 py-3">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-semibold text-blue-700">
-                                                    Bills
-                                                </span>
-                                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] tabular-nums text-blue-700">
-                                                    {billRows.length}
-                                                </span>
-                                            </div>
-                                            <p className="text-[11px] text-slate-500">
-                                                Check a bill to include it in this payment.
-                                            </p>
-                                        </div>
-
-                                        <div className="flex min-w-0 flex-1 flex-col">
-                                            {loadingBills ? (
-                                                <div className="flex flex-1 items-center justify-center gap-2 px-3 py-10 text-sm text-slate-500">
-                                                    <Loader2 size={16} className="animate-spin" />
-                                                    Loading bills...
-                                                </div>
-                                            ) : null}
-
-                                            {!loadingBills && !selectedVendor ? (
-                                                <div className="flex flex-1 items-center justify-center px-3 py-10 text-center text-sm text-slate-500">
-                                                    Select a vendor to load unpaid bills.
-                                                </div>
-                                            ) : null}
-
-                                            {!loadingBills &&
-                                            selectedVendor &&
-                                            !visiblePayables.length ? (
-                                                <div className="flex flex-1 items-center justify-center px-3 py-10 text-center text-sm text-slate-500">
-                                                    No open bills found for this vendor.
-                                                </div>
-                                            ) : null}
-
-                                            {!loadingBills && visiblePayables.length ? (
-                                                <>
-                                                    <div className="min-h-0 flex-1 overflow-x-auto">
-                                                        <table className="min-w-[1000px] w-full text-sm">
-                                                            <thead>
-                                                                <tr className="border-b border-slate-200 bg-[#fafbfc] text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                                                    <th className="w-10 px-3 py-2.5">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={allVisibleChecked}
-                                                                            onChange={(event) =>
-                                                                                handleSelectAllVisible(
-                                                                                    event.target
-                                                                                        .checked,
-                                                                                )
-                                                                            }
-                                                                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
-                                                                            aria-label="Select all bills"
-                                                                        />
-                                                                    </th>
-                                                                    <th className="px-3 py-2.5">
-                                                                        Date
-                                                                    </th>
-                                                                    <th className="px-3 py-2.5">
-                                                                        Bill#
-                                                                    </th>
-                                                                    <th className="px-3 py-2.5">
-                                                                        PO#
-                                                                    </th>
-                                                                    <th className="px-3 py-2.5">
-                                                                        Location
-                                                                    </th>
-                                                                    <th className="px-3 py-2.5 text-right">
-                                                                        Bill Amount
-                                                                    </th>
-                                                                    <th className="px-3 py-2.5 text-right">
-                                                                        Amount Due
-                                                                    </th>
-                                                                    <th className="px-3 py-2.5">
-                                                                        Payment Made On
-                                                                    </th>
-                                                                    <th className="px-3 py-2.5 text-right">
-                                                                        Payment
-                                                                    </th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody>
-                                                                {visiblePayables.map((row) => {
-                                                                    const checked =
-                                                                        selectedPayableIds.has(
-                                                                            row.id,
-                                                                        );
-                                                                    return (
-                                                                        <tr
-                                                                            key={`${row.recordType}-${row.id}`}
-                                                                            className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/70 ${
-                                                                                checked
-                                                                                    ? 'bg-blue-50/40'
-                                                                                    : ''
-                                                                            }`}
-                                                                        >
-                                                                            <td className="px-3 py-2.5">
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={checked}
-                                                                                    onChange={(
-                                                                                        event,
-                                                                                    ) =>
-                                                                                        handleRowCheck(
-                                                                                            row,
-                                                                                            event
-                                                                                                .target
-                                                                                                .checked,
-                                                                                        )
-                                                                                    }
-                                                                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
-                                                                                    aria-label={`Pay ${row.billNumber}`}
-                                                                                />
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
-                                                                                {row.date}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 font-medium text-slate-800">
-                                                                                {row.billNumber}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-slate-600">
-                                                                                {row.poNumber}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-slate-600">
-                                                                                {row.location}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
-                                                                                {formatZohoPaymentMoney(
-                                                                                    row.total,
-                                                                                    row.currencyCode,
-                                                                                )}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-right">
-                                                                                <button
-                                                                                    type="button"
-                                                                                    title="Apply amount due"
-                                                                                    onClick={() =>
-                                                                                        handleRowCheck(
-                                                                                            row,
-                                                                                            true,
-                                                                                        )
-                                                                                    }
-                                                                                    className="tabular-nums text-blue-600 hover:underline"
-                                                                                >
-                                                                                    {formatZohoPaymentMoney(
-                                                                                        row.balance,
-                                                                                        row.currencyCode,
-                                                                                    )}
-                                                                                </button>
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
-                                                                                {form.date || '—'}
-                                                                            </td>
-                                                                            <td className="px-3 py-2.5 text-right">
-                                                                                {checked ? (
-                                                                                    <input
-                                                                                        type="number"
-                                                                                        min="0"
-                                                                                        max={
-                                                                                            row.balance
-                                                                                        }
-                                                                                        step="0.01"
-                                                                                        value={
-                                                                                            billAmounts[
-                                                                                                row
-                                                                                                    .id
-                                                                                            ] || ''
-                                                                                        }
-                                                                                        onChange={(
-                                                                                            event,
-                                                                                        ) =>
-                                                                                            handleBillAmountChange(
-                                                                                                row.id,
-                                                                                                event
-                                                                                                    .target
-                                                                                                    .value,
-                                                                                            )
-                                                                                        }
-                                                                                        className="ml-auto h-9 w-28 rounded-md border border-slate-200 px-2 text-right text-sm tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
-                                                                                    />
-                                                                                ) : (
-                                                                                    <span className="tabular-nums text-slate-300">
-                                                                                        —
-                                                                                    </span>
-                                                                                )}
-                                                                            </td>
-                                                                        </tr>
-                                                                    );
-                                                                })}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
-                                                    <div className="flex justify-end border-t border-slate-200 bg-[#fafbfc] px-4 py-2.5 text-sm font-semibold text-slate-700">
-                                                        Total :{' '}
-                                                        <span className="ml-2 tabular-nums">
-                                                            {visiblePayables
-                                                                .reduce((sum, row) => {
-                                                                    if (
-                                                                        !selectedPayableIds.has(
-                                                                            row.id,
-                                                                        )
-                                                                    ) {
-                                                                        return sum;
-                                                                    }
-                                                                    return (
-                                                                        sum +
-                                                                        amountValue(
-                                                                            billAmounts[row.id],
-                                                                        )
-                                                                    );
-                                                                }, 0)
-                                                                .toFixed(2)}
-                                                        </span>
-                                                    </div>
-                                                </>
-                                            ) : null}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex justify-end">
-                                    <div className="w-full max-w-sm rounded-xl border border-amber-100 bg-[#fff8ef] px-4 py-3 text-sm text-slate-700">
-                                        <div className="flex justify-between gap-4 py-1">
-                                            <span>Amount Paid:</span>
-                                            <span className="font-semibold tabular-nums">
-                                                {formatZohoPaymentMoney(
-                                                    paymentAmount,
-                                                    form.currencyCode,
-                                                )}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between gap-4 py-1">
-                                            <span>Amount used for Payments:</span>
-                                            <span className="font-semibold tabular-nums">
-                                                {formatZohoPaymentMoney(
-                                                    appliedTotal,
-                                                    form.currencyCode,
-                                                )}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between gap-4 py-1">
-                                            <span>Amount Refunded:</span>
-                                            <span className="font-semibold tabular-nums">
-                                                {formatZohoPaymentMoney(0, form.currencyCode)}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between gap-4 py-1 text-amber-800">
-                                            <span className="inline-flex items-center gap-1.5">
-                                                <AlertTriangle size={14} className="text-amber-600" />
-                                                Amount in Excess:
-                                            </span>
-                                            <span className="font-semibold tabular-nums">
+                                        <div className="text-xs font-semibold text-slate-600">
+                                            Remaining:{' '}
+                                            <span className="tabular-nums text-slate-800">
                                                 {formatZohoPaymentMoney(
                                                     remainingAmount,
                                                     form.currencyCode,
@@ -2329,90 +2071,352 @@ export default function AddVendorPaymentModal({
                                     </div>
                                 </div>
 
-                                <label className="block space-y-1.5">
-                                    <span className="text-xs font-semibold text-slate-600">
-                                        Notes{' '}
-                                        <span className="font-normal text-slate-400">
-                                            (Internal use. Not visible to vendor)
+                                <div className="flex min-h-[320px] flex-col">
+                                    <div className="flex items-center justify-between border-b border-slate-200 bg-[#f8fafc] px-4 py-3">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-semibold text-blue-700">
+                                                Bills
+                                            </span>
+                                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] tabular-nums text-blue-700">
+                                                {billRows.length}
+                                            </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-500">
+                                            Check a bill to include it in this payment.
+                                        </p>
+                                    </div>
+
+                                    <div className="flex min-w-0 flex-1 flex-col">
+                                        {loadingBills ? (
+                                            <div className="flex flex-1 items-center justify-center gap-2 px-3 py-10 text-sm text-slate-500">
+                                                <Loader2 size={16} className="animate-spin" />
+                                                Loading bills...
+                                            </div>
+                                        ) : null}
+
+                                        {!loadingBills && !selectedVendor ? (
+                                            <div className="flex flex-1 items-center justify-center px-3 py-10 text-center text-sm text-slate-500">
+                                                Select a vendor to load unpaid bills.
+                                            </div>
+                                        ) : null}
+
+                                        {!loadingBills &&
+                                            selectedVendor &&
+                                            !visiblePayables.length ? (
+                                            <div className="flex flex-1 items-center justify-center px-3 py-10 text-center text-sm text-slate-500">
+                                                No open bills found for this vendor.
+                                            </div>
+                                        ) : null}
+
+                                        {!loadingBills && visiblePayables.length ? (
+                                            <>
+                                                <div className="min-h-0 flex-1 overflow-x-auto">
+                                                    <table className="min-w-[1000px] w-full text-sm">
+                                                        <thead>
+                                                            <tr className="border-b border-slate-200 bg-[#fafbfc] text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                                                <th className="w-10 px-3 py-2.5">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={allVisibleChecked}
+                                                                        onChange={(event) =>
+                                                                            handleSelectAllVisible(
+                                                                                event.target
+                                                                                    .checked,
+                                                                            )
+                                                                        }
+                                                                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
+                                                                        aria-label="Select all bills"
+                                                                    />
+                                                                </th>
+                                                                <th className="px-3 py-2.5">
+                                                                    Date
+                                                                </th>
+                                                                <th className="px-3 py-2.5">
+                                                                    Bill#
+                                                                </th>
+                                                                <th className="px-3 py-2.5">
+                                                                    PO#
+                                                                </th>
+                                                                <th className="px-3 py-2.5">
+                                                                    Location
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-right">
+                                                                    Bill Amount
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-right">
+                                                                    Amount Due
+                                                                </th>
+                                                                <th className="px-3 py-2.5">
+                                                                    Payment Made On
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-right">
+                                                                    Payment
+                                                                </th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {visiblePayables.map((row) => {
+                                                                const checked =
+                                                                    selectedPayableIds.has(
+                                                                        row.id,
+                                                                    );
+                                                                return (
+                                                                    <tr
+                                                                        key={`${row.recordType}-${row.id}`}
+                                                                        className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/70 ${checked
+                                                                                ? 'bg-blue-50/40'
+                                                                                : ''
+                                                                            }`}
+                                                                    >
+                                                                        <td className="px-3 py-2.5">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={checked}
+                                                                                onChange={(
+                                                                                    event,
+                                                                                ) =>
+                                                                                    handleRowCheck(
+                                                                                        row,
+                                                                                        event
+                                                                                            .target
+                                                                                            .checked,
+                                                                                    )
+                                                                                }
+                                                                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
+                                                                                aria-label={`Pay ${row.billNumber}`}
+                                                                            />
+                                                                        </td>
+                                                                        <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
+                                                                            {row.date}
+                                                                        </td>
+                                                                        <td className="px-3 py-2.5 font-medium text-slate-800">
+                                                                            {row.billNumber}
+                                                                        </td>
+                                                                        <td className="px-3 py-2.5 text-slate-600">
+                                                                            {row.poNumber}
+                                                                        </td>
+                                                                        <td className="px-3 py-2.5 text-slate-600">
+                                                                            {row.location}
+                                                                        </td>
+                                                                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
+                                                                            {formatZohoPaymentMoney(
+                                                                                row.total,
+                                                                                row.currencyCode,
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-3 py-2.5 text-right">
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Apply amount due"
+                                                                                onClick={() =>
+                                                                                    handleRowCheck(
+                                                                                        row,
+                                                                                        true,
+                                                                                    )
+                                                                                }
+                                                                                className="tabular-nums text-blue-600 hover:underline"
+                                                                            >
+                                                                                {formatZohoPaymentMoney(
+                                                                                    row.balance,
+                                                                                    row.currencyCode,
+                                                                                )}
+                                                                            </button>
+                                                                        </td>
+                                                                        <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
+                                                                            {form.date || '—'}
+                                                                        </td>
+                                                                        <td className="px-3 py-2.5 text-right">
+                                                                            {checked ? (
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    max={
+                                                                                        row.balance
+                                                                                    }
+                                                                                    step="0.01"
+                                                                                    value={
+                                                                                        billAmounts[
+                                                                                        row
+                                                                                            .id
+                                                                                        ] || ''
+                                                                                    }
+                                                                                    onChange={(
+                                                                                        event,
+                                                                                    ) =>
+                                                                                        handleBillAmountChange(
+                                                                                            row.id,
+                                                                                            event
+                                                                                                .target
+                                                                                                .value,
+                                                                                        )
+                                                                                    }
+                                                                                    className="ml-auto h-9 w-28 rounded-md border border-slate-200 px-2 text-right text-sm tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                                                                />
+                                                                            ) : (
+                                                                                <span className="tabular-nums text-slate-300">
+                                                                                    —
+                                                                                </span>
+                                                                            )}
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <div className="flex justify-end border-t border-slate-200 bg-[#fafbfc] px-4 py-2.5 text-sm font-semibold text-slate-700">
+                                                    Total :{' '}
+                                                    <span className="ml-2 tabular-nums">
+                                                        {visiblePayables
+                                                            .reduce((sum, row) => {
+                                                                if (
+                                                                    !selectedPayableIds.has(
+                                                                        row.id,
+                                                                    )
+                                                                ) {
+                                                                    return sum;
+                                                                }
+                                                                return (
+                                                                    sum +
+                                                                    amountValue(
+                                                                        billAmounts[row.id],
+                                                                    )
+                                                                );
+                                                            }, 0)
+                                                            .toFixed(2)}
+                                                    </span>
+                                                </div>
+                                            </>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end">
+                                <div className="w-full max-w-sm rounded-xl border border-amber-100 bg-[#fff8ef] px-4 py-3 text-sm text-slate-700">
+                                    <div className="flex justify-between gap-4 py-1">
+                                        <span>Amount Paid:</span>
+                                        <span className="font-semibold tabular-nums">
+                                            {formatZohoPaymentMoney(
+                                                paymentAmount,
+                                                form.currencyCode,
+                                            )}
                                         </span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 py-1">
+                                        <span>Amount used for Payments:</span>
+                                        <span className="font-semibold tabular-nums">
+                                            {formatZohoPaymentMoney(
+                                                appliedTotal,
+                                                form.currencyCode,
+                                            )}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 py-1">
+                                        <span>Amount Refunded:</span>
+                                        <span className="font-semibold tabular-nums">
+                                            {formatZohoPaymentMoney(0, form.currencyCode)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 py-1 text-amber-800">
+                                        <span className="inline-flex items-center gap-1.5">
+                                            <AlertTriangle size={14} className="text-amber-600" />
+                                            Amount in Excess:
+                                        </span>
+                                        <span className="font-semibold tabular-nums">
+                                            {formatZohoPaymentMoney(
+                                                remainingAmount,
+                                                form.currencyCode,
+                                            )}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <label className="block space-y-1.5">
+                                <span className="text-xs font-semibold text-slate-600">
+                                    Notes{' '}
+                                    <span className="font-normal text-slate-400">
+                                        (Internal use. Not visible to vendor)
                                     </span>
-                                    <textarea
-                                        value={form.notes}
-                                        onChange={(event) => setField('notes', event.target.value)}
-                                        rows={4}
-                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                </span>
+                                <textarea
+                                    value={form.notes}
+                                    onChange={(event) => setField('notes', event.target.value)}
+                                    rows={4}
+                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                />
+                            </label>
+
+                            <div className="space-y-1.5">
+                                <span className="text-xs font-semibold text-slate-600">
+                                    Attachments
+                                </span>
+                                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                    <Upload size={14} />
+                                    Upload File
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        onChange={(event) =>
+                                            setAttachmentName(
+                                                event.target.files?.[0]?.name || '',
+                                            )
+                                        }
                                     />
                                 </label>
-
-                                <div className="space-y-1.5">
-                                    <span className="text-xs font-semibold text-slate-600">
-                                        Attachments
+                                {attachmentName ? (
+                                    <span className="ml-2 text-xs text-slate-500">
+                                        {attachmentName}
                                     </span>
-                                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                                        <Upload size={14} />
-                                        Upload File
-                                        <input
-                                            type="file"
-                                            className="hidden"
-                                            onChange={(event) =>
-                                                setAttachmentName(
-                                                    event.target.files?.[0]?.name || '',
-                                                )
-                                            }
-                                        />
-                                    </label>
-                                    {attachmentName ? (
-                                        <span className="ml-2 text-xs text-slate-500">
-                                            {attachmentName}
-                                        </span>
-                                    ) : null}
-                                </div>
-                            </>
-                        )}
-                    </div>
+                                ) : null}
+                            </div>
+                        </>
+                    )}
+                </div>
 
-                    <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-start gap-2 border-t border-slate-200 bg-slate-50 px-4 sm:px-6 py-4">
-                        <button
-                            type="button"
-                            disabled={loading || saving || isEdit}
-                            title={
-                                isEdit
-                                    ? 'Draft save applies when creating a new payment.'
-                                    : 'Save payment as Draft in Zoho Books'
-                            }
-                            onClick={(event) => handleSubmit(event, 'draft')}
-                            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                        >
-                            {saving ? <Loader2 size={16} className="mr-2 inline animate-spin" /> : null}
-                            Save as Draft
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={loading || saving}
-                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                        >
-                            {saving ? <Loader2 size={16} className="animate-spin" /> : null}
-                            {isEdit ? 'Update Payment' : 'Save as Paid'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                            disabled={saving}
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                </form>
+                <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-start gap-2 border-t border-slate-200 bg-slate-50 px-4 sm:px-6 py-4">
+                    <button
+                        type="button"
+                        disabled={loading || saving || isEdit}
+                        title={
+                            isEdit
+                                ? 'Draft save applies when creating a new payment.'
+                                : 'Save payment as Draft in Zoho Books'
+                        }
+                        onClick={(event) => handleSubmit(event, 'draft')}
+                        className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                        {saving ? <Loader2 size={16} className="mr-2 inline animate-spin" /> : null}
+                        Save as Draft
+                    </button>
+                    <button
+                        type="submit"
+                        disabled={loading || saving}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                    >
+                        {saving ? <Loader2 size={16} className="animate-spin" /> : null}
+                        {isEdit ? 'Update Payment' : 'Save as Paid'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        disabled={saving}
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </form>
 
-                <VendorSidePanel
-                    open={Boolean(vendorPanelOpen && form.vendorId)}
-                    onClose={() => setVendorPanelOpen(false)}
-                    vendor={vendorDetails}
-                    loading={loadingVendor}
-                    fallbackName={selectedVendor?.label || ''}
-                />
-            </div>
+            <VendorSidePanel
+                open={Boolean(vendorPanelOpen && form.vendorId)}
+                onClose={() => setVendorPanelOpen(false)}
+                vendor={vendorDetails}
+                loading={loadingVendor}
+                fallbackName={selectedVendor?.label || ''}
+            />
+        </div>
     );
 
     if (isPage) return content;

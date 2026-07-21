@@ -640,6 +640,35 @@ function UtilityBillsPageContent() {
         router.replace(qs ? `/HRM/Asset/UtilityBills?${qs}` : '/HRM/Asset/UtilityBills');
     };
 
+    /** Open review from pending-inbox click without relying on same-page router.push. */
+    const handlePendingActivatePath = useCallback(
+        (path) => {
+            const href = String(path || '').trim();
+            if (!href.includes('/HRM/Asset/UtilityBills')) return false;
+            try {
+                const url = new URL(href, 'http://local');
+                const batchId = String(url.searchParams.get('batchId') || '').trim();
+                const statusChangeId = String(url.searchParams.get('statusChangeId') || '').trim();
+                const type = String(url.searchParams.get('type') || '').trim();
+                if (batchId) {
+                    setReviewBatchId(batchId);
+                    if (type) setActiveTypeTab(type);
+                    router.replace(href.startsWith('/') ? href : `${url.pathname}${url.search}`);
+                    return true;
+                }
+                if (statusChangeId) {
+                    setStatusChangeReviewId(statusChangeId);
+                    router.replace(href.startsWith('/') ? href : `${url.pathname}${url.search}`);
+                    return true;
+                }
+            } catch {
+                return false;
+            }
+            return false;
+        },
+        [router],
+    );
+
     const handleStatusChangeResolved = async (data) => {
         if (data?.applyLocalStatus && data?.entryId) {
             try {
@@ -1292,6 +1321,7 @@ function UtilityBillsPageContent() {
                 isOpen={pendingInboxModalOpen}
                 onClose={() => setPendingInboxModalOpen(false)}
                 inboxScope="utility"
+                onActivatePath={handlePendingActivatePath}
                 onRefreshParent={() => fetchPendingInboxCount({ force: true })}
                 onPendingInboxCount={() => fetchPendingInboxCount({ force: true })}
             />

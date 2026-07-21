@@ -34,6 +34,8 @@ import NotificationInboxModal from '@/components/notifications/NotificationInbox
  */
 /**
  * @param {'all'|'tools'|'vehicle'|'utility'} inboxScope — tools = equipment; vehicle = fleet; utility = Utility Bill Payment only.
+ * @param {(path: string, row: object) => boolean} [onActivatePath] — return true if the parent handled
+ *   opening (e.g. same-page Utility Bills review). When true, navigation is skipped.
  */
 export default function PendingAssetRequestsModal({
     isOpen,
@@ -41,6 +43,7 @@ export default function PendingAssetRequestsModal({
     onRefreshParent,
     inboxScope = 'all',
     onPendingInboxCount,
+    onActivatePath,
 }) {
     const { toast } = useToast();
     const router = useRouter();
@@ -127,6 +130,11 @@ export default function PendingAssetRequestsModal({
 
         const path = buildAssetNotificationPath(normalizeAssetNotificationItem(row));
         if (path) {
+            // Same-page Utility Bills: parent opens review modal directly (router.push alone often no-ops).
+            if (typeof onActivatePath === 'function' && onActivatePath(path, row)) {
+                onClose();
+                return;
+            }
             navigateFromNotificationClick(router, path);
             onClose();
             return;
