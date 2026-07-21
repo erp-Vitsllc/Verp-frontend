@@ -75,6 +75,17 @@ export async function removeUtilityTypeNameApi(name) {
     return Array.isArray(res.data?.types) ? res.data.types : [];
 }
 
+export async function renameUtilityTypeNameApi(oldName, newName) {
+    const res = await axiosInstance.put(
+        `/UtilityBill/types/${encodeURIComponent(String(oldName))}`,
+        { name: String(newName || '').trim() },
+    );
+    return {
+        name: String(res.data?.name || newName || '').trim(),
+        types: Array.isArray(res.data?.types) ? res.data.types : [],
+    };
+}
+
 export async function fetchUtilityProvidersApi() {
     const res = await axiosInstance.get('/UtilityBill/providers', { skipToast: true });
     return {

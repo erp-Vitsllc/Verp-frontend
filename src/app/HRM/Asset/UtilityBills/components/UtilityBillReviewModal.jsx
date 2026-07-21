@@ -141,6 +141,7 @@ function buildReviewRows(entries, bills) {
                 provider: bill.provider || entryProvider(entry),
                 zohoVendorId: String(bill.zohoVendorId || '').trim(),
                 zohoBillId: String(bill.zohoBillId || '').trim(),
+                zohoBillStatus: String(bill.zohoBillStatus || '').trim(),
                 zohoOrganizationId: String(bill.zohoOrganizationId || '').trim(),
                 zohoSyncError: String(bill.zohoSyncError || '').trim(),
                 billNumber: String(bill.billNumber || '').trim(),
@@ -183,6 +184,7 @@ function buildReviewRows(entries, bills) {
             provider: entryProvider(entry),
             zohoVendorId: '',
             zohoBillId: '',
+            zohoBillStatus: '',
             zohoOrganizationId: '',
             zohoSyncError: '',
             billNumber: '',
@@ -229,6 +231,7 @@ function buildReviewRows(entries, bills) {
             provider: bill.provider || '—',
             zohoVendorId: String(bill.zohoVendorId || '').trim(),
             zohoBillId: String(bill.zohoBillId || '').trim(),
+            zohoBillStatus: String(bill.zohoBillStatus || '').trim(),
             zohoOrganizationId: String(bill.zohoOrganizationId || '').trim(),
             zohoSyncError: String(bill.zohoSyncError || '').trim(),
             billNumber: String(bill.billNumber || '').trim(),
@@ -442,7 +445,10 @@ export default function UtilityBillReviewModal({
     const canEdit = Boolean(batch?.canEdit);
     const canApproveReject = Boolean(batch?.canApproveReject ?? batch?.canEdit);
     const canPay = Boolean(batch?.canPay);
-    const isViewerOnly = Boolean(batch) && !canEdit && !canPay;
+    const needsZohoOpen = Boolean(batch?.needsZohoOpen);
+    const isHrStage = String(batch?.status || '') === 'Pending HR';
+    const canHrDraft = canApproveReject && isHrStage;
+    const isViewerOnly = Boolean(batch) && !canEdit && !canPay && !needsZohoOpen;
 
     // Pay total = company + employee pay (TOTAL bar), not contract / raw actual
     const selectedPayTotals = useMemo(() => summarizeSelectedBillRows(rows), [rows]);
@@ -757,13 +763,16 @@ export default function UtilityBillReviewModal({
             const zohoFailed = zohoSync.filter((r) => r && r.ok === false && !r.skipped);
             const zohoCreated = zohoSync.filter((r) => r && r.ok && !r.skipped);
 
-            if (decision === 'approve' && zohoFailed.length > 0) {
+            if ((decision === 'approve' || decision === 'draft') && zohoFailed.length > 0) {
                 const firstMsg =
                     zohoFailed[0]?.message ||
                     'Zoho bill was not created. Fix vendor / expense account, then retry.';
                 toast({
                     variant: 'destructive',
-                    title: 'Approved — Zoho sync failed',
+                    title:
+                        decision === 'draft'
+                            ? 'Draft saved — Zoho sync failed'
+                            : 'Approved — Zoho sync failed',
                     description: firstMsg,
                 });
                 setError(firstMsg);
@@ -774,19 +783,27 @@ export default function UtilityBillReviewModal({
 
             toast({
                 title:
-                    decision === 'approve'
-                        ? label.toLowerCase() === 'not paid'
-                            ? 'Not paid'
-                            : 'Approved'
-                        : 'Rejected',
+                    decision === 'draft'
+                        ? 'Saved as Zoho Draft'
+                        : decision === 'approve'
+                          ? label.toLowerCase() === 'not paid'
+                              ? 'Not paid'
+                              : 'Approved'
+                          : 'Rejected',
                 description:
-                    decision === 'approve' && label.toLowerCase() === 'not paid'
+                    decision === 'draft'
                         ? zohoCreated.length > 0
-                            ? `Awaiting Accounts payment. ${zohoCreated.length} bill(s) created in Zoho.`
+                            ? `${zohoCreated.length} bill(s) stored in Zoho as Draft (not shown in Payments Made until Approve).`
                             : zohoSync.length > 0
-                              ? 'Awaiting Accounts payment. Zoho bills already linked.'
-                              : 'Awaiting Accounts payment.'
-                        : label,
+                              ? 'Zoho Draft already linked. Approve to mark Open for payment.'
+                              : 'Still pending HR. Approve when ready to open in Zoho.'
+                        : decision === 'approve' && label.toLowerCase() === 'not paid'
+                          ? zohoCreated.length > 0
+                              ? `Awaiting Accounts payment. ${zohoCreated.length} bill(s) Open in Zoho.`
+                              : zohoSync.length > 0
+                                ? 'Awaiting Accounts payment. Zoho bills Open / linked.'
+                                : 'Awaiting Accounts payment.'
+                          : label,
             });
             onChanged?.();
             onClose?.();
@@ -799,14 +816,16 @@ export default function UtilityBillReviewModal({
 
     const needsZohoRetry = useMemo(
         () =>
+            needsZohoOpen ||
             rows.some(
                 (r) =>
                     r.inBatch &&
                     r.billId &&
-                    String(r.status) === 'Approved' &&
-                    !String(r.zohoBillId || '').trim(),
+                    (String(r.status) === 'Approved' || String(r.status) === 'Pending HR') &&
+                    (!String(r.zohoBillId || '').trim() ||
+                        String(r.zohoBillStatus || '').toLowerCase() === 'draft'),
             ),
-        [rows],
+        [rows, needsZohoOpen],
     );
 
     const handleRetryZohoSync = async () => {
@@ -877,6 +896,15 @@ export default function UtilityBillReviewModal({
                 title: 'Zoho bill missing',
                 description: detail,
             });
+            return;
+        }
+        const stillDraft = payable.filter(
+            (r) => String(r.zohoBillStatus || '').toLowerCase() === 'draft',
+        );
+        if (stillDraft.length) {
+            setError(
+                'Zoho bill is still Draft. Click “Open Zoho bill” first — then Accounts can pay in Payments Made.',
+            );
             return;
         }
         const anySelected = payable.some((r) => r.selected);
@@ -1129,13 +1157,17 @@ export default function UtilityBillReviewModal({
                         <>
                             <div className="px-5 pt-3 pb-1 flex items-center justify-between gap-2 shrink-0">
                                 <span className="text-xs text-gray-500">
-                                    {canEdit
-                                        ? 'Same as Add Bills — check/uncheck, edit Actual, Contract Paid By, and Upload before Approve.'
-                                        : canPay
-                                          ? 'Select bills to pay.'
-                                          : isViewerOnly
-                                            ? `View only — pending ${batch?.pendingWithName || 'approver'} (${batch?.statusLabel || batch?.status || ''}).`
-                                            : ''}
+                                    {needsZohoOpen
+                                        ? 'Zoho is still Draft. Click “Open Zoho bill” — then Accounts gets payment and Pay becomes available.'
+                                        : canHrDraft
+                                          ? 'Draft → stays on HR inbox, Zoho Draft. Approve → Zoho Open, then Accounts can pay.'
+                                          : canEdit
+                                            ? 'Same as Add Bills — check/uncheck, edit Actual, Contract Paid By, and Upload before Approve.'
+                                            : canPay
+                                              ? 'Select bills to pay.'
+                                              : isViewerOnly
+                                                ? `View only — pending ${batch?.pendingWithName || 'approver'} (${batch?.statusLabel || batch?.status || ''}).`
+                                                : ''}
                                 </span>
                                 <span className="text-xs text-gray-500 tabular-nums shrink-0">
                                     {selectedCount} of {rows.length} selected
@@ -1572,18 +1604,25 @@ export default function UtilityBillReviewModal({
 
                             {needsZohoRetry ? (
                                 <div className="mx-5 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shrink-0">
-                                    <p className="font-semibold">Not in Zoho Books yet</p>
+                                    <p className="font-semibold">
+                                        {needsZohoOpen
+                                            ? 'Zoho bill is still Draft'
+                                            : 'Not in Zoho Books yet'}
+                                    </p>
                                     <p className="mt-1 text-amber-900/90">
-                                        HR approval in ERP worked. Zoho Books still rejected creating
-                                        the bill (vendor, expense account, wrong org, or Zoho login
-                                        permissions). Fix Zoho access, then retry.
+                                        {needsZohoOpen
+                                            ? 'Click “Open Zoho bill” to mark it Open in Zoho. Then Accounts gets the payment task and Pay becomes available.'
+                                            : 'Zoho still rejected creating the bill (vendor, expense account, wrong org, or Zoho login permissions). Fix Zoho access, then retry.'}
                                     </p>
                                     {rows
                                         .filter(
                                             (r) =>
                                                 r.inBatch &&
-                                                String(r.status) === 'Approved' &&
-                                                !String(r.zohoBillId || '').trim() &&
+                                                (String(r.status) === 'Approved' ||
+                                                    String(r.status) === 'Pending HR') &&
+                                                (String(r.zohoBillStatus || '').toLowerCase() ===
+                                                    'draft' ||
+                                                    !String(r.zohoBillId || '').trim()) &&
                                                 r.zohoSyncError,
                                         )
                                         .slice(0, 2)
@@ -1615,9 +1654,18 @@ export default function UtilityBillReviewModal({
                                         type="button"
                                         disabled={acting}
                                         onClick={handleRetryZohoSync}
+                                        title={
+                                            needsZohoOpen
+                                                ? 'Mark Zoho bill Open so Accounts can pay in Payments Made'
+                                                : undefined
+                                        }
                                         className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-100 hover:bg-amber-200 text-amber-950 text-sm font-semibold disabled:opacity-50"
                                     >
-                                        {acting ? 'Syncing…' : 'Retry Zoho sync'}
+                                        {acting
+                                            ? 'Opening…'
+                                            : needsZohoOpen
+                                              ? 'Open Zoho bill'
+                                              : 'Retry Zoho sync'}
                                     </button>
                                 ) : null}
                                 {canApproveReject ? (
@@ -1630,6 +1678,17 @@ export default function UtilityBillReviewModal({
                                         >
                                             Reject
                                         </button>
+                                        {canHrDraft ? (
+                                            <button
+                                                type="button"
+                                                disabled={acting || !canApproveSelected}
+                                                onClick={() => handleRespond('draft')}
+                                                title="Store bill in Zoho as Draft (not payable in Payments Made until Approve)"
+                                                className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-sm font-semibold disabled:opacity-50"
+                                            >
+                                                {acting ? 'Saving…' : 'Draft'}
+                                            </button>
+                                        ) : null}
                                         <button
                                             type="button"
                                             disabled={acting || !canApproveSelected}
@@ -1637,7 +1696,9 @@ export default function UtilityBillReviewModal({
                                             title={
                                                 blockedSelectedCount
                                                     ? 'Uncheck accounts that already have Approved / Paid for this month'
-                                                    : undefined
+                                                    : canHrDraft
+                                                      ? 'Approve and mark Zoho bill Open so Accounts can pay'
+                                                      : undefined
                                             }
                                             className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
                                         >

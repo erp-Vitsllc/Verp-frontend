@@ -265,6 +265,10 @@ export default function AddVendorPaymentModal({
     const [vendorDetails, setVendorDetails] = useState(null);
     const [vendorPanelOpen, setVendorPanelOpen] = useState(false);
     const [loadingVendor, setLoadingVendor] = useState(false);
+    /** Paid Through can come from the other Zoho org (e.g. NNIT employee pays a VEGA bill). */
+    const [paidThroughOrgId, setPaidThroughOrgId] = useState('');
+    const [crossOrgAccounts, setCrossOrgAccounts] = useState([]);
+    const [loadingCrossOrgAccounts, setLoadingCrossOrgAccounts] = useState(false);
 
     const preferredOrganizationId = String(
         prefill?.organizationId || prefill?.zohoOrganizationId || '',
@@ -918,10 +922,69 @@ export default function AddVendorPaymentModal({
         [form.locationId, locationOptions],
     );
 
+    const effectivePaidThroughOrgId = paidThroughOrgId || organizationId;
+    const isCrossOrgPaidThrough = Boolean(
+        paidThroughOrgId && organizationId && paidThroughOrgId !== organizationId,
+    );
+    const paidThroughOrgOption = useMemo(
+        () =>
+            zohoOrgOptions.find((opt) => opt.organizationId === effectivePaidThroughOrgId) || null,
+        [zohoOrgOptions, effectivePaidThroughOrgId],
+    );
+
+    // When Paid Through points at the other org (e.g. NNIT employee pays a VEGA bill),
+    // pull that org's Chart of Accounts for the dropdown.
+    useEffect(() => {
+        if (!isCrossOrgPaidThrough) {
+            setCrossOrgAccounts([]);
+            return undefined;
+        }
+        let cancelled = false;
+        setLoadingCrossOrgAccounts(true);
+        axiosInstance
+            .get('/zoho/vendorpayments/support', {
+                skipToast: true,
+                timeout: 120000,
+                params: { organizationId: paidThroughOrgId, accountsOnly: 'true' },
+            })
+            .then((response) => {
+                if (cancelled) return;
+                setCrossOrgAccounts(mapZohoPaymentAccounts(response?.data?.data?.accounts));
+            })
+            .catch((err) => {
+                if (cancelled) return;
+                console.warn(
+                    '[AddVendorPayment] Cross-org accounts load failed:',
+                    err?.response?.data?.message || err?.message || err,
+                );
+                setCrossOrgAccounts([]);
+            })
+            .finally(() => {
+                if (!cancelled) setLoadingCrossOrgAccounts(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [isCrossOrgPaidThrough, paidThroughOrgId]);
+
+    // New payment org context → Paid Through defaults back to that org's accounts.
+    useEffect(() => {
+        setPaidThroughOrgId('');
+        setCrossOrgAccounts([]);
+    }, [organizationId]);
+
+    const handlePaidThroughOrgSwitch = (nextOrgId) => {
+        const id = String(nextOrgId || '').trim();
+        if (!id || id === effectivePaidThroughOrgId) return;
+        setPaidThroughOrgId(id === organizationId ? '' : id);
+        setField('paidThroughAccountId', '');
+    };
+
     const paidThroughOptions = useMemo(() => {
         const groups = new Map();
+        const sourceAccounts = isCrossOrgPaidThrough ? crossOrgAccounts : accounts;
 
-        accounts.forEach((account) => {
+        sourceAccounts.forEach((account) => {
             const groupLabel = account.type || 'Other';
             if (!groups.has(groupLabel)) groups.set(groupLabel, []);
             groups.get(groupLabel).push({
@@ -936,7 +999,7 @@ export default function AddVendorPaymentModal({
                 label,
                 options: options.sort((a, b) => a.label.localeCompare(b.label)),
             }));
-    }, [accounts]);
+    }, [accounts, crossOrgAccounts, isCrossOrgPaidThrough]);
 
     const flatPaidThroughOptions = useMemo(
         () => paidThroughOptions.flatMap((group) => group.options || []),
@@ -1161,6 +1224,13 @@ export default function AddVendorPaymentModal({
                 is_draft: asDraft,
                 status: asDraft ? 'draft' : 'paid',
                 ...(organizationId ? { organizationId } : {}),
+                ...(isCrossOrgPaidThrough
+                    ? {
+                          paid_through_organization_id: paidThroughOrgId,
+                          paid_through_org_brand: paidThroughOrgOption?.brand || '',
+                          payment_org_brand: activeZohoOrg?.brand || '',
+                      }
+                    : {}),
                 ...(fineMongoIds.length
                     ? { fineMongoIds, mode: prefillRef?.mode || 'fine_bills' }
                     : {}),
@@ -1843,11 +1913,49 @@ export default function AddVendorPaymentModal({
                                             />
                                         </label>
 
-                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-center gap-1.5 sm:gap-3">
-                                            <span className="text-xs font-bold text-red-600">
+                                        <label className="grid grid-cols-1 sm:grid-cols-[150px_1fr] sm:items-start gap-1.5 sm:gap-3">
+                                            <span className="text-xs font-bold text-red-600 sm:pt-2.5">
                                                 Paid Through <span className="text-blue-600">*</span>
                                             </span>
-                                            <Select
+                                            <div className="space-y-1.5">
+                                                {zohoOrgOptions.length > 1 && (
+                                                    <div className="flex items-center gap-1.5">
+                                                        {zohoOrgOptions.map((opt) => {
+                                                            const isActiveTab =
+                                                                opt.organizationId ===
+                                                                effectivePaidThroughOrgId;
+                                                            return (
+                                                                <button
+                                                                    key={opt.organizationId}
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        handlePaidThroughOrgSwitch(
+                                                                            opt.organizationId,
+                                                                        )
+                                                                    }
+                                                                    disabled={saving}
+                                                                    className={`rounded-md border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide transition ${
+                                                                        isActiveTab
+                                                                            ? 'border-blue-600 bg-blue-600 text-white'
+                                                                            : 'border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:text-blue-600'
+                                                                    }`}
+                                                                    title={`Show ${opt.brand || opt.label} Chart of Accounts`}
+                                                                >
+                                                                    {opt.brand || opt.label}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                        {isCrossOrgPaidThrough && (
+                                                            <span className="text-[10px] text-amber-600">
+                                                                Payment stays in{' '}
+                                                                {activeZohoOrg?.brand || 'this org'};
+                                                                credit posts in{' '}
+                                                                {paidThroughOrgOption?.brand || 'other org'}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                <Select
                                                 classNamePrefix="zoho-paid-through"
                                                 instanceId="zoho-paid-through"
                                                 value={selectedPaidThrough}
@@ -1855,12 +1963,15 @@ export default function AddVendorPaymentModal({
                                                     setField('paidThroughAccountId', option?.value || '')
                                                 }
                                                 options={paidThroughOptions}
+                                                isLoading={loadingCrossOrgAccounts}
                                                 isClearable
                                                 isSearchable
                                                 placeholder={
-                                                    activeZohoOrg?.brand
-                                                        ? `Select ${activeZohoOrg.brand} Chart of Accounts`
-                                                        : 'Select Chart of Accounts'
+                                                    loadingCrossOrgAccounts
+                                                        ? `Loading ${paidThroughOrgOption?.brand || ''} accounts…`
+                                                        : paidThroughOrgOption?.brand
+                                                          ? `Select ${paidThroughOrgOption.brand} Chart of Accounts`
+                                                          : 'Select Chart of Accounts'
                                                 }
                                                 noOptionsMessage={() =>
                                                     'No accounts found in Zoho Chart of Accounts'
@@ -1881,7 +1992,8 @@ export default function AddVendorPaymentModal({
                                                 }
                                                 menuPosition="fixed"
                                                 menuPlacement="auto"
-                                            />
+                                                />
+                                            </div>
                                         </label>
                                     </div>
 

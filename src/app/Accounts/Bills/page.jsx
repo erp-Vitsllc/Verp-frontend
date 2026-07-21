@@ -150,6 +150,14 @@ export default function PurchasesBillsPage() {
                                     <RefreshCw size={16} className={loading || loadingMore ? 'animate-spin' : ''} />
                                     Refresh
                                 </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void handleConnectZoho()}
+                                    title="Re-authorize Zoho Books (fixes 'not authorized' when creating bills)"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-teal-700 hover:bg-teal-100 whitespace-nowrap"
+                                >
+                                    Reconnect Zoho
+                                </button>
                             </div>
                         </ErpPageHeader>
 

@@ -7,6 +7,7 @@ import {
     addUtilityTypeNameApi,
     fetchUtilityTypeNames,
     removeUtilityTypeNameApi,
+    renameUtilityTypeNameApi,
 } from '../utils/utilityBillsApi';
 
 export const UTILITY_TOGGLE_FIELDS = [
@@ -62,7 +63,7 @@ function YesNoToggle({ name, value, onChange, label }) {
 
 /**
  * Add Utility modal:
- * - Type dropdown (admin can add types; types stay permanently)
+ * - Type dropdown (admin can add / rename / delete types)
  * - Used types are disabled in the dropdown
  * - Admin can delete types (force-deletes related tabs/records when in use)
  * - Include fields Yes/No toggles
@@ -196,7 +197,10 @@ export default function AddUtilityModal({
                 const firstAvailable = next.find((t) => !isTypeUsed(t));
                 setType(firstAvailable || '');
             }
-            if (used) onCatalogChanged?.();
+            if (used || isEditMode) await onCatalogChanged?.();
+            if (isEditMode && lockedType.toLowerCase() === String(name).toLowerCase()) {
+                onClose?.();
+            }
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not remove type.');
         } finally {
@@ -208,9 +212,9 @@ export default function AddUtilityModal({
         setToggles((prev) => ({ ...prev, [key]: value }));
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        const selected = isEditMode ? lockedType : type;
+        const selected = String(type || '').trim();
         if (!selected) {
             setError('Select a utility type.');
             return;
@@ -219,15 +223,36 @@ export default function AddUtilityModal({
             setError(`“${selected}” is already used. Choose another type.`);
             return;
         }
-        onSave?.({
-            type: selected,
-            fields: {
-                ...toggles,
-                attachment: attachmentEnabled,
-            },
-            attachment: null,
-        });
-        onClose?.();
+
+        setBusy(true);
+        setError('');
+        try {
+            let finalType = selected;
+            if (isEditMode && canManageTypes) {
+                const renamed =
+                    selected.toLowerCase() !== lockedType.toLowerCase() || selected !== lockedType;
+                if (renamed) {
+                    const result = await renameUtilityTypeNameApi(lockedType, selected);
+                    finalType = result.name || selected;
+                    setTypes(result.types?.length ? result.types : types);
+                    await onCatalogChanged?.();
+                }
+            }
+
+            onSave?.({
+                type: finalType,
+                fields: {
+                    ...toggles,
+                    attachment: attachmentEnabled,
+                },
+                attachment: null,
+            });
+            onClose?.();
+        } catch (err) {
+            setError(err?.response?.data?.message || 'Could not save utility type.');
+        } finally {
+            setBusy(false);
+        }
     };
 
     return (
@@ -275,12 +300,35 @@ export default function AddUtilityModal({
                             </div>
 
                             {isEditMode ? (
-                                <input
-                                    type="text"
-                                    value={lockedType}
-                                    readOnly
-                                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"
-                                />
+                                canManageTypes ? (
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={type}
+                                            onChange={(e) => setType(e.target.value)}
+                                            placeholder="Utility type name"
+                                            className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            disabled={busy}
+                                            title="Delete this utility type and related records"
+                                            onClick={() => handleRemoveType(lockedType)}
+                                            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-red-200 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                                        >
+                                            <Trash2 size={14} />
+                                            Delete
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        value={lockedType}
+                                        readOnly
+                                        className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"
+                                    />
+                                )
                             ) : (
                                 <select
                                     value={type}
@@ -304,7 +352,11 @@ export default function AddUtilityModal({
 
                             {!canManageTypes ? (
                                 <p className="mt-1 text-xs text-gray-500">
-                                    Only administrators can add types. There are no fixed/static options.
+                                    Only administrators can add, rename, or delete types.
+                                </p>
+                            ) : isEditMode ? (
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Rename updates this type everywhere (tabs, records, bills). Delete removes the type and related records.
                                 </p>
                             ) : (
                                 <p className="mt-1 text-xs text-gray-500">
@@ -403,7 +455,8 @@ export default function AddUtilityModal({
                         </button>
                         <button
                             type="submit"
-                            className="px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium"
+                            disabled={busy}
+                            className="px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium disabled:opacity-60"
                         >
                             {isEditMode ? 'Update Utility' : 'Save Utility'}
                         </button>

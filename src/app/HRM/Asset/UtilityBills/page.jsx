@@ -48,6 +48,7 @@ import {
     updateUtilityEntryApi,
     addUtilityTypeNameApi,
     addUtilityProviderApi,
+    removeUtilityTypeNameApi,
 } from './utils/utilityBillsApi';
 import { openUtilityAttachment } from './utils/openUtilityAttachment';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
@@ -453,11 +454,14 @@ function UtilityBillsPageContent() {
         }
         const confirmMsg = used
             ? `Delete “${typeName}” and all of its records and bills? This cannot be undone.`
-            : `Delete “${typeName}” tab? The type will stay in the dropdown for reuse.`;
+            : `Delete “${typeName}” type? This removes the tab and the type from the dropdown.`;
         if (!window.confirm(confirmMsg)) return;
 
         try {
-            if (utility.id) {
+            if (canAdminDelete) {
+                // Admin force-delete: cascade entries/bills and deactivate catalog type.
+                await removeUtilityTypeNameApi(typeName);
+            } else if (utility.id) {
                 await deleteUtilityConfig(utility.id);
             }
             setUtilities((prev) =>
@@ -824,7 +828,7 @@ function UtilityBillsPageContent() {
                                         return (
                                             <div
                                                 key={tab.id || tab.type}
-                                                className="relative group shrink-0"
+                                                className="relative group shrink-0 flex items-center gap-1"
                                             >
                                                 <button
                                                     type="button"
@@ -844,38 +848,57 @@ function UtilityBillsPageContent() {
                                                     ) : null}
                                                 </button>
 
-                                                <div
-                                                    className="absolute left-1/2 top-full z-20 hidden -translate-x-1/2 group-hover:flex flex-col items-center pt-1"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-md whitespace-nowrap">
+                                                {canAdminDelete ? (
+                                                    <div className="flex items-center gap-0.5 pb-1">
                                                         <button
                                                             type="button"
-                                                            title="Edit"
+                                                            title="Edit / rename type"
                                                             onClick={() => openEditUtility(tab)}
-                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-teal-700 hover:bg-teal-50"
+                                                            className="inline-flex items-center justify-center p-1 rounded-md text-teal-700 hover:bg-teal-50"
                                                         >
-                                                            <Pencil size={12} />
-                                                            Edit
+                                                            <Pencil size={13} />
                                                         </button>
                                                         <button
                                                             type="button"
                                                             title={
-                                                                tabUsed && !canAdminDelete
-                                                                    ? 'Has records — delete disabled'
-                                                                    : tabUsed
-                                                                      ? 'Delete tab and all records'
-                                                                      : 'Delete tab'
+                                                                tabUsed
+                                                                    ? 'Delete type and all records'
+                                                                    : 'Delete type'
                                                             }
-                                                            disabled={tabUsed && !canAdminDelete}
                                                             onClick={() => handleDeleteUtility(tab)}
-                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                                            className="inline-flex items-center justify-center p-1 rounded-md text-red-600 hover:bg-red-50"
                                                         >
-                                                            <Trash2 size={12} />
-                                                            Delete
+                                                            <Trash2 size={13} />
                                                         </button>
                                                     </div>
-                                                </div>
+                                                ) : (
+                                                    <div
+                                                        className="absolute left-1/2 top-full z-20 hidden -translate-x-1/2 group-hover:flex flex-col items-center pt-1"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-md whitespace-nowrap">
+                                                            <button
+                                                                type="button"
+                                                                title="Edit"
+                                                                onClick={() => openEditUtility(tab)}
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-teal-700 hover:bg-teal-50"
+                                                            >
+                                                                <Pencil size={12} />
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                title="Has records — delete disabled"
+                                                                disabled={tabUsed}
+                                                                onClick={() => handleDeleteUtility(tab)}
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                                            >
+                                                                <Trash2 size={12} />
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}
