@@ -78,6 +78,23 @@ function employeeIdCandidates(employee) {
     );
 }
 
+function billPayableToEmployee(bill, employee) {
+    const payBy = String(bill?.paymentBy || '').toLowerCase();
+    if (payBy !== 'employee' && payBy !== 'employee_balance') return false;
+    const ids = employeeIdCandidates(employee);
+    return [bill?.payByEmployeeId].filter(Boolean).some((id) => ids.has(String(id)));
+}
+
+function billAbsDifference(bill) {
+    const fromField = Number(bill?.differenceAmount);
+    if (Number.isFinite(fromField) && Math.abs(fromField) > 0.009) {
+        return Math.abs(fromField);
+    }
+    const contract = Number(bill?.monthlyRental) || 0;
+    const actual = Number(bill?.amount) || 0;
+    return Math.abs(contract - actual);
+}
+
 function assigneeMatchesEmployee(assignedTo, employee) {
     if (!assignedTo || !employee) return false;
     const ids = employeeIdCandidates(employee);
@@ -128,6 +145,8 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     const [loadingBills, setLoadingBills] = useState(false);
     const [expandedEntries, setExpandedEntries] = useState(() => new Set());
     const [viewBill, setViewBill] = useState(null);
+    /** utilityBillId → PartyExpense Not Paid / Paid for difference */
+    const [differencePayByBillId, setDifferencePayByBillId] = useState({});
     /** 'day' | 'month' | 'year' */
     const [filterMode, setFilterMode] = useState('month');
     const [dayStart, setDayStart] = useState('');
@@ -163,6 +182,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         const list = Array.isArray(entries) ? entries : [];
         if (!list.length) {
             setBillsByEntry({});
+            setDifferencePayByBillId({});
             return;
         }
         setLoadingBills(true);
@@ -185,10 +205,47 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 map[id] = bills;
             });
             setBillsByEntry(map);
+
+            // Difference pay status (separate from main vendor bill Paid).
+            const businessEmployeeId = String(employee?.employeeId || '').trim();
+            if (businessEmployeeId) {
+                try {
+                    const expRes = await axiosInstance.get('/Expense', {
+                        params: { employeeId: businessEmployeeId },
+                        skipToast: true,
+                    });
+                    const rows = Array.isArray(expRes.data?.rows) ? expRes.data.rows : [];
+                    const byBill = {};
+                    rows.forEach((row) => {
+                        const billId = String(row.utilityBillId || '').trim();
+                        if (!billId) return;
+                        if (String(row.kind || '').toLowerCase() !== 'balance') return;
+                        byBill[billId] = {
+                            id: row.id,
+                            status: row.status || 'Not Paid',
+                            amount: Number(row.amount) || 0,
+                            partyAccountId: row.partyAccountId || '',
+                            partyAccountName: row.partyAccountName || '',
+                            partyAccountCode: row.partyAccountCode || '',
+                            zohoBillId: row.zohoBillId || '',
+                            zohoOrganizationId: row.zohoOrganizationId || '',
+                            utilityBatchId: row.utilityBatchId || '',
+                            accountNo: row.accountNo || '',
+                            utilityType: row.utilityType || '',
+                            billMonth: row.billMonth || '',
+                        };
+                    });
+                    setDifferencePayByBillId(byBill);
+                } catch {
+                    setDifferencePayByBillId({});
+                }
+            } else {
+                setDifferencePayByBillId({});
+            }
         } finally {
             setLoadingBills(false);
         }
-    }, []);
+    }, [employee?.employeeId]);
 
     const loadUtilities = useCallback(async () => {
         const empId = String(employee?._id || '');
@@ -221,6 +278,118 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     useEffect(() => {
         if (mode === 'Utility Bills') loadUtilities();
     }, [mode, loadUtilities]);
+
+    const handleDifferencePay = useCallback(
+        (bill) => {
+            const diffAmount = billAbsDifference(bill);
+            if (diffAmount <= 0.009) return;
+
+            const businessEmployeeId = String(employee?.employeeId || '').trim();
+            const expenseMeta = differencePayByBillId[String(bill._id)] || {};
+            const amount = Number(expenseMeta.amount) > 0 ? Number(expenseMeta.amount) : diffAmount;
+            const partyAccountId = String(
+                bill.partyAccountId || expenseMeta.partyAccountId || '',
+            ).trim();
+            const partyAccountName = String(
+                bill.partyAccountName || expenseMeta.partyAccountName || '',
+            ).trim();
+            const partyAccountCode = String(
+                bill.partyAccountCode || expenseMeta.partyAccountCode || '',
+            ).trim();
+
+            const params = new URLSearchParams();
+            params.set('addUtilityPay', '1');
+            params.set('mode', 'difference');
+            if (bill.zohoBillId || expenseMeta.zohoBillId) {
+                params.set('billIds', bill.zohoBillId || expenseMeta.zohoBillId);
+            }
+            params.set('utilityBillIds', String(bill._id));
+            if (bill.zohoOrganizationId || expenseMeta.zohoOrganizationId) {
+                params.set(
+                    'organizationId',
+                    bill.zohoOrganizationId || expenseMeta.zohoOrganizationId,
+                );
+            }
+            params.set('amount', String(amount));
+            if (businessEmployeeId) params.set('employeeId', businessEmployeeId);
+            if (bill.batchId || expenseMeta.utilityBatchId) {
+                params.set('batchId', String(bill.batchId || expenseMeta.utilityBatchId));
+            }
+            if (bill.utilityType) params.set('utilityType', String(bill.utilityType));
+            if (bill.billMonth) params.set('billMonth', String(bill.billMonth));
+            if (bill.zohoVendorId) params.set('vendorId', String(bill.zohoVendorId));
+            if (bill.provider) params.set('vendorName', String(bill.provider));
+
+            const returnTo =
+                typeof window !== 'undefined'
+                    ? `${window.location.pathname}${window.location.search || ''}`
+                    : '';
+            if (returnTo) params.set('returnTo', returnTo);
+
+            const employeeName =
+                `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() ||
+                String(bill.payByEmployeeName || '');
+
+            const prefill = {
+                amount: amount.toFixed(2),
+                notes: `Utility difference payment · ${bill.utilityType || ''} ${bill.billMonth || ''}`.trim(),
+                mode: 'difference',
+                billsOnly: true,
+                utilityBatchId: String(bill.batchId || expenseMeta.utilityBatchId || ''),
+                utilityBillId: String(bill._id),
+                utilityBillIds: [String(bill._id)],
+                utilityBillLinks: [
+                    {
+                        utilityBillId: String(bill._id),
+                        zohoBillId: bill.zohoBillId || expenseMeta.zohoBillId || '',
+                        billNumber: String(bill.billNumber || bill.accountNo || ''),
+                    },
+                ],
+                zohoBillId: bill.zohoBillId || expenseMeta.zohoBillId || '',
+                selectedBillIds: bill.zohoBillId ? [bill.zohoBillId] : [],
+                zohoBillIds: bill.zohoBillId ? [bill.zohoBillId] : [],
+                organizationId: bill.zohoOrganizationId || expenseMeta.zohoOrganizationId || '',
+                vendorId: String(bill.zohoVendorId || ''),
+                vendorName: String(bill.provider || ''),
+                billNumber: String(bill.billNumber || bill.accountNo || ''),
+                accountNo: String(bill.accountNo || ''),
+                utilityType: bill.utilityType || '',
+                billMonth: bill.billMonth || '',
+                employeeId: businessEmployeeId,
+                payBy: 'employee',
+                payByEmployeeId: businessEmployeeId || String(bill.payByEmployeeId || ''),
+                payByEmployeeName: employeeName,
+                partyAccountId,
+                partyAccountName,
+                partyAccountCode,
+                // Paid Through must be Cash/Bank (Debited on settle) — not Acc2.
+                paidThroughAccountId: '',
+                paidThroughAccountName: '',
+                returnTo,
+                partyRows: [
+                    {
+                        utilityBillId: String(bill._id),
+                        accountNo: bill.accountNo || expenseMeta.accountNo || '',
+                        payBy: 'employee',
+                        amount,
+                        employeePayAmount: amount,
+                        payByEmployeeId: businessEmployeeId || String(bill.payByEmployeeId || ''),
+                        payByEmployeeName: employeeName,
+                        partyAccountId,
+                        partyAccountName,
+                        partyAccountCode,
+                    },
+                ],
+            };
+            try {
+                sessionStorage.setItem('utilityVendorPaymentPrefill', JSON.stringify(prefill));
+            } catch {
+                /* ignore */
+            }
+            router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
+        },
+        [differencePayByBillId, employee, router],
+    );
 
     // Profile `employee.assets` is already scoped to this employee.
     const vehiclesFromAssets = useMemo(
@@ -603,6 +772,23 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                                                                 Number(bill.monthlyRental) || 0;
                                                             const actual = Number(bill.amount) || 0;
                                                             const difference = contract - actual;
+                                                            const absDiff = billAbsDifference(bill);
+                                                            const canDifferencePay =
+                                                                absDiff > 0.009 &&
+                                                                billPayableToEmployee(
+                                                                    bill,
+                                                                    employee,
+                                                                ) &&
+                                                                (bill.status === 'Approved' ||
+                                                                    bill.status === 'Paid');
+                                                            const diffExpense =
+                                                                differencePayByBillId[
+                                                                    String(bill._id)
+                                                                ];
+                                                            const diffAlreadyPaid =
+                                                                String(
+                                                                    diffExpense?.status || '',
+                                                                ).toLowerCase() === 'paid';
                                                             return (
                                                                 <div
                                                                     key={bill._id}
@@ -658,6 +844,26 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                                                                             {formatBillMoney(difference)}
                                                                         </span>
                                                                     </div>
+                                                                    {canDifferencePay ? (
+                                                                        diffAlreadyPaid ? (
+                                                                            <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                                                                                Diff Paid
+                                                                            </span>
+                                                                        ) : (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    handleDifferencePay(
+                                                                                        bill,
+                                                                                    )
+                                                                                }
+                                                                                className="inline-flex items-center rounded-md bg-amber-500 hover:bg-amber-600 px-2.5 py-1 text-[11px] font-bold text-white"
+                                                                                title="Pay difference only (separate from vendor bill)"
+                                                                            >
+                                                                                Difference Pay
+                                                                            </button>
+                                                                        )
+                                                                    ) : null}
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => setViewBill(bill)}

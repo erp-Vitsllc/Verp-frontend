@@ -164,6 +164,7 @@ export function mapZohoPaymentAccount(account) {
     return {
         id,
         name: cleanText(account.account_name || account.name, ''),
+        code: cleanText(account.account_code || account.accountCode || account.code, ''),
         type: cleanText(account.account_type_formatted || account.account_type, ''),
         raw: account,
     };

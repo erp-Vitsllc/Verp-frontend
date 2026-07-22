@@ -144,6 +144,11 @@ function buildReviewRows(entries, bills) {
                 zohoBillStatus: String(bill.zohoBillStatus || '').trim(),
                 zohoOrganizationId: String(bill.zohoOrganizationId || '').trim(),
                 zohoSyncError: String(bill.zohoSyncError || '').trim(),
+                partyAccountId: String(bill.partyAccountId || '').trim(),
+                partyAccountName: String(bill.partyAccountName || '').trim(),
+                partyAccountCode: String(bill.partyAccountCode || '').trim(),
+                expenseAccountId: String(bill.expenseAccountId || '').trim(),
+                expenseAccountName: String(bill.expenseAccountName || '').trim(),
                 billNumber: String(bill.billNumber || '').trim(),
                 billDate: String(bill.billDate || '').trim(),
                 assignedToType: assigned.assignedToType,
@@ -187,6 +192,11 @@ function buildReviewRows(entries, bills) {
             zohoBillStatus: '',
             zohoOrganizationId: '',
             zohoSyncError: '',
+            partyAccountId: '',
+            partyAccountName: '',
+            partyAccountCode: '',
+            expenseAccountId: '',
+            expenseAccountName: '',
             billNumber: '',
             billDate: '',
             assignedToType: assigned.assignedToType,
@@ -234,6 +244,11 @@ function buildReviewRows(entries, bills) {
             zohoBillStatus: String(bill.zohoBillStatus || '').trim(),
             zohoOrganizationId: String(bill.zohoOrganizationId || '').trim(),
             zohoSyncError: String(bill.zohoSyncError || '').trim(),
+            partyAccountId: String(bill.partyAccountId || '').trim(),
+            partyAccountName: String(bill.partyAccountName || '').trim(),
+            partyAccountCode: String(bill.partyAccountCode || '').trim(),
+            expenseAccountId: String(bill.expenseAccountId || '').trim(),
+            expenseAccountName: String(bill.expenseAccountName || '').trim(),
             billNumber: String(bill.billNumber || '').trim(),
             billDate: String(bill.billDate || '').trim(),
             assignedToType: '',
@@ -304,6 +319,8 @@ export default function UtilityBillReviewModal({
         return () => document.removeEventListener('mousedown', onDocClick);
     }, [payMenuOpen]);
 
+    // Only re-fetch when the batch opens / changes — not when parent entry lists reload
+    // (that was re-hitting /UtilityBill/batch and spamming 404s for stale links).
     useEffect(() => {
         if (!isOpen || !batchId) return;
         let cancelled = false;
@@ -418,7 +435,12 @@ export default function UtilityBillReviewModal({
                 }
             } catch (err) {
                 if (!cancelled) {
-                    setError(readApiError(err, 'Could not load bill batch.'));
+                    const status = err?.response?.status || err?.originalError?.response?.status;
+                    setError(
+                        status === 404
+                            ? 'This bill batch no longer exists (it may have been deleted or the link is outdated). Close and open the batch from the list or pending inbox.'
+                            : readApiError(err, 'Could not load bill batch.'),
+                    );
                     setBatch(null);
                     setRows([]);
                 }
@@ -429,7 +451,10 @@ export default function UtilityBillReviewModal({
         return () => {
             cancelled = true;
         };
-    }, [isOpen, batchId, reloadKey, entriesProp, existingBillsProp, utilityAttachmentProp]);
+        // entriesProp / existingBillsProp / utilityAttachmentProp are read once at open;
+        // including them re-ran the batch GET whenever the parent list refreshed.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+    }, [isOpen, batchId, reloadKey]);
 
     const monthTitle = useMemo(() => titleFromBillMonth(batch?.billMonth), [batch?.billMonth]);
     const headerTitle = monthTitle ? `${monthTitle} Bill` : 'Utility Bill Review';
@@ -746,14 +771,19 @@ export default function UtilityBillReviewModal({
                         // Totals as shown in TOTAL bar — stored in DB
                         companyPayAmount: payTotals.companyPayAmount,
                         employeePayAmount: payTotals.employeePayAmount,
-                        payByCompanyId:
-                            payBy === PAY_BY_COMPANY ? r.payByCompanyId || '' : '',
-                        payByCompanyName:
-                            payBy === PAY_BY_COMPANY ? r.payByCompanyName || '' : '',
+                        payByCompanyId: r.payByCompanyId || '',
+                        payByCompanyName: r.payByCompanyName || '',
                         payByEmployeeId:
                             payBy === PAY_BY_EMPLOYEE ? r.payByEmployeeId || '' : '',
                         payByEmployeeName:
                             payBy === PAY_BY_EMPLOYEE ? r.payByEmployeeName || '' : '',
+                        expenseAccountId: r.expenseAccountId || '',
+                        expenseAccountName: r.expenseAccountName || '',
+                        partyAccountId: r.partyAccountId || '',
+                        partyAccountName: r.partyAccountName || '',
+                        partyAccountCode: r.partyAccountCode || '',
+                        billNumber: r.billNumber || '',
+                        billDate: r.billDate || '',
                     };
                 }),
             };
@@ -762,6 +792,8 @@ export default function UtilityBillReviewModal({
             const zohoSync = Array.isArray(res.data?.zohoSync) ? res.data.zohoSync : [];
             const zohoFailed = zohoSync.filter((r) => r && r.ok === false && !r.skipped);
             const zohoCreated = zohoSync.filter((r) => r && r.ok && !r.skipped);
+            const differenceFailed = Boolean(res.data?.differenceJournalFailed);
+            const differenceMsg = String(res.data?.message || '').trim();
 
             if ((decision === 'approve' || decision === 'draft') && zohoFailed.length > 0) {
                 const firstMsg =
@@ -776,6 +808,23 @@ export default function UtilityBillReviewModal({
                     description: firstMsg,
                 });
                 setError(firstMsg);
+                onChanged?.();
+                setReloadKey((k) => k + 1);
+                return;
+            }
+
+            if (decision === 'approve' && differenceFailed) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Bill approved — Chart of Accounts Debit failed',
+                    description:
+                        differenceMsg ||
+                        'Zoho blocked the Difference Debit journal. Re-connect Zoho Books (need accountants.CREATE), then Retry Zoho sync.',
+                });
+                setError(
+                    differenceMsg ||
+                        'Chart of Accounts Difference Debit failed. Re-connect Zoho, then Retry Zoho sync.',
+                );
                 onChanged?.();
                 setReloadKey((k) => k + 1);
                 return;
@@ -799,7 +848,7 @@ export default function UtilityBillReviewModal({
                               : 'Still pending HR. Approve when ready to open in Zoho.'
                         : decision === 'approve' && label.toLowerCase() === 'not paid'
                           ? zohoCreated.length > 0
-                              ? `Awaiting Accounts payment. ${zohoCreated.length} bill(s) Open in Zoho.`
+                              ? `Awaiting Accounts payment. ${zohoCreated.length} bill(s) Open in Zoho. Difference Debit posted to Chart of Accounts.`
                               : zohoSync.length > 0
                                 ? 'Awaiting Accounts payment. Zoho bills Open / linked.'
                                 : 'Awaiting Accounts payment.'
@@ -1008,6 +1057,11 @@ export default function UtilityBillReviewModal({
                 payByCompanyName: String(r.payByCompanyName || '').trim(),
                 payByEmployeeId: String(r.payByEmployeeId || '').trim(),
                 payByEmployeeName: String(r.payByEmployeeName || '').trim(),
+                partyAccountId: String(r.partyAccountId || '').trim(),
+                partyAccountName: String(r.partyAccountName || '').trim(),
+                partyAccountCode: String(r.partyAccountCode || '').trim(),
+                expenseAccountId: String(r.expenseAccountId || '').trim(),
+                expenseAccountName: String(r.expenseAccountName || '').trim(),
             };
         });
 
@@ -1029,6 +1083,38 @@ export default function UtilityBillReviewModal({
         const companyNames = Array.from(
             new Set(partyRows.map((r) => r.payByCompanyName).filter(Boolean)),
         );
+        const salaryPayableAccounts = Array.from(
+            new Map(
+                partyRows
+                    .filter((r) => r.partyAccountId || r.partyAccountName || r.partyAccountCode)
+                    .map((r) => [
+                        `${r.partyAccountId}|${r.partyAccountCode}|${r.partyAccountName}`,
+                        {
+                            id: r.partyAccountId,
+                            name: r.partyAccountName || 'Salary Payable',
+                            code: r.partyAccountCode,
+                            payBy: r.payBy,
+                            partyName:
+                                r.payBy === 'company'
+                                    ? r.payByCompanyName
+                                    : r.payByEmployeeName,
+                        },
+                    ]),
+            ).values(),
+        );
+        const expenseAccounts = Array.from(
+            new Map(
+                partyRows
+                    .filter((r) => r.expenseAccountId || r.expenseAccountName)
+                    .map((r) => [
+                        r.expenseAccountId || r.expenseAccountName,
+                        {
+                            id: r.expenseAccountId,
+                            name: r.expenseAccountName,
+                        },
+                    ]),
+            ).values(),
+        );
 
         const typeLabel = batch?.utilityType || '';
         const monthLabel = batch?.billMonth || '';
@@ -1049,6 +1135,11 @@ export default function UtilityBillReviewModal({
                   : new Date().toISOString().slice(0, 10);
 
         const utilityBatchId = String(batch?.batchId || batchId || '');
+        const billReference = selected
+            .map((row) => String(row.billNumber || '').trim())
+            .filter(Boolean)
+            .join(', ')
+            .slice(0, 100);
         const totalCompanyPay = partyRows.reduce(
             (sum, r) => sum + (Number(r.companyPayAmount) || 0),
             0,
@@ -1062,7 +1153,7 @@ export default function UtilityBillReviewModal({
             vendorName,
             amount: total > 0 ? total.toFixed(2) : '',
             date: paymentDate,
-            referenceNumber: utilityBatchId,
+            referenceNumber: billReference || utilityBatchId,
             notes: `Utility ${mode === 'difference' ? 'difference' : 'bill'} payment · ${typeLabel} ${monthLabel}${
                 accountNos ? ` · Acc ${accountNos}` : ''
             }`.trim(),
@@ -1085,6 +1176,14 @@ export default function UtilityBillReviewModal({
             companyPayAmount: totalCompanyPay,
             employeePayAmount: totalEmployeePay,
             partyRows,
+            partyAccountId: salaryPayableAccounts[0]?.id || '',
+            partyAccountName: salaryPayableAccounts[0]?.name || '',
+            partyAccountCode: salaryPayableAccounts[0]?.code || '',
+            // Difference settle Debits Paid Through · Credits Acc2 — do not default Paid Through to Acc2.
+            paidThroughAccountId: '',
+            paidThroughAccountName: '',
+            salaryPayableAccounts,
+            expenseAccounts,
         };
         sessionStorage.setItem('utilityVendorPaymentPrefill', JSON.stringify(prefill));
         onClose?.();
@@ -1112,7 +1211,7 @@ export default function UtilityBillReviewModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/45">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col border border-gray-100">
+            <div className="bg-white rounded-xl shadow-lg w-full max-w-[100rem] max-h-[95vh] overflow-hidden flex flex-col border border-gray-200">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0 bg-gradient-to-r from-gray-50 to-white">
                     <div>
                         <h2 className="text-xl font-bold text-gray-800 tracking-tight">
@@ -1162,7 +1261,7 @@ export default function UtilityBillReviewModal({
                                         : canHrDraft
                                           ? 'Draft → stays on HR inbox, Zoho Draft. Approve → Zoho Open, then Accounts can pay.'
                                           : canEdit
-                                            ? 'Same as Add Bills — check/uncheck, edit Actual, Contract Paid By, and Upload before Approve.'
+                                            ? 'Same as Add Bills — full bill fields, edit Actual / Contract Paid By / Upload before Approve.'
                                             : canPay
                                               ? 'Select bills to pay.'
                                               : isViewerOnly
@@ -1178,8 +1277,8 @@ export default function UtilityBillReviewModal({
                             </div>
 
                             <div className="overflow-auto flex-1 min-h-0 px-4 sm:px-5 pb-3">
-                                <div className="rounded-xl border border-gray-200 overflow-hidden">
-                                    <table className="min-w-full text-sm table-fixed">
+                                <div className="rounded-xl border border-gray-200 overflow-x-auto">
+                                    <table className="min-w-[92rem] w-full text-sm">
                                         <thead className="sticky top-0 z-10 bg-gray-50">
                                             <tr className="border-b border-gray-200 text-[10px] uppercase tracking-wider text-gray-400">
                                                 <th className="w-12 px-3 py-3 text-center font-bold">
@@ -1198,26 +1297,47 @@ export default function UtilityBillReviewModal({
                                                         aria-label="Select all"
                                                     />
                                                 </th>
-                                                <th className="w-[14%] px-3 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Account No
                                                 </th>
-                                                <th className="w-[12%] px-3 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Provider
                                                 </th>
-                                                <th className="w-[14%] px-3 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[10rem]">
+                                                    Account <span className="text-red-500">*</span>
+                                                    <span className="block text-[10px] font-normal text-gray-400 normal-case">
+                                                        to vendor
+                                                    </span>
+                                                </th>
+                                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
+                                                    Bill #
+                                                </th>
+                                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
+                                                    Bill Date
+                                                </th>
+                                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Contract Amount
                                                 </th>
-                                                <th className="w-[14%] px-3 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Actual Amount
                                                 </th>
-                                                <th className="w-[12%] px-3 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Difference
                                                 </th>
-                                                <th className="w-[14%] px-2 py-3 text-center font-bold whitespace-nowrap">
+                                                <th className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[10rem]">
+                                                    Account
+                                                    <span className="block text-[10px] font-normal text-gray-400 normal-case">
+                                                        difference pay here
+                                                    </span>
+                                                </th>
+                                                <th className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[8rem]">
+                                                    Company name
+                                                </th>
+                                                <th className="px-2 py-3 text-center font-bold whitespace-nowrap">
                                                     Contract Paid By
                                                 </th>
                                                 <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
-                                                    Attachment
+                                                    Attach
                                                 </th>
                                             </tr>
                                         </thead>
@@ -1288,6 +1408,20 @@ export default function UtilityBillReviewModal({
                                                             title={row.provider}
                                                         >
                                                             {row.provider || '—'}
+                                                        </td>
+                                                        <td
+                                                            className="px-2 py-3.5 text-left align-middle text-gray-700 text-xs max-w-[12rem]"
+                                                            title={row.expenseAccountName || ''}
+                                                        >
+                                                            <span className="block truncate font-medium">
+                                                                {row.expenseAccountName || '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-2 py-3.5 text-center align-middle text-gray-800 text-sm tabular-nums">
+                                                            {row.billNumber || '—'}
+                                                        </td>
+                                                        <td className="px-2 py-3.5 text-center align-middle text-gray-700 text-xs tabular-nums whitespace-nowrap">
+                                                            {row.billDate || '—'}
                                                         </td>
                                                         <td className="px-3 py-3.5 text-center align-middle tabular-nums text-gray-700">
                                                             {formatMoney(row.contractAmount)}
@@ -1431,6 +1565,32 @@ export default function UtilityBillReviewModal({
                                                             {hasActual
                                                                 ? formatMoney(difference)
                                                                 : '—'}
+                                                        </td>
+                                                        <td
+                                                            className="px-2 py-3.5 text-left align-middle text-gray-700 text-xs max-w-[12rem]"
+                                                            title={
+                                                                row.partyAccountName ||
+                                                                row.partyAccountCode ||
+                                                                ''
+                                                            }
+                                                        >
+                                                            {difference > 0.009 ? (
+                                                                <span className="block truncate font-medium">
+                                                                    {row.partyAccountName ||
+                                                                        row.partyAccountCode ||
+                                                                        '—'}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-gray-400">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td
+                                                            className="px-2 py-3.5 text-center align-middle text-gray-700 text-xs max-w-[10rem]"
+                                                            title={row.payByCompanyName || ''}
+                                                        >
+                                                            <span className="block truncate font-medium">
+                                                                {row.payByCompanyName || '—'}
+                                                            </span>
                                                         </td>
                                                         <td className="px-2 py-3.5 text-center align-middle">
                                                             {canEdit ? (
@@ -1612,7 +1772,7 @@ export default function UtilityBillReviewModal({
                                     <p className="mt-1 text-amber-900/90">
                                         {needsZohoOpen
                                             ? 'Click “Open Zoho bill” to mark it Open in Zoho. Then Accounts gets the payment task and Pay becomes available.'
-                                            : 'Zoho still rejected creating the bill (vendor, expense account, wrong org, or Zoho login permissions). Fix Zoho access, then retry.'}
+                                            : 'Vendor bill is not in Zoho yet (vendor name match, expense account, wrong org, or Zoho permissions). Fix that, then Retry / Approve again. Difference Debit on Salary Payable (Account 2) posts as a Journal Debit when Approve runs — check the error lines below if it failed.'}
                                     </p>
                                     {rows
                                         .filter(
@@ -1867,11 +2027,11 @@ export default function UtilityBillReviewModal({
                         payByCompanyId:
                             choice.payBy === PAY_BY_COMPANY
                                 ? choice.payByCompanyId
-                                : '',
+                                : row.payByCompanyId || choice.payByCompanyId || '',
                         payByCompanyName:
                             choice.payBy === PAY_BY_COMPANY
                                 ? choice.payByCompanyName
-                                : '',
+                                : row.payByCompanyName || choice.payByCompanyName || '',
                         payByEmployeeId:
                             choice.payBy === PAY_BY_EMPLOYEE
                                 ? choice.payByEmployeeId

@@ -80,6 +80,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
 
     const [fines, setFines] = useState([]);
     const [companyPayments, setCompanyPayments] = useState([]);
+    const [companyDeductions, setCompanyDeductions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [paymentsLoading, setPaymentsLoading] = useState(false);
     const [activeSubTab, setActiveSubTab] = useState('fines');
@@ -132,10 +133,25 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
         }
     }, []);
 
+    const loadCompanyDeductions = useCallback(async () => {
+        if (!companyOid) return;
+        try {
+            const res = await axiosInstance.get('/Expense', {
+                params: { companyId: companyOid },
+                skipToast: true,
+            });
+            setCompanyDeductions(Array.isArray(res.data?.rows) ? res.data.rows : []);
+        } catch (err) {
+            console.error('Error fetching company utility deductions:', err);
+            setCompanyDeductions([]);
+        }
+    }, [companyOid]);
+
     useEffect(() => {
         loadFines();
         loadCompanyPayments();
-    }, [loadFines, loadCompanyPayments, reloadKey]);
+        loadCompanyDeductions();
+    }, [loadFines, loadCompanyPayments, loadCompanyDeductions, reloadKey]);
 
     useEffect(() => {
         const utilityPayments = (companyPayments || []).filter(
@@ -261,6 +277,58 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
             ),
         [paymentsForCompany, filterStartMonth, filterEndMonth],
     );
+
+    const filteredDeductions = useMemo(
+        () =>
+            companyDeductions.filter((row) => {
+                const month = String(row.billMonth || '');
+                if (filterStartMonth && month < filterStartMonth) return false;
+                if (filterEndMonth && month > filterEndMonth) return false;
+                return true;
+            }),
+        [companyDeductions, filterStartMonth, filterEndMonth],
+    );
+
+    const payCompanyDeduction = (row) => {
+        const params = new URLSearchParams({
+            addUtilityPay: '1',
+            mode: 'difference',
+        });
+        if (row.zohoOrganizationId) params.set('organizationId', row.zohoOrganizationId);
+        if (row.utilityBillId) params.set('utilityBillIds', row.utilityBillId);
+        const prefill = {
+            mode: 'difference',
+            amount: Number(row.amount || 0).toFixed(2),
+            companyId: companyOid,
+            payByCompanyId: companyOid,
+            payByCompanyName: company?.name || row.companyName || '',
+            organizationId: row.zohoOrganizationId || '',
+            utilityBillIds: row.utilityBillId ? [row.utilityBillId] : [],
+            selectedBillIds: row.zohoBillId ? [row.zohoBillId] : [],
+            partyRows: [
+                {
+                    utilityBillId: row.utilityBillId || '',
+                    accountNo: row.accountNo || '',
+                    payBy: 'company',
+                    amount: Number(row.amount) || 0,
+                    payByCompanyId: companyOid,
+                    payByCompanyName: company?.name || row.companyName || '',
+                    partyAccountId: row.partyAccountId || '',
+                    partyAccountName: row.partyAccountName || '',
+                    partyAccountCode: row.partyAccountCode || '',
+                },
+            ],
+            utilityBillLinks: row.utilityBillId
+                ? [{ utilityBillId: row.utilityBillId, zohoBillId: row.zohoBillId || '' }]
+                : [],
+        };
+        try {
+            sessionStorage.setItem('utilityVendorPaymentPrefill', JSON.stringify(prefill));
+        } catch {
+            // Navigation still opens the payment form if storage is unavailable.
+        }
+        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
+    };
 
     const payableFines = useMemo(
         () =>
@@ -842,7 +910,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                         Loading payments…
                                     </td>
                                 </tr>
-                            ) : filteredPayments.length === 0 ? (
+                            ) : filteredPayments.length === 0 && filteredDeductions.length === 0 ? (
                                 <tr>
                                     <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
                                         {paymentsForCompany.length === 0
@@ -851,7 +919,52 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                     </td>
                                 </tr>
                             ) : (
-                                filteredPayments.map((pay) => (
+                                <>
+                                {filteredDeductions.map((row) => (
+                                    <tr
+                                        key={`deduction-${row.id}`}
+                                        className={row.status === 'Paid' ? 'bg-emerald-50/30' : 'bg-amber-50/40'}
+                                    >
+                                        <td className="px-4 py-3 font-bold text-slate-700">
+                                            {row.accountNo || '—'}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-600">Utility deduction</td>
+                                        <td className="px-4 py-3 text-slate-600 font-mono text-xs">
+                                            {row.utilityType || row.utilityBillId || '—'}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-500">
+                                            {row.billMonth || '—'}
+                                        </td>
+                                        <td className="px-4 py-3 font-bold text-slate-800">
+                                            AED {formatMoney(row.amount)}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <span
+                                                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${
+                                                    row.status === 'Paid'
+                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                }`}
+                                            >
+                                                {row.status || 'Not Paid'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                            {row.status === 'Paid' ? (
+                                                <span className="text-xs font-semibold text-emerald-700">Paid</span>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => payCompanyDeduction(row)}
+                                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
+                                                >
+                                                    Pay deduction
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                                {filteredPayments.map((pay) => (
                                     <tr
                                         key={pay._id}
                                         className={`hover:bg-slate-50/80 ${getPaymentStatusSurfaceClass(pay.status)}`}
@@ -894,7 +1007,8 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                             </button>
                                         </td>
                                     </tr>
-                                ))
+                                ))}
+                                </>
                             )}
                         </tbody>
                     </table>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Select from 'react-select';
 import { ChevronDown, ChevronLeft, ChevronRight, Eye, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -46,6 +47,70 @@ const MONTH_SHORT = [
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
 
+const accountSelectStyles = {
+    control: (base, state) => ({
+        ...base,
+        minHeight: 40,
+        borderRadius: '0.5rem',
+        borderColor: state.isFocused ? '#3b82f6' : '#e2e8f0',
+        boxShadow: state.isFocused ? '0 0 0 2px rgba(59, 130, 246, 0.15)' : 'none',
+        backgroundColor: '#fff',
+        cursor: 'pointer',
+        '&:hover': {
+            borderColor: state.isFocused ? '#3b82f6' : '#cbd5e1',
+        },
+    }),
+    valueContainer: (base) => ({
+        ...base,
+        padding: '2px 12px',
+    }),
+    input: (base) => ({
+        ...base,
+        margin: 0,
+        padding: 0,
+        fontSize: '0.875rem',
+    }),
+    placeholder: (base) => ({
+        ...base,
+        color: '#94a3b8',
+        fontSize: '0.875rem',
+    }),
+    singleValue: (base) => ({
+        ...base,
+        fontSize: '0.875rem',
+        color: '#334155',
+    }),
+    menu: (base) => ({
+        ...base,
+        zIndex: 9999,
+        width: 'max-content',
+        minWidth: '100%',
+        maxWidth: '28rem',
+        borderRadius: '0.5rem',
+        overflow: 'hidden',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
+    }),
+    menuPortal: (base) => ({ ...base, zIndex: 100000 }),
+    menuList: (base) => ({
+        ...base,
+        maxHeight: 280,
+        paddingTop: 4,
+        paddingBottom: 4,
+    }),
+    option: (base, state) => ({
+        ...base,
+        fontSize: '0.875rem',
+        whiteSpace: 'normal',
+        backgroundColor: state.isSelected ? '#2563eb' : state.isFocused ? '#eff6ff' : '#fff',
+        color: state.isSelected ? '#fff' : '#334155',
+        cursor: 'pointer',
+    }),
+    indicatorSeparator: () => ({
+        display: 'none',
+    }),
+};
+
 /** Bill month YYYY-MM + payment day (1–31) → bill date. Clamps to last day of month. */
 function billDateFromMonth(billMonth, paymentDay = 16) {
     const month = String(billMonth || '').trim();
@@ -64,6 +129,20 @@ function billDateFromMonth(billMonth, paymentDay = 16) {
     return `${month}-${String(day).padStart(2, '0')}`;
 }
 
+/** Min/max YYYY-MM-DD bounds for a bill month — manual bill dates must stay inside it. */
+function billMonthDateBounds(billMonth) {
+    const month = String(billMonth || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(month)) return { min: '', max: '' };
+    const [year, m] = month.split('-').map(Number);
+    const lastDay = new Date(year, m, 0).getDate();
+    return { min: `${month}-01`, max: `${month}-${String(lastDay).padStart(2, '0')}` };
+}
+
+function isDateWithinBillMonth(dateStr, billMonth) {
+    const value = String(dateStr || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(value) && value.slice(0, 7) === String(billMonth || '');
+}
+
 function resolvePayShares(payBy, difference) {
     // Never use a negative share — under/over both allocate as a positive amount
     const diff = Math.abs(Number(difference) || 0);
@@ -74,6 +153,53 @@ function resolvePayShares(payBy, difference) {
         return { companyAmount: 0, employeeAmount: diff };
     }
     return { companyAmount: 0, employeeAmount: 0 };
+}
+
+/**
+ * Auto company for Company name column:
+ * assigned Company → that company; else employee's company from Contract Paid By / assignment.
+ */
+function resolveAutoCompany(row = {}, employeeOptions = [], companyOptions = []) {
+    const existingId = String(row?.payByCompanyId || '').trim();
+    if (existingId) {
+        const match = companyOptions.find((o) => String(o.value) === existingId);
+        return {
+            payByCompanyId: existingId,
+            payByCompanyName:
+                String(row?.payByCompanyName || '').trim() || match?.label || '',
+        };
+    }
+
+    if (row?.assignedToType === 'Company' && row?.assignedToId) {
+        const id = String(row.assignedToId).trim();
+        const match = companyOptions.find((o) => String(o.value) === id);
+        return {
+            payByCompanyId: id,
+            payByCompanyName: match?.label || String(row.assignedToName || '').trim(),
+        };
+    }
+
+    const empRef = String(
+        row?.payByEmployeeId ||
+            (row?.assignedToType === 'Employee' ? row?.assignedToId : '') ||
+            '',
+    ).trim();
+    if (!empRef) {
+        return { payByCompanyId: '', payByCompanyName: '' };
+    }
+
+    const emp = employeeOptions.find(
+        (o) => String(o.value) === empRef || String(o.employeeId || '') === empRef,
+    );
+    const companyId = String(emp?.companyMongoId || '').trim();
+    if (!companyId) {
+        return { payByCompanyId: '', payByCompanyName: '' };
+    }
+    const match = companyOptions.find((o) => String(o.value) === companyId);
+    return {
+        payByCompanyId: companyId,
+        payByCompanyName: match?.label || String(emp?.companyName || '').trim(),
+    };
 }
 
 const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024;
@@ -250,6 +376,18 @@ function buildRowsFromEntries(entries, draftRows = []) {
             accountNo: entryAccountNo(entry),
             provider: entryProvider(entry),
             paymentDay: entryPaymentDay(entry),
+            billDate: draft?.billDate ? String(draft.billDate) : '',
+            expenseAccountId: draft?.expenseAccountId ? String(draft.expenseAccountId) : '',
+            expenseAccountName: draft?.expenseAccountName
+                ? String(draft.expenseAccountName)
+                : '',
+            partyAccountId: draft?.partyAccountId ? String(draft.partyAccountId) : '',
+            partyAccountName: draft?.partyAccountName
+                ? String(draft.partyAccountName)
+                : '',
+            partyAccountCode: draft?.partyAccountCode
+                ? String(draft.partyAccountCode)
+                : '',
             assignedToType: assigned.assignedToType,
             assignedToId: assigned.assignedToId,
             assignedToName: assigned.assignedToName,
@@ -286,6 +424,12 @@ function resetUncheckedRow(row) {
         ...row,
         selected: false,
         billNumber: '',
+        billDate: '',
+        expenseAccountId: '',
+        expenseAccountName: '',
+        partyAccountId: '',
+        partyAccountName: '',
+        partyAccountCode: '',
         actualAmount: '',
         payBy: '',
         companyDiffAmount: '',
@@ -323,20 +467,26 @@ function openAttachmentView(file, toast) {
 function collectPayloadRows(
     rows,
     utilityAttachment,
-    { expenseAccountId, expenseAccountName, billMonth } = {},
+    { defaultExpenseAccountId, defaultExpenseAccountName, billMonth } = {},
 ) {
     const payloadRows = [];
-    const accountId = String(expenseAccountId || '').trim();
-    if (!accountId) {
-        return {
-            error: 'Select an expense account (required for Zoho after HR approval).',
-            payloadRows: null,
-        };
-    }
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if (!row.selected) continue;
+        const accountId =
+            String(row.expenseAccountId || '').trim() ||
+            String(defaultExpenseAccountId || '').trim();
+        const accountName =
+            String(row.expenseAccountId || '').trim()
+                ? String(row.expenseAccountName || '').trim()
+                : String(defaultExpenseAccountName || '').trim();
+        if (!accountId) {
+            return {
+                error: `Select Account (to vendor) for account ${row.accountNo}.`,
+                payloadRows: null,
+            };
+        }
         const billNumber = String(row.billNumber || '').trim();
         if (!billNumber) {
             return {
@@ -351,13 +501,23 @@ function collectPayloadRows(
             };
         }
         const paymentDay = row.paymentDay;
-        if (!Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 31) {
+        const manualBillDate = String(row.billDate || '').trim();
+        if (manualBillDate && !isDateWithinBillMonth(manualBillDate, billMonth)) {
             return {
-                error: `Payment day is missing for account ${row.accountNo}. Set Payment Day on the utility entry.`,
+                error: `Bill date for account ${row.accountNo} must be within ${titleFromBillMonth(billMonth)}.`,
                 payloadRows: null,
             };
         }
-        const rowBillDate = billDateFromMonth(billMonth, paymentDay);
+        if (
+            !manualBillDate &&
+            (!Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 31)
+        ) {
+            return {
+                error: `Pick a bill date for account ${row.accountNo}, or set Payment Day on the utility entry.`,
+                payloadRows: null,
+            };
+        }
+        const rowBillDate = manualBillDate || billDateFromMonth(billMonth, paymentDay);
         if (!rowBillDate) {
             return {
                 error: `Could not build bill date for account ${row.accountNo}.`,
@@ -374,6 +534,7 @@ function collectPayloadRows(
         const contract = Number(row.contractAmount) || 0;
         // Contract − Actual = Difference
         const difference = contract - actual;
+        const absDifference = Math.abs(difference);
         // Under (green): Pay by is always Company
         const rawPayBy = actual < contract ? PAY_BY_COMPANY : row.payBy;
         const payBy =
@@ -393,6 +554,15 @@ function collectPayloadRows(
         if (payBy === PAY_BY_EMPLOYEE && !String(row.payByEmployeeId || '').trim()) {
             return {
                 error: `Select employee name for account ${row.accountNo}.`,
+                payloadRows: null,
+            };
+        }
+        const partyAccountId = String(row.partyAccountId || '').trim();
+        const partyAccountName = String(row.partyAccountName || '').trim();
+        const partyAccountCode = String(row.partyAccountCode || '').trim();
+        if (absDifference > 0.009 && !partyAccountId) {
+            return {
+                error: `Select Difference Account for account ${row.accountNo}.`,
                 payloadRows: null,
             };
         }
@@ -427,12 +597,15 @@ function collectPayloadRows(
             employeeDiffAmount: shares.employeeAmount,
             companyPayAmount: payTotals.companyPayAmount,
             employeePayAmount: payTotals.employeePayAmount,
-            payByCompanyId: payBy === PAY_BY_COMPANY ? row.payByCompanyId || '' : '',
-            payByCompanyName: payBy === PAY_BY_COMPANY ? row.payByCompanyName || '' : '',
+            payByCompanyId: row.payByCompanyId || '',
+            payByCompanyName: row.payByCompanyName || '',
             payByEmployeeId: payBy === PAY_BY_EMPLOYEE ? row.payByEmployeeId || '' : '',
             payByEmployeeName: payBy === PAY_BY_EMPLOYEE ? row.payByEmployeeName || '' : '',
             expenseAccountId: accountId,
-            expenseAccountName: String(expenseAccountName || '').trim(),
+            expenseAccountName: accountName,
+            partyAccountId: absDifference > 0.009 ? partyAccountId : '',
+            partyAccountName: absDifference > 0.009 ? partyAccountName : '',
+            partyAccountCode: absDifference > 0.009 ? partyAccountCode : '',
             attachment: attachment || null,
             sendForHr: actual > contract,
         });
@@ -476,6 +649,65 @@ export default function AddBillModal({
         const match = expenseAccounts.find((a) => a.id === expenseAccountId);
         return match?.name || '';
     }, [expenseAccountId, expenseAccounts]);
+
+    const expenseAccountOptions = useMemo(() => {
+        const groups = new Map();
+        expenseAccounts.forEach((account) => {
+            const label = account.type || 'Other';
+            if (!groups.has(label)) groups.set(label, []);
+            const nameLabel = account.code
+                ? `${account.name} (${account.code})`
+                : account.name;
+            groups.get(label).push({
+                value: account.id,
+                label: nameLabel,
+                code: account.code || '',
+                name: account.name || '',
+            });
+        });
+        return [...groups.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([label, options]) => ({
+                label,
+                options: options.sort((a, b) => a.label.localeCompare(b.label)),
+            }));
+    }, [expenseAccounts]);
+
+    const companySelectOptions = useMemo(
+        () =>
+            (companyOptions || []).map((opt) => ({
+                value: String(opt.value || ''),
+                label: String(opt.label || ''),
+            })),
+        [companyOptions],
+    );
+
+    // Auto-fill Company name from assignment / employee's company when empty.
+    useEffect(() => {
+        if (!isOpen) return;
+        if (!companySelectOptions.length && !employeeOptions.length) return;
+        setRows((prev) => {
+            let changed = false;
+            const next = prev.map((row) => {
+                if (!row.selected) return row;
+                if (String(row.payByCompanyId || '').trim()) return row;
+                const auto = resolveAutoCompany(row, employeeOptions, companySelectOptions);
+                if (!auto.payByCompanyId) return row;
+                changed = true;
+                return {
+                    ...row,
+                    payByCompanyId: auto.payByCompanyId,
+                    payByCompanyName: auto.payByCompanyName,
+                };
+            });
+            return changed ? next : prev;
+        });
+    }, [isOpen, companySelectOptions, employeeOptions, rows.length]);
+
+    const flatExpenseAccountOptions = useMemo(
+        () => expenseAccountOptions.flatMap((group) => group.options || []),
+        [expenseAccountOptions],
+    );
 
     useEffect(() => {
         if (!isOpen) {
@@ -521,6 +753,8 @@ export default function AddBillModal({
     );
 
     const monthTitle = useMemo(() => titleFromBillMonth(billMonth), [billMonth]);
+
+    const billMonthBounds = useMemo(() => billMonthDateBounds(billMonth), [billMonth]);
 
     const currentYm = useMemo(() => currentBillMonthValue(), []);
 
@@ -628,6 +862,9 @@ export default function AddBillModal({
         const draft = userKey ? loadUtilityBillDraft(utilityType) : null;
         const draftRows = Array.isArray(draft?.rows) ? draft.rows : [];
         const preferred = draft?.billMonth || currentBillMonthValue();
+        if (draft?.expenseAccountId) {
+            setExpenseAccountId(String(draft.expenseAccountId));
+        }
 
         setSessionBilled([]);
         setMonthPickerOpen(false);
@@ -684,6 +921,12 @@ export default function AddBillModal({
                     selected: draftRow ? draftRow.selected !== false : true,
                     accountNo: '—',
                     provider: '—',
+                    billDate: draftRow?.billDate || '',
+                    expenseAccountId: draftRow?.expenseAccountId || '',
+                    expenseAccountName: draftRow?.expenseAccountName || '',
+                    partyAccountId: draftRow?.partyAccountId || '',
+                    partyAccountName: draftRow?.partyAccountName || '',
+                    partyAccountCode: draftRow?.partyAccountCode || '',
                     assignedToType: '',
                     assignedToId: '',
                     assignedToName: '',
@@ -808,12 +1051,20 @@ export default function AddBillModal({
         billMonth,
         billMonthLabel: monthTitle,
         utilityType,
+        expenseAccountId,
+        expenseAccountName,
         rows: rows.map((r) => ({
             entryId: r.entryId,
             selected: r.selected,
             accountNo: r.accountNo,
             provider: r.provider,
             billNumber: r.billNumber,
+            billDate: r.billDate || '',
+            expenseAccountId: r.expenseAccountId || '',
+            expenseAccountName: r.expenseAccountName || '',
+            partyAccountId: r.partyAccountId || '',
+            partyAccountName: r.partyAccountName || '',
+            partyAccountCode: r.partyAccountCode || '',
             contractAmount: r.contractAmount,
             actualAmount: r.actualAmount,
             payBy: r.payBy,
@@ -864,8 +1115,8 @@ export default function AddBillModal({
         }
         const snapshotMonth = billMonth;
         const { error: rowError, payloadRows } = collectPayloadRows(rows, utilityAttachment, {
-            expenseAccountId,
-            expenseAccountName,
+            defaultExpenseAccountId: expenseAccountId,
+            defaultExpenseAccountName: expenseAccountName,
             billMonth: snapshotMonth,
         });
         if (rowError) {
@@ -878,8 +1129,8 @@ export default function AddBillModal({
                 billMonth: snapshotMonth,
                 billMonthLabel: titleFromBillMonth(snapshotMonth),
                 utilityType,
-                expenseAccountId,
-                expenseAccountName,
+                expenseAccountId: payloadRows[0]?.expenseAccountId || expenseAccountId,
+                expenseAccountName: payloadRows[0]?.expenseAccountName || expenseAccountName,
                 rows: payloadRows,
                 amount: payloadRows[0]?.actualAmount,
                 notes: '',
@@ -905,7 +1156,7 @@ export default function AddBillModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/45">
-            <div className="bg-white rounded-xl shadow-lg w-full max-w-7xl max-h-[92vh] overflow-hidden flex flex-col border border-gray-200">
+            <div className="bg-white rounded-xl shadow-lg w-full max-w-[100rem] max-h-[95vh] overflow-hidden flex flex-col border border-gray-200">
                 <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
                     <div className="min-w-0 relative" ref={monthPickerRef}>
                         <button
@@ -1046,7 +1297,7 @@ export default function AddBillModal({
 
                     <div className="overflow-auto flex-1 min-h-0 px-4 sm:px-5 pb-3">
                         <div className="rounded-xl border border-gray-200 overflow-hidden">
-                            <table className="min-w-full text-sm table-fixed">
+                            <table className="min-w-[95rem] w-full text-sm table-fixed">
                                 <thead className="sticky top-0 z-10 bg-gray-50">
                                     <tr className="border-b border-gray-200 text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                         <th className="w-12 px-3 py-3 text-center font-semibold">
@@ -1062,32 +1313,47 @@ export default function AddBillModal({
                                                 aria-label="Select all"
                                             />
                                         </th>
-                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Account No
                                         </th>
-                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Provider
                                         </th>
-                                        <th className="w-[10%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[14rem] px-2 py-3 text-center font-semibold whitespace-nowrap">
+                                            Account <span className="text-red-500">*</span>
+                                            <span className="block text-[10px] font-normal text-gray-400 normal-case">
+                                                to vendor
+                                            </span>
+                                        </th>
+                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Bill #
                                         </th>
-                                        <th className="w-[10%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[9%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Bill Date
                                         </th>
-                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Contract Amount
                                         </th>
-                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Actual Amount
                                         </th>
-                                        <th className="w-[10%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[6%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Difference
                                         </th>
-                                        <th className="w-[14%] px-2 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[14rem] px-2 py-3 text-center font-semibold whitespace-nowrap">
+                                            Account
+                                            <span className="block text-[10px] font-normal text-gray-400 normal-case">
+                                                difference pay here
+                                            </span>
+                                        </th>
+                                        <th className="w-[11rem] px-2 py-3 text-center font-semibold whitespace-nowrap">
+                                            Company name
+                                        </th>
+                                        <th className="w-[10%] px-2 py-3 text-center font-semibold whitespace-nowrap">
                                             Contract Paid By
                                         </th>
                                         <th className="px-3 py-3 text-center font-semibold whitespace-nowrap">
-                                            Attachment
+                                            Attach
                                         </th>
                                     </tr>
                                 </thead>
@@ -1132,6 +1398,50 @@ export default function AddBillModal({
                                                 <td className="px-3 py-3.5 text-center align-middle text-gray-700 font-medium truncate max-w-[8rem]" title={row.provider}>
                                                     {row.provider || '—'}
                                                 </td>
+                                                <td className="min-w-[14rem] px-2 py-3.5 text-left align-middle">
+                                                    <Select
+                                                        instanceId={`utility-bill-expense-account-${row.entryId || index}`}
+                                                        styles={accountSelectStyles}
+                                                        options={expenseAccountOptions}
+                                                        value={
+                                                            flatExpenseAccountOptions.find(
+                                                                (option) =>
+                                                                    option.value ===
+                                                                    (row.expenseAccountId ||
+                                                                        expenseAccountId),
+                                                            ) || null
+                                                        }
+                                                        onChange={(option) => {
+                                                            const match = flatExpenseAccountOptions.find(
+                                                                (o) => o.value === option?.value,
+                                                            );
+                                                            updateRow(index, {
+                                                                expenseAccountId:
+                                                                    option?.value || '',
+                                                                expenseAccountName:
+                                                                    match?.name || match?.label || '',
+                                                            });
+                                                            setError('');
+                                                        }}
+                                                        isSearchable
+                                                        isClearable
+                                                        isDisabled={saving || !row.selected}
+                                                        placeholder={
+                                                            expenseAccounts.length
+                                                                ? 'Select account'
+                                                                : 'No Zoho accounts'
+                                                        }
+                                                        noOptionsMessage={() =>
+                                                            'No Zoho bill accounts found'
+                                                        }
+                                                        menuPortalTarget={
+                                                            typeof document !== 'undefined'
+                                                                ? document.body
+                                                                : null
+                                                        }
+                                                        menuPosition="fixed"
+                                                    />
+                                                </td>
                                                 <td className="px-2 py-3.5 text-center align-middle">
                                                     <input
                                                         type="text"
@@ -1154,16 +1464,42 @@ export default function AddBillModal({
                                                     />
                                                 </td>
                                                 <td
-                                                    className="px-2 py-3.5 text-center align-middle text-xs tabular-nums text-gray-700"
-                                                    title={
-                                                        row.paymentDay
-                                                            ? `Payment day ${row.paymentDay}`
-                                                            : 'Set Payment Day on utility entry'
-                                                    }
+                                                    className="px-2 py-3.5 text-center align-middle"
+                                                    title={`Pick a date within ${monthTitle}`}
                                                 >
-                                                    {row.paymentDay
-                                                        ? billDateFromMonth(billMonth, row.paymentDay) || '—'
-                                                        : '—'}
+                                                    <input
+                                                        type="date"
+                                                        value={
+                                                            row.billDate ||
+                                                            (row.paymentDay
+                                                                ? billDateFromMonth(
+                                                                      billMonth,
+                                                                      row.paymentDay,
+                                                                  )
+                                                                : '')
+                                                        }
+                                                        min={billMonthBounds.min}
+                                                        max={billMonthBounds.max}
+                                                        disabled={!row.selected}
+                                                        onChange={(e) => {
+                                                            const next = e.target.value;
+                                                            if (
+                                                                next &&
+                                                                !isDateWithinBillMonth(
+                                                                    next,
+                                                                    billMonth,
+                                                                )
+                                                            ) {
+                                                                setError(
+                                                                    `Bill date must be within ${monthTitle}.`,
+                                                                );
+                                                                return;
+                                                            }
+                                                            updateRow(index, { billDate: next });
+                                                            setError('');
+                                                        }}
+                                                        className="w-full min-w-[8rem] h-9 rounded-lg border border-gray-200 bg-white px-2 text-center text-xs tabular-nums text-gray-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 disabled:bg-gray-50 disabled:opacity-60"
+                                                    />
                                                 </td>
                                                 <td className="px-3 py-3.5 text-center align-middle tabular-nums text-gray-700">
                                                     {formatMoney(row.contractAmount)}
@@ -1188,6 +1524,11 @@ export default function AddBillModal({
                                                                 ? contractN - actualN
                                                                 : 0;
                                                             const patch = { actualAmount: nextActual };
+                                                            if (!has || Math.abs(diff) < 0.01) {
+                                                                patch.partyAccountId = '';
+                                                                patch.partyAccountName = '';
+                                                                patch.partyAccountCode = '';
+                                                            }
                                                             // Under contract: diff goes to Company; keep assigned
                                                             // employee name visible until Company is chosen.
                                                             if (has && actualN < contractN) {
@@ -1277,6 +1618,95 @@ export default function AddBillModal({
                                                     }`}
                                                 >
                                                     {hasActual ? formatMoney(difference) : '—'}
+                                                </td>
+                                                <td className="min-w-[14rem] px-2 py-3.5 text-left align-middle">
+                                                    <Select
+                                                        instanceId={`utility-bill-diff-account-${row.entryId || index}`}
+                                                        styles={accountSelectStyles}
+                                                        options={expenseAccountOptions}
+                                                        value={
+                                                            flatExpenseAccountOptions.find(
+                                                                (option) =>
+                                                                    option.value ===
+                                                                    row.partyAccountId,
+                                                            ) || null
+                                                        }
+                                                        onChange={(option) => {
+                                                            const match = flatExpenseAccountOptions.find(
+                                                                (o) => o.value === option?.value,
+                                                            );
+                                                            updateRow(index, {
+                                                                partyAccountId: option?.value || '',
+                                                                partyAccountName:
+                                                                    match?.name || match?.label || '',
+                                                                partyAccountCode: match?.code || '',
+                                                            });
+                                                            setError('');
+                                                        }}
+                                                        isSearchable
+                                                        isClearable
+                                                        isDisabled={
+                                                            saving ||
+                                                            !row.selected ||
+                                                            !hasActual ||
+                                                            difference < 0.01
+                                                        }
+                                                        placeholder={
+                                                            !hasActual
+                                                                ? 'Enter actual first'
+                                                                : difference < 0.01
+                                                                  ? 'No difference'
+                                                                  : expenseAccounts.length
+                                                                    ? 'Difference account'
+                                                                    : 'No Zoho accounts'
+                                                        }
+                                                        noOptionsMessage={() =>
+                                                            'No Zoho accounts found'
+                                                        }
+                                                        menuPortalTarget={
+                                                            typeof document !== 'undefined'
+                                                                ? document.body
+                                                                : null
+                                                        }
+                                                        menuPosition="fixed"
+                                                    />
+                                                </td>
+                                                <td className="min-w-[11rem] px-2 py-3.5 text-left align-middle">
+                                                    <Select
+                                                        instanceId={`utility-bill-company-${row.entryId || index}`}
+                                                        styles={accountSelectStyles}
+                                                        options={companySelectOptions}
+                                                        value={
+                                                            companySelectOptions.find(
+                                                                (option) =>
+                                                                    option.value ===
+                                                                    String(
+                                                                        row.payByCompanyId || '',
+                                                                    ),
+                                                            ) || null
+                                                        }
+                                                        onChange={(option) => {
+                                                            updateRow(index, {
+                                                                payByCompanyId: option?.value || '',
+                                                                payByCompanyName:
+                                                                    option?.label || '',
+                                                            });
+                                                            setError('');
+                                                        }}
+                                                        isSearchable
+                                                        isClearable
+                                                        isDisabled={saving || !row.selected}
+                                                        placeholder="Select company"
+                                                        noOptionsMessage={() =>
+                                                            'No active companies found'
+                                                        }
+                                                        menuPortalTarget={
+                                                            typeof document !== 'undefined'
+                                                                ? document.body
+                                                                : null
+                                                        }
+                                                        menuPosition="fixed"
+                                                    />
                                                 </td>
                                                 <td className="px-2 py-3.5 text-center align-middle">
                                                     {(() => {
@@ -1535,18 +1965,11 @@ export default function AddBillModal({
                     const diff =
                         Number(row?.contractAmount || 0) - Number(row?.actualAmount || 0);
                     const shares = resolvePayShares(choice.payBy, diff);
-                    updateRow(payByRowIndex, {
+                    const nextRow = {
+                        ...row,
                         payBy: choice.payBy,
                         companyDiffAmount: shares.companyAmount,
                         employeeDiffAmount: shares.employeeAmount,
-                        payByCompanyId:
-                            choice.payBy === PAY_BY_COMPANY
-                                ? choice.payByCompanyId
-                                : '',
-                        payByCompanyName:
-                            choice.payBy === PAY_BY_COMPANY
-                                ? choice.payByCompanyName
-                                : '',
                         payByEmployeeId:
                             choice.payBy === PAY_BY_EMPLOYEE
                                 ? choice.payByEmployeeId
@@ -1555,7 +1978,26 @@ export default function AddBillModal({
                             choice.payBy === PAY_BY_EMPLOYEE
                                 ? choice.payByEmployeeName
                                 : '',
-                    });
+                        payByCompanyId:
+                            choice.payBy === PAY_BY_COMPANY
+                                ? choice.payByCompanyId
+                                : row.payByCompanyId || '',
+                        payByCompanyName:
+                            choice.payBy === PAY_BY_COMPANY
+                                ? choice.payByCompanyName
+                                : row.payByCompanyName || '',
+                    };
+                    // Keep / auto Company name even when Contract Paid By is Employee.
+                    if (!String(nextRow.payByCompanyId || '').trim()) {
+                        const auto = resolveAutoCompany(
+                            nextRow,
+                            employeeOptions,
+                            companySelectOptions,
+                        );
+                        nextRow.payByCompanyId = auto.payByCompanyId;
+                        nextRow.payByCompanyName = auto.payByCompanyName;
+                    }
+                    updateRow(payByRowIndex, nextRow);
                     setPayByRowIndex(null);
                     setError('');
                 }}

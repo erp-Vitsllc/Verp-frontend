@@ -111,35 +111,6 @@ function amountValue(value) {
 
 const COMPANY_PARTY_ID = 'VEGA-HR-0000';
 
-/** Prefer Chart of Accounts row whose name matches the employee (Accounts Payable / liability). */
-function findEmployeePaidThroughAccount(accounts = [], employeeName = '') {
-    const needle = String(employeeName || '')
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
-    if (!needle || !Array.isArray(accounts) || !accounts.length) return null;
-
-    const scored = accounts
-        .map((account) => {
-            const name = String(account?.name || '')
-                .trim()
-                .toLowerCase()
-                .replace(/\s+/g, ' ');
-            const type = String(account?.type || '').toLowerCase();
-            if (!name.includes(needle) && !needle.includes(name)) return null;
-            let score = 1;
-            if (/payable|liability|employee|staff|advance/.test(type) || /payable|liability|employee/.test(name)) {
-                score += 3;
-            }
-            if (name === needle) score += 2;
-            return { account, score };
-        })
-        .filter(Boolean)
-        .sort((a, b) => b.score - a.score);
-
-    return scored[0]?.account || null;
-}
-
 function normalizePrefillPayBy(value) {
     const v = String(value || '')
         .trim()
@@ -228,6 +199,9 @@ function buildPartyExpensesPayloadForZoho({ utilityPrefill, paymentAmount }) {
                 companyId: row.payByCompanyId || utilityPrefill.companyId || '',
                 companyName:
                     row.payByCompanyName || utilityPrefill.payByCompanyName || 'VEGA Digital',
+                partyAccountId: row.partyAccountId || utilityPrefill.partyAccountId || '',
+                partyAccountName: row.partyAccountName || utilityPrefill.partyAccountName || '',
+                partyAccountCode: row.partyAccountCode || utilityPrefill.partyAccountCode || '',
                 utilityBillId: row.utilityBillId || '',
                 accountNo: row.accountNo || '',
                 zohoBillId: link.zohoBillId || '',
@@ -274,6 +248,97 @@ export default function AddVendorPaymentModal({
         prefill?.organizationId || prefill?.zohoOrganizationId || '',
     ).trim();
     const preferredCompanyId = String(prefill?.companyId || prefill?.payByCompanyId || '').trim();
+    const isUtilityPrefill = Boolean(
+        prefill?.utilityBatchId ||
+            (Array.isArray(prefill?.utilityBillIds) && prefill.utilityBillIds.length),
+    );
+
+    /** Contract Paid By → Zoho Salary Payable (and expense COA) for utility payments. */
+    const contractPaymentDestinations = useMemo(() => {
+        if (!isUtilityPrefill || !prefill) return [];
+
+        const fromPrefill = Array.isArray(prefill.salaryPayableAccounts)
+            ? prefill.salaryPayableAccounts
+            : [];
+        if (fromPrefill.length) {
+            return fromPrefill
+                .map((row) => ({
+                    id: String(row?.id || '').trim(),
+                    name: String(row?.name || '').trim() || 'Salary Payable',
+                    code: String(row?.code || '').trim(),
+                    payBy: String(row?.payBy || '').trim(),
+                    partyName: String(row?.partyName || '').trim(),
+                }))
+                .filter((row) => row.id || row.name || row.code);
+        }
+
+        const partyRows = Array.isArray(prefill.partyRows) ? prefill.partyRows : [];
+        const mapped = partyRows
+            .map((row) => {
+                const payBy = String(row?.payBy || prefill.payBy || '').trim().toLowerCase();
+                return {
+                    id: String(row?.partyAccountId || prefill.partyAccountId || '').trim(),
+                    name:
+                        String(row?.partyAccountName || prefill.partyAccountName || '').trim() ||
+                        'Salary Payable',
+                    code: String(row?.partyAccountCode || prefill.partyAccountCode || '').trim(),
+                    payBy,
+                    partyName:
+                        payBy === 'company'
+                            ? String(
+                                  row?.payByCompanyName ||
+                                      prefill.payByCompanyName ||
+                                      '',
+                              ).trim()
+                            : String(
+                                  row?.payByEmployeeName ||
+                                      prefill.payByEmployeeName ||
+                                      '',
+                              ).trim(),
+                };
+            })
+            .filter((row) => row.id || row.name || row.code || row.partyName);
+
+        if (mapped.length) {
+            return Array.from(
+                new Map(
+                    mapped.map((row) => [
+                        `${row.id}|${row.code}|${row.name}|${row.partyName}`,
+                        row,
+                    ]),
+                ).values(),
+            );
+        }
+
+        const payBy = String(prefill.payBy || '').trim().toLowerCase();
+        const partyName =
+            payBy === 'company'
+                ? String(prefill.payByCompanyName || '').trim()
+                : String(prefill.payByEmployeeName || '').trim();
+        if (prefill.partyAccountId || prefill.partyAccountName || partyName) {
+            return [
+                {
+                    id: String(prefill.partyAccountId || '').trim(),
+                    name: String(prefill.partyAccountName || '').trim() || 'Salary Payable',
+                    code: String(prefill.partyAccountCode || '').trim(),
+                    payBy,
+                    partyName,
+                },
+            ];
+        }
+        return [];
+    }, [isUtilityPrefill, prefill]);
+
+    const contractExpenseAccounts = useMemo(() => {
+        if (!isUtilityPrefill || !prefill) return [];
+        const fromPrefill = Array.isArray(prefill.expenseAccounts) ? prefill.expenseAccounts : [];
+        return fromPrefill
+            .map((row) => ({
+                id: String(row?.id || '').trim(),
+                name: String(row?.name || '').trim(),
+            }))
+            .filter((row) => row.id || row.name);
+    }, [isUtilityPrefill, prefill]);
 
     const {
         loading: loadingOrgs,
@@ -726,18 +791,27 @@ export default function AddVendorPaymentModal({
                     overrides.amount !== null &&
                     overrides.amount !== '';
 
-                const payBy = normalizePrefillPayBy(
-                    overrides.payBy || utilityPrefillRef.current?.payBy,
-                );
-                const employeeName = String(
-                    overrides.payByEmployeeName ||
-                    utilityPrefillRef.current?.payByEmployeeName ||
-                    '',
+                const paidThroughAccountId = String(
+                    overrides.paidThroughAccountId || '',
                 ).trim();
-                let paidThroughAccountId = String(overrides.paidThroughAccountId || '').trim();
-                if (!paidThroughAccountId && payBy === 'employee' && employeeName) {
-                    const matched = findEmployeePaidThroughAccount(mappedAccounts, employeeName);
-                    if (matched?.id) paidThroughAccountId = matched.id;
+
+                // Difference / partial pay: never allocate more on the bill than Payment Made.
+                // buildSelectedBillAmounts fills full balances; cap to the override amount.
+                let cappedBillAmounts = nextBillAmounts;
+                const paymentCap = hasAmountOverride ? amountValue(overrides.amount) : 0;
+                if (paymentCap > 0 && Object.keys(nextBillAmounts).length) {
+                    let remaining = paymentCap;
+                    const capped = {};
+                    for (const [id, raw] of Object.entries(nextBillAmounts)) {
+                        if (remaining <= 0.009) break;
+                        const balance = amountValue(raw);
+                        const apply = Math.min(balance, remaining);
+                        if (apply > 0.009) {
+                            capped[id] = apply.toFixed(2);
+                            remaining = Math.max(remaining - apply, 0);
+                        }
+                    }
+                    cappedBillAmounts = capped;
                 }
 
                 setPayables(billPayables);
@@ -756,8 +830,8 @@ export default function AddVendorPaymentModal({
                     notes: overrides.notes ?? '',
                     ...(paidThroughAccountId ? { paidThroughAccountId } : {}),
                 }));
-                setBillAmounts(nextBillAmounts);
-                setSelectedPayableIds(new Set(Object.keys(nextBillAmounts)));
+                setBillAmounts(cappedBillAmounts);
+                setSelectedPayableIds(new Set(Object.keys(cappedBillAmounts)));
 
                 // If Zoho bill ids/numbers were requested but none matched open unpaid bills, surface that.
                 if (hasPrefillBills && !Object.keys(nextBillAmounts).length) {
@@ -860,7 +934,7 @@ export default function AddVendorPaymentModal({
                 selectedBillNumbers,
                 payBy: prefill.payBy,
                 payByEmployeeName: prefill.payByEmployeeName,
-                paidThroughAccountId: prefill.paidThroughAccountId,
+                paidThroughAccountId: prefill.paidThroughAccountId || '',
             });
             return;
         }
@@ -978,6 +1052,12 @@ export default function AddVendorPaymentModal({
         setCrossOrgAccounts([]);
     }, [organizationId]);
 
+    useEffect(() => {
+        if (!isUtilityPrefill) return;
+        setPaidThroughOrgId('');
+        setCrossOrgAccounts([]);
+    }, [isUtilityPrefill]);
+
     const handlePaidThroughOrgSwitch = (nextOrgId) => {
         const id = String(nextOrgId || '').trim();
         if (!id || id === effectivePaidThroughOrgId) return;
@@ -985,6 +1065,7 @@ export default function AddVendorPaymentModal({
         setField('paidThroughAccountId', '');
     };
 
+    // Full Chart of Accounts grouped by type (matches Zoho Books Paid Through).
     const paidThroughOptions = useMemo(() => {
         const groups = new Map();
         const sourceAccounts = isCrossOrgPaidThrough ? crossOrgAccounts : accounts;
@@ -994,7 +1075,7 @@ export default function AddVendorPaymentModal({
             if (!groups.has(groupLabel)) groups.set(groupLabel, []);
             groups.get(groupLabel).push({
                 value: account.id,
-                label: account.name,
+                label: account.code ? `${account.name} (${account.code})` : account.name,
             });
         });
 
@@ -1017,6 +1098,30 @@ export default function AddVendorPaymentModal({
             null,
         [form.paidThroughAccountId, flatPaidThroughOptions],
     );
+
+    // Difference settle: do not auto-select Acc2 as Paid Through (settle Debits Paid Through).
+    useEffect(() => {
+        if (isEdit) return;
+        const mode = String(prefill?.mode || utilityPrefillRef.current?.mode || '')
+            .trim()
+            .toLowerCase();
+        if (mode !== 'difference' && mode !== 'balance') return;
+        if (form.paidThroughAccountId) return;
+        const fromPrefill = String(
+            prefill?.paidThroughAccountId ||
+                utilityPrefillRef.current?.paidThroughAccountId ||
+                '',
+        ).trim();
+        const partyId = String(
+            prefill?.partyAccountId || utilityPrefillRef.current?.partyAccountId || '',
+        ).trim();
+        // Never default Paid Through to Acc2 — user must pick Cash/Bank to Debit.
+        if (!fromPrefill || fromPrefill === partyId) return;
+        if (!flatPaidThroughOptions.some((opt) => opt.value === fromPrefill)) return;
+        setForm((prev) =>
+            prev.paidThroughAccountId ? prev : { ...prev, paidThroughAccountId: fromPrefill },
+        );
+    }, [flatPaidThroughOptions, form.paidThroughAccountId, isEdit, prefill]);
 
     const handleLocationChange = (option) => {
         setForm((prev) => ({
@@ -1181,21 +1286,35 @@ export default function AddVendorPaymentModal({
             setError('Select the paid through account from Chart of Accounts.');
             return;
         }
-        if (appliedTotal - paymentAmount > 0.01) {
+        const utilityMode = String(
+            utilityPrefillRef.current?.mode || prefill?.mode || '',
+        )
+            .trim()
+            .toLowerCase();
+        const isDifferenceSettle =
+            utilityMode === 'difference' || utilityMode === 'balance';
+
+        if (!isDifferenceSettle && appliedTotal - paymentAmount > 0.01) {
             setError('Bill allocations cannot exceed the payment amount.');
             return;
         }
 
-        const appliedBills = payables
-            .filter((row) => row.recordType === 'bill' && selectedPayableIds.has(row.id))
-            .map((bill) => ({
-                bill_id: bill.id,
-                amount_applied: amountValue(billAmounts[bill.id]),
-            }))
-            .filter((bill) => bill.amount_applied > 0);
+        const appliedBills = isDifferenceSettle
+            ? []
+            : payables
+                  .filter((row) => row.recordType === 'bill' && selectedPayableIds.has(row.id))
+                  .map((bill) => ({
+                      bill_id: bill.id,
+                      amount_applied: amountValue(billAmounts[bill.id]),
+                  }))
+                  .filter((bill) => bill.amount_applied > 0);
 
-        if (!appliedBills.length) {
+        if (!isDifferenceSettle && !appliedBills.length) {
             setError('Select at least one bill and enter a payment amount.');
+            return;
+        }
+        if (isDifferenceSettle && paymentAmount <= 0) {
+            setError('Enter the difference amount to settle.');
             return;
         }
 
@@ -1207,6 +1326,16 @@ export default function AddVendorPaymentModal({
                 utilityPrefill: utilityPrefillRef.current,
                 paymentAmount,
             });
+            if (
+                !asDraft &&
+                partyExpensesPayload.some(
+                    (row) => !row.partyAccountId || !row.partyAccountCode,
+                )
+            ) {
+                throw new Error(
+                    'Employee/company Zoho account-code mapping is missing. Reopen the approved utility bill or retry Zoho sync before paying.',
+                );
+            }
 
             const prefillRef = utilityPrefillRef.current;
             const fineMongoIds = []
@@ -1239,15 +1368,27 @@ export default function AddVendorPaymentModal({
                 ...(fineMongoIds.length
                     ? { fineMongoIds, mode: prefillRef?.mode || 'fine_bills' }
                     : {}),
-                ...(!asDraft && partyExpensesPayload.length
+                ...(isDifferenceSettle
                     ? {
-                        party_expenses: partyExpensesPayload,
-                        mode: utilityPrefillRef.current?.mode || 'difference',
-                        utilityType: utilityPrefillRef.current?.utilityType || '',
-                        billMonth: utilityPrefillRef.current?.billMonth || '',
-                        utilityBatchId: utilityPrefillRef.current?.utilityBatchId || '',
-                    }
-                    : {}),
+                          mode: 'difference',
+                          party_expenses: partyExpensesPayload,
+                          utilityType: utilityPrefillRef.current?.utilityType || '',
+                          billMonth: utilityPrefillRef.current?.billMonth || '',
+                          utilityBatchId: utilityPrefillRef.current?.utilityBatchId || '',
+                          utilityBillId:
+                              utilityPrefillRef.current?.utilityBillId ||
+                              utilityPrefillRef.current?.utilityBillIds?.[0] ||
+                              '',
+                      }
+                    : !asDraft && partyExpensesPayload.length
+                      ? {
+                            party_expenses: partyExpensesPayload,
+                            mode: utilityPrefillRef.current?.mode || 'difference',
+                            utilityType: utilityPrefillRef.current?.utilityType || '',
+                            billMonth: utilityPrefillRef.current?.billMonth || '',
+                            utilityBatchId: utilityPrefillRef.current?.utilityBatchId || '',
+                        }
+                      : {}),
             };
 
             if (isEdit) {
@@ -1924,7 +2065,7 @@ export default function AddVendorPaymentModal({
                                             Paid Through <span className="text-blue-600">*</span>
                                         </span>
                                         <div className="space-y-1.5">
-                                            {zohoOrgOptions.length > 1 && (
+                                            {!isUtilityPrefill && zohoOrgOptions.length > 1 && (
                                                 <div className="flex items-center gap-1.5">
                                                     {zohoOrgOptions.map((opt) => {
                                                         const isActiveTab =
@@ -1973,10 +2114,10 @@ export default function AddVendorPaymentModal({
                                                 isSearchable
                                                 placeholder={
                                                     loadingCrossOrgAccounts
-                                                        ? `Loading ${paidThroughOrgOption?.brand || ''} accounts…`
+                                                        ? `Loading ${paidThroughOrgOption?.brand || ''} Chart of Accounts…`
                                                         : paidThroughOrgOption?.brand
-                                                            ? `Select ${paidThroughOrgOption.brand} Chart of Accounts`
-                                                            : 'Select Chart of Accounts'
+                                                            ? `Select ${paidThroughOrgOption.brand} account`
+                                                            : 'Select an account'
                                                 }
                                                 noOptionsMessage={() =>
                                                     'No accounts found in Zoho Chart of Accounts'
@@ -2002,7 +2143,7 @@ export default function AddVendorPaymentModal({
                                     </div>
                                 </div>
 
-                                <div className="flex items-start justify-end">
+                                <div className="flex flex-col items-stretch gap-3 sm:items-end">
                                     <button
                                         type="button"
                                         disabled={!form.vendorId || loadingVendor}
@@ -2032,6 +2173,70 @@ export default function AddVendorPaymentModal({
                                                 : selectedVendor?.label || 'Select Vendor'}
                                         </span>
                                     </button>
+
+                                    {isUtilityPrefill ? (
+                                        <div className="w-full max-w-sm rounded-xl border border-teal-200 bg-teal-50/70 px-3.5 py-3 text-left shadow-sm">
+                                            <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">
+                                                Contract payment
+                                            </p>
+                                            <p className="mt-0.5 text-[11px] text-teal-800/80">
+                                                Zoho Salary Payable — where Contract Paid By posts
+                                            </p>
+
+                                            {contractPaymentDestinations.length ? (
+                                                <ul className="mt-2 space-y-2">
+                                                    {contractPaymentDestinations.map((dest, idx) => (
+                                                        <li
+                                                            key={`${dest.id || dest.code || dest.name}-${idx}`}
+                                                            className="rounded-lg border border-teal-100 bg-white px-2.5 py-2"
+                                                        >
+                                                            <p className="text-sm font-semibold text-slate-800">
+                                                                {dest.name}
+                                                            </p>
+                                                            {dest.partyName ? (
+                                                                <p className="mt-0.5 text-xs text-slate-600">
+                                                                    Contract Paid By:{' '}
+                                                                    <span className="font-medium text-slate-800">
+                                                                        {dest.partyName}
+                                                                    </span>
+                                                                    {dest.payBy
+                                                                        ? ` (${dest.payBy === 'company' ? 'Company' : 'Employee'})`
+                                                                        : ''}
+                                                                </p>
+                                                            ) : null}
+                                                            {dest.code ? (
+                                                                <p className="mt-0.5 text-[11px] tabular-nums text-slate-500">
+                                                                    Account code: {dest.code}
+                                                                </p>
+                                                            ) : null}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            ) : (
+                                                <p className="mt-2 text-xs text-amber-700">
+                                                    Salary Payable is not mapped yet. Approve /
+                                                    Retry Zoho sync on the utility bill so the
+                                                    employee or company account code is linked.
+                                                </p>
+                                            )}
+
+                                            {contractExpenseAccounts.length ? (
+                                                <div className="mt-2 border-t border-teal-100 pt-2">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                                        Bill expense account
+                                                    </p>
+                                                    {contractExpenseAccounts.map((acc, idx) => (
+                                                        <p
+                                                            key={`${acc.id || acc.name}-${idx}`}
+                                                            className="mt-0.5 text-xs font-medium text-slate-700"
+                                                        >
+                                                            {acc.name}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
 

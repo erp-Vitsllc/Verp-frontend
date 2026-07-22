@@ -83,11 +83,24 @@ export function usePayByPartyOptions(enabled = true) {
 
     const employeeOptions = useMemo(
         () =>
-            (employees || []).filter(isActiveProfileEmployee).map((emp) => ({
-                value: String(emp._id),
-                label: employeeOptionLabel(emp),
-                employeeId: emp.employeeId || '',
-            })),
+            (employees || []).filter(isActiveProfileEmployee).map((emp) => {
+                const companyRef = emp.company;
+                const companyMongoId = String(
+                    companyRef?._id || companyRef?.id || companyRef || '',
+                ).trim();
+                return {
+                    value: String(emp._id),
+                    label: employeeOptionLabel(emp),
+                    employeeId: emp.employeeId || '',
+                    companyMongoId,
+                    companyName: String(
+                        emp.companyName ||
+                            companyRef?.name ||
+                            emp.companyNickName ||
+                            '',
+                    ).trim(),
+                };
+            }),
         [employees],
     );
 

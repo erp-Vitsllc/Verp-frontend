@@ -67,61 +67,52 @@ export default function EmployeeExpensesPanel({ employee }) {
 
     const handlePay = (row) => {
         const kind = String(row.kind || 'balance').toLowerCase();
-        if (kind === 'balance') {
-            const amount = Number(row.amount) || 0;
-            const prefill = {
-                mode: 'employee_balance',
-                employeeId,
-                organizationId: row.zohoOrganizationId || '',
-                returnTo:
-                    typeof window !== 'undefined'
-                        ? `${window.location.pathname}${window.location.search || ''}`
-                        : '',
-                balance: amount,
-                paymentSource: 'Cash',
-                batchId: row.utilityBatchId || '',
-                utilityType: row.utilityType || '',
-                billMonth: row.billMonth || '',
-                partyExpenseId:
-                    row.id && !String(row.id).startsWith('balance:') ? String(row.id) : '',
-                utilityBills: [
-                    {
-                        _id: row.utilityBillId,
-                        id: row.utilityBillId,
-                        accountNo: row.accountNo || '',
-                        balance: amount,
-                        utilityType: row.utilityType || '',
-                        billMonth: row.billMonth || '',
-                        payByEmployeeBusinessId: employeeId,
-                        zohoBillId: row.zohoBillId || '',
-                        zohoOrganizationId: row.zohoOrganizationId || '',
-                        selected: true,
-                    },
-                ],
-            };
-            try {
-                sessionStorage.setItem('utilityBillPaymentPrefill', JSON.stringify(prefill));
-            } catch {
-                /* ignore */
-            }
-            router.push('/Accounts/Payments?addUtilityPay=1');
+        const amount = Number(row.amount) || 0;
+
+        // Loan / advance stay on ERP payment flow — not Zoho Payments Made.
+        if (kind === 'loan' || kind === 'advance') {
+            toast({
+                title: 'Use Loan / Advance payment',
+                description: 'This expense is not a utility difference payable.',
+            });
             return;
         }
 
+        const employeeName =
+            `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() ||
+            row.employeeName ||
+            '';
+        const partyAccountId = String(row.partyAccountId || '').trim();
+        const partyAccountName = String(row.partyAccountName || '').trim();
+        const partyAccountCode = String(row.partyAccountCode || '').trim();
+        const returnTo =
+            typeof window !== 'undefined'
+                ? `${window.location.pathname}${window.location.search || ''}`
+                : '';
+
         const params = new URLSearchParams();
         params.set('addUtilityPay', '1');
+        params.set('mode', 'difference');
         if (row.zohoBillId) params.set('billIds', row.zohoBillId);
         if (row.utilityBillId) params.set('utilityBillIds', row.utilityBillId);
-        if (row.utilityBatchId) params.set('batchId', row.utilityBatchId);
         if (row.zohoOrganizationId) params.set('organizationId', row.zohoOrganizationId);
-        if (row.amount) params.set('amount', String(row.amount));
-        params.set('mode', 'difference');
+        if (amount) params.set('amount', String(amount));
+        if (row.utilityBatchId) params.set('batchId', row.utilityBatchId);
+        if (row.utilityType) params.set('utilityType', row.utilityType);
+        if (row.billMonth) params.set('billMonth', row.billMonth);
+        if (employeeId) params.set('employeeId', employeeId);
 
         const prefill = {
-            amount: row.amount > 0 ? Number(row.amount).toFixed(2) : '',
-            notes: row.description || '',
+            vendorId: String(row.zohoVendorId || '').trim(),
+            vendorName: String(row.vendorName || row.provider || '').trim(),
+            amount: amount > 0 ? amount.toFixed(2) : '',
+            notes:
+                row.description ||
+                `Utility difference payment · ${row.utilityType || ''} ${row.billMonth || ''}`.trim(),
             mode: 'difference',
+            billsOnly: true,
             utilityBatchId: row.utilityBatchId || '',
+            utilityBillId: row.utilityBillId || '',
             utilityBillIds: row.utilityBillId ? [row.utilityBillId] : [],
             utilityBillLinks: row.utilityBillId
                 ? [
@@ -132,28 +123,37 @@ export default function EmployeeExpensesPanel({ employee }) {
                       },
                   ]
                 : [],
+            zohoBillId: row.zohoBillId || '',
             selectedBillIds: row.zohoBillId ? [row.zohoBillId] : [],
             zohoBillIds: row.zohoBillId ? [row.zohoBillId] : [],
             organizationId: row.zohoOrganizationId || '',
+            billNumber: row.accountNo || '',
+            accountNo: row.accountNo || '',
+            utilityType: row.utilityType || '',
+            billMonth: row.billMonth || '',
+            employeeId,
             payBy: 'employee',
             payByEmployeeId: employeeId,
-            payByEmployeeName:
-                `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() ||
-                row.employeeName ||
-                '',
-            employeePayAmount: row.amount,
+            payByEmployeeName: employeeName,
+            partyAccountId,
+            partyAccountName,
+            partyAccountCode,
+            // Paid Through must be Cash/Bank (Debited on settle) — not Acc2.
+            paidThroughAccountId: '',
+            paidThroughAccountName: '',
+            returnTo,
             partyRows: [
                 {
                     utilityBillId: row.utilityBillId || '',
                     accountNo: row.accountNo || '',
                     payBy: 'employee',
-                    amount: row.amount,
-                    employeePayAmount: row.amount,
+                    amount,
+                    employeePayAmount: amount,
                     payByEmployeeId: employeeId,
-                    payByEmployeeName:
-                        `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() ||
-                        row.employeeName ||
-                        '',
+                    payByEmployeeName: employeeName,
+                    partyAccountId,
+                    partyAccountName,
+                    partyAccountCode,
                 },
             ],
         };
@@ -171,8 +171,8 @@ export default function EmployeeExpensesPanel({ employee }) {
                 <Wallet size={18} className="text-blue-600 mt-0.5 shrink-0" />
                 <p className="text-sm">
                     Utility balances, fines, and loan/advance schedules appear here. Utility
-                    over-contract balances: Pay opens Accounts → Payments with VEGA/NNIT Zoho
-                    Chart of Accounts (Paid Through as credit).
+                    difference: <strong>Pay difference</strong> opens Accounts → Payments Made
+                    (Paid Through defaults to the employee salary payable account).
                 </p>
             </div>
 
@@ -323,7 +323,7 @@ export default function EmployeeExpensesPanel({ employee }) {
                                                         onClick={() => handlePay(row)}
                                                         className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
                                                     >
-                                                    Pay balance
+                                                    Pay difference
                                                 </button>
                                                 ) : (
                                                     <span className="text-xs font-semibold text-emerald-600">

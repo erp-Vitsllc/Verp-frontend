@@ -371,13 +371,27 @@ export default function AddBillModal({
         [form.locationId, locationOptions],
     );
 
-    const accountOptions = useMemo(
-        () =>
-            accounts.map((account) => ({
+    const accountOptions = useMemo(() => {
+        const groups = new Map();
+        accounts.forEach((account) => {
+            const groupLabel = account.type || 'Other';
+            if (!groups.has(groupLabel)) groups.set(groupLabel, []);
+            groups.get(groupLabel).push({
                 value: account.id,
-                label: account.type ? `${account.name} (${account.type})` : account.name,
-            })),
-        [accounts],
+                label: account.name,
+            });
+        });
+        return [...groups.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([label, options]) => ({
+                label,
+                options: options.sort((a, b) => a.label.localeCompare(b.label)),
+            }));
+    }, [accounts]);
+
+    const flatAccountOptions = useMemo(
+        () => accountOptions.flatMap((group) => group.options || []),
+        [accountOptions],
     );
 
     const paymentTermOptions = useMemo(
@@ -780,7 +794,7 @@ export default function AddBillModal({
                                             <tbody>
                                                 {lines.map((line, index) => {
                                                     const selectedAccount =
-                                                        accountOptions.find(
+                                                        flatAccountOptions.find(
                                                             (option) =>
                                                                 option.value === line.accountId,
                                                         ) || null;

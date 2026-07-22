@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     ArrowLeft,
@@ -54,7 +54,11 @@ export default function ViewVendorPaymentDetail({
     const pdfMenuRef = useRef(null);
     const pdfRequestIdRef = useRef(0);
     const orgId = String(organizationId || '').trim();
-    const orgParams = orgId ? { organizationId: orgId } : undefined;
+    // Stable identity — a fresh object every render would retrigger loadPayment's effect forever.
+    const orgParams = useMemo(
+        () => (orgId ? { organizationId: orgId } : undefined),
+        [orgId],
+    );
 
     const revokePdfUrl = useCallback((url) => {
         if (url) URL.revokeObjectURL(url);
