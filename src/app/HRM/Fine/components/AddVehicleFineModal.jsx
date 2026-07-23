@@ -988,8 +988,7 @@ export default function AddVehicleFineModal({
                                 data-field-error="companyDescription"
                             >
                                 <label className="text-sm font-medium text-gray-700">
-                                    Company Description
-                                    {validationMode === 'strict' ? <span className="text-red-500"> *</span> : null}
+                                    Company Description <span className="text-red-500"> *</span>
                                 </label>
                                 <textarea
                                     value={formData.companyDescription}

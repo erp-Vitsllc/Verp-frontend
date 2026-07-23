@@ -209,7 +209,8 @@ export function validateVehicleFine(input, options = {}) {
         errors.company = 'Company selection is required';
     }
 
-    if (needsCompany && !isDraft) {
+    // Required whenever company pays — including Add/Draft — so users fill it in the modal up front
+    if (needsCompany) {
         const compDesc = String(input.companyDescription || '');
         if (!isMeaningfulText(compDesc, VEHICLE_FINE_LIMITS.minCompanyDescriptionLength)) {
             errors.companyDescription = `Company description is required (at least ${VEHICLE_FINE_LIMITS.minCompanyDescriptionLength} characters)`;
