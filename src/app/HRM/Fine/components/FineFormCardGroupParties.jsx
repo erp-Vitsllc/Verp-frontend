@@ -539,9 +539,15 @@ export default function FineFormCardGroupParties({
                     <tbody>
                         {parties.map((member, idx) => {
                             const label = member.isCompany
-                                ? (companyName || fine.companyName || member.employeeName || 'Company')
+                                ? (companyName ||
+                                    fine.company?.name ||
+                                    fine.companyName ||
+                                    member.employeeName ||
+                                    'Company')
                                 : (member.employeeName || member.employeeId || `Party ${idx + 1}`);
-                            const partyName = member.isCompany ? `Co. ${label}` : label;
+                            const partyName = member.isCompany
+                                ? `Co. ${label === 'Invalid company' || label === 'Invalid Company' ? (fine.company?.name || fine.companyName || 'Company') : label}`
+                                : label;
                             const key = partyRowKey(member, idx);
                             const payableId =
                                 localPayables[key] != null

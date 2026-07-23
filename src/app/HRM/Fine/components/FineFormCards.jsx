@@ -75,7 +75,11 @@ export default function FineFormCards(props) {
                 <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
                     <FineFormCardGroupParties
                         fine={fine}
-                        companyName={props.companyName || fine.companyName}
+                        companyName={
+                            props.companyName ||
+                            fine.company?.name ||
+                            fine.companyName
+                        }
                         formatDate={props.formatDate}
                         canEditPartyPayables={Boolean(props.canEditPartyPayables)}
                         onPartyPayablesChange={props.onPartyPayablesChange}
@@ -88,7 +92,11 @@ export default function FineFormCards(props) {
     const individualPartiesCard = (
         <FineFormCardGroupParties
             fine={fine}
-            companyName={props.companyName || fine.companyName}
+            companyName={
+                props.companyName ||
+                fine.company?.name ||
+                fine.companyName
+            }
             formatDate={props.formatDate}
             canEditPartyPayables={Boolean(props.canEditPartyPayables)}
             onPartyPayablesChange={props.onPartyPayablesChange}

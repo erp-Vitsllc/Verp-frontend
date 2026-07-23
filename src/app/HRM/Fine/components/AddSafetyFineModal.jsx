@@ -16,7 +16,37 @@ import {
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import {
     getVehicleFinePayableTotal,
+    VEHICLE_FINE_LIMITS,
 } from '../utils/validateVehicleFine';
+
+function isMeaningfulText(value, minLen) {
+    const t = String(value || '').trim();
+    if (t.length < minLen) return false;
+    return /[a-zA-Z0-9\u0600-\u06FF]/.test(t);
+}
+
+function resolveCompanySelectId(company, companies = []) {
+    if (!company) return '';
+    const list = Array.isArray(companies) ? companies : [];
+    if (typeof company === 'object') {
+        const id = company._id || company.id;
+        if (id && list.some((c) => String(c._id) === String(id))) return String(id);
+        const code = company.companyId;
+        if (code) {
+            const match = list.find(
+                (c) => String(c.companyId) === String(code) || String(c._id) === String(code),
+            );
+            if (match) return String(match._id);
+        }
+        return id ? String(id) : '';
+    }
+    const raw = String(company).trim();
+    if (!raw) return '';
+    const match = list.find(
+        (c) => String(c._id) === raw || String(c.companyId) === raw || String(c.id) === raw,
+    );
+    return match ? String(match._id) : raw;
+}
 
 export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
@@ -49,13 +79,20 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     // Populate data when modal opens
     useEffect(() => {
         if (isOpen && initialData) {
-            // Stored fineAmount is grand total (base + service charge); form Total is base only
             const sc = parseFloat(initialData.serviceCharge || 0) || 0;
-            const grandTotal = parseFloat(initialData.fineAmount || 0) || 0;
-            const baseFine = Math.max(0, grandTotal - sc);
+            const empBase = parseFloat(initialData.employeeAmount || 0) || 0;
+            const compBase = parseFloat(initialData.companyAmount || 0) || 0;
+            const partsBase = empBase + compBase;
+            const grandTotal =
+                parseFloat(initialData.totalFineAmount || initialData.fineAmount || 0) || 0;
+            // Prefer stored base portions; never treat (base+SC) − SC as base when portions exist
+            const baseFine =
+                partsBase > 0.001
+                    ? partsBase
+                    : Math.max(0, grandTotal - sc);
+
             setTotalFineAmount(String(baseFine || ''));
             setResponsibleFor(initialData.responsibleFor || 'Employee');
-            // Portions are base shares (service charge is separate / added in Summary + on save)
             setEmployeeAmount(
                 initialData.employeeAmount != null && initialData.employeeAmount !== ''
                     ? String(initialData.employeeAmount)
@@ -85,21 +122,41 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             // If editing, we reconstruct it as an array, filtering out the company share placeholder
             if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
                 const realEmployees = initialData.assignedEmployees.filter(emp => emp.employeeId !== 'VEGA-HR-0000');
-                setSelectedEmployees(realEmployees.map(emp => ({
-                    employeeId: emp.employeeId,
-                    employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
-                    // Base individual amount (service charge added on save)
-                    fineAmount: emp.employeeAmount || (initialData.employeeAmount
-                        ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2)
-                        : (baseFine / Math.max(1, realEmployees.length)).toFixed(2)),
-                    duration: emp.payableDuration || initialData.payableDuration || '1'
-                })));
+                const hasCompanyParty =
+                    initialData.assignedEmployees.some((emp) => emp.employeeId === 'VEGA-HR-0000') ||
+                    compBase > 0 ||
+                    initialData.responsibleFor === 'Company' ||
+                    initialData.responsibleFor === 'Employee & Company';
+                const partyCount = Math.max(1, realEmployees.length + (hasCompanyParty ? 1 : 0));
+                const scShare = partyCount > 0 ? sc / partyCount : 0;
+
+                setSelectedEmployees(realEmployees.map(emp => {
+                    const storedBase = parseFloat(emp.employeeAmount);
+                    const storedPayable = parseFloat(emp.individualAmount ?? emp.fineAmount);
+                    let rowBase;
+                    if (Number.isFinite(storedBase) && storedBase > 0) {
+                        rowBase = storedBase;
+                    } else if (Number.isFinite(storedPayable) && storedPayable > 0) {
+                        // Strip SC share if payable was stored in fineAmount
+                        rowBase = Math.max(0, storedPayable - scShare);
+                    } else if (empBase > 0 && realEmployees.length > 0) {
+                        rowBase = empBase / realEmployees.length;
+                    } else {
+                        rowBase = baseFine / Math.max(1, realEmployees.length);
+                    }
+                    return {
+                        employeeId: emp.employeeId,
+                        employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
+                        fineAmount: Number(rowBase).toFixed(2),
+                        duration: emp.payableDuration || initialData.payableDuration || '1'
+                    };
+                }));
             } else if (initialData.employeeId && initialData.employeeId !== 'VEGA-HR-0000') {
                 const empName = initialData.employeeName || employees.find(e => e.employeeId === initialData.employeeId)?.firstName || initialData.employeeId;
                 setSelectedEmployees([{
                     employeeId: initialData.employeeId,
                     employeeName: empName,
-                    fineAmount: initialData.employeeAmount || String(baseFine) || '0',
+                    fineAmount: String(empBase || baseFine || '0'),
                     duration: initialData.payableDuration || '1'
                 }]);
             }
@@ -131,9 +188,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 const data = response.data.companies || (Array.isArray(response.data) ? response.data : []);
                 setCompanies(data);
                 
-                // If editing, set the selected company
-                if (initialData?.company) {
-                    setSelectedCompanyId(initialData.company._id || initialData.company);
+                // If editing, set the selected company (resolve _id or companyId code)
+                if (initialData?.company || initialData?.companyName) {
+                    setSelectedCompanyId(
+                        resolveCompanySelectId(initialData.company || initialData.companyName, data),
+                    );
                 }
             } catch (error) {
                 console.error("Error fetching companies:", error);
@@ -300,7 +359,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const validateForm = () => {
         const newErrors = {};
         if (!totalFineAmount) newErrors.totalFineAmount = 'Total fine amount is required';
-        if (!description || description.trim() === '') newErrors.description = 'Description is required';
+        if (!isMeaningfulText(description, VEHICLE_FINE_LIMITS.minDescriptionLength)) {
+            newErrors.description = `Description is required (at least ${VEHICLE_FINE_LIMITS.minDescriptionLength} characters)`;
+        } else if (description.trim().length > VEHICLE_FINE_LIMITS.maxDescriptionLength) {
+            newErrors.description = `Description cannot exceed ${VEHICLE_FINE_LIMITS.maxDescriptionLength} characters`;
+        }
         const hasAttachment = Boolean(
             formData.attachmentBase64 ||
             formData.attachmentName ||
@@ -308,7 +371,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             initialData?.attachment?.publicId
         );
         if (!hasAttachment) newErrors.attachment = 'Attachment is required';
-        if (selectedEmployees.length === 0) {
+        if (selectedEmployees.length === 0 && responsibleFor !== 'Company') {
             newErrors.employees = 'At least one employee must be selected';
         }
 
@@ -340,6 +403,14 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
         if ((responsibleFor === 'Company' || responsibleFor === 'Employee & Company') && !selectedCompanyId) {
             newErrors.company = 'Company selection is required';
+        }
+
+        if (responsibleFor === 'Company' || responsibleFor === 'Employee & Company') {
+            if (!isMeaningfulText(companyDescription, VEHICLE_FINE_LIMITS.minCompanyDescriptionLength)) {
+                newErrors.companyDescription = `Company description is required (at least ${VEHICLE_FINE_LIMITS.minCompanyDescriptionLength} characters)`;
+            } else if (companyDescription.trim().length > VEHICLE_FINE_LIMITS.maxCompanyDescriptionLength) {
+                newErrors.companyDescription = `Company description cannot exceed ${VEHICLE_FINE_LIMITS.maxCompanyDescriptionLength} characters`;
+            }
         }
 
         if (shouldValidateFineDeductionSchedule(responsibleFor) && selectedEmployees.length > 0) {
@@ -644,6 +715,14 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.company ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
                             >
                                 <option value="">Select Company</option>
+                                {selectedCompanyId &&
+                                !companies.some((c) => String(c._id) === String(selectedCompanyId)) ? (
+                                    <option value={selectedCompanyId}>
+                                        {initialData?.company?.name ||
+                                            initialData?.companyName ||
+                                            'Current company'}
+                                    </option>
+                                ) : null}
                                 {companies.map(comp => (
                                     <option key={comp._id} value={comp._id}>{comp.name}</option>
                                 ))}
@@ -655,13 +734,23 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                     {/* Company Description - Conditional */}
                     {(responsibleFor === 'Company' || responsibleFor === 'Employee & Company') && (
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Company Description</label>
+                            <label className="text-sm font-medium text-gray-700">
+                                Company Description <span className="text-red-500">*</span>
+                            </label>
                             <textarea
                                 value={companyDescription}
-                                onChange={(e) => setCompanyDescription(e.target.value)}
+                                onChange={(e) => {
+                                    setCompanyDescription(e.target.value);
+                                    if (errors.companyDescription) {
+                                        setErrors((prev) => ({ ...prev, companyDescription: '' }));
+                                    }
+                                }}
                                 placeholder="Explain why the company is bearing this cost..."
-                                className="w-full h-24 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none transition-all"
+                                className={`w-full h-24 px-4 py-3 rounded-xl border ${errors.companyDescription ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none transition-all`}
                             />
+                            {errors.companyDescription ? (
+                                <p className="text-xs text-red-500 ml-1">{errors.companyDescription}</p>
+                            ) : null}
                         </div>
                     )}
 
