@@ -329,7 +329,15 @@ export default function FineFormCardGroupParties({
 
         setSavingVendor(true);
         try {
-            const targetId = parties[0]?.fineRecordId || fine._id;
+            const targetId = parties[0]?.fineRecordId || fine?._id || fine?.fineId;
+            if (!targetId) {
+                toast({
+                    title: 'Could not save vendor',
+                    description: 'Missing fine record id.',
+                    variant: 'destructive',
+                });
+                return;
+            }
             await axiosInstance.put(`/Fine/${targetId}`, {
                 fineSource: nextLabel,
                 zohoVendorId: match?.id || '',
@@ -377,14 +385,15 @@ export default function FineFormCardGroupParties({
         setLocalConfirmed(nextConfirmed);
         emitPayables(nextMap, nextConfirmed);
 
-        if (!dropdownsEnabled || !member.fineRecordId) return;
+        const targetId = member.fineRecordId || fine?._id || fine?.fineId;
+        if (!dropdownsEnabled || !targetId) return;
 
         setSavingKey(key);
         try {
-            await axiosInstance.put(`/Fine/${member.fineRecordId}`, {
+            await axiosInstance.put(`/Fine/${targetId}`, {
                 partyPayables: [
                     {
-                        fineRecordId: member.fineRecordId,
+                        fineRecordId: targetId,
                         fineId: member.fineId,
                         expenseAccountId: id,
                         expenseAccountName,

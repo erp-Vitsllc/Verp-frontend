@@ -108,7 +108,9 @@ export function buildGroupMembersForFine(fine) {
             fineAmount: individual,
             fineStatus,
             fineId: emp.fineId || recordFineId,
-            fineRecordId: emp.fineRecordId || emp._id || recordId,
+            // Prefer sibling Fine _id from API enrichment. Never use assignedEmployees
+            // subdocument _id — that is not a Fine document and causes /Fine/:id 404.
+            fineRecordId: emp.fineRecordId || recordId,
             companyId,
             // Per-party only — never inherit another party's payable; fall back to fine root for singles
             expenseAccountId: emp.expenseAccountId || fine.expenseAccountId || '',
