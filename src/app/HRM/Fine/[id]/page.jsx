@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
@@ -42,6 +42,11 @@ import {
     isHrUser,
 } from '../utils/fineApprovedEdit';
 import {
+    buildGroupMembersForFine,
+    buildGroupMemberDetailHref,
+    buildGroupOverviewHref,
+    canViewGroupFinePartiesIndividually,
+    getFineBaseId,
     isCompanyFineParty,
     isViewingSpecificFineParty,
     resolveActivePartyFromFine,
@@ -182,6 +187,7 @@ function FineDetailsPageContent() {
     const [showEditModal, setShowEditModal] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
+    const confirmActionInFlightRef = useRef(false);
     const [imageError, setImageError] = useState(false);
     const [activeTab, setActiveTab] = useState('fineForm'); // 'fineForm', 'historyDetails', 'approvedAttachments'
     const [assetDetails, setAssetDetails] = useState(null);
@@ -202,6 +208,11 @@ function FineDetailsPageContent() {
         expenseAccountName: '',
         zohoOrganizationId: '',
     });
+    const [partyPayables, setPartyPayables] = useState([]);
+    const [accountsApprovePayable, setAccountsApprovePayable] = useState({
+        expenseAccountId: '',
+        expenseAccountName: '',
+    });
     const [confirmConfig, setConfirmConfig] = useState({
         action: null, // 'approve' | 'reject' | 'updateStatus'
         status: null, // for updateStatus
@@ -219,11 +230,13 @@ function FineDetailsPageContent() {
     };
 
     const handleConfirmAction = async () => {
+        if (confirmActionInFlightRef.current || actionLoading) return;
+        confirmActionInFlightRef.current = true;
+        setActionLoading(true);
         setConfirmOpen(false);
         const { action, status } = confirmConfig;
 
         try {
-            setActionLoading(true);
             const targetId = fine?._id || id;
             let res;
 
@@ -239,27 +252,135 @@ function FineDetailsPageContent() {
             }
 
             if (action === 'approve') {
-                if (
-                    fine.fineStatus === 'Pending Authorization' &&
-                    (!managementZoho.zohoVendorId || !managementZoho.expenseAccountId)
-                ) {
+                const isAccountsStage =
+                    fine.fineStatus === 'Pending Accounts' || fine.fineStatus === 'Pending Finance';
+                const isManagementStage = fine.fineStatus === 'Pending Authorization';
+
+                const groupParties = Array.isArray(partyPayables) && partyPayables.length > 0
+                    ? partyPayables
+                    : buildGroupMembersForFine(fine).map((p) => ({
+                        fineRecordId: p.fineRecordId,
+                        fineId: p.fineId,
+                        employeeName: p.employeeName,
+                        expenseAccountId: p.expenseAccountId || '',
+                        expenseAccountName: p.expenseAccountName || '',
+                        payableConfirmed: Boolean(p.payableConfirmed),
+                    }));
+                const isGroupFine = Boolean(fine?.isGroupView) || groupParties.length > 1;
+                const resolvedVendorId =
+                    String(managementZoho.zohoVendorId || fine?.zohoVendorId || '').trim();
+                const resolvedVendorName = String(
+                    managementZoho.zohoVendorName ||
+                        fine?.zohoVendorName ||
+                        fine?.fineSource ||
+                        '',
+                ).trim();
+
+                if (isManagementStage && !resolvedVendorId) {
                     toast({
                         title: 'Zoho vendor required',
-                        description:
-                            'Select a Zoho vendor and expense account before management approval.',
+                        description: isGroupFine
+                            ? 'Set Vendor on the Group Fine Parties card (Accounts) before Management approval.'
+                            : 'Select a Zoho vendor (Fine Source) before management approval.',
                         variant: 'destructive',
                     });
-                    setActionLoading(false);
                     return;
                 }
+
+                const allPartiesHavePayable =
+                    isGroupFine &&
+                    groupParties.length > 0 &&
+                    groupParties.every((p) => String(p.expenseAccountId || '').trim());
+                const allPartiesCompleted = allPartiesHavePayable;
+
+                if (
+                    isManagementStage &&
+                    !managementZoho.expenseAccountId &&
+                    !allPartiesHavePayable &&
+                    !String(fine?.expenseAccountId || '').trim()
+                ) {
+                    toast({
+                        title: 'Expense account required',
+                        description: isGroupFine
+                            ? 'Fill Payable for every party on the Group Fine Parties card first.'
+                            : 'Select a Zoho expense account, or ensure Payable is filled.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+
+                if (isAccountsStage) {
+                    if (isGroupFine) {
+                        const incomplete = groupParties.filter(
+                            (p) => !String(p.expenseAccountId || '').trim(),
+                        );
+                        if (incomplete.length > 0 || !allPartiesCompleted) {
+                            toast({
+                                title: 'Payable required',
+                                description:
+                                    `Fill Payable for every party. Incomplete: ${incomplete
+                                        .map((p) => p.employeeName || p.fineId)
+                                        .join(', ') || 'check party rows'}.`,
+                                variant: 'destructive',
+                            });
+                            return;
+                        }
+                    } else if (
+                        !String(fine?.expenseAccountId || '').trim() &&
+                        !String(accountsApprovePayable.expenseAccountId || '').trim()
+                    ) {
+                        toast({
+                            title: 'Payable required',
+                            description:
+                                'Select a Payable (Chart of Accounts) before Accounts can approve.',
+                            variant: 'destructive',
+                        });
+                        return;
+                    }
+                }
+
                 const approveBody = { finePdf };
-                if (fine.fineStatus === 'Pending Authorization') {
-                    Object.assign(approveBody, managementZoho);
+                if (isManagementStage) {
+                    Object.assign(approveBody, {
+                        ...managementZoho,
+                        zohoVendorId: resolvedVendorId,
+                        zohoVendorName: resolvedVendorName,
+                        zohoOrganizationId:
+                            managementZoho.zohoOrganizationId || fine?.zohoOrganizationId || '',
+                    });
+                    if (isGroupFine && allPartiesHavePayable) {
+                        approveBody.partyPayables = groupParties;
+                    }
+                }
+                if (isAccountsStage) {
+                    if (isGroupFine) {
+                        approveBody.partyPayables = groupParties;
+                    } else {
+                        const accountId =
+                            accountsApprovePayable.expenseAccountId || fine.expenseAccountId || '';
+                        const accountName =
+                            accountsApprovePayable.expenseAccountName || fine.expenseAccountName || '';
+                        approveBody.partyPayables = [
+                            {
+                                fineRecordId: fine._id,
+                                fineId: fine.fineId,
+                                expenseAccountId: accountId,
+                                expenseAccountName: accountName,
+                            },
+                        ];
+                    }
                 }
                 res = await axiosInstance.put(`/Fine/${targetId}/approve`, approveBody);
                 toast({
                     title: "Success",
-                    description: res.data.message || "Fine approved successfully.",
+                    description:
+                        isManagementStage
+                            ? (res.data.message ||
+                                'Fine approved. One Zoho Bill created with all parties as Item Table lines.')
+                            : isAccountsStage
+                              ? (res.data.message ||
+                                  'Sent to Management. Zoho Bill will be created after Management approves.')
+                              : (res.data.message || 'Fine approved successfully.'),
                     variant: "success",
                     className: "bg-green-50 border-green-200 text-green-800"
                 });
@@ -306,12 +427,16 @@ function FineDetailsPageContent() {
             notifyFinePendingInboxChanged();
         } catch (err) {
             console.error("Action error:", err);
-            toast({
-                title: "Error",
-                description: err.response?.data?.message || "Failed to perform action.",
-                variant: "destructive"
-            });
+            const isDedupe = err?.code === 'ACTION_DEDUPED' || /duplicate request blocked/i.test(String(err?.message || ''));
+            if (!isDedupe && !err?.silent) {
+                toast({
+                    title: "Error",
+                    description: err.response?.data?.message || err.message || "Failed to perform action.",
+                    variant: "destructive"
+                });
+            }
         } finally {
+            confirmActionInFlightRef.current = false;
             setActionLoading(false);
         }
     };
@@ -387,16 +512,78 @@ function FineDetailsPageContent() {
     const handleApprove = () => {
         if (!validateWorkflowAssignments()) return;
 
+        const isAccountsStage =
+            fine?.fineStatus === 'Pending Accounts' || fine?.fineStatus === 'Pending Finance';
+        const isManagementStage = fine?.fineStatus === 'Pending Authorization';
+
+        if (isAccountsStage) {
+            const groupParties = Array.isArray(partyPayables) && partyPayables.length > 0
+                ? partyPayables
+                : buildGroupMembersForFine(fine).map((p) => ({
+                    fineRecordId: p.fineRecordId,
+                    fineId: p.fineId,
+                    employeeName: p.employeeName,
+                    isCompany: p.isCompany,
+                    expenseAccountId: p.expenseAccountId || '',
+                    expenseAccountName: p.expenseAccountName || '',
+                    payableConfirmed: Boolean(p.payableConfirmed),
+                }));
+
+            const isGroupFine = Boolean(fine?.isGroupView) || groupParties.length > 1;
+            if (isGroupFine) {
+                const incomplete = groupParties.filter(
+                    (p) => !String(p.expenseAccountId || '').trim(),
+                );
+                if (incomplete.length > 0) {
+                    toast({
+                        title: 'Payable required',
+                        description:
+                            `Fill Payable for every party. Incomplete: ${incomplete
+                                .map((p) => p.employeeName || p.fineId)
+                                .join(', ')}.`,
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+            } else if (
+                !String(fine?.expenseAccountId || '').trim() &&
+                !String(accountsApprovePayable.expenseAccountId || '').trim()
+            ) {
+                // Single fine — payable selected in the confirm dialog
+            }
+
+            setAccountsApprovePayable({
+                expenseAccountId: fine?.expenseAccountId || '',
+                expenseAccountName: fine?.expenseAccountName || '',
+            });
+
+            openConfirmation({
+                action: 'approve',
+                title: 'Send to Management',
+                description:
+                    'All party rows are completed. This sends the fine to Management. No Zoho bill is created yet — Management approval will create one Zoho Bill with every party as a line in the Item Table.',
+                confirmText: 'Approve & send',
+                variant: 'default',
+            });
+            return;
+        }
+
+        if (isManagementStage) {
+            openConfirmation({
+                action: 'approve',
+                title: 'Approve & create Zoho Bill',
+                description:
+                    'Confirm to create one Zoho Books Bill for this group fine. Vendor = Fine Source. Each employee/company party becomes one row in the Bill Item Table (Account = Payable / Chart of Accounts, Amount = fine amount). Not multiple bills.',
+                confirmText: 'Approve & bill',
+                variant: 'default',
+            });
+            return;
+        }
+
         openConfirmation({
             action: 'approve',
-            title:
-                fine?.fineStatus === 'Pending Authorization'
-                    ? 'Approve fine & create Zoho bill'
-                    : 'Approve Fine',
-            description:
-                fine?.fineStatus === 'Pending Authorization'
-                    ? 'Choose the Zoho vendor and expense account. A vendor bill will be created for Accounts to pay.'
-                    : 'Are you sure you want to approve this fine?',
+            title: 'Approve Fine',
+            description: 'Are you sure you want to approve this fine?',
             confirmText: 'Approve',
             variant: 'default',
         });
@@ -881,10 +1068,16 @@ function FineDetailsPageContent() {
         fetchAllDetails();
     }, [id, toast, partyParam, partyEmployeeId]);
 
-    // Fetch Asset Details if it's a Loss & Damage fine
+    // Fetch Asset / Vehicle details for Loss & Damage and vehicle-linked fines
     useEffect(() => {
         const fetchAssetInfo = async () => {
-            const targetAssetObjectId = fine?.assetObjectId || fine?.mainAssetObjectId;
+            const targetAssetObjectId =
+                fine?.assetObjectId ||
+                fine?.mainAssetObjectId ||
+                fine?.vehicleObjectId ||
+                (fine?.vehicleId && /^[0-9a-fA-F]{24}$/.test(String(fine.vehicleId))
+                    ? fine.vehicleId
+                    : null);
             if (!targetAssetObjectId) return;
             try {
                 setLoadingAsset(true);
@@ -897,7 +1090,15 @@ function FineDetailsPageContent() {
             }
         };
 
-        if (fine && (fine.fineType === 'Loss & Damage' || fine.assetId || fine.assetObjectId)) {
+        if (
+            fine &&
+            (fine.fineType === 'Loss & Damage' ||
+                fine.fineType === 'Vehicle Fine' ||
+                fine.fineType === 'Vehicle Damage' ||
+                fine.assetId ||
+                fine.assetObjectId ||
+                fine.vehicleId)
+        ) {
             fetchAssetInfo();
         }
     }, [fine]);
@@ -1099,9 +1300,53 @@ function FineDetailsPageContent() {
         [fine, id, partyParam, partyEmployeeId],
     );
 
-    const isApproved = ['Approved', 'Active', 'Completed', 'Paid'].includes(fine?.fineStatus);
+    const isApproved = canViewGroupFinePartiesIndividually(fine?.fineStatus);
     const isGroup = fine?.isGroupView || (fine?.assignedEmployees?.length > 1 && !fine?.fineId?.match(/-[A-Z]$/));
+    // Group overview uses a shared placeholder until management approves; party tabs still work for review.
     const showGroupPlaceholder = isGroup && !isApproved && !viewingSpecificParty;
+
+    const groupParties = useMemo(() => {
+        if (!fine || !isGroup) return [];
+        return buildGroupMembersForFine(fine);
+    }, [fine, isGroup]);
+
+    const isGroupOverviewActive = Boolean(isGroup && !viewingSpecificParty);
+
+    const groupOverviewHref = useMemo(() => {
+        if (!fine) return '';
+        return buildGroupOverviewHref(fine);
+    }, [fine]);
+
+    const isGroupPartyTabActive = useCallback((member) => {
+        if (!member || isGroupOverviewActive) return false;
+        if (member.isCompany) {
+            return partyParam === 'company' || isCompanyFineParty(activePartyEntry);
+        }
+        if (member.fineId && /-[A-Z0-9]+$/i.test(String(member.fineId)) && String(id) === String(member.fineId)) {
+            return true;
+        }
+        if (partyParam === 'employee' && partyEmployeeId) {
+            return String(partyEmployeeId) === String(member.employeeId);
+        }
+        return String(activePartyEntry?.employeeId || '') === String(member.employeeId || '');
+    }, [activePartyEntry, id, isGroupOverviewActive, partyEmployeeId, partyParam]);
+
+    const selectGroupOverview = useCallback((e) => {
+        e?.preventDefault?.();
+        e?.stopPropagation?.();
+        if (!fine) return;
+        const href = buildGroupOverviewHref(fine);
+        if (!href) return;
+        // Always navigate — clears ?party= / suffix ids so Group Fine tab actually switches
+        router.push(href);
+    }, [fine, router]);
+
+    const selectGroupParty = useCallback((member) => {
+        if (!fine || !member) return;
+        const href = buildGroupMemberDetailHref(fine, member);
+        if (!href) return;
+        router.push(href);
+    }, [fine, router]);
 
     // --- Profile Cards Logic ---
     const employeeForCard = useMemo(() => {
@@ -1168,13 +1413,23 @@ function FineDetailsPageContent() {
 
     const canShowEditFine = useMemo(() => {
         if (!currentUser || !fine) return false;
+        // Group fines: edit only from the Group Fine overview (not per employee/company).
+        if (isGroup && !isGroupOverviewActive) return false;
         if (isApprovedFineStatus(fine.fineStatus)) {
             return approvedScheduleOnlyEdit || approvedAssetControllerOnlyEdit;
         }
         if (fine.fineStatus === 'Rejected' && canResubmit) return true;
         // Edit on in-progress fines: assignee (or portal admin), not every Add Fine user
         return canPerformAction() || isAdmin();
-    }, [currentUser, fine, canResubmit, approvedScheduleOnlyEdit, approvedAssetControllerOnlyEdit]);
+    }, [
+        currentUser,
+        fine,
+        canResubmit,
+        approvedScheduleOnlyEdit,
+        approvedAssetControllerOnlyEdit,
+        isGroup,
+        isGroupOverviewActive,
+    ]);
 
     const isCompanyFine =
         partyParam === 'company' ||
@@ -1362,12 +1617,123 @@ function FineDetailsPageContent() {
                                     </div>
                                 )}
                                 {confirmConfig.action === 'approve' &&
+                                    (fine?.fineStatus === 'Pending Accounts' ||
+                                        fine?.fineStatus === 'Pending Finance') && (
+                                        <div className="mt-4 space-y-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3 text-left">
+                                            <p className="text-xs font-semibold text-indigo-900">
+                                                Next step: Management
+                                            </p>
+                                            <ul className="text-[11px] text-indigo-900/90 space-y-1.5 list-disc pl-4">
+                                                <li>
+                                                    Accounts approval only sends this fine to{' '}
+                                                    <strong>Management</strong>.
+                                                </li>
+                                                <li>
+                                                    <strong>No Zoho Bill yet</strong> — the bill is
+                                                    created after Management confirms.
+                                                </li>
+                                                <li>
+                                                    <strong>Vendor</strong> = Fine Source (
+                                                    {fine?.fineSource || 'not set'}).
+                                                </li>
+                                                <li>
+                                                    Later, <strong>one Bill Item Table</strong> will list
+                                                    each party with their Payable (Chart of Accounts).
+                                                </li>
+                                            </ul>
+                                            {!(fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) ? (
+                                                <FineManagementZohoFields
+                                                    organizationId={
+                                                        fine?.zohoOrganizationId || ''
+                                                    }
+                                                    mode="accountsPayable"
+                                                    value={{
+                                                        zohoVendorId: '',
+                                                        zohoVendorName: '',
+                                                        expenseAccountId:
+                                                            accountsApprovePayable.expenseAccountId ||
+                                                            fine?.expenseAccountId ||
+                                                            '',
+                                                        expenseAccountName:
+                                                            accountsApprovePayable.expenseAccountName ||
+                                                            fine?.expenseAccountName ||
+                                                            '',
+                                                    }}
+                                                    onChange={(next) =>
+                                                        setAccountsApprovePayable({
+                                                            expenseAccountId:
+                                                                next.expenseAccountId || '',
+                                                            expenseAccountName:
+                                                                next.expenseAccountName || '',
+                                                        })
+                                                    }
+                                                    requireExpenseAccount
+                                                    fineSourceHint={fine?.fineSource || ''}
+                                                />
+                                            ) : (
+                                                <p className="text-[11px] text-indigo-800">
+                                                    Fill Payable for every party on the Group Fine
+                                                    Parties card before confirming.
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                {confirmConfig.action === 'approve' &&
                                     fine?.fineStatus === 'Pending Authorization' && (
-                                        <FineManagementZohoFields
-                                            organizationId={managementZoho.zohoOrganizationId || fine?.zohoOrganizationId || ''}
-                                            value={managementZoho}
-                                            onChange={setManagementZoho}
-                                        />
+                                        <div className="mt-4 space-y-3 text-left">
+                                            <div className="rounded-lg border border-green-100 bg-green-50/60 p-3">
+                                                <p className="text-xs font-semibold text-green-900 mb-1.5">
+                                                    Zoho Bill (one bill for the group)
+                                                </p>
+                                                <ul className="text-[11px] text-green-900/90 space-y-1 list-disc pl-4">
+                                                    <li>
+                                                        Creates <strong>one</strong> Bill in Zoho Purchases
+                                                        → Bills (not one bill per party).
+                                                    </li>
+                                                    <li>
+                                                        <strong>Vendor</strong> = Fine Source (
+                                                        {fine?.fineSource ||
+                                                            fine?.zohoVendorName ||
+                                                            'from Accounts'}
+                                                        ).
+                                                    </li>
+                                                    <li>
+                                                        <strong>Item Table</strong> = each party as a
+                                                        line (Item Details = name, Account = Payable COA,
+                                                        Rate/Amount = fine share).
+                                                    </li>
+                                                    <li>
+                                                        After success, Payable Status becomes{' '}
+                                                        <strong>Billed</strong>.
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                            {fine?.isGroupView ||
+                                            (Array.isArray(fine?.assignedEmployees) &&
+                                                fine.assignedEmployees.length > 1) ? (
+                                                <p className="text-[11px] text-green-900/90 rounded-lg border border-green-100 bg-green-50/40 px-3 py-2">
+                                                    Vendor and Payable were already set in Accounts on
+                                                    the Group Fine Parties card — no need to select them
+                                                    again.
+                                                </p>
+                                            ) : (
+                                                <FineManagementZohoFields
+                                                    organizationId={
+                                                        managementZoho.zohoOrganizationId ||
+                                                        fine?.zohoOrganizationId ||
+                                                        ''
+                                                    }
+                                                    value={managementZoho}
+                                                    onChange={setManagementZoho}
+                                                    requireExpenseAccount={
+                                                        !String(fine?.expenseAccountId || '').trim()
+                                                    }
+                                                    fineSourceHint={
+                                                        fine?.fineSource || fine?.zohoVendorName || ''
+                                                    }
+                                                />
+                                            )}
+                                        </div>
                                     )}
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -1375,8 +1741,11 @@ function FineDetailsPageContent() {
                                     {confirmConfig.cancelText || 'Cancel'}
                                 </AlertDialogCancel>
                                 <AlertDialogAction
+                                    type="button"
                                     onClick={(e) => {
                                         e.preventDefault();
+                                        e.stopPropagation();
+                                        if (confirmActionInFlightRef.current || actionLoading) return;
                                         if ((confirmConfig.action === 'reject' || (confirmConfig.action === 'updateStatus' && confirmConfig.status === 'Rejected')) && (!rejectionReason || rejectionReason.trim().length === 0)) {
                                             toast({ title: "Reason Required", description: "Please enter a reason for rejection.", variant: "destructive" });
                                             return;
@@ -1384,17 +1753,50 @@ function FineDetailsPageContent() {
                                         if (
                                             confirmConfig.action === 'approve' &&
                                             fine?.fineStatus === 'Pending Authorization' &&
-                                            (!managementZoho.zohoVendorId || !managementZoho.expenseAccountId)
+                                            !(fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) &&
+                                            !managementZoho.zohoVendorId &&
+                                            !fine?.zohoVendorId
                                         ) {
                                             toast({
                                                 title: 'Zoho vendor required',
                                                 description:
-                                                    'Select a Zoho vendor and expense account before approval.',
+                                                    'Select a Zoho vendor before approval.',
                                                 variant: 'destructive',
                                             });
                                             return;
                                         }
-                                        handleConfirmAction();
+                                        if (
+                                            confirmConfig.action === 'approve' &&
+                                            fine?.fineStatus === 'Pending Authorization' &&
+                                            (fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) &&
+                                            !managementZoho.zohoVendorId &&
+                                            !fine?.zohoVendorId
+                                        ) {
+                                            toast({
+                                                title: 'Vendor missing',
+                                                description:
+                                                    'Vendor was not saved in Accounts. Set Vendor on Group Fine Parties, then try again.',
+                                                variant: 'destructive',
+                                            });
+                                            return;
+                                        }
+                                        if (
+                                            confirmConfig.action === 'approve' &&
+                                            (fine?.fineStatus === 'Pending Accounts' ||
+                                                fine?.fineStatus === 'Pending Finance') &&
+                                            !(fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) &&
+                                            !accountsApprovePayable.expenseAccountId &&
+                                            !fine?.expenseAccountId
+                                        ) {
+                                            toast({
+                                                title: 'Payable required',
+                                                description:
+                                                    'Select a Payable (Chart of Accounts) before Accounts can approve.',
+                                                variant: 'destructive',
+                                            });
+                                            return;
+                                        }
+                                        void handleConfirmAction();
                                     }}
                                     disabled={actionLoading}
                                     className={confirmConfig.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}
@@ -1703,48 +2105,148 @@ function FineDetailsPageContent() {
                             </div>
                         </div>
 
-                        {/* Tabs Navigation */}
-                        <div className="w-full flex items-center border-b border-gray-200 mb-6 print:hidden">
-                            <button
-                                onClick={() => setActiveTab('fineForm')}
-                                className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
-                                    activeTab === 'fineForm'
-                                        ? 'border-blue-600 text-blue-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                }`}
-                            >
-                                Fine Form
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('historyDetails')}
-                                className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
-                                    activeTab === 'historyDetails'
-                                        ? 'border-blue-600 text-blue-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                }`}
-                            >
-                                Fine History & Details
-                            </button>
-                            {canShowEditFine && (
-                                <button
-                                    onClick={() => setShowEditModal(true)}
-                                    className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
-                                >
-                                    <Edit className="w-4 h-4" />
-                                    {approvedScheduleOnlyEdit ? 'Edit Schedule' : 'Edit Fine'}
-                                </button>
-                            )}
-                            {isApprovedFineStatus(fine.fineStatus) && (
-                                <button
-                                    onClick={() => setActiveTab('approvedAttachments')}
-                                    className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
-                                        activeTab === 'approvedAttachments'
+                        {/* Main tabs — Group Fine / parties / Edit Fine (underline style) */}
+                        {isGroup && groupParties.length > 0 && (
+                            <div className="relative z-20 w-full flex flex-wrap items-center border-b border-gray-200 mb-1 print:hidden pointer-events-auto">
+                                <Link
+                                    href={groupOverviewHref || '#'}
+                                    scroll={false}
+                                    onClick={selectGroupOverview}
+                                    className={`py-3 px-5 text-sm font-semibold border-b-2 transition-all duration-200 cursor-pointer ${
+                                        isGroupOverviewActive
                                             ? 'border-blue-600 text-blue-600'
                                             : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                     }`}
+                                    title="Group fine overview"
                                 >
-                                    Attachment
-                                </button>
+                                    Group Fine
+                                </Link>
+                                {groupParties.map((member, idx) => {
+                                    const active = isGroupPartyTabActive(member);
+                                    const href = buildGroupMemberDetailHref(fine, member) || '#';
+                                    const label = member.isCompany
+                                        ? (fine.companyName || member.employeeName || 'Company')
+                                        : (member.employeeName || member.employeeId || `Party ${idx + 1}`);
+                                    return (
+                                        <Link
+                                            key={`${member.isCompany ? 'company' : member.employeeId}-${idx}`}
+                                            href={href}
+                                            scroll={false}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                selectGroupParty(member);
+                                            }}
+                                            className={`py-3 px-5 text-sm font-semibold border-b-2 transition-all duration-200 cursor-pointer ${
+                                                active
+                                                    ? 'border-blue-600 text-blue-600'
+                                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                            }`}
+                                            title={member.isCompany ? 'Company share' : member.employeeId || label}
+                                        >
+                                            {member.isCompany ? `Co. ${label}` : label}
+                                        </Link>
+                                    );
+                                })}
+                                {canShowEditFine && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowEditModal(true)}
+                                        className="py-3 px-5 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5 ml-auto cursor-pointer"
+                                    >
+                                        <Edit className="w-4 h-4" />
+                                        {approvedScheduleOnlyEdit ? 'Edit Schedule' : 'Edit Fine'}
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Sub-tabs — Fine Form / History (secondary chips under group main tabs) */}
+                        <div
+                            className={`w-full flex flex-wrap items-center mb-6 print:hidden ${
+                                isGroup && groupParties.length > 0
+                                    ? 'gap-2 pt-3'
+                                    : 'border-b border-gray-200'
+                            }`}
+                        >
+                            {isGroup && groupParties.length > 0 ? (
+                                <>
+                                    <button
+                                        onClick={() => setActiveTab('fineForm')}
+                                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                                            activeTab === 'fineForm'
+                                                ? 'bg-slate-800 text-white shadow-sm'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
+                                        }`}
+                                    >
+                                        Fine Form
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('historyDetails')}
+                                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                                            activeTab === 'historyDetails'
+                                                ? 'bg-slate-800 text-white shadow-sm'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
+                                        }`}
+                                    >
+                                        Fine History & Details
+                                    </button>
+                                    {isApprovedFineStatus(fine.fineStatus) && (
+                                        <button
+                                            onClick={() => setActiveTab('approvedAttachments')}
+                                            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                                                activeTab === 'approvedAttachments'
+                                                    ? 'bg-slate-800 text-white shadow-sm'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
+                                            }`}
+                                        >
+                                            Attachment
+                                        </button>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={() => setActiveTab('fineForm')}
+                                        className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
+                                            activeTab === 'fineForm'
+                                                ? 'border-blue-600 text-blue-600'
+                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                        }`}
+                                    >
+                                        Fine Form
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('historyDetails')}
+                                        className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
+                                            activeTab === 'historyDetails'
+                                                ? 'border-blue-600 text-blue-600'
+                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                        }`}
+                                    >
+                                        Fine History & Details
+                                    </button>
+                                    {canShowEditFine && (
+                                        <button
+                                            onClick={() => setShowEditModal(true)}
+                                            className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
+                                        >
+                                            <Edit className="w-4 h-4" />
+                                            {approvedScheduleOnlyEdit ? 'Edit Schedule' : 'Edit Fine'}
+                                        </button>
+                                    )}
+                                    {isApprovedFineStatus(fine.fineStatus) && (
+                                        <button
+                                            onClick={() => setActiveTab('approvedAttachments')}
+                                            className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
+                                                activeTab === 'approvedAttachments'
+                                                    ? 'border-blue-600 text-blue-600'
+                                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                            }`}
+                                        >
+                                            Attachment
+                                        </button>
+                                    )}
+                                </>
                             )}
                         </div>
 
@@ -1759,6 +2261,7 @@ function FineDetailsPageContent() {
                                     isLossDamage={isLossDamageFineType(fine)}
                                     lossDamageFields={lossDamageFormFields}
                                     showGroupPlaceholder={showGroupPlaceholder}
+                                    isGroupOverview={isGroupOverviewActive}
                                     employeeName={employeeName}
                                     displayName={displayName}
                                     department={department}
@@ -1767,12 +2270,18 @@ function FineDetailsPageContent() {
                                     mainEmployee={mainEmployee}
                                     fineSummaries={displayFineSummaries}
                                     employeeOwnerId={employeeOwnerId}
-                                    getEmpShare={getEmpShare}
+                                    getEmpShare={(f) => getEmpShare(f, employeeOwnerId)}
                                     getCompShare={getCompShare}
                                     formatDate={formatDate}
                                     assetDetails={assetDetails}
                                     allEmployeeFines={allEmployeeFines}
                                     allEmployeeLoans={allEmployeeLoans}
+                                    canEditPartyPayables={
+                                        (fine?.fineStatus === 'Pending Accounts' ||
+                                            fine?.fineStatus === 'Pending Finance') &&
+                                        canPerformAction()
+                                    }
+                                    onPartyPayablesChange={setPartyPayables}
                                     onPaymentSuccess={async () => {
                                         try {
                                             const fineRes = await axiosInstance.get(`/Fine/${id}`);
@@ -1820,6 +2329,28 @@ function FineDetailsPageContent() {
                                                 <span className="text-xs text-gray-400 block font-medium">Fine Type</span>
                                                 <span className="font-semibold text-gray-800">{fine.fineType}</span>
                                             </div>
+                                            {isGroup && viewingSpecificParty && (
+                                                <>
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block font-medium">Selected Party</span>
+                                                        <span className="font-semibold text-gray-800">
+                                                            {isCompanyFine
+                                                                ? (fine.companyName || activePartyEntry?.employeeName || 'Company')
+                                                                : (activePartyEntry?.employeeName || employeeOwnerId || '-')}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block font-medium">Party Amount</span>
+                                                        <span className="font-semibold text-red-600">
+                                                            {Number(
+                                                                isCompanyFine
+                                                                    ? getCompShare(fine)
+                                                                    : getEmpShare(fine, employeeOwnerId),
+                                                            ).toLocaleString()} AED
+                                                        </span>
+                                                    </div>
+                                                </>
+                                            )}
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Category / Reason</span>
                                                 <span className="font-semibold text-gray-800">{fine.category || '-'}</span>
@@ -1827,6 +2358,10 @@ function FineDetailsPageContent() {
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Awarded Date</span>
                                                 <span className="font-semibold text-gray-800">{formatDate(fine.awardedDate || fine.createdAt)}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Fine Source</span>
+                                                <span className="font-semibold text-gray-800">{fine.fineSource || '-'}</span>
                                             </div>
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Employee Portion</span>

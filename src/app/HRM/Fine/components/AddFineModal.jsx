@@ -13,6 +13,7 @@ import {
     validateApprovedFineScheduleEdit,
     validateFineDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 
 // Reusable searchable employee dropdown
 function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasError }) {
@@ -115,7 +116,8 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         attachmentName: '',
         attachmentMime: '',
         resubmitComment: '',
-        companyId: ''
+        companyId: '',
+        fineSource: '',
     });
 
     const [errors, setErrors] = useState({});
@@ -147,7 +149,8 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     attachmentBase64: '',
                     attachmentName: initialData.attachment?.name || '',
                     attachmentMime: initialData.attachment?.mimeType || '',
-                    resubmitComment: ''
+                    resubmitComment: '',
+                    fineSource: initialData.fineSource || '',
                 });
             } else {
                 setSelectedFineType('');
@@ -167,7 +170,8 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     attachmentBase64: '',
                     attachmentName: '',
                     attachmentMime: '',
-                    resubmitComment: ''
+                    resubmitComment: '',
+                    fineSource: '',
                 });
 
             }
@@ -238,6 +242,16 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
 
         if (!formData.description || formData.description.trim() === '') {
             newErrors.description = 'Description is required';
+        }
+
+        const hasAttachment = Boolean(
+            formData.attachmentBase64 ||
+            formData.attachmentName ||
+            initialData?.attachment?.url ||
+            initialData?.attachment?.publicId
+        );
+        if (!hasAttachment) {
+            newErrors.attachment = 'Attachment is required';
         }
 
         if (isResubmitting && (!formData.resubmitComment || formData.resubmitComment.trim() === '')) {
@@ -352,6 +366,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 companyAmount: totalComp,
                 totalEmployeeFineAmount: grandTotalFine - totalComp, // Explicitly store total fine - company share
                 serviceCharge: serviceChargeAmount,
+                fineSource: formData.fineSource || '',
                 category: initialData.category || 'Other',
                 subCategory: initialData.subCategory || selectedFineType || '',
                 resubmit: isResubmitting,
@@ -410,13 +425,19 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             description: '',
             remarks: '',
             awardedDate: new Date().toISOString().split('T')[0],
+            payableDuration: '1',
+            monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+            responsibleFor: 'Employee',
+            employeeAmount: '',
+            companyAmount: '',
+            serviceCharge: '',
             attachment: null,
             attachmentBase64: '',
             attachmentName: '',
-            attachmentBase64: '',
-            attachmentName: '',
             attachmentMime: '',
-            serviceCharge: ''
+            resubmitComment: '',
+            companyId: '',
+            fineSource: '',
         });
         setErrors({});
         setGeneratedFineId('');
@@ -654,6 +675,21 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                         </div>
                     </div>
 
+                    {/* Fine Source */}
+                    <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                            Fine Source
+                        </label>
+                        <div className="w-full md:flex-1">
+                            <ZohoVendorSelect
+                                value={formData.fineSource}
+                                onChange={(nextValue) => setFormData((prev) => ({ ...prev, fineSource: nextValue }))}
+                                placeholder="Select vendor..."
+                                disabled={submitting}
+                            />
+                        </div>
+                    </div>
+
                     {/* Description */}
                     <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
@@ -677,7 +713,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     {/* Attachment */}
                     <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                            Attachment
+                            Attachment <span className="text-red-500">*</span>
                         </label>
                         <div className="w-full md:flex-1 flex flex-col gap-2">
                             <input

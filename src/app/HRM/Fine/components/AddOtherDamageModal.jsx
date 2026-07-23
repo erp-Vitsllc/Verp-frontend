@@ -13,6 +13,7 @@ import {
     validateApprovedFineScheduleEdit,
     validateEmployeesDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 
 export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
@@ -28,7 +29,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
         attachmentName: '',
         attachmentMime: '',
         companyDescription: '',
-        serviceCharge: ''
+        serviceCharge: '',
+        fineSource: '',
     });
 
     const [selectedEmployees, setSelectedEmployees] = useState([]);
@@ -73,7 +75,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 attachmentBase64: '',
                 attachmentName: initialData.attachment?.name || '',
                 attachmentMime: '',
-                serviceCharge: String(initialData.serviceCharge || '')
+                serviceCharge: String(initialData.serviceCharge || ''),
+                fineSource: initialData.fineSource || '',
             });
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
             setPayableDuration(String(initialData.payableDuration || '1'));
@@ -103,7 +106,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             setFormData({
                 description: '', deductionAmount: '', paidBy: 'Employee', employeeAmount: '', companyAmount: '',
                 attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: '',
-                serviceCharge: ''
+                serviceCharge: '', fineSource: '',
             });
             setSelectedEmployees([]);
             setCurrentEmployeeId('');
@@ -194,6 +197,13 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
         const newErrors = {};
         if (!formData.deductionAmount) newErrors.deductionAmount = 'Enter total deduction amount';
         if (!formData.description) newErrors.description = 'Description is required';
+        const hasAttachment = Boolean(
+            formData.attachmentBase64 ||
+            formData.attachmentName ||
+            initialData?.attachment?.url ||
+            initialData?.attachment?.publicId
+        );
+        if (!hasAttachment) newErrors.attachment = 'Attachment is required';
         if (selectedEmployees.length === 0) newErrors.selectedEmployees = 'Select at least one employee';
 
         // Same company validation removed per user request
@@ -295,6 +305,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 fineType: 'Other Fines',
                 assignedEmployees: selectedEmployees, responsibleFor: formData.paidBy,
                 description: formData.description, companyDescription: formData.companyDescription,
+                fineSource: formData.fineSource || '',
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'), isBulk: true, monthStart, 
                 fineAmount: grandTotalFine,
                 employeeAmount: totalEmpAmount,
@@ -440,8 +451,38 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                         </div>
                     </div>
 
+                    <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Fine Source</label>
+                        <ZohoVendorSelect
+                            value={formData.fineSource}
+                            onChange={(nextValue) => setFormData((p) => ({ ...p, fineSource: nextValue }))}
+                            placeholder="Select vendor..."
+                        />
+                    </div>
                     <div className="space-y-1.5"><label className="text-sm font-medium">Description</label><textarea value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} rows={2} className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 resize-none`} /></div>
-                    <div className="space-y-1.5"><label className="text-sm font-medium">Attachment</label><div onClick={() => fileInputRef.current?.click()} className="w-full p-4 rounded-xl border-2 border-dashed border-gray-100 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100"><Upload className="text-gray-400 mb-2" size={24} /><span className="text-xs text-gray-500 overflow-hidden text-ellipsis whitespace-nowrap max-w-full px-2">{formData.attachment ? formData.attachmentName : 'Upload document'}</span><input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" /></div></div>
+                    <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Attachment <span className="text-red-500">*</span></label>
+                        <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className={`w-full p-4 rounded-xl border-2 border-dashed ${errors.attachment ? 'border-red-400' : 'border-gray-100'} bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100`}
+                        >
+                            <Upload className="text-gray-400 mb-2" size={24} />
+                            <span className="text-xs text-gray-500 overflow-hidden text-ellipsis whitespace-nowrap max-w-full px-2">
+                                {formData.attachment || formData.attachmentName ? formData.attachmentName : 'Upload document'}
+                            </span>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                className="hidden"
+                                onChange={(e) => {
+                                    handleFileChange(e);
+                                    if (errors.attachment) setErrors((prev) => ({ ...prev, attachment: '' }));
+                                }}
+                                accept=".pdf,.jpg,.jpeg,.png"
+                            />
+                        </div>
+                        {errors.attachment ? <p className="text-xs text-red-500 ml-1">{errors.attachment}</p> : null}
+                    </div>
 
                     <div className="space-y-3 pt-4 border-t border-gray-100">
                         <label className="text-sm font-semibold">Assign Employee(s) <span className="text-red-500">*</span></label>

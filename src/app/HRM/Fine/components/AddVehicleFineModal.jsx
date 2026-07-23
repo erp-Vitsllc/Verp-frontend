@@ -19,6 +19,7 @@ import {
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 import { validateApprovedFineScheduleEdit } from '../utils/validateFineDeductionVsVisa';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 
 export default function AddVehicleFineModal({
     isOpen,
@@ -54,7 +55,8 @@ export default function AddVehicleFineModal({
         attachmentName: '',
         attachmentMime: '',
         companyDescription: '',
-        serviceCharge: ''
+        serviceCharge: '',
+        fineSource: '',
     });
 
     const [errors, setErrors] = useState({});
@@ -117,7 +119,8 @@ export default function AddVehicleFineModal({
                 attachmentName: initialData.attachment?.name || '',
                 attachmentMime: '',
                 companyDescription: initialData.companyDescription || '',
-                serviceCharge: String(initialData.serviceCharge || '')
+                serviceCharge: String(initialData.serviceCharge || ''),
+                fineSource: initialData.fineSource || '',
             });
 
             const savedImages = [];
@@ -161,7 +164,8 @@ export default function AddVehicleFineModal({
                 attachmentName: '',
                 attachmentMime: '',
                 companyDescription: '',
-                serviceCharge: ''
+                serviceCharge: '',
+                fineSource: '',
             });
             setExistingImages([]);
             setImageAttachments([]);
@@ -597,6 +601,7 @@ export default function AddVehicleFineModal({
                     '',
                 description: formData.description,
                 companyDescription: formData.companyDescription,
+                fineSource: formData.fineSource || '',
                 handoverHrApproval: initialData?.handoverApprovalFine === true,
                 handoverApprovalContext: initialData?.handoverApprovalContext || null,
                 fineStatus: isResubmitting
@@ -878,6 +883,18 @@ export default function AddVehicleFineModal({
                             </>
                         )}
 
+                        {/* Fine Source */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Fine Source</label>
+                            <ZohoVendorSelect
+                                value={formData.fineSource}
+                                onChange={(nextValue) =>
+                                    setFormData((prev) => ({ ...prev, fineSource: nextValue }))
+                                }
+                                placeholder="Select vendor..."
+                            />
+                        </div>
+
                         {/* Description */}
                         <div className="space-y-1.5 col-span-1 md:col-span-2">
                             <label className="text-sm font-medium text-gray-700">Description <span className="text-red-500">*</span></label>
@@ -985,9 +1002,7 @@ export default function AddVehicleFineModal({
                     <div className="space-y-1.5">
                         <label className="text-sm font-medium text-gray-700">
                             {allowMultipleImages ? 'Damage Images' : 'Attachment'}
-                            {validationMode === 'strict' && !hasExistingAttachment ? (
-                                <span className="text-red-500"> *</span>
-                            ) : null}
+                            <span className="text-red-500"> *</span>
                         </label>
 
                         {allowMultipleImages ? (

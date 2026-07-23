@@ -5,26 +5,37 @@ import FineFormCard2 from './FineFormCard2';
 import FineFormCard3 from './FineFormCard3';
 import FineFormCard4 from './FineFormCard4';
 import FineFormCard5 from './FineFormCard5';
+import FineFormCardGroupParties from './FineFormCardGroupParties';
 import EntityPaymentDetailsCard from '../../shared/components/EntityPaymentDetailsCard';
 import { isLossDamageFineType } from './LossDamageFineDetailsSection';
 import { isApprovedFineStatus } from '../utils/fineApprovedEdit';
 
 /**
  * Fine Form tab — two independent columns so row heights don't force-align across cards.
+ * Group Fine overview: Asset Fine Report (with vehicle details) + Group Parties (no HR card).
  * Employee financial cards (summary + schedules) are identical across all fine types for the same employee.
  */
 export default function FineFormCards(props) {
-    const { fine, isCompanyFine = false, employeeOwnerId } = props;
+    const {
+        fine,
+        isCompanyFine = false,
+        employeeOwnerId,
+        showGroupPlaceholder = false,
+        isGroupOverview = false,
+    } = props;
 
     if (!fine) return null;
 
     const showLossDamageCards = isLossDamageFineType(fine);
-    const showEmployeeFinancials = Boolean(employeeOwnerId) && !isCompanyFine;
+    const groupOverview = Boolean(isGroupOverview || showGroupPlaceholder);
+    const showEmployeeFinancials = Boolean(employeeOwnerId) && !isCompanyFine && !groupOverview;
 
-    const fineTotalPayable = props.getEmpShare
-        ? Number(props.getEmpShare(fine)) || 0
-        : Number(fine.totalFineAmount || fine.fineAmount || 0) ||
-          Number(fine.employeeAmount || 0) + Number(fine.companyAmount || 0) + Number(fine.serviceCharge || 0);
+    const fineTotalPayable = isCompanyFine && props.getCompShare
+        ? Number(props.getCompShare(fine)) || 0
+        : props.getEmpShare
+            ? Number(props.getEmpShare(fine, employeeOwnerId)) || 0
+            : Number(fine.totalFineAmount || fine.fineAmount || 0) ||
+              Number(fine.employeeAmount || 0) + Number(fine.companyAmount || 0) + Number(fine.serviceCharge || 0);
     const fineEmployeeId =
         employeeOwnerId ||
         fine.employeeId ||
@@ -39,7 +50,7 @@ export default function FineFormCards(props) {
         allEmployeeLoans: props.allEmployeeLoans || [],
     };
 
-    const paymentDetailsCard = (
+    const paymentDetailsCard = !groupOverview ? (
         <EntityPaymentDetailsCard
             entityType="Fine"
             referenceId={fine.fineId}
@@ -52,7 +63,27 @@ export default function FineFormCards(props) {
             isPayable={isApprovedFineStatus(fine.fineStatus) && fineTotalPayable > 0}
             onPaymentSuccess={props.onPaymentSuccess}
         />
-    );
+    ) : null;
+
+    // Group Fine overview — Asset report (full vehicle details) + party breakdown (no HR card)
+    if (groupOverview) {
+        return (
+            <div className="flex flex-col lg:flex-row gap-6 items-start w-full min-w-0 print:hidden">
+                <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
+                    <FineFormCard1 {...props} showGroupPlaceholder />
+                </div>
+                <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
+                    <FineFormCardGroupParties
+                        fine={fine}
+                        companyName={props.companyName || fine.companyName}
+                        formatDate={props.formatDate}
+                        canEditPartyPayables={Boolean(props.canEditPartyPayables)}
+                        onPartyPayablesChange={props.onPartyPayablesChange}
+                    />
+                </div>
+            </div>
+        );
+    }
 
     if (!showEmployeeFinancials) {
         return (

@@ -23,6 +23,7 @@ import {
     buildGroupMembersForFine,
     buildGroupRowFromMembers,
     buildGroupMemberDetailHref,
+    canViewGroupFinePartiesIndividually,
     getFineBaseId,
     isCompanyFineParty,
     isMultiPartyFine,
@@ -108,7 +109,7 @@ function FinePageContent() {
     const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
     const [selectedFineType, setSelectedFineType] = useState(() => searchParams.get('fineType') || '');
     const [expandedGroups, setExpandedGroups] = useState({});
-    const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'individual');
+    const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'group');
     const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'Pending');
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
@@ -145,7 +146,7 @@ function FinePageContent() {
         if (selectedStatus && selectedStatus !== 'Pending') params.set('status', selectedStatus);
         else if (selectedStatus === 'Pending') params.set('status', 'Pending');
         else params.delete('status');
-        if (activeTab && activeTab !== 'individual') params.set('tab', activeTab);
+        if (activeTab && activeTab !== 'group') params.set('tab', activeTab);
         else params.delete('tab');
         const queryString = params.toString();
         const newUrl = queryString ? `/HRM/Fine?${queryString}` : '/HRM/Fine';
@@ -209,16 +210,26 @@ function FinePageContent() {
                         first.company?.companyId || first.company?._id || first.company;
                     mAssigned.forEach((emp) => {
                         const isCompany = isCompanyFineParty(emp);
+                        const payable = isCompany
+                            ? resolveCompanyFinePayableAmount(m, emp)
+                            : resolveEmployeeFinePayableAmount(m, emp.employeeId);
                         allAssigned.push({
                             ...emp,
                             isCompany,
+                            individualAmount: payable || emp.individualAmount,
+                            fineAmount: payable || emp.fineAmount,
                             _id: m._id,
                             recordFineId: m.fineId,
                             fineStatus: m.fineStatus || 'Pending',
                             companyId: memberCompanyId,
                         });
                     });
-                    totalGroupAmount += parseFloat(m.fineAmount) || 0;
+                    const empAmt = parseFloat(m.employeeAmount || 0) || 0;
+                    const compAmt = parseFloat(m.companyAmount || 0) || 0;
+                    const sc = parseFloat(m.serviceCharge || 0) || 0;
+                    const fromParts = empAmt + compAmt + sc;
+                    const stored = parseFloat(m.totalFineAmount || m.fineAmount || 0) || 0;
+                    totalGroupAmount += fromParts > 0 ? fromParts : stored;
                 });
 
                 if (isSplitGroup) {
@@ -857,14 +868,22 @@ function FinePageContent() {
                                                 const isCompanyRow = fine.isCompany || fine.employeeName === 'Vega Digital IT Solutions';
                                                 const isGroupRow = fine.isGroup === true;
                                                 const isExpanded = expandedGroups[fine._uiKey];
-                                                const canExpandGroup = isGroupRow && (fine.groupMembers?.length > 0);
+                                                // Individual party rows only after management approval.
+                                                const isGroupSeparated = canViewGroupFinePartiesIndividually(fine.fineStatus);
+                                                const canExpandGroup = isGroupRow && isGroupSeparated && (fine.groupMembers?.length > 0);
 
                                                 const focusIds = (fine._ids || [fine._id]).filter(Boolean).map(String);
                                                 const rowFocusId = focusIds[0] || fine._id;
 
-                                                const isNavigableFine = !isGroupRow && !isCompanyRow;
+                                                // Pending group = one common request; navigate to shared detail.
+                                                // After approval = expand to individual party rows.
+                                                const isNavigableFine = isGroupRow
+                                                    ? !isGroupSeparated && !isCompanyRow
+                                                    : !isCompanyRow;
                                                 const fineHref = isNavigableFine
-                                                    ? `/HRM/Fine/${encodeURIComponent(fine.fineId)}`
+                                                    ? (isGroupRow
+                                                        ? `/HRM/Fine/${encodeURIComponent(fine.fineId)}?view=group`
+                                                        : `/HRM/Fine/${encodeURIComponent(fine.fineId)}`)
                                                     : '';
 
                                                 return (
@@ -968,20 +987,28 @@ function FinePageContent() {
                                                             </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
                                                                 <div className="relative z-20 flex items-center justify-end gap-2">
-                                                                    {!isGroupRow && (
+                                                                    {(!isGroupRow || !isGroupSeparated) && (
                                                                         <button
                                                                             type="button"
                                                                             {...navHrefProps(
                                                                                 !isCompanyRow && fine.fineId
-                                                                                    ? `/HRM/Fine/${encodeURIComponent(fine.fineId)}`
+                                                                                    ? (isGroupRow
+                                                                                        ? `/HRM/Fine/${encodeURIComponent(fine.fineId)}?view=group`
+                                                                                        : `/HRM/Fine/${encodeURIComponent(fine.fineId)}`)
                                                                                     : '',
                                                                             )}
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
-                                                                                !isCompanyRow && navigateFromList(router, `/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
+                                                                                if (isCompanyRow || !fine.fineId) return;
+                                                                                navigateFromList(
+                                                                                    router,
+                                                                                    isGroupRow
+                                                                                        ? `/HRM/Fine/${encodeURIComponent(fine.fineId)}?view=group`
+                                                                                        : `/HRM/Fine/${encodeURIComponent(fine.fineId)}`,
+                                                                                );
                                                                             }}
                                                                             className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                                                                            title="Edit Fine"
+                                                                            title={isGroupRow ? 'Open Group Fine' : 'Edit Fine'}
                                                                         >
                                                                             <Pencil size={18} />
                                                                         </button>
@@ -1003,8 +1030,8 @@ function FinePageContent() {
                                                         </tr>
                                                         </ListTableRowLink>
 
-                                                        {/* Expanded Group Members */}
-                                                        {isGroupRow && isExpanded && fine.groupMembers.map((member, mIdx) => {
+                                                        {/* Expanded Group Members — only after management approval */}
+                                                        {isGroupRow && isGroupSeparated && isExpanded && fine.groupMembers.map((member, mIdx) => {
                                                             const memberHref = buildGroupMemberDetailHref(fine, member);
                                                             const canOpenMember = Boolean(memberHref);
 

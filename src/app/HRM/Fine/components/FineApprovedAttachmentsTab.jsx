@@ -66,15 +66,24 @@ export default function FineApprovedAttachmentsTab({
             pdfBlobRef.current = null;
 
             try {
-                const targetId = fineRouteId || fine?._id || fine?.fineId;
+                // Prefer Mongo _id (group overview URL uses base fineId which has no DB row)
+                const targetId = fine?._id || fineRouteId || fine?.fineId;
                 const params = employeeId ? { employeeId } : undefined;
                 const response = await axiosInstance.get(
-                    `/Fine/${encodeURIComponent(targetId)}/approved-report-pdf`,
+                    `/Fine/${encodeURIComponent(String(targetId))}/approved-report-pdf`,
                     { responseType: 'blob', params },
                 );
                 if (cancelled) return;
 
+                const contentType = String(response.headers?.['content-type'] || '');
+                if (contentType.includes('application/json')) {
+                    throw new Error('Server returned an error instead of a PDF');
+                }
+
                 const blob = new Blob([response.data], { type: 'application/pdf' });
+                if (blob.size < 500) {
+                    throw new Error('Approved PDF was empty');
+                }
                 pdfBlobRef.current = blob;
                 const images = await renderPdfPageImages(blob);
                 if (cancelled) return;
@@ -102,10 +111,10 @@ export default function FineApprovedAttachmentsTab({
             let blob = pdfBlobRef.current;
 
             if (!blob) {
-                const targetId = fineRouteId || fine?._id || fine?.fineId;
+                const targetId = fine?._id || fineRouteId || fine?.fineId;
                 const params = employeeId ? { employeeId } : undefined;
                 const response = await axiosInstance.get(
-                    `/Fine/${encodeURIComponent(targetId)}/approved-report-pdf`,
+                    `/Fine/${encodeURIComponent(String(targetId))}/approved-report-pdf`,
                     { responseType: 'blob', params },
                 );
                 blob = new Blob([response.data], { type: 'application/pdf' });

@@ -38,8 +38,10 @@ export function resolveFineDetailRouteId(rawItem) {
 export function buildFineDetailPath(rawItem, extraParams = {}) {
     const routeId = resolveFineDetailRouteId(rawItem);
     if (!routeId) return buildFineListPath({ status: 'Pending' });
+    const item = normalizeFineNotificationItem(rawItem);
     return appendAssetQueryParams(`/HRM/Fine/${encodeURIComponent(routeId)}`, {
         focusCard: 'pendingApproval',
+        ...(item.isGroup ? { view: 'group' } : {}),
         ...extraParams,
     });
 }

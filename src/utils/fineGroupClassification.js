@@ -1,3 +1,14 @@
+/** Statuses where a group fine may be opened as individual party records. */
+export const GROUP_FINE_SEPARATED_STATUSES = ['Approved', 'Active', 'Paid', 'Completed'];
+
+/**
+ * Group fines stay as one common request through HR → Accounts → Management.
+ * Parties separate into individual views only after management approves.
+ */
+export function canViewGroupFinePartiesIndividually(status) {
+    return GROUP_FINE_SEPARATED_STATUSES.includes(status);
+}
+
 export function isCompanyFineParty(emp) {
     if (!emp) return false;
     const id = emp.employeeId;
@@ -96,8 +107,12 @@ export function buildGroupMembersForFine(fine) {
             fineAmount: individual,
             fineStatus,
             fineId: emp.fineId || recordFineId,
-            fineRecordId: emp._id || recordId,
+            fineRecordId: emp.fineRecordId || emp._id || recordId,
             companyId,
+            // Per-party only — never inherit the group/first record payable
+            expenseAccountId: emp.expenseAccountId || '',
+            expenseAccountName: emp.expenseAccountName || '',
+            payableConfirmed: Boolean(emp.payableConfirmed),
         };
     });
 }
@@ -131,6 +146,17 @@ export function buildGroupRowFromMembers(first, groupKey, members, allAssigned, 
     };
 }
 
+/** Detail page URL for the shared Group Fine overview (clears party selection). */
+export function buildGroupOverviewHref(fineOrBaseId) {
+    const baseId =
+        typeof fineOrBaseId === 'string'
+            ? fineOrBaseId
+            : getFineBaseId(fineOrBaseId);
+    if (!baseId || baseId === 'N/A') return '';
+    // Explicit view=group so navigation always changes the URL (even from same base id + ?party=)
+    return `/HRM/Fine/${encodeURIComponent(baseId)}?view=group`;
+}
+
 /** Detail page URL for one party inside a group fine row. */
 export function buildGroupMemberDetailHref(parentFine, member) {
     const baseId = getFineBaseId(parentFine);
@@ -147,10 +173,12 @@ export function buildGroupMemberDetailHref(parentFine, member) {
     if (member?.employeeId) {
         return `/HRM/Fine/${encodeURIComponent(recordId)}?party=employee&employeeId=${encodeURIComponent(member.employeeId)}`;
     }
-    return `/HRM/Fine/${encodeURIComponent(recordId)}`;
+    return buildGroupOverviewHref(recordId);
 }
 
 export function isViewingSpecificFineParty(searchParams, recordId) {
+    // Explicit group overview flag wins over suffix / residual party params
+    if (searchParams?.get?.('view') === 'group') return false;
     const party = searchParams?.get?.('party');
     if (party === 'company' || party === 'employee') return true;
     return Boolean(recordId && /-[A-Z0-9]+$/i.test(recordId));

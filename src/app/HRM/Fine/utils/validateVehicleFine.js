@@ -249,18 +249,16 @@ export function validateVehicleFine(input, options = {}) {
         }
     }
 
-    if (!isDraft) {
-        if (allowMultipleImages) {
-            const imageCount = Array.isArray(input.attachmentImages)
-                ? input.attachmentImages.length
-                : 0;
-            const totalImages = imageCount + existingImageCount;
-            if (totalImages < 1) {
-                errors.attachment = 'At least one damage image is required (JPG or PNG)';
-            }
-        } else if (!hasExistingAttachment && !input.attachmentBase64) {
-            errors.attachment = 'Supporting document is required (PDF, JPG, or PNG)';
+    if (allowMultipleImages) {
+        const imageCount = Array.isArray(input.attachmentImages)
+            ? input.attachmentImages.length
+            : 0;
+        const totalImages = imageCount + existingImageCount;
+        if (totalImages < 1) {
+            errors.attachment = 'At least one damage image is required (JPG or PNG)';
         }
+    } else if (!hasExistingAttachment && !input.attachmentBase64) {
+        errors.attachment = 'Supporting document is required (PDF, JPG, or PNG)';
     }
 
     return {

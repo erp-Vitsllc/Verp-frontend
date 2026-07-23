@@ -13,6 +13,7 @@ import {
     validateApprovedFineScheduleEdit,
     validateEmployeesDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 
 export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
@@ -31,7 +32,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         attachmentBase64: '',
         attachmentName: '',
         attachmentMime: '',
-        companyDescription: ''
+        companyDescription: '',
+        fineSource: '',
     });
 
     const [assignedEmployees, setAssignedEmployees] = useState([]);
@@ -78,7 +80,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 attachmentBase64: '',
                 attachmentName: initialData.attachment?.name || '',
                 attachmentMime: '',
-                serviceCharge: String(initialData.serviceCharge || '')
+                serviceCharge: String(initialData.serviceCharge || ''),
+                fineSource: initialData.fineSource || '',
             });
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
             setPayableDuration(String(initialData.payableDuration || '1'));
@@ -112,7 +115,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 projectId: '', projectName: '', engineerName: '', deductionAmount: '',
                 reason: '', finePaidBy: 'Employee', employeeDeductionAmount: '', companyFineAmount: '',
                 attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: '',
-                serviceCharge: ''
+                serviceCharge: '', fineSource: '',
             });
             setAssignedEmployees([]);
             setSelectedEmployeeId('');
@@ -243,6 +246,13 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         if (!formData.projectId) newErrors.projectId = 'Project is required';
         if (!formData.deductionAmount) newErrors.deductionAmount = 'Deduction amount is required';
         if (!formData.reason) newErrors.reason = 'Reason is required';
+        const hasAttachment = Boolean(
+            formData.attachmentBase64 ||
+            formData.attachmentName ||
+            initialData?.attachment?.url ||
+            initialData?.attachment?.publicId
+        );
+        if (!hasAttachment) newErrors.attachment = 'Attachment is required';
         if (assignedEmployees.length === 0) newErrors.assignedEmployees = 'At least one employee must be assigned';
 
         // Same company validation removed per user request
@@ -351,6 +361,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 responsibleFor: formData.finePaidBy,
                 description: formData.reason,
                 companyDescription: formData.companyDescription,
+                fineSource: formData.fineSource || '',
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
@@ -575,9 +586,42 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                     </div>
 
                     <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-gray-700">Fine Source</label>
+                        <ZohoVendorSelect
+                            value={formData.fineSource}
+                            onChange={(nextValue) => setFormData((prev) => ({ ...prev, fineSource: nextValue }))}
+                            placeholder="Select vendor..."
+                        />
+                    </div>
+
+                    <div className="space-y-1.5">
                         <label className="text-sm font-medium text-gray-700">Reason <span className="text-red-500">*</span></label>
                         <textarea value={formData.reason} onChange={(e) => setFormData(prev => ({ ...prev, reason: e.target.value }))} rows={2} className={`w-full px-4 py-3 rounded-xl border ${errors.reason ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none resize-none`} />
                         {errors.reason && <p className="text-xs text-red-500 ml-1">{errors.reason}</p>}
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-gray-700">Attachment <span className="text-red-500">*</span></label>
+                        <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className={`w-full p-4 rounded-xl border-2 border-dashed ${errors.attachment ? 'border-red-400' : 'border-gray-200'} bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100`}
+                        >
+                            <Upload className="text-gray-400 mb-2" size={24} />
+                            <span className="text-sm text-gray-500">
+                                {formData.attachment || formData.attachmentName ? formData.attachmentName : 'Click to upload'}
+                            </span>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                className="hidden"
+                                onChange={(e) => {
+                                    handleFileChange(e);
+                                    if (errors.attachment) setErrors((prev) => ({ ...prev, attachment: '' }));
+                                }}
+                                accept=".pdf,.jpg,.jpeg,.png"
+                            />
+                        </div>
+                        {errors.attachment ? <p className="text-xs text-red-500 ml-1">{errors.attachment}</p> : null}
                     </div>
 
                     <div className="space-y-3 pt-4 border-t border-gray-100">

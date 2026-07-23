@@ -13,6 +13,7 @@ import {
     validateFineDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
 import { isEndOfServiceFineSource } from '../utils/fineScheduleUtils';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 
 function isAttachedAccessory(acc) {
     const st = String(acc?.status || '').trim().toLowerCase();
@@ -100,6 +101,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         depreciationAmount: '',
         sourceOfIncome: 'Salary',
         assetPurchaseDate: '',
+        fineSource: '',
     });
 
     const [assetControllerFallback, setAssetControllerFallback] = useState({ name: '', employeeId: '' });
@@ -447,6 +449,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 depreciationAmount: String(initialData.assetDepreciationAmount ?? initialData.depreciationAmount ?? ''),
                 sourceOfIncome: initialData.sourceOfIncome || 'Salary',
                 assetPurchaseDate: initialData.purchaseDate || initialData.assetPurchaseDate || '',
+                fineSource: initialData.fineSource || '',
             });
 
             if (initialData.company) {
@@ -524,7 +527,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
                 description: '', attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '',
                 companyDescription: '', serviceCharge: '', depreciationAmount: '', sourceOfIncome: 'Salary',
-                assetPurchaseDate: '',
+                assetPurchaseDate: '', fineSource: '',
             });
 
         }
@@ -810,6 +813,13 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         // For initial request, only validate description
         if (isInitialRequest) {
             if (!formData.description) newErrors.description = 'Description is required';
+            const hasAttachment = Boolean(
+                formData.attachmentBase64 ||
+                formData.attachmentName ||
+                initialData?.attachment?.url ||
+                initialData?.attachment?.publicId
+            );
+            if (!hasAttachment) newErrors.attachment = 'Attachment is required';
             setErrors(newErrors);
             return { ok: Object.keys(newErrors).length === 0, newErrors };
         }
@@ -850,6 +860,18 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         }
         if (!formData.description || formData.description.trim() === '') {
             newErrors.description = 'Description is required';
+        }
+
+        const hasAttachment = Boolean(
+            formData.attachmentBase64 ||
+            formData.attachment ||
+            formData.attachmentName ||
+            initialData?.attachment?.url ||
+            initialData?.attachment?.publicId ||
+            (typeof initialData?.attachment === 'string' && initialData.attachment)
+        );
+        if (!hasAttachment && !assetControllerOnlyEdit && !scheduleOnlyEdit) {
+            newErrors.attachment = 'Attachment is required';
         }
 
         if (formData.responsibleFor === 'Employee & Company') {
@@ -988,6 +1010,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             assetPurchaseDate: formData.assetPurchaseDate || '',
             description: formData.description,
             companyDescription: formData.companyDescription,
+            fineSource: formData.fineSource || '',
             fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
             excludedAccessoryIds: [...removedAccessoryIds],
             breakdownItems: [
@@ -1553,13 +1576,41 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     </div>
 
                     <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-gray-700">Fine Source</label>
+                        <ZohoVendorSelect
+                            value={formData.fineSource}
+                            onChange={(nextValue) => setFormData((prev) => ({ ...prev, fineSource: nextValue }))}
+                            placeholder="Select vendor..."
+                        />
+                    </div>
+
+                    <div className="space-y-1.5">
                         <label className="text-sm font-medium text-gray-700">Description <span className="text-red-500">*</span></label>
                         <textarea value={formData.description} onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} rows={3} className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none resize-none`} />
                     </div>
 
                     <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-gray-700">Attachment</label>
-                        <div onClick={() => fileInputRef.current?.click()} className="w-full p-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100"><Upload className="text-gray-400 mb-2" size={24} /><span className="text-sm text-gray-500">{formData.attachment ? formData.attachmentName : 'Click to upload'}</span><input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" /></div>
+                        <label className="text-sm font-medium text-gray-700">Attachment <span className="text-red-500">*</span></label>
+                        <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className={`w-full p-4 rounded-xl border-2 border-dashed ${errors.attachment ? 'border-red-400' : 'border-gray-200'} bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100`}
+                        >
+                            <Upload className="text-gray-400 mb-2" size={24} />
+                            <span className="text-sm text-gray-500">
+                                {formData.attachment || formData.attachmentName ? formData.attachmentName : 'Click to upload'}
+                            </span>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                className="hidden"
+                                onChange={(e) => {
+                                    handleFileChange(e);
+                                    if (errors.attachment) setErrors((prev) => ({ ...prev, attachment: '' }));
+                                }}
+                                accept=".pdf,.jpg,.jpeg,.png"
+                            />
+                        </div>
+                        {errors.attachment ? <p className="text-xs text-red-500 ml-1">{errors.attachment}</p> : null}
                     </div>
 
                     {/* Total Summary — Asset Controller fine form only */}
