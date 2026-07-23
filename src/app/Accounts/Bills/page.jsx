@@ -122,7 +122,7 @@ export default function PurchasesBillsPage() {
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
                     <main className="flex-1 p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden overflow-y-auto">
-                        <ErpPageHeader title="Bills" subtitle="Local database — click Refresh to sync from Zoho (batches of 400)">
+                        <ErpPageHeader title="Bills" subtitle="Matches Zoho after Refresh — add/update/delete in Zoho, then Refresh (batches of 400)">
                             <div className="flex items-center gap-2">
                                 <button
                                     type="button"
@@ -301,16 +301,25 @@ export default function PurchasesBillsPage() {
                                                           <div
                                                               className={
                                                                   row.isUtilityChild
-                                                                      ? 'pl-5 border-l-2 border-teal-200'
+                                                                      ? 'pl-4 flex items-center gap-1.5'
                                                                       : ''
                                                               }
                                                           >
                                                               {row.isUtilityChild ? (
-                                                                  <span className="text-slate-400 mr-1">
-                                                                      ↳
-                                                                  </span>
+                                                                  <span
+                                                                      className="inline-block w-px self-stretch min-h-[1em] bg-slate-200"
+                                                                      aria-hidden
+                                                                  />
                                                               ) : null}
-                                                              {row.billNumber}
+                                                              <span
+                                                                  className={
+                                                                      row.isUtilityChild
+                                                                          ? 'font-normal text-slate-600'
+                                                                          : undefined
+                                                                  }
+                                                              >
+                                                                  {row.billNumber}
+                                                              </span>
                                                               {row.utilityGroupSize > 1 &&
                                                               !row.isUtilityChild ? (
                                                                   <span className="ml-1.5 text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 rounded px-1.5 py-0.5">
@@ -318,20 +327,6 @@ export default function PurchasesBillsPage() {
                                                                   </span>
                                                               ) : null}
                                                           </div>
-                                                          {row.utilityDebitAccountName ? (
-                                                              <p
-                                                                  className={`text-[10px] text-slate-500 mt-0.5 ${
-                                                                      row.isUtilityChild
-                                                                          ? 'pl-5'
-                                                                          : ''
-                                                                  }`}
-                                                              >
-                                                                  Debit · {row.utilityDebitAccountName}
-                                                                  {row.utilityItemDescription
-                                                                      ? ` · ${row.utilityItemDescription}`
-                                                                      : ''}
-                                                              </p>
-                                                          ) : null}
                                                       </td>
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 whitespace-nowrap">
                                                           {row.referenceNumber}

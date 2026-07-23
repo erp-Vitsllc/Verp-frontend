@@ -311,8 +311,8 @@ function PurchasesPaymentsMadeContent() {
                                 title="Payments Made"
                                 subtitle={
                                     activeZohoOrg?.brand
-                                        ? `${activeZohoOrg.brand} Zoho — click Refresh to sync (batches of 400)`
-                                        : 'Local database — click Refresh to sync from Zoho (batches of 400)'
+                                        ? `${activeZohoOrg.brand} Zoho — Refresh makes ERP match Zoho (batches of 400)`
+                                        : 'Matches Zoho after Refresh — add/update/delete in Zoho, then Refresh (batches of 400)'
                                 }
                             >
                                 <div className="flex flex-wrap items-center gap-2">

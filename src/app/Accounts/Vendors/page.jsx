@@ -102,7 +102,7 @@ export default function PurchasesVendorsPage() {
                     <main className="flex-1 p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden overflow-y-auto">
                         <ErpPageHeader
                             title="Vendors"
-                            subtitle="Local database — click Refresh to sync from Zoho (batches of 400)"
+                            subtitle="Matches Zoho after Refresh — add/update/delete in Zoho, then Refresh (batches of 400)"
                         >
                             <div className="flex items-center gap-2">
                                 <button

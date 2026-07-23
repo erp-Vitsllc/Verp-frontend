@@ -12,7 +12,8 @@ function createSyncToken() {
 /**
  * Zoho list loader:
  * - Default: paged local DB (fast, lean payload)
- * - sync:true (Refresh): sync from Zoho in chunks, then reload current page
+ * - sync:true (Refresh): pull Zoho in chunks, upsert, delete local rows missing in Zoho, then reload page
+ *   so ERP listing matches Zoho (add / update / delete).
  */
 export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId = '' }) {
     const [rows, setRows] = useState([]);
@@ -104,6 +105,7 @@ export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId
                 const syncToken = createSyncToken();
                 let zohoPage = 1;
                 let totalSynced = 0;
+                let totalRemoved = 0;
 
                 while (true) {
                     if (abortRef.current !== requestId) return;
@@ -126,6 +128,7 @@ export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId
                         ? response.data.data.length
                         : Number(response?.data?.meta?.upserted) || 0;
                     totalSynced += chunkCount;
+                    totalRemoved += Number(response?.data?.meta?.deactivated) || 0;
                     setSyncedCount(totalSynced);
 
                     const meta = response?.data?.meta || {};
@@ -135,6 +138,12 @@ export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId
 
                 if (abortRef.current !== requestId) return;
                 await fetchPage(listQueryRef.current, requestId);
+                if (totalRemoved > 0) {
+                    setError('');
+                    console.info(
+                        `[Zoho sync] upserted ${totalSynced}, removed ${totalRemoved} local row(s) missing in Zoho`,
+                    );
+                }
             } catch (err) {
                 if (abortRef.current !== requestId) return;
                 const message =
