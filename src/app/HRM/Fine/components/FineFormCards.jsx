@@ -85,11 +85,26 @@ export default function FineFormCards(props) {
         );
     }
 
+    const individualPartiesCard = (
+        <FineFormCardGroupParties
+            fine={fine}
+            companyName={props.companyName || fine.companyName}
+            formatDate={props.formatDate}
+            canEditPartyPayables={Boolean(props.canEditPartyPayables)}
+            onPartyPayablesChange={props.onPartyPayablesChange}
+        />
+    );
+
     if (!showEmployeeFinancials) {
         return (
-            <div className="flex flex-col gap-6 w-full min-w-0 print:hidden">
-                <FineFormCard1 {...props} />
-                {paymentDetailsCard}
+            <div className="flex flex-col lg:flex-row gap-6 items-start w-full min-w-0 print:hidden">
+                <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
+                    <FineFormCard1 {...props} />
+                    {paymentDetailsCard}
+                </div>
+                <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
+                    {individualPartiesCard}
+                </div>
             </div>
         );
     }
@@ -103,6 +118,7 @@ export default function FineFormCards(props) {
             </div>
 
             <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
+                {individualPartiesCard}
                 {showLossDamageCards ? <FineFormCard2 {...props} /> : null}
                 <FineFormCard4 {...financialCardProps} />
                 <FineFormCard5 {...financialCardProps} />

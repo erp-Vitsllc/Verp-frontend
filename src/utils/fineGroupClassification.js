@@ -92,7 +92,8 @@ export function buildGroupMembersForFine(fine) {
         });
     }
 
-    if (entries.length <= 1 && !isMultiPartyFine(fine)) return [];
+    // Include single-party (individual) fines so Fine Parties card works the same as group
+    if (entries.length === 0) return [];
 
     return entries.map((emp) => {
         const isCompany = isCompanyFineParty(emp);
@@ -109,10 +110,10 @@ export function buildGroupMembersForFine(fine) {
             fineId: emp.fineId || recordFineId,
             fineRecordId: emp.fineRecordId || emp._id || recordId,
             companyId,
-            // Per-party only — never inherit the group/first record payable
-            expenseAccountId: emp.expenseAccountId || '',
-            expenseAccountName: emp.expenseAccountName || '',
-            payableConfirmed: Boolean(emp.payableConfirmed),
+            // Per-party only — never inherit another party's payable; fall back to fine root for singles
+            expenseAccountId: emp.expenseAccountId || fine.expenseAccountId || '',
+            expenseAccountName: emp.expenseAccountName || fine.expenseAccountName || '',
+            payableConfirmed: Boolean(emp.payableConfirmed || fine.payableConfirmed),
         };
     });
 }

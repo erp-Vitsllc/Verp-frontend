@@ -268,6 +268,8 @@ function FineDetailsPageContent() {
                         payableConfirmed: Boolean(p.payableConfirmed),
                     }));
                 const isGroupFine = Boolean(fine?.isGroupView) || groupParties.length > 1;
+                // Individual + group: Vendor/Payable filled on Fine Parties card
+                const usePartyPayableFlow = groupParties.length >= 1;
                 let resolvedVendorId =
                     String(managementZoho.zohoVendorId || fine?.zohoVendorId || '').trim();
                 const resolvedVendorName = String(
@@ -308,9 +310,8 @@ function FineDetailsPageContent() {
                 if (isManagementStage && !resolvedVendorId && !resolvedVendorName) {
                     toast({
                         title: 'Zoho vendor required',
-                        description: isGroupFine
-                            ? 'Set Vendor on the Group Fine Parties card (Accounts) before Management approval.'
-                            : 'Select a Zoho vendor (Fine Source) before management approval.',
+                        description:
+                            'Set Vendor on the Fine Parties card (Accounts) before Management approval.',
                         variant: 'destructive',
                     });
                     return;
@@ -326,8 +327,7 @@ function FineDetailsPageContent() {
                 }
 
                 const allPartiesHavePayable =
-                    isGroupFine &&
-                    groupParties.length > 0 &&
+                    usePartyPayableFlow &&
                     groupParties.every((p) => String(p.expenseAccountId || '').trim());
                 const allPartiesCompleted = allPartiesHavePayable;
 
@@ -339,16 +339,15 @@ function FineDetailsPageContent() {
                 ) {
                     toast({
                         title: 'Expense account required',
-                        description: isGroupFine
-                            ? 'Fill Payable for every party on the Group Fine Parties card first.'
-                            : 'Select a Zoho expense account, or ensure Payable is filled.',
+                        description:
+                            'Fill Payable on the Fine Parties card before Management approval.',
                         variant: 'destructive',
                     });
                     return;
                 }
 
                 if (isAccountsStage) {
-                    if (isGroupFine) {
+                    if (usePartyPayableFlow) {
                         const incomplete = groupParties.filter(
                             (p) => !String(p.expenseAccountId || '').trim(),
                         );
@@ -386,12 +385,12 @@ function FineDetailsPageContent() {
                         zohoOrganizationId:
                             managementZoho.zohoOrganizationId || fine?.zohoOrganizationId || '',
                     });
-                    if (isGroupFine && allPartiesHavePayable) {
+                    if (usePartyPayableFlow && allPartiesHavePayable) {
                         approveBody.partyPayables = groupParties;
                     }
                 }
                 if (isAccountsStage) {
-                    if (isGroupFine) {
+                    if (usePartyPayableFlow) {
                         approveBody.partyPayables = groupParties;
                     } else {
                         const accountId =
@@ -567,8 +566,8 @@ function FineDetailsPageContent() {
                     payableConfirmed: Boolean(p.payableConfirmed),
                 }));
 
-            const isGroupFine = Boolean(fine?.isGroupView) || groupParties.length > 1;
-            if (isGroupFine) {
+            const usePartyPayableFlow = groupParties.length >= 1;
+            if (usePartyPayableFlow) {
                 const incomplete = groupParties.filter(
                     (p) => !String(p.expenseAccountId || '').trim(),
                 );
@@ -587,7 +586,7 @@ function FineDetailsPageContent() {
                 !String(fine?.expenseAccountId || '').trim() &&
                 !String(accountsApprovePayable.expenseAccountId || '').trim()
             ) {
-                // Single fine — payable selected in the confirm dialog
+                // Fallback when Fine Parties card has no rows
             }
 
             setAccountsApprovePayable({
@@ -599,7 +598,7 @@ function FineDetailsPageContent() {
                 action: 'approve',
                 title: 'Send to Management',
                 description:
-                    'All party rows are completed. This sends the fine to Management. No Zoho bill is created yet — Management approval will create one Zoho Bill with every party as a line in the Item Table.',
+                    'Vendor and Payable are set on the Fine Parties card. This sends the fine to Management. No Zoho bill is created yet — Management approval will create one Zoho Bill.',
                 confirmText: 'Approve & send',
                 variant: 'default',
             });
@@ -611,7 +610,7 @@ function FineDetailsPageContent() {
                 action: 'approve',
                 title: 'Approve & create Zoho Bill',
                 description:
-                    'Confirm to create one Zoho Books Bill for this group fine. Vendor = Fine Source. Each employee/company party becomes one row in the Bill Item Table (Account = Payable / Chart of Accounts, Amount = fine amount). Not multiple bills.',
+                    'Confirm to create one Zoho Books Bill. Vendor = Fine Source. Each party becomes one row in the Bill Item Table (Account = Payable, Amount = fine amount).',
                 confirmText: 'Approve & bill',
                 variant: 'default',
             });

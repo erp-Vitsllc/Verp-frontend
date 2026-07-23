@@ -285,6 +285,7 @@ export default function FineFormCardGroupParties({
     const total = parties.reduce((sum, p) => sum + (Number(p.fineAmount) || 0), 0);
     const empCount = parties.filter((p) => !p.isCompany).length;
     const hasCompany = parties.some((p) => p.isCompany);
+    const isSingleParty = parties.length <= 1;
 
     const fmt = formatDate || ((d) => (d ? new Date(d).toLocaleDateString() : '—'));
     const issueDate = fmt(fine.awardedDate || fine.createdAt);
@@ -452,15 +453,21 @@ export default function FineFormCardGroupParties({
             icon={Users}
             iconBg="bg-indigo-50"
             iconColor="text-indigo-600"
-            title="Group Fine Parties"
-            subtitle="Accounts fills Vendor + Payable → Management creates one Zoho Bill (Item Table lines)"
+            title={isSingleParty ? 'Fine Parties' : 'Group Fine Parties'}
+            subtitle={
+                isSingleParty
+                    ? 'Accounts fills Vendor + Payable → Management creates one Zoho Bill'
+                    : 'Accounts fills Vendor + Payable → Management creates one Zoho Bill (Item Table lines)'
+            }
         >
             <table className="w-full border-collapse mb-4">
                 <tbody>
                     <tr>
                         <td className="py-2 pr-4 w-1/2 align-top">
                             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Fine Type</span>
-                            <span className="text-xs font-semibold text-gray-800">Group Fine</span>
+                            <span className="text-xs font-semibold text-gray-800">
+                                {isSingleParty ? 'Single Fine' : 'Group Fine'}
+                            </span>
                         </td>
                         <td className="py-2 pl-4 w-1/2 align-top">
                             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Parties</span>
@@ -482,7 +489,9 @@ export default function FineFormCardGroupParties({
                     </tr>
                     <tr>
                         <td className="py-2 pr-4 align-top">
-                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Total Group Payable</span>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                                {isSingleParty ? 'Total Payable' : 'Total Group Payable'}
+                            </span>
                             <span className="text-xs font-bold text-red-600">{formatMoney(total)} AED</span>
                         </td>
                         <td className="py-2 pl-4 align-top">
@@ -497,9 +506,9 @@ export default function FineFormCardGroupParties({
 
             {dropdownsEnabled ? (
                 <p className="mb-3 text-[10px] text-indigo-700 bg-indigo-50/80 rounded-lg px-3 py-2">
-                    Fill Vendor and Payable for each row. When all payables are set, status is Ready for
-                    billing — Management approval creates one Zoho Bill with these parties as Item Table
-                    lines.
+                    {isSingleParty
+                        ? 'Fill Vendor and Payable. When set, status is Ready for billing — Management approval creates one Zoho Bill.'
+                        : 'Fill Vendor and Payable for each row. When all payables are set, status is Ready for billing — Management approval creates one Zoho Bill with these parties as Item Table lines.'}
                 </p>
             ) : null}
 
