@@ -132,6 +132,28 @@ export function buildAssetLossFineCardFields(
 
     const fmt = formatDate || ((d) => (d ? new Date(d).toLocaleDateString() : '—'));
 
+    // Display portions include service-charge share (stored employeeAmount/companyAmount are base-only)
+    const empBase = parseFloat(fine.employeeAmount || 0) || 0;
+    const compBase = parseFloat(fine.companyAmount || 0) || 0;
+    const sc = parseFloat(fine.serviceCharge || base.serviceCharge || 0) || 0;
+    const rf = String(fine.responsibleFor || '').trim();
+    let employeePayableAmount = empBase;
+    let companyPayableAmount = compBase;
+    if (rf === 'Employee & Company' && sc > 0) {
+        employeePayableAmount = empBase + sc / 2;
+        companyPayableAmount = compBase + sc / 2;
+    } else if (rf === 'Employee' && sc > 0) {
+        employeePayableAmount = empBase + sc;
+    } else if (rf === 'Company' && sc > 0) {
+        companyPayableAmount = compBase + sc;
+    } else if (typeof getEmpShare === 'function' && !isCompanyFine) {
+        const payable = Number(getEmpShare(fine)) || 0;
+        if (payable > employeePayableAmount) employeePayableAmount = payable;
+    } else if (typeof getCompShare === 'function' && isCompanyFine) {
+        const payable = Number(getCompShare(fine)) || 0;
+        if (payable > companyPayableAmount) companyPayableAmount = payable;
+    }
+
     return {
         ...base,
         fineId: fine.fineId || '—',
@@ -143,6 +165,8 @@ export function buildAssetLossFineCardFields(
         assetAging: computeAssetAging(purchaseDate),
         fineCategory: isGroupFine ? 'Group Fine' : 'Single Fine',
         payableTypeLabel: mapPayableType(fine.responsibleFor),
+        employeePayableAmount,
+        companyPayableAmount,
         yourFinePayment: yourPayment,
         othersPayment,
         sourceOfDeduction: fine.sourceOfIncome || 'Salary',

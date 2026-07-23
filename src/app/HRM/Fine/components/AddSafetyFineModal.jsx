@@ -80,8 +80,23 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     useEffect(() => {
         if (isOpen && initialData) {
             const sc = parseFloat(initialData.serviceCharge || 0) || 0;
-            const empBase = parseFloat(initialData.employeeAmount || 0) || 0;
-            const compBase = parseFloat(initialData.companyAmount || 0) || 0;
+            let empBase = parseFloat(initialData.employeeAmount || 0) || 0;
+            let compBase = parseFloat(initialData.companyAmount || 0) || 0;
+            const companyParty = (initialData.assignedEmployees || []).find(
+                (emp) => emp.employeeId === 'VEGA-HR-0000',
+            );
+            if (compBase < 0.01 && companyParty) {
+                const partyBase = parseFloat(companyParty.employeeAmount);
+                const partyPayable = parseFloat(companyParty.individualAmount ?? companyParty.fineAmount);
+                if (Number.isFinite(partyBase) && partyBase > 0) compBase = partyBase;
+                else if (Number.isFinite(partyPayable) && partyPayable > 0) {
+                    const realEmpCount = (initialData.assignedEmployees || []).filter(
+                        (e) => e.employeeId && e.employeeId !== 'VEGA-HR-0000',
+                    ).length;
+                    const parties = Math.max(1, realEmpCount + 1);
+                    compBase = Math.max(0, partyPayable - sc / parties);
+                }
+            }
             const partsBase = empBase + compBase;
             const grandTotal =
                 parseFloat(initialData.totalFineAmount || initialData.fineAmount || 0) || 0;
@@ -94,13 +109,13 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setTotalFineAmount(String(baseFine || ''));
             setResponsibleFor(initialData.responsibleFor || 'Employee');
             setEmployeeAmount(
-                initialData.employeeAmount != null && initialData.employeeAmount !== ''
-                    ? String(initialData.employeeAmount)
+                empBase > 0 || initialData.employeeAmount != null
+                    ? String(empBase || initialData.employeeAmount || '')
                     : '',
             );
             setCompanyAmount(
-                initialData.companyAmount != null && initialData.companyAmount !== ''
-                    ? String(initialData.companyAmount)
+                compBase > 0 || initialData.companyAmount != null
+                    ? String(compBase || initialData.companyAmount || '')
                     : '',
             );
             setServiceCharge(String(initialData.serviceCharge ?? ''));
@@ -123,7 +138,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
                 const realEmployees = initialData.assignedEmployees.filter(emp => emp.employeeId !== 'VEGA-HR-0000');
                 const hasCompanyParty =
-                    initialData.assignedEmployees.some((emp) => emp.employeeId === 'VEGA-HR-0000') ||
+                    Boolean(companyParty) ||
                     compBase > 0 ||
                     initialData.responsibleFor === 'Company' ||
                     initialData.responsibleFor === 'Employee & Company';

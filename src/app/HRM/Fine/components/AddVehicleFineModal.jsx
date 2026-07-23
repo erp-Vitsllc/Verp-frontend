@@ -83,25 +83,48 @@ export default function AddVehicleFineModal({
 
             const isBoth = (initialData.responsibleFor || 'Employee') === 'Employee & Company';
             const sc = parseFloat(initialData.serviceCharge || 0) || 0;
-            const grandTotal = parseFloat(initialData.fineAmount || 0) || 0;
-            const baseFineAmount = Math.max(0, grandTotal - sc);
+            const grandTotal = parseFloat(initialData.totalFineAmount || initialData.fineAmount || 0) || 0;
+            const empStored = parseFloat(initialData.employeeAmount || 0) || 0;
+            const compStored = parseFloat(initialData.companyAmount || 0) || 0;
+            const partsBase = empStored + compStored;
+            const baseFineAmount =
+                partsBase > 0.001 ? partsBase : Math.max(0, grandTotal - sc);
+
+            // Prefer top-level companyAmount; else recover from company party row
+            const companyParty = (initialData.assignedEmployees || []).find(
+                (e) => e?.employeeId === 'VEGA-HR-0000',
+            );
+            let storedEmpBase =
+                initialData.employeeAmount !== undefined &&
+                initialData.employeeAmount !== null &&
+                initialData.employeeAmount !== ''
+                    ? parseFloat(initialData.employeeAmount)
+                    : NaN;
+            let storedCompBase =
+                initialData.companyAmount !== undefined &&
+                initialData.companyAmount !== null &&
+                initialData.companyAmount !== ''
+                    ? parseFloat(initialData.companyAmount)
+                    : NaN;
+            if ((!Number.isFinite(storedCompBase) || storedCompBase < 0.01) && companyParty) {
+                const partyBase = parseFloat(companyParty.employeeAmount);
+                const partyPayable = parseFloat(companyParty.individualAmount ?? companyParty.fineAmount);
+                if (Number.isFinite(partyBase) && partyBase > 0) storedCompBase = partyBase;
+                else if (Number.isFinite(partyPayable) && partyPayable > 0) {
+                    storedCompBase = Math.max(0, partyPayable - sc / 2);
+                }
+            }
+            if (!Number.isFinite(storedEmpBase) || storedEmpBase < 0) {
+                storedEmpBase = Math.max(0, baseFineAmount - (Number.isFinite(storedCompBase) ? storedCompBase : 0));
+            }
+            if (!Number.isFinite(storedCompBase) || storedCompBase < 0) {
+                storedCompBase = Math.max(0, baseFineAmount - storedEmpBase);
+            }
             
             let uiEmployeeAmount = String(initialData.employeeAmount ?? '');
             let uiCompanyAmount = String(initialData.companyAmount ?? '');
             
             if (isBoth) {
-                const storedEmpBase =
-                    initialData.employeeAmount !== undefined &&
-                    initialData.employeeAmount !== null &&
-                    initialData.employeeAmount !== ''
-                        ? parseFloat(initialData.employeeAmount)
-                        : baseFineAmount / 2;
-                const storedCompBase =
-                    initialData.companyAmount !== undefined &&
-                    initialData.companyAmount !== null &&
-                    initialData.companyAmount !== ''
-                        ? parseFloat(initialData.companyAmount)
-                        : baseFineAmount - storedEmpBase;
                 uiEmployeeAmount = String(toVehicleFinePartyPayableAmount(storedEmpBase, sc));
                 uiCompanyAmount = String(toVehicleFinePartyPayableAmount(storedCompBase, sc));
             }
@@ -612,6 +635,21 @@ export default function AddVehicleFineModal({
                         ? initialData.fineStatus
                         : 'Draft'
             };
+
+            // Ensure top-level companyAmount is never zero when company party row has a base
+            if (formData.responsibleFor === 'Employee & Company') {
+                const companyRow = employeesList.find((e) => e.employeeId === 'VEGA-HR-0000');
+                const rowBase = parseFloat(companyRow?.employeeAmount || 0) || 0;
+                if ((parseFloat(payload.companyAmount) || 0) < 0.01 && rowBase >= 0.01) {
+                    payload.companyAmount = rowBase;
+                }
+                const empSum = employeesList
+                    .filter((e) => e.employeeId !== 'VEGA-HR-0000')
+                    .reduce((s, e) => s + (parseFloat(e.employeeAmount) || 0), 0);
+                if ((parseFloat(payload.employeeAmount) || 0) < 0.01 && empSum >= 0.01) {
+                    payload.employeeAmount = empSum;
+                }
+            }
 
             if (allowMultipleImages) {
                 const newUploads = imageAttachments.map((item) => ({
