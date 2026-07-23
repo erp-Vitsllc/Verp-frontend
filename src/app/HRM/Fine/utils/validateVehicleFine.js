@@ -184,9 +184,13 @@ export function validateVehicleFine(input, options = {}) {
             errors.companyAmount = 'Enter a valid company amount greater than 0';
         }
 
-        if (grandTotal !== null && empAmt !== null && compAmt !== null) {
-            if (Math.abs(empAmt + compAmt - grandTotal) > 0.01) {
-                errors.amountMismatch = `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal total fine + service charge (AED ${grandTotal.toFixed(2)})`;
+        if (baseFine !== null && empAmt !== null && compAmt !== null) {
+            // Portions split the Fine Amount only; Total payable = Fine Amount + Service Charge
+            if (Math.abs(empAmt + compAmt - baseFine) > 0.01) {
+                errors.amountMismatch =
+                    serviceCharge > 0
+                        ? `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount (AED ${baseFine.toFixed(2)}). Total payable = Fine Amount + Service Charge (AED ${grandTotal.toFixed(2)}).`
+                        : `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount (AED ${baseFine.toFixed(2)})`;
             }
         }
     }

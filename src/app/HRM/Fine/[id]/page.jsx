@@ -26,6 +26,7 @@ import AddLossDamageModal from '../components/AddLossDamageModal';
 import FineFormCards from '../components/FineFormCards';
 import FineApprovedAttachmentsTab from '../components/FineApprovedAttachmentsTab';
 import FineWorkflowHistoryPanel from '../components/FineWorkflowHistoryPanel';
+import FineManagementZohoFields from '../components/FineManagementZohoFields';
 import {
     buildFineVendorPaymentPrefill,
     canAccountsPayFineVendorBill,
@@ -278,24 +279,51 @@ function FineDetailsPageContent() {
                         '',
                 ).trim();
 
-                // Accounts already set Vendor name (Fine Source) — resolve Zoho vendor id if missing
+                // Accounts already set Vendor name (Fine Source) — resolve Zoho vendor id if missing.
+                // IMPORTANT: do NOT use sync=true here — that returns only one Zoho page chunk.
+                // Match against the full local vendor cache (optionally filtered by name).
                 if (isManagementStage && !resolvedVendorId && resolvedVendorName) {
                     try {
                         const orgId =
                             managementZoho.zohoOrganizationId ||
                             fine?.zohoOrganizationId ||
                             '';
-                        const vendorRes = await axiosInstance.get('/zoho/vendors', {
-                            params: {
-                                ...(orgId ? { organizationId: orgId } : {}),
-                                sync: 'true',
-                                limit: 500,
-                            },
-                            skipToast: true,
-                            timeout: 45000,
-                        });
-                        const vendors = mapZohoVendors(vendorRes?.data?.data);
-                        const match = matchZohoVendorByName(vendors, resolvedVendorName);
+                        const orgParams = orgId ? { organizationId: orgId } : {};
+
+                        const loadAndMatch = async (extraParams = {}) => {
+                            const vendorRes = await axiosInstance.get('/zoho/vendors', {
+                                params: {
+                                    ...orgParams,
+                                    limit: 2000,
+                                    ...extraParams,
+                                },
+                                skipToast: true,
+                                timeout: 60000,
+                            });
+                            const vendors = mapZohoVendors(vendorRes?.data?.data);
+                            return matchZohoVendorByName(vendors, resolvedVendorName);
+                        };
+
+                        let match =
+                            (await loadAndMatch({ search: resolvedVendorName })) ||
+                            (await loadAndMatch());
+
+                        // Cache miss — pull a Zoho chunk then re-read full DB list
+                        if (!match?.id) {
+                            try {
+                                await axiosInstance.get('/zoho/vendors', {
+                                    params: { ...orgParams, sync: 'true' },
+                                    skipToast: true,
+                                    timeout: 120000,
+                                });
+                            } catch {
+                                // sync optional
+                            }
+                            match =
+                                (await loadAndMatch({ search: resolvedVendorName })) ||
+                                (await loadAndMatch());
+                        }
+
                         if (match?.id) resolvedVendorId = String(match.id).trim();
                     } catch (lookupErr) {
                         console.warn('Could not resolve Zoho vendor from Fine Source:', lookupErr);
@@ -306,7 +334,7 @@ function FineDetailsPageContent() {
                     toast({
                         title: 'Zoho vendor required',
                         description:
-                            'Set Vendor on the Fine Parties card (Accounts) before Management approval.',
+                            'Set Vendor on the Fine Parties card (Accounts), or pick a Zoho vendor in this dialog.',
                         variant: 'destructive',
                     });
                     return;
@@ -315,7 +343,7 @@ function FineDetailsPageContent() {
                 if (isManagementStage && !resolvedVendorId && resolvedVendorName) {
                     toast({
                         title: 'Zoho vendor not found',
-                        description: `Vendor "${resolvedVendorName}" is set, but no matching Zoho Books vendor was found. Check the vendor name in Zoho.`,
+                        description: `Vendor "${resolvedVendorName}" is set as Fine Source, but no matching Zoho Books vendor id was found. Select the Zoho vendor in this dialog, then Approve again.`,
                         variant: 'destructive',
                     });
                     return;
@@ -1705,6 +1733,41 @@ function FineDetailsPageContent() {
                                                     </li>
                                                 </ul>
                                             </div>
+                                            {!String(fine?.zohoVendorId || managementZoho.zohoVendorId || '').trim() ? (
+                                                <FineManagementZohoFields
+                                                    organizationId={
+                                                        managementZoho.zohoOrganizationId ||
+                                                        fine?.zohoOrganizationId ||
+                                                        ''
+                                                    }
+                                                    value={managementZoho}
+                                                    onChange={setManagementZoho}
+                                                    requireExpenseAccount={
+                                                        !String(fine?.expenseAccountId || '').trim() &&
+                                                        !(
+                                                            Array.isArray(partyPayables) &&
+                                                            partyPayables.length > 0 &&
+                                                            partyPayables.every((p) =>
+                                                                String(p.expenseAccountId || '').trim(),
+                                                            )
+                                                        ) &&
+                                                        !buildGroupMembersForFine(fine).every((p) =>
+                                                            String(p.expenseAccountId || '').trim(),
+                                                        )
+                                                    }
+                                                    fineSourceHint={
+                                                        fine?.fineSource || fine?.zohoVendorName || ''
+                                                    }
+                                                />
+                                            ) : (
+                                                <p className="text-[11px] text-green-900/90 rounded-lg border border-green-100 bg-green-50/40 px-3 py-2">
+                                                    Zoho vendor is linked
+                                                    {fine?.zohoVendorName || fine?.fineSource
+                                                        ? ` (${fine?.zohoVendorName || fine?.fineSource})`
+                                                        : ''}
+                                                    .
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                             </AlertDialogHeader>

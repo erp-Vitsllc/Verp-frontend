@@ -547,20 +547,23 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         setFormData((prev) => {
             if (prev.fineAmount === nextAmount) return prev;
             const totalLimit = Math.max(0, parseFloat(nextAmount) || 0);
+            const sc = parseFloat(prev.serviceCharge || 0) || 0;
+            // Portions split the base fine only (Total − Service Charge)
+            const baseFine = Math.max(0, totalLimit - sc);
             if (prev.responsibleFor === 'Employee & Company') {
-                const half = totalLimit / 2;
+                const half = Number((baseFine / 2).toFixed(2));
                 return {
                     ...prev,
                     fineAmount: nextAmount,
                     employeeAmount: String(half),
-                    companyAmount: String(totalLimit - half),
+                    companyAmount: String(Number((baseFine - half).toFixed(2))),
                 };
             }
             if (prev.responsibleFor === 'Employee') {
-                return { ...prev, fineAmount: nextAmount, employeeAmount: nextAmount, companyAmount: '0' };
+                return { ...prev, fineAmount: nextAmount, employeeAmount: String(baseFine), companyAmount: '0' };
             }
             if (prev.responsibleFor === 'Company') {
-                return { ...prev, fineAmount: nextAmount, employeeAmount: '0', companyAmount: nextAmount };
+                return { ...prev, fineAmount: nextAmount, employeeAmount: '0', companyAmount: String(baseFine) };
             }
             return { ...prev, fineAmount: nextAmount };
         });
@@ -879,9 +882,14 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const compTarget = parseFloat(formData.companyAmount || 0);
             const sc = parseFloat(formData.serviceCharge || 0) || 0;
             const totalRequired = parseFloat(formData.fineAmount || 0);
+            const baseRequired = Math.max(0, totalRequired - sc);
 
-            if (Math.abs(empTarget + compTarget + sc - totalRequired) > 0.01) {
-                newErrors.amountMismatch = `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) + service charge (AED ${sc.toFixed(2)}) must equal total fine value (AED ${totalRequired.toFixed(2)})`;
+            // Portions are base shares; Total Fine Value already includes service charge
+            if (Math.abs(empTarget + compTarget - baseRequired) > 0.01) {
+                newErrors.amountMismatch =
+                    sc > 0
+                        ? `Employee (AED ${empTarget.toFixed(2)}) + Company (AED ${compTarget.toFixed(2)}) must equal Total − Service Charge (AED ${baseRequired.toFixed(2)}). Total Fine Value AED ${totalRequired.toFixed(2)} already includes service charge AED ${sc.toFixed(2)}.`
+                        : `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) must equal total fine value (AED ${totalRequired.toFixed(2)})`;
             }
         }
 
@@ -1471,13 +1479,48 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                     <>
                                         <div className="space-y-1.5">
                                             <label className="text-sm font-medium text-gray-700">Employee Portion (AED)</label>
-                                            <input type="number" value={formData.employeeAmount} onChange={(e) => handleEmployeeAmountChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" />
+                                            <input
+                                                type="number"
+                                                value={formData.employeeAmount}
+                                                onChange={(e) => {
+                                                    handleEmployeeAmountChange(e.target.value);
+                                                    if (errors.amountMismatch) {
+                                                        setErrors((prev) => ({ ...prev, amountMismatch: '' }));
+                                                    }
+                                                }}
+                                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+                                            />
                                         </div>
                                         <div className="space-y-1.5">
                                             <label className="text-sm font-medium text-gray-700">Company Portion (AED)</label>
-                                            <input type="number" value={formData.companyAmount} onChange={(e) => handleCompanyAmountChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" />
+                                            <input
+                                                type="number"
+                                                value={formData.companyAmount}
+                                                onChange={(e) => {
+                                                    handleCompanyAmountChange(e.target.value);
+                                                    if (errors.amountMismatch) {
+                                                        setErrors((prev) => ({ ...prev, amountMismatch: '' }));
+                                                    }
+                                                }}
+                                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+                                            />
                                         </div>
-                                        {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full">{errors.amountMismatch}</p>}
+                                        {errors.amountMismatch ? (
+                                            <p className="text-xs text-red-500 col-span-full">{errors.amountMismatch}</p>
+                                        ) : parseFloat(formData.serviceCharge || 0) > 0 ? (
+                                            <p className="text-[11px] text-gray-400 col-span-full">
+                                                Portions split the base fine only (Total − Service Charge ={' '}
+                                                {Math.max(
+                                                    0,
+                                                    (parseFloat(formData.fineAmount) || 0) -
+                                                        (parseFloat(formData.serviceCharge) || 0),
+                                                ).toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}{' '}
+                                                AED).
+                                            </p>
+                                        ) : null}
                                     </>
                                 )}
 

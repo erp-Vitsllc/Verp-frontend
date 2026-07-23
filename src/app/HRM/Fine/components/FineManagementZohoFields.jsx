@@ -63,7 +63,7 @@ export default function FineManagementZohoFields({
                 } else {
                     const [vendorRes, supportRes] = await Promise.all([
                         axiosInstance.get('/zoho/vendors', {
-                            params: { ...orgParams, sync: 'true', limit: 500 },
+                            params: { ...orgParams, limit: 2000 },
                             skipToast: true,
                             timeout: 45000,
                         }),

@@ -12,9 +12,6 @@ import {
     VEHICLE_FINE_IMAGE_MIME,
     VEHICLE_FINE_LIMITS,
     getVehicleFinePayableTotal,
-    getVehicleFineServiceSharePerParty,
-    toVehicleFinePartyBaseAmount,
-    toVehicleFinePartyPayableAmount,
 } from '@/app/HRM/Fine/utils/validateVehicleFine';
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
@@ -127,8 +124,20 @@ export default function AddVehicleFineModal({
             let uiCompanyAmount = String(initialData.companyAmount ?? '');
             
             if (isBoth) {
-                uiEmployeeAmount = String(toVehicleFinePartyPayableAmount(storedEmpBase, sc));
-                uiCompanyAmount = String(toVehicleFinePartyPayableAmount(storedCompBase, sc));
+                // UI portions = base shares of Fine Amount (not including service charge)
+                let empBase = Number.isFinite(storedEmpBase) ? storedEmpBase : 0;
+                let compBase = Number.isFinite(storedCompBase) ? storedCompBase : 0;
+                // Legacy: portions were saved as payables (sum ≈ grand total) — convert to bases
+                if (
+                    sc > 0 &&
+                    Math.abs(empBase + compBase - grandTotal) <= 0.05 &&
+                    Math.abs(empBase + compBase - baseFineAmount) > 0.05
+                ) {
+                    empBase = Math.max(0, empBase - sc / 2);
+                    compBase = Math.max(0, compBase - sc / 2);
+                }
+                uiEmployeeAmount = String(empBase);
+                uiCompanyAmount = String(compBase);
             }
 
             setFormData({
@@ -243,17 +252,18 @@ export default function AddVehicleFineModal({
             const fineAmount = newFineAmount !== undefined ? newFineAmount : prev.fineAmount;
             const serviceCharge =
                 nextState.serviceCharge !== undefined ? nextState.serviceCharge : prev.serviceCharge;
-            const splitTotal = getVehicleFinePayableTotal(fineAmount, serviceCharge);
+            // Portions split Fine Amount only (Total payable = Fine Amount + Service Charge)
+            const baseFine = parseFloat(fineAmount || 0) || 0;
 
             if (currentResponsible === 'Employee & Company') {
-                const half = splitTotal / 2;
+                const half = Number((baseFine / 2).toFixed(2));
                 return {
                     ...prev,
                     ...nextState,
                     fineAmount,
                     serviceCharge,
                     employeeAmount: String(half),
-                    companyAmount: String(splitTotal - half),
+                    companyAmount: String(Number((baseFine - half).toFixed(2))),
                 };
             }
             return {
@@ -266,44 +276,44 @@ export default function AddVehicleFineModal({
     };
 
     const handleEmployeeAmountChange = (val) => {
-        const splitTotal = getVehicleFinePayableTotal(formData.fineAmount, formData.serviceCharge);
+        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
 
         const numVal = parseFloat(val) || 0;
         let finalEmp = numVal;
-        if (finalEmp > splitTotal) {
-            finalEmp = splitTotal;
+        if (finalEmp > baseFine) {
+            finalEmp = baseFine;
         }
         if (finalEmp < 0) {
             finalEmp = 0;
         }
 
-        const finalComp = Math.max(0, splitTotal - finalEmp);
+        const finalComp = Math.max(0, baseFine - finalEmp);
 
         setFormData(prev => ({
             ...prev,
             employeeAmount: val === '' ? '' : String(finalEmp),
-            companyAmount: String(finalComp)
+            companyAmount: String(Number(finalComp.toFixed(2)))
         }));
     };
 
     const handleCompanyAmountChange = (val) => {
-        const splitTotal = getVehicleFinePayableTotal(formData.fineAmount, formData.serviceCharge);
+        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
 
         const numVal = parseFloat(val) || 0;
         let finalComp = numVal;
-        if (finalComp > splitTotal) {
-            finalComp = splitTotal;
+        if (finalComp > baseFine) {
+            finalComp = baseFine;
         }
         if (finalComp < 0) {
             finalComp = 0;
         }
 
-        const finalEmp = Math.max(0, splitTotal - finalComp);
+        const finalEmp = Math.max(0, baseFine - finalComp);
 
         setFormData(prev => ({
             ...prev,
             companyAmount: val === '' ? '' : String(finalComp),
-            employeeAmount: String(finalEmp)
+            employeeAmount: String(Number(finalEmp.toFixed(2)))
         }));
     };
 
@@ -570,17 +580,16 @@ export default function AddVehicleFineModal({
             const grandTotalFine = baseFineAmount + serviceChargeAmount;
 
             const totalPartiesCount = (formData.responsibleFor === 'Employee & Company') ? 2 : 1;
+            const scPerParty =
+                totalPartiesCount > 0 ? serviceChargeAmount / totalPartiesCount : 0;
 
             const employeesList = [];
             if (formData.responsibleFor !== 'Company') {
-                const empPayable =
-                    formData.responsibleFor === 'Employee'
-                        ? grandTotalFine
-                        : parseFloat(formData.employeeAmount || 0);
                 const empBase =
                     formData.responsibleFor === 'Employee'
                         ? baseFineAmount
-                        : toVehicleFinePartyBaseAmount(empPayable, serviceChargeAmount, totalPartiesCount);
+                        : parseFloat(formData.employeeAmount || 0) || 0;
+                const empPayable = empBase + scPerParty;
                 employeesList.push({
                     employeeId: selectedEmployeeId,
                     employeeName: employeeName,
@@ -591,14 +600,11 @@ export default function AddVehicleFineModal({
                 });
             }
             if (formData.responsibleFor === 'Employee & Company' || formData.responsibleFor === 'Company') {
-                const compPayable =
-                    formData.responsibleFor === 'Company'
-                        ? grandTotalFine
-                        : parseFloat(formData.companyAmount || 0);
                 const compBase =
                     formData.responsibleFor === 'Company'
                         ? baseFineAmount
-                        : toVehicleFinePartyBaseAmount(compPayable, serviceChargeAmount, totalPartiesCount);
+                        : parseFloat(formData.companyAmount || 0) || 0;
+                const compPayable = compBase + scPerParty;
                 employeesList.push({
                     employeeId: 'VEGA-HR-0000',
                     employeeName: 'Vega Digital IT Solutions',
@@ -619,7 +625,7 @@ export default function AddVehicleFineModal({
                 category: fineCategory,
                 subCategory: fineTypeName,
                 fineType: fineTypeName,
-                // Payload fineAmount should be the TOTAL
+                // Payload fineAmount should be the TOTAL (Fine Amount + Service Charge)
                 fineAmount: grandTotalFine,
                 responsibleFor: formData.responsibleFor,
                 employeeAmount:
@@ -627,21 +633,13 @@ export default function AddVehicleFineModal({
                         ? 0
                         : formData.responsibleFor === 'Employee'
                           ? baseFineAmount
-                          : toVehicleFinePartyBaseAmount(
-                                parseFloat(formData.employeeAmount || 0),
-                                serviceChargeAmount,
-                                totalPartiesCount,
-                            ),
+                          : parseFloat(formData.employeeAmount || 0) || 0,
                 companyAmount:
                     formData.responsibleFor === 'Employee'
                         ? 0
                         : formData.responsibleFor === 'Company'
                           ? baseFineAmount
-                          : toVehicleFinePartyBaseAmount(
-                                parseFloat(formData.companyAmount || 0),
-                                serviceChargeAmount,
-                                totalPartiesCount,
-                            ),
+                          : parseFloat(formData.companyAmount || 0) || 0,
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
                 serviceCharge: serviceChargeAmount,
@@ -885,16 +883,14 @@ export default function AddVehicleFineModal({
                                     const val = e.target.value;
                                     setFormData(prev => {
                                         const baseFine = parseFloat(prev.fineAmount || 0) || 0;
-                                        const serviceCharge = parseFloat(prev.serviceCharge || 0) || 0;
-                                        const splitTotal = baseFine + serviceCharge;
                                         
                                         let empAmt = prev.employeeAmount;
                                         let compAmt = prev.companyAmount;
                                         
                                         if (val === 'Employee & Company') {
-                                            const half = splitTotal / 2;
+                                            const half = Number((baseFine / 2).toFixed(2));
                                             empAmt = String(half);
-                                            compAmt = String(splitTotal - half);
+                                            compAmt = String(Number((baseFine - half).toFixed(2)));
                                         }
                                         
                                         return {
@@ -956,7 +952,13 @@ export default function AddVehicleFineModal({
                                     />
                                     {errors.companyAmount && <p className="text-xs text-red-500 ml-1">{errors.companyAmount}</p>}
                                 </div>
-                                {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1 font-medium bg-red-50 p-2 rounded-lg border border-red-100">{errors.amountMismatch}</p>}
+                                {errors.amountMismatch ? (
+                                    <p className="text-xs text-red-500 col-span-full ml-1 font-medium bg-red-50 p-2 rounded-lg border border-red-100">{errors.amountMismatch}</p>
+                                ) : parseFloat(formData.serviceCharge || 0) > 0 ? (
+                                    <p className="text-[11px] text-gray-400 col-span-full">
+                                        Portions split Fine Amount only. Total payable = Fine Amount + Service Charge.
+                                    </p>
+                                ) : null}
                             </>
                         )}
 
@@ -1203,7 +1205,7 @@ export default function AddVehicleFineModal({
                         <div className="flex flex-col">
                             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-0.5">Summary</span>
                             <span className="text-xs text-gray-600 font-medium italic">
-                                Total payable amount (Fine + Service Charge)
+                                Total payable = Fine Amount + Service Charge
                             </span>
                         </div>
                         <div className="flex items-baseline gap-1.5">

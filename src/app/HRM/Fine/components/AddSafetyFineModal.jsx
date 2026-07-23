@@ -1007,7 +1007,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                         <div className="flex flex-col">
                             <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-0.5">Summary</span>
                             <span className="text-xs text-blue-600 font-medium italic">
-                                Total payable amount (Fine + Service Charge)
+                                Total payable = Fine Amount + Service Charge
                             </span>
                         </div>
                         <div className="flex items-baseline gap-1.5">

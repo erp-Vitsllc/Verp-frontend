@@ -108,8 +108,12 @@ export function normalizeZohoVendorName(value) {
     return String(value || '')
         .trim()
         .toLowerCase()
+        .replace(/\u00a0/g, ' ')
         .replace(/\s+/g, ' ')
-        .replace(/\s*&\s*/g, ' & ');
+        .replace(/\s*&\s*/g, ' and ')
+        .replace(/[^a-z0-9\u0600-\u06FF\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 /**

@@ -169,7 +169,7 @@ export default function FineFormCardGroupParties({
                         timeout: 45000,
                     }),
                     axiosInstance.get('/zoho/vendors', {
-                        params: { ...orgParams, sync: 'true', limit: 500 },
+                        params: { ...orgParams, limit: 2000 },
                         skipToast: true,
                         timeout: 45000,
                     }),
