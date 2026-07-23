@@ -316,9 +316,15 @@ export default function FineFormCardGroupParties({
         setLocalVendor(nextLabel);
         if (!dropdownsEnabled) return;
 
-        const match = vendors.find(
-            (v) => String(v.label || v.name || v.companyName || '').trim() === nextLabel,
-        );
+        const match = vendors.find((v) => {
+            const name = String(v.label || v.name || v.companyName || '')
+                .trim()
+                .toLowerCase();
+            const want = String(nextLabel || '')
+                .trim()
+                .toLowerCase();
+            return name === want || name.includes(want) || want.includes(name);
+        });
 
         setSavingVendor(true);
         try {
@@ -328,11 +334,20 @@ export default function FineFormCardGroupParties({
                 zohoVendorId: match?.id || '',
                 zohoVendorName: nextLabel,
             });
-            toast({
-                title: 'Vendor saved',
-                description: 'Fine Source / Vendor updated for this group fine.',
-                className: 'bg-green-50 border-green-200 text-green-800',
-            });
+            if (!match?.id) {
+                toast({
+                    title: 'Vendor name saved',
+                    description:
+                        'Fine Source saved. Zoho vendor id was not matched — Management will resolve it by name when billing.',
+                    className: 'bg-amber-50 border-amber-200 text-amber-900',
+                });
+            } else {
+                toast({
+                    title: 'Vendor saved',
+                    description: 'Fine Source / Vendor updated for this group fine.',
+                    className: 'bg-green-50 border-green-200 text-green-800',
+                });
+            }
         } catch (err) {
             toast({
                 title: 'Could not save vendor',

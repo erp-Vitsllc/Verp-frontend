@@ -31,6 +31,7 @@ import {
     buildFineVendorPaymentPrefill,
     canAccountsPayFineVendorBill,
 } from '../utils/fineVendorPaymentPrefill';
+import { mapZohoVendors } from '@/utils/zohoVendors';
 import {
     isLossDamageFineType,
     buildLossDamageFormFields,
@@ -267,7 +268,7 @@ function FineDetailsPageContent() {
                         payableConfirmed: Boolean(p.payableConfirmed),
                     }));
                 const isGroupFine = Boolean(fine?.isGroupView) || groupParties.length > 1;
-                const resolvedVendorId =
+                let resolvedVendorId =
                     String(managementZoho.zohoVendorId || fine?.zohoVendorId || '').trim();
                 const resolvedVendorName = String(
                     managementZoho.zohoVendorName ||
@@ -276,12 +277,49 @@ function FineDetailsPageContent() {
                         '',
                 ).trim();
 
-                if (isManagementStage && !resolvedVendorId) {
+                // Accounts already set Vendor name (Fine Source) — resolve Zoho vendor id if missing
+                if (isManagementStage && !resolvedVendorId && resolvedVendorName) {
+                    try {
+                        const orgId =
+                            managementZoho.zohoOrganizationId ||
+                            fine?.zohoOrganizationId ||
+                            '';
+                        const vendorRes = await axiosInstance.get('/zoho/vendors', {
+                            params: {
+                                ...(orgId ? { organizationId: orgId } : {}),
+                                sync: 'true',
+                                limit: 500,
+                            },
+                            skipToast: true,
+                            timeout: 45000,
+                        });
+                        const vendors = mapZohoVendors(vendorRes?.data?.data);
+                        const hint = resolvedVendorName.toLowerCase();
+                        const match = vendors.find((v) => {
+                            const name = String(v.label || v.name || '').trim().toLowerCase();
+                            return name === hint || name.includes(hint) || hint.includes(name);
+                        });
+                        if (match?.id) resolvedVendorId = String(match.id).trim();
+                    } catch (lookupErr) {
+                        console.warn('Could not resolve Zoho vendor from Fine Source:', lookupErr);
+                    }
+                }
+
+                if (isManagementStage && !resolvedVendorId && !resolvedVendorName) {
                     toast({
                         title: 'Zoho vendor required',
                         description: isGroupFine
                             ? 'Set Vendor on the Group Fine Parties card (Accounts) before Management approval.'
                             : 'Select a Zoho vendor (Fine Source) before management approval.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+
+                if (isManagementStage && !resolvedVendorId && resolvedVendorName) {
+                    toast({
+                        title: 'Zoho vendor not found',
+                        description: `Vendor "${resolvedVendorName}" is set, but no matching Zoho Books vendor was found. Check the vendor name in Zoho.`,
                         variant: 'destructive',
                     });
                     return;
@@ -1755,7 +1793,9 @@ function FineDetailsPageContent() {
                                             fine?.fineStatus === 'Pending Authorization' &&
                                             !(fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) &&
                                             !managementZoho.zohoVendorId &&
-                                            !fine?.zohoVendorId
+                                            !fine?.zohoVendorId &&
+                                            !fine?.fineSource &&
+                                            !fine?.zohoVendorName
                                         ) {
                                             toast({
                                                 title: 'Zoho vendor required',
@@ -1770,12 +1810,13 @@ function FineDetailsPageContent() {
                                             fine?.fineStatus === 'Pending Authorization' &&
                                             (fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) &&
                                             !managementZoho.zohoVendorId &&
-                                            !fine?.zohoVendorId
+                                            !fine?.zohoVendorId &&
+                                            !String(fine?.fineSource || fine?.zohoVendorName || '').trim()
                                         ) {
                                             toast({
                                                 title: 'Vendor missing',
                                                 description:
-                                                    'Vendor was not saved in Accounts. Set Vendor on Group Fine Parties, then try again.',
+                                                    'Vendor / Fine Source was not set in Accounts. Set Vendor on Group Fine Parties, then try again.',
                                                 variant: 'destructive',
                                             });
                                             return;
