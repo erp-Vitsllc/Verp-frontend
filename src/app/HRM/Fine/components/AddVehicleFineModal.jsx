@@ -462,6 +462,27 @@ export default function AddVehicleFineModal({
         setExistingImages((prev) => prev.filter((item) => item.id !== id));
     };
 
+    const scrollToFieldError = (errs) => {
+        const firstKey = Object.keys(errs || {})[0];
+        if (!firstKey) return;
+        requestAnimationFrame(() => {
+            document
+                .querySelector(`[data-field-error="${firstKey}"]`)
+                ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+    };
+
+    const applyFieldErrorsFromApi = (apiErrors) => {
+        if (!apiErrors || typeof apiErrors !== 'object') return false;
+        const next = Object.fromEntries(
+            Object.entries(apiErrors).filter(([, msg]) => typeof msg === 'string' && msg.trim()),
+        );
+        if (Object.keys(next).length === 0) return false;
+        setErrors((prev) => ({ ...prev, ...next }));
+        scrollToFieldError(next);
+        return true;
+    };
+
     const validateForm = () => {
         const selectedEmp = employees.find((e) => e.employeeId === selectedEmployeeId);
         const { valid, errors: nextErrors } = validateVehicleFine(
@@ -492,6 +513,7 @@ export default function AddVehicleFineModal({
             }
         );
         setErrors(nextErrors);
+        if (!valid) scrollToFieldError(nextErrors);
         return valid;
     };
 
@@ -704,7 +726,16 @@ export default function AddVehicleFineModal({
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || "Submission failed" });
+            const apiErrors = error.response?.data?.errors;
+            if (applyFieldErrorsFromApi(apiErrors)) {
+                // Keep error on the modal fields — do not toast on the page behind
+                return;
+            }
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Submission failed',
+            });
         } finally {
             setSubmitting(false);
         }
@@ -952,7 +983,10 @@ export default function AddVehicleFineModal({
 
                         {/* Company Description - Conditional */}
                         {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (
-                            <div className="space-y-1.5 col-span-1 md:col-span-2">
+                            <div
+                                className="space-y-1.5 col-span-1 md:col-span-2"
+                                data-field-error="companyDescription"
+                            >
                                 <label className="text-sm font-medium text-gray-700">
                                     Company Description
                                     {validationMode === 'strict' ? <span className="text-red-500"> *</span> : null}
@@ -970,7 +1004,12 @@ export default function AddVehicleFineModal({
                                 />
                                 {errors.companyDescription ? (
                                     <p className="text-xs text-red-500 ml-1">{errors.companyDescription}</p>
-                                ) : null}
+                                ) : (
+                                    <p className="text-[11px] text-gray-400 ml-1">
+                                        Required when company pays — at least {VEHICLE_FINE_LIMITS.minCompanyDescriptionLength} characters
+                                        (separate from Description above).
+                                    </p>
+                                )}
                             </div>
                         )}
 

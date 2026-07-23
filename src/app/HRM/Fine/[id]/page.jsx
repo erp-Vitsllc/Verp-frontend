@@ -26,7 +26,6 @@ import AddLossDamageModal from '../components/AddLossDamageModal';
 import FineFormCards from '../components/FineFormCards';
 import FineApprovedAttachmentsTab from '../components/FineApprovedAttachmentsTab';
 import FineWorkflowHistoryPanel from '../components/FineWorkflowHistoryPanel';
-import FineManagementZohoFields from '../components/FineManagementZohoFields';
 import {
     buildFineVendorPaymentPrefill,
     canAccountsPayFineVendorBill,
@@ -1685,7 +1684,7 @@ function FineDetailsPageContent() {
                                         <div className="mt-4 space-y-3 text-left">
                                             <div className="rounded-lg border border-green-100 bg-green-50/60 p-3">
                                                 <p className="text-xs font-semibold text-green-900 mb-1.5">
-                                                    Zoho Bill (one bill for the group)
+                                                    Zoho Bill
                                                 </p>
                                                 <ul className="text-[11px] text-green-900/90 space-y-1 list-disc pl-4">
                                                     <li>
@@ -1701,8 +1700,8 @@ function FineDetailsPageContent() {
                                                     </li>
                                                     <li>
                                                         <strong>Item Table</strong> = each party as a
-                                                        line (Item Details = name, Account = Payable COA,
-                                                        Rate/Amount = fine share).
+                                                        line (Account = Payable from Fine Parties card,
+                                                        Amount = fine share).
                                                     </li>
                                                     <li>
                                                         After success, Payable Status becomes{' '}
@@ -1710,31 +1709,6 @@ function FineDetailsPageContent() {
                                                     </li>
                                                 </ul>
                                             </div>
-                                            {fine?.isGroupView ||
-                                            (Array.isArray(fine?.assignedEmployees) &&
-                                                fine.assignedEmployees.length > 1) ? (
-                                                <p className="text-[11px] text-green-900/90 rounded-lg border border-green-100 bg-green-50/40 px-3 py-2">
-                                                    Vendor and Payable were already set in Accounts on
-                                                    the Group Fine Parties card — no need to select them
-                                                    again.
-                                                </p>
-                                            ) : (
-                                                <FineManagementZohoFields
-                                                    organizationId={
-                                                        managementZoho.zohoOrganizationId ||
-                                                        fine?.zohoOrganizationId ||
-                                                        ''
-                                                    }
-                                                    value={managementZoho}
-                                                    onChange={setManagementZoho}
-                                                    requireExpenseAccount={
-                                                        !String(fine?.expenseAccountId || '').trim()
-                                                    }
-                                                    fineSourceHint={
-                                                        fine?.fineSource || fine?.zohoVendorName || ''
-                                                    }
-                                                />
-                                            )}
                                         </div>
                                     )}
                             </AlertDialogHeader>
@@ -1755,24 +1729,6 @@ function FineDetailsPageContent() {
                                         if (
                                             confirmConfig.action === 'approve' &&
                                             fine?.fineStatus === 'Pending Authorization' &&
-                                            !(fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) &&
-                                            !managementZoho.zohoVendorId &&
-                                            !fine?.zohoVendorId &&
-                                            !fine?.fineSource &&
-                                            !fine?.zohoVendorName
-                                        ) {
-                                            toast({
-                                                title: 'Zoho vendor required',
-                                                description:
-                                                    'Select a Zoho vendor before approval.',
-                                                variant: 'destructive',
-                                            });
-                                            return;
-                                        }
-                                        if (
-                                            confirmConfig.action === 'approve' &&
-                                            fine?.fineStatus === 'Pending Authorization' &&
-                                            (fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) &&
                                             !managementZoho.zohoVendorId &&
                                             !fine?.zohoVendorId &&
                                             !String(fine?.fineSource || fine?.zohoVendorName || '').trim()
@@ -1780,7 +1736,7 @@ function FineDetailsPageContent() {
                                             toast({
                                                 title: 'Vendor missing',
                                                 description:
-                                                    'Vendor / Fine Source was not set in Accounts. Set Vendor on Group Fine Parties, then try again.',
+                                                    'Set Vendor on the Fine Parties card (Accounts) before Management approval.',
                                                 variant: 'destructive',
                                             });
                                             return;

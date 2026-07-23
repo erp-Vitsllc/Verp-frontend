@@ -440,7 +440,16 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         }
 
         setErrors(newErrors);
-        return Object.keys(newErrors).length === 0;
+        const ok = Object.keys(newErrors).length === 0;
+        if (!ok) {
+            const firstKey = Object.keys(newErrors)[0];
+            requestAnimationFrame(() => {
+                document
+                    .querySelector(`[data-field-error="${firstKey}"]`)
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        }
+        return ok;
     };
 
     const handleSubmit = async (e) => {
@@ -603,6 +612,22 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             onClose();
         } catch (error) {
             console.error("Submission error:", error);
+            const apiErrors = error.response?.data?.errors;
+            if (apiErrors && typeof apiErrors === 'object') {
+                const next = Object.fromEntries(
+                    Object.entries(apiErrors).filter(([, msg]) => typeof msg === 'string' && msg.trim()),
+                );
+                if (Object.keys(next).length > 0) {
+                    setErrors((prev) => ({ ...prev, ...next }));
+                    const firstKey = Object.keys(next)[0];
+                    requestAnimationFrame(() => {
+                        document
+                            .querySelector(`[data-field-error="${firstKey}"]`)
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    });
+                    return;
+                }
+            }
             const msg = error.response?.data?.message || "Submission failed";
             toast({ variant: "destructive", title: "Error", description: msg });
         } finally {
@@ -748,7 +773,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
                     {/* Company Description - Conditional */}
                     {(responsibleFor === 'Company' || responsibleFor === 'Employee & Company') && (
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5" data-field-error="companyDescription">
                             <label className="text-sm font-medium text-gray-700">
                                 Company Description <span className="text-red-500">*</span>
                             </label>
@@ -765,7 +790,12 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             />
                             {errors.companyDescription ? (
                                 <p className="text-xs text-red-500 ml-1">{errors.companyDescription}</p>
-                            ) : null}
+                            ) : (
+                                <p className="text-[11px] text-gray-400 ml-1">
+                                    Required when company pays — at least {VEHICLE_FINE_LIMITS.minCompanyDescriptionLength} characters
+                                    (separate from Description above).
+                                </p>
+                            )}
                         </div>
                     )}
 
