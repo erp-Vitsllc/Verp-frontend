@@ -249,6 +249,7 @@ function UtilityBillsPageContent() {
     const [addModalOpen, setAddModalOpen] = useState(false);
     const [editingUtility, setEditingUtility] = useState(null);
     const [createEntryOpen, setCreateEntryOpen] = useState(false);
+    const [editingEntry, setEditingEntry] = useState(null);
     const [assignEntry, setAssignEntry] = useState(null);
     const [addBillsOpen, setAddBillsOpen] = useState(false);
     const [savingBill, setSavingBill] = useState(false);
@@ -599,6 +600,7 @@ function UtilityBillsPageContent() {
                     payByEmployeeId: row.payByEmployeeId,
                     payByEmployeeName: row.payByEmployeeName,
                     attachment: row.attachment || null,
+                    lineItems: Array.isArray(row.lineItems) ? row.lineItems : [],
                 })),
             });
             if (payload.clearDraftOnSuccess) {
@@ -703,6 +705,21 @@ function UtilityBillsPageContent() {
     const handleSaveEntry = async (payload) => {
         try {
             const values = normalizePaymentDay(payload.values || {});
+            const entryId = String(payload.entryId || '').trim();
+            if (entryId) {
+                const updated = await updateUtilityEntryApi(entryId, {
+                    type: payload.type,
+                    values,
+                });
+                if (!updated) throw new Error('No entry returned');
+                setEntries((prev) =>
+                    prev.map((e) =>
+                        String(e.id) === entryId ? normalizeUtilityEntry(updated) : e,
+                    ),
+                );
+                toast({ title: 'Record updated' });
+                return;
+            }
             const entry = await createUtilityEntryApi({
                 type: payload.type,
                 values,
@@ -715,7 +732,9 @@ function UtilityBillsPageContent() {
         } catch (err) {
             toast({
                 variant: 'destructive',
-                title: 'Could not create utility record',
+                title: payload.entryId
+                    ? 'Could not update utility record'
+                    : 'Could not create utility record',
                 description: err?.response?.data?.message || 'Please try again.',
             });
         }
@@ -998,7 +1017,10 @@ function UtilityBillsPageContent() {
                                                     ) : null}
                                                     <button
                                                         type="button"
-                                                        onClick={() => setCreateEntryOpen(true)}
+                                                        onClick={() => {
+                                                            setEditingEntry(null);
+                                                            setCreateEntryOpen(true);
+                                                        }}
                                                         className={ERP_PRIMARY_BTN}
                                                     >
                                                         <Plus size={18} strokeWidth={2} />
@@ -1219,15 +1241,29 @@ function UtilityBillsPageContent() {
                                                                             className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 align-middle whitespace-nowrap text-right"
                                                                             onClick={(e) => e.stopPropagation()}
                                                                         >
-                                                                            <button
-                                                                                type="button"
-                                                                                title="Delete record"
-                                                                                onClick={() => handleDeleteEntry(entry)}
-                                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-200 bg-white hover:bg-red-50 text-red-600 text-xs font-medium"
-                                                                            >
-                                                                                <Trash2 size={12} />
-                                                                                Delete
-                                                                            </button>
+                                                                            <div className="inline-flex items-center justify-end gap-1.5">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    title="Edit record"
+                                                                                    onClick={() => {
+                                                                                        setEditingEntry(entry);
+                                                                                        setCreateEntryOpen(true);
+                                                                                    }}
+                                                                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-teal-200 bg-white hover:bg-teal-50 text-teal-700 text-xs font-medium"
+                                                                                >
+                                                                                    <Pencil size={12} />
+                                                                                    Edit
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    title="Delete record"
+                                                                                    onClick={() => handleDeleteEntry(entry)}
+                                                                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-200 bg-white hover:bg-red-50 text-red-600 text-xs font-medium"
+                                                                                >
+                                                                                    <Trash2 size={12} />
+                                                                                    Delete
+                                                                                </button>
+                                                                            </div>
                                                                         </td>
                                                                     ) : null}
                                                                 </tr>
@@ -1266,9 +1302,13 @@ function UtilityBillsPageContent() {
 
             <CreateUtilityEntryModal
                 isOpen={createEntryOpen}
-                onClose={() => setCreateEntryOpen(false)}
+                onClose={() => {
+                    setCreateEntryOpen(false);
+                    setEditingEntry(null);
+                }}
                 utilityType={activeUtility?.type || ''}
                 enabledFields={activeUtility?.fields || {}}
+                initialEntry={editingEntry}
                 onSave={handleSaveEntry}
             />
 

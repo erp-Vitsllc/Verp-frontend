@@ -281,7 +281,11 @@ export default function PurchasesBillsPage() {
                                             ? rows.map((row) => (
                                                   <tr
                                                       key={row.id}
-                                                      className="border-b border-slate-100 hover:bg-slate-50/80"
+                                                      className={`border-b border-slate-100 hover:bg-slate-50/80 ${
+                                                          row.isUtilityChild
+                                                              ? 'bg-slate-50/60'
+                                                              : ''
+                                                      }`}
                                                   >
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3">
                                                           <input
@@ -294,7 +298,40 @@ export default function PurchasesBillsPage() {
                                                           {row.date}
                                                       </td>
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3 font-medium text-slate-800 whitespace-nowrap">
-                                                          {row.billNumber}
+                                                          <div
+                                                              className={
+                                                                  row.isUtilityChild
+                                                                      ? 'pl-5 border-l-2 border-teal-200'
+                                                                      : ''
+                                                              }
+                                                          >
+                                                              {row.isUtilityChild ? (
+                                                                  <span className="text-slate-400 mr-1">
+                                                                      ↳
+                                                                  </span>
+                                                              ) : null}
+                                                              {row.billNumber}
+                                                              {row.utilityGroupSize > 1 &&
+                                                              !row.isUtilityChild ? (
+                                                                  <span className="ml-1.5 text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 rounded px-1.5 py-0.5">
+                                                                      {row.utilityGroupSize} bills
+                                                                  </span>
+                                                              ) : null}
+                                                          </div>
+                                                          {row.utilityDebitAccountName ? (
+                                                              <p
+                                                                  className={`text-[10px] text-slate-500 mt-0.5 ${
+                                                                      row.isUtilityChild
+                                                                          ? 'pl-5'
+                                                                          : ''
+                                                                  }`}
+                                                              >
+                                                                  Debit · {row.utilityDebitAccountName}
+                                                                  {row.utilityItemDescription
+                                                                      ? ` · ${row.utilityItemDescription}`
+                                                                      : ''}
+                                                              </p>
+                                                          ) : null}
                                                       </td>
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3 text-slate-700 whitespace-nowrap">
                                                           {row.referenceNumber}

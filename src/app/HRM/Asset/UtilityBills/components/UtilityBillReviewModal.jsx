@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Eye, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -74,6 +74,62 @@ function resolvePayShares(payBy, difference) {
     return { companyAmount: 0, employeeAmount: 0 };
 }
 
+/**
+ * Add-more lines belong to ONE utility bill (account row).
+ * After HR Approve they post as line items inside one Zoho bill (each Debits its Account).
+ * Batch rows (Etisalat + 3E…) are separate utility bills — not Add-more lines.
+ */
+function associatedZohoBillsFromRow(row = {}) {
+    const baseBillNo = String(row.billNumber || '').trim();
+    const sharedZohoBillId = String(
+        row.zohoBillId ||
+            (Array.isArray(row.zohoBillIds) ? row.zohoBillIds[0] : '') ||
+            '',
+    ).trim();
+    const lines = Array.isArray(row.zohoLineItems) ? row.zohoLineItems : [];
+    if (lines.length) {
+        return lines.map((line, index) => {
+            const amount = Number(line?.amount);
+            const qty = Number(line?.quantity);
+            return {
+                key: `${row.billId || row.entryId || 'row'}-line-${index}`,
+                item: String(line?.item || line?.description || `Line ${index + 1}`).trim(),
+                accountName: String(line?.accountName || '').trim() || '—',
+                accountId: String(line?.accountId || '').trim(),
+                quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
+                amount: Number.isFinite(amount) ? amount : 0,
+                zohoBillId: String(line?.zohoBillId || sharedZohoBillId || '').trim(),
+                // Same Zoho bill # for every Add-more line (they are line items, not separate bills).
+                billNumber: baseBillNo || '—',
+                payByEmployeeName: String(line?.payByEmployeeName || '').trim(),
+                payByCompanyName: String(line?.payByCompanyName || '').trim(),
+            };
+        });
+    }
+
+    const ids = Array.from(
+        new Set(
+            [
+                ...(Array.isArray(row.zohoBillIds) ? row.zohoBillIds : []),
+                row.zohoBillId,
+            ]
+                .map((id) => String(id || '').trim())
+                .filter(Boolean),
+        ),
+    );
+    if (ids.length <= 1) return [];
+    return ids.map((zohoBillId, index) => ({
+        key: `${row.billId || row.entryId || 'row'}-zoho-${zohoBillId}`,
+        item: `Zoho bill ${index + 1}`,
+        accountName: String(row.expenseAccountName || '').trim() || '—',
+        accountId: String(row.expenseAccountId || '').trim(),
+        quantity: 1,
+        amount: 0,
+        zohoBillId,
+        billNumber: baseBillNo || '—',
+    }));
+}
+
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -141,6 +197,12 @@ function buildReviewRows(entries, bills) {
                 provider: bill.provider || entryProvider(entry),
                 zohoVendorId: String(bill.zohoVendorId || '').trim(),
                 zohoBillId: String(bill.zohoBillId || '').trim(),
+                zohoBillIds: Array.isArray(bill.zohoBillIds)
+                    ? bill.zohoBillIds.map((id) => String(id || '').trim()).filter(Boolean)
+                    : String(bill.zohoBillId || '').trim()
+                      ? [String(bill.zohoBillId).trim()]
+                      : [],
+                zohoLineItems: Array.isArray(bill.zohoLineItems) ? bill.zohoLineItems : [],
                 zohoBillStatus: String(bill.zohoBillStatus || '').trim(),
                 zohoOrganizationId: String(bill.zohoOrganizationId || '').trim(),
                 zohoSyncError: String(bill.zohoSyncError || '').trim(),
@@ -189,6 +251,8 @@ function buildReviewRows(entries, bills) {
             provider: entryProvider(entry),
             zohoVendorId: '',
             zohoBillId: '',
+            zohoBillIds: [],
+            zohoLineItems: [],
             zohoBillStatus: '',
             zohoOrganizationId: '',
             zohoSyncError: '',
@@ -241,6 +305,12 @@ function buildReviewRows(entries, bills) {
             provider: bill.provider || '—',
             zohoVendorId: String(bill.zohoVendorId || '').trim(),
             zohoBillId: String(bill.zohoBillId || '').trim(),
+            zohoBillIds: Array.isArray(bill.zohoBillIds)
+                ? bill.zohoBillIds.map((id) => String(id || '').trim()).filter(Boolean)
+                : String(bill.zohoBillId || '').trim()
+                  ? [String(bill.zohoBillId).trim()]
+                  : [],
+            zohoLineItems: Array.isArray(bill.zohoLineItems) ? bill.zohoLineItems : [],
             zohoBillStatus: String(bill.zohoBillStatus || '').trim(),
             zohoOrganizationId: String(bill.zohoOrganizationId || '').trim(),
             zohoSyncError: String(bill.zohoSyncError || '').trim(),
@@ -863,6 +933,13 @@ export default function UtilityBillReviewModal({
         }
     };
 
+    const rowHasZohoBill = (r) =>
+        Boolean(
+            String(r?.zohoBillId || '').trim() ||
+                (Array.isArray(r?.zohoBillIds) &&
+                    r.zohoBillIds.some((id) => String(id || '').trim())),
+        );
+
     const needsZohoRetry = useMemo(
         () =>
             needsZohoOpen ||
@@ -871,7 +948,7 @@ export default function UtilityBillReviewModal({
                     r.inBatch &&
                     r.billId &&
                     (String(r.status) === 'Approved' || String(r.status) === 'Pending HR') &&
-                    (!String(r.zohoBillId || '').trim() ||
+                    (!rowHasZohoBill(r) ||
                         String(r.zohoBillStatus || '').toLowerCase() === 'draft'),
             ),
         [rows, needsZohoOpen],
@@ -932,7 +1009,7 @@ export default function UtilityBillReviewModal({
             setError('No bills available to pay.');
             return;
         }
-        const missingZoho = payable.filter((r) => !String(r.zohoBillId || '').trim());
+        const missingZoho = payable.filter((r) => !rowHasZohoBill(r));
         if (missingZoho.length) {
             const detail =
                 missingZoho
@@ -1010,11 +1087,35 @@ export default function UtilityBillReviewModal({
 
         const utilityBillLinks = selected
             .filter((r) => r.billId)
-            .map((r) => ({
-                utilityBillId: String(r.billId),
-                zohoBillId: String(r.zohoBillId || '').trim(),
-                billNumber: String(r.billNumber || '').trim(),
-            }));
+            .flatMap((r) => {
+                const ids = Array.from(
+                    new Set(
+                        [
+                            ...(Array.isArray(r.zohoBillIds) ? r.zohoBillIds : []),
+                            r.zohoBillId,
+                        ]
+                            .map((id) => String(id || '').trim())
+                            .filter(Boolean),
+                    ),
+                );
+                if (!ids.length) {
+                    return [
+                        {
+                            utilityBillId: String(r.billId),
+                            zohoBillId: '',
+                            billNumber: String(r.billNumber || '').trim(),
+                        },
+                    ];
+                }
+                return ids.map((zohoBillId, index) => ({
+                    utilityBillId: String(r.billId),
+                    zohoBillId,
+                    billNumber:
+                        ids.length > 1
+                            ? `${String(r.billNumber || '').trim()}-${index + 1}`
+                            : String(r.billNumber || '').trim(),
+                }));
+            });
         const zohoBillIds = utilityBillLinks
             .map((link) => link.zohoBillId)
             .filter(Boolean);
@@ -1362,13 +1463,22 @@ export default function UtilityBillReviewModal({
                                                     hasActual &&
                                                     actualNum < Number(row.contractAmount || 0);
 
+                                                const associatedBills =
+                                                    associatedZohoBillsFromRow(row);
+                                                const showAssociated =
+                                                    associatedBills.length > 0 &&
+                                                    row.inBatch &&
+                                                    !row.blockedByExisting;
+
                                                 return (
-                                                    <tr
+                                                    <Fragment
                                                         key={
                                                             row.entryId ||
                                                             row.billId ||
                                                             `row-${index}`
                                                         }
+                                                    >
+                                                    <tr
                                                         className={
                                                             row.selected
                                                                 ? 'hover:bg-teal-50/30'
@@ -1748,6 +1858,130 @@ export default function UtilityBillReviewModal({
                                                             )}
                                                         </td>
                                                     </tr>
+                                                    {showAssociated ? (
+                                                        <tr
+                                                            key={`${row.entryId || row.billId || index}-zoho-children`}
+                                                            className="bg-slate-50/90"
+                                                        >
+                                                            <td
+                                                                colSpan={13}
+                                                                className="px-4 py-2.5"
+                                                            >
+                                                                <div className="ml-6 sm:ml-10 rounded-lg border border-slate-200 bg-white overflow-hidden">
+                                                                    <div className="px-3 py-1.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                                                            Bills under this
+                                                                            account (Add more) —
+                                                                            each line Debits its
+                                                                            Account in Zoho
+                                                                        </p>
+                                                                        <span className="text-[10px] text-slate-400 tabular-nums">
+                                                                            {associatedBills.length}{' '}
+                                                                            Zoho bill
+                                                                            {associatedBills.length ===
+                                                                            1
+                                                                                ? ''
+                                                                                : 's'}
+                                                                        </span>
+                                                                    </div>
+                                                                    <table className="w-full text-xs">
+                                                                        <thead>
+                                                                            <tr className="text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                                                                                <th className="px-3 py-1.5 text-left font-semibold">
+                                                                                    Bill #
+                                                                                </th>
+                                                                                <th className="px-3 py-1.5 text-left font-semibold">
+                                                                                    Items
+                                                                                </th>
+                                                                                <th className="px-3 py-1.5 text-left font-semibold">
+                                                                                    Account
+                                                                                    (Debit)
+                                                                                </th>
+                                                                                <th className="px-3 py-1.5 text-left font-semibold">
+                                                                                    Payable to
+                                                                                </th>
+                                                                                <th className="px-3 py-1.5 text-center font-semibold">
+                                                                                    Qty
+                                                                                </th>
+                                                                                <th className="px-3 py-1.5 text-right font-semibold">
+                                                                                    Amount
+                                                                                </th>
+                                                                                <th className="px-3 py-1.5 text-left font-semibold">
+                                                                                    Zoho
+                                                                                </th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {associatedBills.map(
+                                                                                (child) => (
+                                                                                    <tr
+                                                                                        key={
+                                                                                            child.key
+                                                                                        }
+                                                                                        className="border-b border-slate-50 last:border-0"
+                                                                                    >
+                                                                                        <td className="px-3 py-1.5 font-medium text-slate-700 tabular-nums">
+                                                                                            {
+                                                                                                child.billNumber
+                                                                                            }
+                                                                                        </td>
+                                                                                        <td className="px-3 py-1.5 text-slate-700">
+                                                                                            {
+                                                                                                child.item
+                                                                                            }
+                                                                                        </td>
+                                                                                        <td className="px-3 py-1.5 text-slate-700">
+                                                                                            {
+                                                                                                child.accountName
+                                                                                            }
+                                                                                        </td>
+                                                                                        <td className="px-3 py-1.5 text-slate-700">
+                                                                                            {child.payByEmployeeName ||
+                                                                                                child.payByCompanyName ||
+                                                                                                '—'}
+                                                                                        </td>
+                                                                                        <td className="px-3 py-1.5 text-center tabular-nums text-slate-600">
+                                                                                            {
+                                                                                                child.quantity
+                                                                                            }
+                                                                                        </td>
+                                                                                        <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-slate-800">
+                                                                                            {formatMoney(
+                                                                                                child.amount,
+                                                                                            )}
+                                                                                        </td>
+                                                                                        <td className="px-3 py-1.5 text-slate-600">
+                                                                                            {child.zohoBillId ? (
+                                                                                                <span
+                                                                                                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700"
+                                                                                                    title={
+                                                                                                        child.zohoBillId
+                                                                                                    }
+                                                                                                >
+                                                                                                    Synced
+                                                                                                    <span className="font-mono text-slate-400">
+                                                                                                        …
+                                                                                                        {child.zohoBillId.slice(
+                                                                                                            -6,
+                                                                                                        )}
+                                                                                                    </span>
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                <span className="text-[10px] text-amber-700 font-medium">
+                                                                                                    Not in Zoho yet
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ),
+                                                                            )}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ) : null}
+                                                    </Fragment>
                                                 );
                                             })}
                                         </tbody>
@@ -1782,7 +2016,7 @@ export default function UtilityBillReviewModal({
                                                     String(r.status) === 'Pending HR') &&
                                                 (String(r.zohoBillStatus || '').toLowerCase() ===
                                                     'draft' ||
-                                                    !String(r.zohoBillId || '').trim()) &&
+                                                    !rowHasZohoBill(r)) &&
                                                 r.zohoSyncError,
                                         )
                                         .slice(0, 2)

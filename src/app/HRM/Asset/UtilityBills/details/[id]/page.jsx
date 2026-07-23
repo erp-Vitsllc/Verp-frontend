@@ -531,6 +531,7 @@ function UtilityBillDetailsPageContent() {
                     payByEmployeeId: row.payByEmployeeId,
                     payByEmployeeName: row.payByEmployeeName,
                     attachment: row.attachment || null,
+                    lineItems: Array.isArray(row.lineItems) ? row.lineItems : [],
                 })),
             });
             if (payload.clearDraftOnSuccess) {

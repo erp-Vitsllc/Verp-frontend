@@ -116,12 +116,87 @@ export function mapZohoBillListRow(bill) {
         balanceAmount: formatZohoPaymentMoney(balance, currencyCode),
         balanceValue: balance,
         currencyCode,
+        utilityBillPaymentId: cleanText(bill.utility_bill_payment_id),
+        utilityParentBillNumber: cleanText(bill.utility_parent_bill_number),
+        utilityLineIndex:
+            bill.utility_line_index == null || bill.utility_line_index === ''
+                ? null
+                : Number(bill.utility_line_index),
+        utilityDebitAccountId: cleanText(bill.utility_debit_account_id),
+        utilityDebitAccountName: cleanText(bill.utility_debit_account_name),
+        utilityItemDescription: cleanText(bill.utility_item_description),
+        isUtilityChild:
+            Number(bill.utility_line_index) > 0 ||
+            (cleanText(bill.utility_parent_bill_number) &&
+                cleanText(bill.bill_number) !== cleanText(bill.utility_parent_bill_number) &&
+                cleanText(bill.bill_number).startsWith(
+                    `${cleanText(bill.utility_parent_bill_number)}-`,
+                )),
     };
 }
 
 export function mapZohoBillListRows(bills) {
     if (!Array.isArray(bills)) return [];
-    return bills.map(mapZohoBillListRow).filter(Boolean);
+    const mapped = bills.map(mapZohoBillListRow).filter(Boolean);
+    return nestUtilityBillListRows(mapped);
+}
+
+/**
+ * Keep utility Add-more Zoho bills together: parent first, then child lines under it.
+ */
+export function nestUtilityBillListRows(rows = []) {
+    if (!Array.isArray(rows) || rows.length < 2) return rows || [];
+
+    const groupKey = (row) =>
+        String(row.utilityBillPaymentId || row.utilityParentBillNumber || '').trim();
+
+    const groups = new Map();
+    const standalone = [];
+
+    rows.forEach((row) => {
+        const key = groupKey(row);
+        if (!key) {
+            standalone.push(row);
+            return;
+        }
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(row);
+    });
+
+    const ordered = [];
+    const emitted = new Set();
+
+    rows.forEach((row) => {
+        const key = groupKey(row);
+        if (!key || emitted.has(key)) {
+            if (!key && !emitted.has(row.id)) {
+                ordered.push(row);
+                emitted.add(row.id);
+            }
+            return;
+        }
+        const members = (groups.get(key) || []).slice().sort((a, b) => {
+            const ai = a.utilityLineIndex == null ? 0 : Number(a.utilityLineIndex);
+            const bi = b.utilityLineIndex == null ? 0 : Number(b.utilityLineIndex);
+            if (ai !== bi) return ai - bi;
+            return String(a.billNumber).localeCompare(String(b.billNumber));
+        });
+        members.forEach((member, index) => {
+            ordered.push({
+                ...member,
+                isUtilityChild: index > 0 || Boolean(member.isUtilityChild),
+                utilityGroupSize: members.length,
+            });
+            emitted.add(member.id);
+        });
+        emitted.add(key);
+    });
+
+    standalone.forEach((row) => {
+        if (!emitted.has(row.id)) ordered.push(row);
+    });
+
+    return ordered;
 }
 
 export function mapZohoExpenseListRow(expense) {

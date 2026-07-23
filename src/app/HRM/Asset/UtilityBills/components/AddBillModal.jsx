@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Select from 'react-select';
-import { ChevronDown, ChevronLeft, ChevronRight, Eye, Upload, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Eye, Plus, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
@@ -19,15 +18,16 @@ import {
 } from '../utils/utilityBillStats';
 import { openUtilityAttachment } from '../utils/openUtilityAttachment';
 import UtilityBillTotalsBar, { computeRowPayTotals } from './UtilityBillTotalsBar';
-import PayByChoiceModal, {
-    PayByDoneSummary,
+import {
     assignedPartyDefaults,
-    isPayByComplete,
     payByFieldsFromAssignment,
-    payByPartyLabel,
 } from './PayByChoiceModal';
 import { usePayByPartyOptions } from './PayByPartySelects';
 import AttachmentSourceModal from './AttachmentSourceModal';
+import UtilityBillLineItemsModal, {
+    createDefaultLineItems,
+    lineItemsMatchActual,
+} from './UtilityBillLineItemsModal';
 
 const MONTH_SHORT = [
     'Jan',
@@ -47,69 +47,40 @@ const MONTH_SHORT = [
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
 
-const accountSelectStyles = {
-    control: (base, state) => ({
-        ...base,
-        minHeight: 40,
-        borderRadius: '0.5rem',
-        borderColor: state.isFocused ? '#3b82f6' : '#e2e8f0',
-        boxShadow: state.isFocused ? '0 0 0 2px rgba(59, 130, 246, 0.15)' : 'none',
-        backgroundColor: '#fff',
-        cursor: 'pointer',
-        '&:hover': {
-            borderColor: state.isFocused ? '#3b82f6' : '#cbd5e1',
-        },
-    }),
-    valueContainer: (base) => ({
-        ...base,
-        padding: '2px 12px',
-    }),
-    input: (base) => ({
-        ...base,
-        margin: 0,
-        padding: 0,
-        fontSize: '0.875rem',
-    }),
-    placeholder: (base) => ({
-        ...base,
-        color: '#94a3b8',
-        fontSize: '0.875rem',
-    }),
-    singleValue: (base) => ({
-        ...base,
-        fontSize: '0.875rem',
-        color: '#334155',
-    }),
-    menu: (base) => ({
-        ...base,
-        zIndex: 9999,
-        width: 'max-content',
-        minWidth: '100%',
-        maxWidth: '28rem',
-        borderRadius: '0.5rem',
-        overflow: 'hidden',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
-    }),
-    menuPortal: (base) => ({ ...base, zIndex: 100000 }),
-    menuList: (base) => ({
-        ...base,
-        maxHeight: 280,
-        paddingTop: 4,
-        paddingBottom: 4,
-    }),
-    option: (base, state) => ({
-        ...base,
-        fontSize: '0.875rem',
-        whiteSpace: 'normal',
-        backgroundColor: state.isSelected ? '#2563eb' : state.isFocused ? '#eff6ff' : '#fff',
-        color: state.isSelected ? '#fff' : '#334155',
-        cursor: 'pointer',
-    }),
-    indicatorSeparator: () => ({
-        display: 'none',
-    }),
-};
+function pickDefaultExpenseAccount(accounts = [], preferredId = '') {
+    const preferred = String(preferredId || '').trim();
+    if (preferred) {
+        const match = accounts.find((a) => String(a?.id || '') === preferred);
+        if (match) return match;
+    }
+    const expenseLike = accounts.find((a) =>
+        /expense/i.test(String(a?.type || a?.account_type || '')),
+    );
+    return expenseLike || accounts[0] || null;
+}
+
+function pickPartyAccountFromList(accounts = [], row = {}) {
+    // Only keep an Acc2 already chosen on the row. Do not match Payable to
+    // company/employee ids (e.g. EST-001) against Zoho account codes — the
+    // Account from Add more / line prices is the Zoho bill debit.
+    const existingId = String(row?.partyAccountId || '').trim();
+    if (!existingId) {
+        return { partyAccountId: '', partyAccountName: '', partyAccountCode: '' };
+    }
+    const match = accounts.find((a) => String(a?.id || '') === existingId);
+    if (match) {
+        return {
+            partyAccountId: match.id,
+            partyAccountName: match.name || row.partyAccountName || '',
+            partyAccountCode: match.code || row.partyAccountCode || '',
+        };
+    }
+    return {
+        partyAccountId: existingId,
+        partyAccountName: String(row?.partyAccountName || '').trim(),
+        partyAccountCode: String(row?.partyAccountCode || '').trim(),
+    };
+}
 
 /** Bill month YYYY-MM + payment day (1–31) → bill date. Clamps to last day of month. */
 function billDateFromMonth(billMonth, paymentDay = 16) {
@@ -414,6 +385,7 @@ function buildRowsFromEntries(entries, draftRows = []) {
                 : assignedPay.payByEmployeeName,
             attachmentMode: draft?.attachmentMode || null,
             attachment: draft?.attachment || null,
+            lineItems: Array.isArray(draft?.lineItems) ? draft.lineItems : null,
         };
     });
 }
@@ -440,6 +412,7 @@ function resetUncheckedRow(row) {
         payByEmployeeName: '',
         attachmentMode: null,
         attachment: null,
+        lineItems: null,
     };
 }
 
@@ -467,26 +440,33 @@ function openAttachmentView(file, toast) {
 function collectPayloadRows(
     rows,
     utilityAttachment,
-    { defaultExpenseAccountId, defaultExpenseAccountName, billMonth } = {},
+    {
+        defaultExpenseAccountId,
+        defaultExpenseAccountName,
+        billMonth,
+        expenseAccounts = [],
+        employeeOptions = [],
+        companyOptions = [],
+    } = {},
 ) {
     const payloadRows = [];
+    const defaultExpense = pickDefaultExpenseAccount(
+        expenseAccounts,
+        defaultExpenseAccountId,
+    );
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if (!row.selected) continue;
         const accountId =
             String(row.expenseAccountId || '').trim() ||
-            String(defaultExpenseAccountId || '').trim();
+            String(defaultExpense?.id || defaultExpenseAccountId || '').trim();
         const accountName =
             String(row.expenseAccountId || '').trim()
                 ? String(row.expenseAccountName || '').trim()
-                : String(defaultExpenseAccountName || '').trim();
-        if (!accountId) {
-            return {
-                error: `Select Account (to vendor) for account ${row.accountNo}.`,
-                payloadRows: null,
-            };
-        }
+                : String(
+                      defaultExpense?.name || defaultExpenseAccountName || '',
+                  ).trim();
         const billNumber = String(row.billNumber || '').trim();
         if (!billNumber) {
             return {
@@ -532,40 +512,148 @@ function collectPayloadRows(
             };
         }
         const contract = Number(row.contractAmount) || 0;
-        // Contract − Actual = Difference
         const difference = contract - actual;
         const absDifference = Math.abs(difference);
-        // Under (green): Pay by is always Company
-        const rawPayBy = actual < contract ? PAY_BY_COMPANY : row.payBy;
-        const payBy =
-            rawPayBy === PAY_BY_COMPANY || rawPayBy === PAY_BY_EMPLOYEE ? rawPayBy : '';
+
+        const assignedPay = payByFieldsFromAssignment(row);
+        const autoCompany = resolveAutoCompany(row, employeeOptions, companyOptions);
+        let payByCompanyId =
+            String(row.payByCompanyId || '').trim() || autoCompany.payByCompanyId || '';
+        let payByCompanyName =
+            String(row.payByCompanyName || '').trim() ||
+            autoCompany.payByCompanyName ||
+            '';
+        let payByEmployeeId =
+            String(row.payByEmployeeId || '').trim() ||
+            assignedPay.payByEmployeeId ||
+            '';
+        let payByEmployeeName =
+            String(row.payByEmployeeName || '').trim() ||
+            assignedPay.payByEmployeeName ||
+            '';
+
+        const lineWithParty = Array.isArray(row.lineItems)
+            ? row.lineItems.find(
+                  (line) =>
+                      String(line?.payByEmployeeId || '').trim() ||
+                      String(line?.payByCompanyId || '').trim(),
+              )
+            : null;
+
+        // Prefer Payable to from Add more lines (Company or Employee).
+        let payBy = '';
+        if (lineWithParty) {
+            const lineIsCompany =
+                lineWithParty.payBy === PAY_BY_COMPANY ||
+                (String(lineWithParty.payByCompanyId || '').trim() &&
+                    !String(lineWithParty.payByEmployeeId || '').trim());
+            if (lineIsCompany) {
+                payBy = PAY_BY_COMPANY;
+                payByCompanyId =
+                    String(lineWithParty.payByCompanyId || '').trim() || payByCompanyId;
+                payByCompanyName =
+                    String(lineWithParty.payByCompanyName || '').trim() ||
+                    payByCompanyName;
+            } else {
+                payBy = PAY_BY_EMPLOYEE;
+                payByEmployeeId = String(lineWithParty.payByEmployeeId || '').trim();
+                payByEmployeeName = String(lineWithParty.payByEmployeeName || '').trim();
+                payByCompanyId =
+                    String(lineWithParty.payByCompanyId || '').trim() || payByCompanyId;
+                payByCompanyName =
+                    String(lineWithParty.payByCompanyName || '').trim() ||
+                    payByCompanyName;
+                if (!payByCompanyId && payByEmployeeId) {
+                    const fromEmp = resolveAutoCompany(
+                        {
+                            payByEmployeeId,
+                            assignedToType: 'Employee',
+                            assignedToId: payByEmployeeId,
+                        },
+                        employeeOptions,
+                        companyOptions,
+                    );
+                    payByCompanyId = fromEmp.payByCompanyId || '';
+                    payByCompanyName = fromEmp.payByCompanyName || '';
+                }
+            }
+        } else if (actual < contract) {
+            // Under contract → company pay-by when no Add more party set
+            payBy = PAY_BY_COMPANY;
+        } else if (row.payBy === PAY_BY_COMPANY || row.payBy === PAY_BY_EMPLOYEE) {
+            payBy = row.payBy;
+        } else if (assignedPay.payBy) {
+            payBy = assignedPay.payBy;
+            if (payBy === PAY_BY_EMPLOYEE) {
+                payByEmployeeId = payByEmployeeId || assignedPay.payByEmployeeId || '';
+                payByEmployeeName =
+                    payByEmployeeName || assignedPay.payByEmployeeName || '';
+            }
+            if (payBy === PAY_BY_COMPANY) {
+                payByCompanyId = payByCompanyId || assignedPay.payByCompanyId || '';
+                payByCompanyName =
+                    payByCompanyName || assignedPay.payByCompanyName || '';
+            }
+        } else if (row.assignedToType === 'Employee' && row.assignedToId) {
+            payBy = PAY_BY_EMPLOYEE;
+            payByEmployeeId = payByEmployeeId || String(row.assignedToId);
+            payByEmployeeName = payByEmployeeName || String(row.assignedToName || '');
+        } else if (row.assignedToType === 'Company' && row.assignedToId) {
+            payBy = PAY_BY_COMPANY;
+            payByCompanyId = payByCompanyId || String(row.assignedToId);
+            payByCompanyName = payByCompanyName || String(row.assignedToName || '');
+        } else if (absDifference <= 0.009) {
+            payBy = PAY_BY_COMPANY;
+            if (!payByCompanyId && companyOptions.length === 1) {
+                payByCompanyId = String(companyOptions[0].value || '');
+                payByCompanyName = String(companyOptions[0].label || '');
+            }
+        }
+
+        if (
+            !payBy &&
+            Array.isArray(row.lineItems) &&
+            row.lineItems.length > 0 &&
+            !lineWithParty
+        ) {
+            return {
+                error: `Account ${row.accountNo} (${row.provider || 'provider'}): Add more lines are saved, but Payable to is empty. Open Lines, pick Company or Employee on every line, Save lines, then Submit.`,
+                payloadRows: null,
+            };
+        }
+
         if (!payBy) {
             return {
-                error: `Select Contract Paid By (Company or Employee) for account ${row.accountNo}.`,
+                error: `Account ${row.accountNo} (${row.provider || 'provider'}): open Add more on that row and set Payable to (Company or Employee) for each line, then Save lines and Submit.`,
                 payloadRows: null,
             };
         }
-        if (payBy === PAY_BY_COMPANY && !String(row.payByCompanyId || '').trim()) {
+        if (payBy === PAY_BY_COMPANY && !payByCompanyId) {
+            if (companyOptions.length === 1) {
+                payByCompanyId = String(companyOptions[0].value || '');
+                payByCompanyName = String(companyOptions[0].label || '');
+            }
+        }
+        if (payBy === PAY_BY_COMPANY && !payByCompanyId) {
             return {
-                error: `Select company name for account ${row.accountNo}.`,
+                error: `Account ${row.accountNo}: pick a Company in Add more → Payable to, then Save lines.`,
                 payloadRows: null,
             };
         }
-        if (payBy === PAY_BY_EMPLOYEE && !String(row.payByEmployeeId || '').trim()) {
+        if (payBy === PAY_BY_EMPLOYEE && !payByEmployeeId) {
             return {
-                error: `Select employee name for account ${row.accountNo}.`,
+                error: `Account ${row.accountNo}: pick an Employee in Add more → Payable to, then Save lines.`,
                 payloadRows: null,
             };
         }
-        const partyAccountId = String(row.partyAccountId || '').trim();
-        const partyAccountName = String(row.partyAccountName || '').trim();
-        const partyAccountCode = String(row.partyAccountCode || '').trim();
-        if (absDifference > 0.009 && !partyAccountId) {
-            return {
-                error: `Select Difference Account for account ${row.accountNo}.`,
-                payloadRows: null,
-            };
-        }
+
+        const party = pickPartyAccountFromList(expenseAccounts, {
+            ...row,
+            payBy,
+            payByCompanyId,
+            payByEmployeeId,
+        });
+        // Acc2 is optional — Zoho bill debit uses Account from Add more (line prices).
         const shares = resolvePayShares(payBy, difference);
         const attachment = resolveRowAttachment(rows, i, utilityAttachment);
         if (row.attachmentMode === 'new' && !row.attachment?.name) {
@@ -574,6 +662,54 @@ function collectPayloadRows(
                 payloadRows: null,
             };
         }
+
+        let lineItems = Array.isArray(row.lineItems) ? row.lineItems : null;
+        if (!lineItems?.length) {
+            // Auto one line: amount = actual (Zoho bill needs COA lines)
+            lineItems = createDefaultLineItems({
+                contractAmount: actual,
+                actualAmount: actual,
+                accountId,
+                accountName,
+                payByEmployeeId:
+                    payBy === PAY_BY_EMPLOYEE ? payByEmployeeId : '',
+                payByEmployeeName:
+                    payBy === PAY_BY_EMPLOYEE ? payByEmployeeName : '',
+                itemLabel: [row.provider, row.accountNo ? `Acc ${row.accountNo}` : '']
+                    .filter(Boolean)
+                    .join(' · '),
+            }).map((line) => ({
+                ...line,
+                quantity: 1,
+                amount: actual,
+                rate: actual,
+                description: line.item,
+                payByEmployeeId:
+                    payBy === PAY_BY_EMPLOYEE ? payByEmployeeId : '',
+                payByEmployeeName:
+                    payBy === PAY_BY_EMPLOYEE ? payByEmployeeName : '',
+                payByCompanyId,
+                payByCompanyName,
+            }));
+        } else if (!lineItemsMatchActual(lineItems, actual)) {
+            return {
+                error: `Item amounts for account ${row.accountNo} must total Actual (${actual.toFixed(2)}). Open Add more to fix.`,
+                payloadRows: null,
+            };
+        }
+
+        const primaryLine = lineItems[0];
+        const resolvedExpenseId =
+            accountId || String(primaryLine?.accountId || '').trim();
+        const resolvedExpenseName =
+            accountName || String(primaryLine?.accountName || '').trim();
+        if (!resolvedExpenseId) {
+            return {
+                error: `Select an account in Add more (item table) for ${row.accountNo}.`,
+                payloadRows: null,
+            };
+        }
+
         const payTotals = computeRowPayTotals({
             ...row,
             payBy,
@@ -597,16 +733,17 @@ function collectPayloadRows(
             employeeDiffAmount: shares.employeeAmount,
             companyPayAmount: payTotals.companyPayAmount,
             employeePayAmount: payTotals.employeePayAmount,
-            payByCompanyId: row.payByCompanyId || '',
-            payByCompanyName: row.payByCompanyName || '',
-            payByEmployeeId: payBy === PAY_BY_EMPLOYEE ? row.payByEmployeeId || '' : '',
-            payByEmployeeName: payBy === PAY_BY_EMPLOYEE ? row.payByEmployeeName || '' : '',
-            expenseAccountId: accountId,
-            expenseAccountName: accountName,
-            partyAccountId: absDifference > 0.009 ? partyAccountId : '',
-            partyAccountName: absDifference > 0.009 ? partyAccountName : '',
-            partyAccountCode: absDifference > 0.009 ? partyAccountCode : '',
+            payByCompanyId,
+            payByCompanyName,
+            payByEmployeeId: payBy === PAY_BY_EMPLOYEE ? payByEmployeeId : '',
+            payByEmployeeName: payBy === PAY_BY_EMPLOYEE ? payByEmployeeName : '',
+            expenseAccountId: resolvedExpenseId,
+            expenseAccountName: resolvedExpenseName,
+            partyAccountId: absDifference > 0.009 ? party.partyAccountId : '',
+            partyAccountName: absDifference > 0.009 ? party.partyAccountName : '',
+            partyAccountCode: absDifference > 0.009 ? party.partyAccountCode : '',
             attachment: attachment || null,
+            lineItems,
             sendForHr: actual > contract,
         });
     }
@@ -631,7 +768,7 @@ export default function AddBillModal({
     const [error, setError] = useState('');
     const [info, setInfo] = useState('');
     const [attachMenuIndex, setAttachMenuIndex] = useState(null);
-    const [payByRowIndex, setPayByRowIndex] = useState(null);
+    const [lineItemsRowIndex, setLineItemsRowIndex] = useState(null);
     const [billMonth, setBillMonth] = useState(currentBillMonthValue());
     const [draftLoaded, setDraftLoaded] = useState(false);
     /** Bills submitted in this modal session (entryId+month) until parent prop refreshes. */
@@ -647,7 +784,7 @@ export default function AddBillModal({
 
     const expenseAccountName = useMemo(() => {
         const match = expenseAccounts.find((a) => a.id === expenseAccountId);
-        return match?.name || '';
+        return match?.name || pickDefaultExpenseAccount(expenseAccounts)?.name || '';
     }, [expenseAccountId, expenseAccounts]);
 
     const expenseAccountOptions = useMemo(() => {
@@ -682,7 +819,7 @@ export default function AddBillModal({
         [companyOptions],
     );
 
-    // Auto-fill Company name from assignment / employee's company when empty.
+    // Auto-fill Company from assignment / employee's company when empty.
     useEffect(() => {
         if (!isOpen) return;
         if (!companySelectOptions.length && !employeeOptions.length) return;
@@ -704,11 +841,6 @@ export default function AddBillModal({
         });
     }, [isOpen, companySelectOptions, employeeOptions, rows.length]);
 
-    const flatExpenseAccountOptions = useMemo(
-        () => expenseAccountOptions.flatMap((group) => group.options || []),
-        [expenseAccountOptions],
-    );
-
     useEffect(() => {
         if (!isOpen) {
             setExpenseAccounts([]);
@@ -727,7 +859,9 @@ export default function AddBillModal({
                 const mapped = mapZohoPaymentAccounts(response?.data?.data?.accounts);
                 setExpenseAccounts(mapped);
                 if (mapped.length) {
-                    setExpenseAccountId((prev) => prev || mapped[0].id);
+                    setExpenseAccountId(
+                        (prev) => prev || pickDefaultExpenseAccount(mapped)?.id || '',
+                    );
                 }
             } catch {
                 if (!cancelled) {
@@ -959,7 +1093,7 @@ export default function AddBillModal({
 
         setError('');
         setAttachMenuIndex(null);
-        setPayByRowIndex(null);
+        setLineItemsRowIndex(null);
         // intentionally only re-init when modal opens / entry list type changes
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, listEntries, monthlyRental, utilityType]);
@@ -974,7 +1108,7 @@ export default function AddBillModal({
         );
         if (!checked) {
             setAttachMenuIndex(null);
-            setPayByRowIndex(null);
+            setLineItemsRowIndex(null);
             setError('');
         }
     };
@@ -993,7 +1127,7 @@ export default function AddBillModal({
         });
         if (!checked) {
             setAttachMenuIndex(null);
-            setPayByRowIndex(null);
+            setLineItemsRowIndex(null);
             setError('');
         }
     };
@@ -1076,6 +1210,7 @@ export default function AddBillModal({
             payByEmployeeName: r.payByEmployeeName || '',
             attachmentMode: r.attachmentMode,
             attachment: r.attachment,
+            lineItems: Array.isArray(r.lineItems) ? r.lineItems : null,
         })),
     });
 
@@ -1118,6 +1253,9 @@ export default function AddBillModal({
             defaultExpenseAccountId: expenseAccountId,
             defaultExpenseAccountName: expenseAccountName,
             billMonth: snapshotMonth,
+            expenseAccounts,
+            employeeOptions,
+            companyOptions: companySelectOptions,
         });
         if (rowError) {
             setError(rowError);
@@ -1156,7 +1294,7 @@ export default function AddBillModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/45">
-            <div className="bg-white rounded-xl shadow-lg w-full max-w-[100rem] max-h-[95vh] overflow-hidden flex flex-col border border-gray-200">
+            <div className="bg-white rounded-xl shadow-lg w-full max-w-[72rem] max-h-[95vh] overflow-hidden flex flex-col border border-gray-200">
                 <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
                     <div className="min-w-0 relative" ref={monthPickerRef}>
                         <button
@@ -1297,7 +1435,7 @@ export default function AddBillModal({
 
                     <div className="overflow-auto flex-1 min-h-0 px-4 sm:px-5 pb-3">
                         <div className="rounded-xl border border-gray-200 overflow-hidden">
-                            <table className="min-w-[95rem] w-full text-sm table-fixed">
+                            <table className="min-w-[56rem] w-full text-sm table-fixed">
                                 <thead className="sticky top-0 z-10 bg-gray-50">
                                     <tr className="border-b border-gray-200 text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                         <th className="w-12 px-3 py-3 text-center font-semibold">
@@ -1313,60 +1451,31 @@ export default function AddBillModal({
                                                 aria-label="Select all"
                                             />
                                         </th>
-                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Account No
                                         </th>
-                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Provider
                                         </th>
-                                        <th className="w-[14rem] px-2 py-3 text-center font-semibold whitespace-nowrap">
-                                            Account <span className="text-red-500">*</span>
-                                            <span className="block text-[10px] font-normal text-gray-400 normal-case">
-                                                to vendor
-                                            </span>
-                                        </th>
-                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Bill #
                                         </th>
-                                        <th className="w-[9%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[14%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Bill Date
                                         </th>
-                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Contract Amount
                                         </th>
-                                        <th className="w-[7%] px-3 py-3 text-center font-semibold whitespace-nowrap">
+                                        <th className="w-[12%] px-3 py-3 text-center font-semibold whitespace-nowrap">
                                             Actual Amount
                                         </th>
-                                        <th className="w-[6%] px-3 py-3 text-center font-semibold whitespace-nowrap">
-                                            Difference
-                                        </th>
-                                        <th className="w-[14rem] px-2 py-3 text-center font-semibold whitespace-nowrap">
-                                            Account
-                                            <span className="block text-[10px] font-normal text-gray-400 normal-case">
-                                                difference pay here
-                                            </span>
-                                        </th>
-                                        <th className="w-[11rem] px-2 py-3 text-center font-semibold whitespace-nowrap">
-                                            Company name
-                                        </th>
-                                        <th className="w-[10%] px-2 py-3 text-center font-semibold whitespace-nowrap">
-                                            Contract Paid By
-                                        </th>
                                         <th className="px-3 py-3 text-center font-semibold whitespace-nowrap">
-                                            Attach
+                                            Attachment
                                         </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 bg-white">
                                     {rows.map((row, index) => {
-                                        const actualNum = Number(row.actualAmount);
-                                        const hasActual =
-                                            row.actualAmount !== '' && Number.isFinite(actualNum);
-                                        // Signed for color (under/over); display always non-negative
-                                        const differenceSigned = hasActual
-                                            ? Number(row.contractAmount || 0) - actualNum
-                                            : 0;
-                                        const difference = Math.abs(differenceSigned);
                                         const resolved = resolveRowAttachment(
                                             rows,
                                             index,
@@ -1395,52 +1504,11 @@ export default function AddBillModal({
                                                 <td className="px-3 py-3.5 text-center align-middle font-semibold text-gray-800 tabular-nums">
                                                     {row.accountNo}
                                                 </td>
-                                                <td className="px-3 py-3.5 text-center align-middle text-gray-700 font-medium truncate max-w-[8rem]" title={row.provider}>
+                                                <td
+                                                    className="px-3 py-3.5 text-center align-middle text-gray-700 font-medium truncate max-w-[8rem]"
+                                                    title={row.provider}
+                                                >
                                                     {row.provider || '—'}
-                                                </td>
-                                                <td className="min-w-[14rem] px-2 py-3.5 text-left align-middle">
-                                                    <Select
-                                                        instanceId={`utility-bill-expense-account-${row.entryId || index}`}
-                                                        styles={accountSelectStyles}
-                                                        options={expenseAccountOptions}
-                                                        value={
-                                                            flatExpenseAccountOptions.find(
-                                                                (option) =>
-                                                                    option.value ===
-                                                                    (row.expenseAccountId ||
-                                                                        expenseAccountId),
-                                                            ) || null
-                                                        }
-                                                        onChange={(option) => {
-                                                            const match = flatExpenseAccountOptions.find(
-                                                                (o) => o.value === option?.value,
-                                                            );
-                                                            updateRow(index, {
-                                                                expenseAccountId:
-                                                                    option?.value || '',
-                                                                expenseAccountName:
-                                                                    match?.name || match?.label || '',
-                                                            });
-                                                            setError('');
-                                                        }}
-                                                        isSearchable
-                                                        isClearable
-                                                        isDisabled={saving || !row.selected}
-                                                        placeholder={
-                                                            expenseAccounts.length
-                                                                ? 'Select account'
-                                                                : 'No Zoho accounts'
-                                                        }
-                                                        noOptionsMessage={() =>
-                                                            'No Zoho bill accounts found'
-                                                        }
-                                                        menuPortalTarget={
-                                                            typeof document !== 'undefined'
-                                                                ? document.body
-                                                                : null
-                                                        }
-                                                        menuPosition="fixed"
-                                                    />
                                                 </td>
                                                 <td className="px-2 py-3.5 text-center align-middle">
                                                     <input
@@ -1485,10 +1553,7 @@ export default function AddBillModal({
                                                             const next = e.target.value;
                                                             if (
                                                                 next &&
-                                                                !isDateWithinBillMonth(
-                                                                    next,
-                                                                    billMonth,
-                                                                )
+                                                                !isDateWithinBillMonth(next, billMonth)
                                                             ) {
                                                                 setError(
                                                                     `Bill date must be within ${monthTitle}.`,
@@ -1529,8 +1594,6 @@ export default function AddBillModal({
                                                                 patch.partyAccountName = '';
                                                                 patch.partyAccountCode = '';
                                                             }
-                                                            // Under contract: diff goes to Company; keep assigned
-                                                            // employee name visible until Company is chosen.
                                                             if (has && actualN < contractN) {
                                                                 const shares = resolvePayShares(
                                                                     PAY_BY_COMPANY,
@@ -1568,12 +1631,10 @@ export default function AddBillModal({
                                                                         );
                                                                     Object.assign(patch, assignedPay);
                                                                 }
-                                                                // else keep existing employee selection for display
                                                             } else if (
                                                                 !String(row.payBy || '').trim() &&
                                                                 row.assignedToId
                                                             ) {
-                                                                // Default Contract Paid By from assignment
                                                                 const assignedPay =
                                                                     payByFieldsFromAssignment(row);
                                                                 if (assignedPay.payBy) {
@@ -1607,156 +1668,6 @@ export default function AddBillModal({
                                                         className="w-28 mx-auto block rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-center text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 disabled:bg-gray-100"
                                                         placeholder="0.00"
                                                     />
-                                                </td>
-                                                <td
-                                                    className={`px-4 py-3.5 text-center align-middle tabular-nums font-semibold ${
-                                                        !hasActual
-                                                            ? 'text-gray-400'
-                                                            : actualNum < Number(row.contractAmount || 0)
-                                                              ? 'text-emerald-600'
-                                                              : 'text-red-600'
-                                                    }`}
-                                                >
-                                                    {hasActual ? formatMoney(difference) : '—'}
-                                                </td>
-                                                <td className="min-w-[14rem] px-2 py-3.5 text-left align-middle">
-                                                    <Select
-                                                        instanceId={`utility-bill-diff-account-${row.entryId || index}`}
-                                                        styles={accountSelectStyles}
-                                                        options={expenseAccountOptions}
-                                                        value={
-                                                            flatExpenseAccountOptions.find(
-                                                                (option) =>
-                                                                    option.value ===
-                                                                    row.partyAccountId,
-                                                            ) || null
-                                                        }
-                                                        onChange={(option) => {
-                                                            const match = flatExpenseAccountOptions.find(
-                                                                (o) => o.value === option?.value,
-                                                            );
-                                                            updateRow(index, {
-                                                                partyAccountId: option?.value || '',
-                                                                partyAccountName:
-                                                                    match?.name || match?.label || '',
-                                                                partyAccountCode: match?.code || '',
-                                                            });
-                                                            setError('');
-                                                        }}
-                                                        isSearchable
-                                                        isClearable
-                                                        isDisabled={
-                                                            saving ||
-                                                            !row.selected ||
-                                                            !hasActual ||
-                                                            difference < 0.01
-                                                        }
-                                                        placeholder={
-                                                            !hasActual
-                                                                ? 'Enter actual first'
-                                                                : difference < 0.01
-                                                                  ? 'No difference'
-                                                                  : expenseAccounts.length
-                                                                    ? 'Difference account'
-                                                                    : 'No Zoho accounts'
-                                                        }
-                                                        noOptionsMessage={() =>
-                                                            'No Zoho accounts found'
-                                                        }
-                                                        menuPortalTarget={
-                                                            typeof document !== 'undefined'
-                                                                ? document.body
-                                                                : null
-                                                        }
-                                                        menuPosition="fixed"
-                                                    />
-                                                </td>
-                                                <td className="min-w-[11rem] px-2 py-3.5 text-left align-middle">
-                                                    <Select
-                                                        instanceId={`utility-bill-company-${row.entryId || index}`}
-                                                        styles={accountSelectStyles}
-                                                        options={companySelectOptions}
-                                                        value={
-                                                            companySelectOptions.find(
-                                                                (option) =>
-                                                                    option.value ===
-                                                                    String(
-                                                                        row.payByCompanyId || '',
-                                                                    ),
-                                                            ) || null
-                                                        }
-                                                        onChange={(option) => {
-                                                            updateRow(index, {
-                                                                payByCompanyId: option?.value || '',
-                                                                payByCompanyName:
-                                                                    option?.label || '',
-                                                            });
-                                                            setError('');
-                                                        }}
-                                                        isSearchable
-                                                        isClearable
-                                                        isDisabled={saving || !row.selected}
-                                                        placeholder="Select company"
-                                                        noOptionsMessage={() =>
-                                                            'No active companies found'
-                                                        }
-                                                        menuPortalTarget={
-                                                            typeof document !== 'undefined'
-                                                                ? document.body
-                                                                : null
-                                                        }
-                                                        menuPosition="fixed"
-                                                    />
-                                                </td>
-                                                <td className="px-2 py-3.5 text-center align-middle">
-                                                    {(() => {
-                                                        const isUnder =
-                                                            hasActual &&
-                                                            actualNum <
-                                                                Number(row.contractAmount || 0);
-                                                        const canOpen = row.selected && hasActual;
-                                                        const done = isPayByComplete(row, {
-                                                            isUnder,
-                                                        });
-                                                        const partyLabel = payByPartyLabel(row);
-                                                        const openPayBy = () => {
-                                                            if (!canOpen) return;
-                                                            setPayByRowIndex(index);
-                                                            setError('');
-                                                        };
-                                                        if (done && hasActual) {
-                                                            return (
-                                                                <PayByDoneSummary
-                                                                    row={row}
-                                                                    difference={difference}
-                                                                    isUnder={isUnder}
-                                                                    disabled={!canOpen}
-                                                                    onEdit={openPayBy}
-                                                                />
-                                                            );
-                                                        }
-                                                        return (
-                                                            <button
-                                                                type="button"
-                                                                disabled={!canOpen}
-                                                                title={
-                                                                    partyLabel
-                                                                        ? `${partyLabel} — click to edit`
-                                                                        : isUnder
-                                                                          ? 'Contract Paid By Company — select company'
-                                                                          : 'Choose Contract Paid By'
-                                                                }
-                                                                onClick={openPayBy}
-                                                                className={`min-w-[5.75rem] max-w-[11rem] mx-auto rounded-lg border px-2 py-1.5 text-xs font-medium truncate ${
-                                                                    !canOpen
-                                                                        ? 'border-gray-100 bg-gray-100 text-gray-400 cursor-not-allowed'
-                                                                        : 'border-teal-200 bg-white text-teal-700 hover:bg-teal-50'
-                                                                }`}
-                                                            >
-                                                                {partyLabel || 'Select'}
-                                                            </button>
-                                                        );
-                                                    })()}
                                                 </td>
                                                 <td className="px-4 py-3.5 text-center align-middle relative">
                                                     <input
@@ -1807,6 +1718,38 @@ export default function AddBillModal({
                                                                 No file above
                                                             </span>
                                                         ) : null}
+
+                                                        <button
+                                                            type="button"
+                                                            disabled={!row.selected || saving}
+                                                            onClick={() => {
+                                                                const actualN = Number(
+                                                                    row.actualAmount,
+                                                                );
+                                                                if (
+                                                                    !(
+                                                                        row.actualAmount !== '' &&
+                                                                        Number.isFinite(actualN) &&
+                                                                        actualN > 0
+                                                                    )
+                                                                ) {
+                                                                    setError(
+                                                                        'Enter Actual Amount first, then open item lines.',
+                                                                    );
+                                                                    return;
+                                                                }
+                                                                setLineItemsRowIndex(index);
+                                                                setError('');
+                                                            }}
+                                                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-40"
+                                                            title="Zoho-style item table"
+                                                        >
+                                                            <Plus size={12} />
+                                                            {Array.isArray(row.lineItems) &&
+                                                            row.lineItems.length
+                                                                ? `Lines (${row.lineItems.length})`
+                                                                : 'Add more'}
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1821,7 +1764,59 @@ export default function AddBillModal({
                                     ? `All active accounts already have an Approved / Paid bill for ${monthTitle}. Pick another month.`
                                     : 'No accounts to bill.'}
                             </p>
-                        ) : null}
+                        ) : (
+                            <div className="pt-3">
+                                <button
+                                    type="button"
+                                    disabled={saving || !rows.some((r) => r.selected)}
+                                    onClick={() => {
+                                        const withActual = rows.findIndex(
+                                            (r) =>
+                                                r.selected &&
+                                                Number(r.actualAmount) > 0 &&
+                                                r.actualAmount !== '',
+                                        );
+                                        const fallback = rows.findIndex((r) => r.selected);
+                                        const target =
+                                            withActual >= 0 ? withActual : fallback;
+                                        if (target < 0) {
+                                            setError('Select an account first.');
+                                            return;
+                                        }
+                                        const row = rows[target];
+                                        const actualN = Number(row.actualAmount);
+                                        if (
+                                            !(
+                                                row.actualAmount !== '' &&
+                                                Number.isFinite(actualN) &&
+                                                actualN > 0
+                                            )
+                                        ) {
+                                            setError(
+                                                'Enter Actual Amount first, then click Add more.',
+                                            );
+                                            return;
+                                        }
+                                        setLineItemsRowIndex(target);
+                                        setError('');
+                                    }}
+                                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-40"
+                                >
+                                    <Plus size={16} strokeWidth={2.25} />
+                                    Add more
+                                    {rows.some(
+                                        (r) =>
+                                            r.selected &&
+                                            Array.isArray(r.lineItems) &&
+                                            r.lineItems.length,
+                                    ) ? (
+                                        <span className="text-[10px] font-medium text-emerald-600 normal-case">
+                                            (lines set)
+                                        </span>
+                                    ) : null}
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     <UtilityBillTotalsBar rows={rows} />
@@ -1856,6 +1851,168 @@ export default function AddBillModal({
                     </div>
                 </form>
             </div>
+
+            <UtilityBillLineItemsModal
+                isOpen={lineItemsRowIndex != null}
+                onClose={() => setLineItemsRowIndex(null)}
+                accountNo={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.accountNo || ''
+                        : ''
+                }
+                provider={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.provider || ''
+                        : ''
+                }
+                contractAmount={
+                    lineItemsRowIndex != null
+                        ? Number(rows[lineItemsRowIndex]?.contractAmount || 0)
+                        : 0
+                }
+                actualAmount={
+                    lineItemsRowIndex != null
+                        ? Number(rows[lineItemsRowIndex]?.actualAmount || 0)
+                        : 0
+                }
+                initialLines={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.lineItems || null
+                        : null
+                }
+                accountOptions={expenseAccountOptions}
+                employeeOptions={employeeOptions}
+                companyOptions={companySelectOptions}
+                defaultAccountId={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.expenseAccountId ||
+                          expenseAccountId ||
+                          ''
+                        : expenseAccountId
+                }
+                defaultAccountName={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.expenseAccountName ||
+                          expenseAccountName ||
+                          ''
+                        : expenseAccountName
+                }
+                defaultPayBy={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.payBy ||
+                          (rows[lineItemsRowIndex]?.assignedToType === 'Employee'
+                              ? PAY_BY_EMPLOYEE
+                              : rows[lineItemsRowIndex]?.assignedToType === 'Company'
+                                ? PAY_BY_COMPANY
+                                : '') ||
+                          ''
+                        : ''
+                }
+                defaultPayByEmployeeId={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.payByEmployeeId ||
+                          (rows[lineItemsRowIndex]?.assignedToType === 'Employee'
+                              ? rows[lineItemsRowIndex]?.assignedToId
+                              : '') ||
+                          ''
+                        : ''
+                }
+                defaultPayByEmployeeName={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.payByEmployeeName ||
+                          (rows[lineItemsRowIndex]?.assignedToType === 'Employee'
+                              ? rows[lineItemsRowIndex]?.assignedToName
+                              : '') ||
+                          ''
+                        : ''
+                }
+                defaultPayByCompanyId={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.payByCompanyId ||
+                          (rows[lineItemsRowIndex]?.assignedToType === 'Company'
+                              ? rows[lineItemsRowIndex]?.assignedToId
+                              : '') ||
+                          ''
+                        : ''
+                }
+                defaultPayByCompanyName={
+                    lineItemsRowIndex != null
+                        ? rows[lineItemsRowIndex]?.payByCompanyName ||
+                          (rows[lineItemsRowIndex]?.assignedToType === 'Company'
+                              ? rows[lineItemsRowIndex]?.assignedToName
+                              : '') ||
+                          ''
+                        : ''
+                }
+                itemLabel={
+                    lineItemsRowIndex != null
+                        ? [
+                              utilityType,
+                              rows[lineItemsRowIndex]?.provider,
+                              rows[lineItemsRowIndex]?.accountNo
+                                  ? `Acc ${rows[lineItemsRowIndex].accountNo}`
+                                  : '',
+                          ]
+                              .filter(Boolean)
+                              .join(' · ')
+                        : utilityType
+                }
+                onSave={(lines) => {
+                    if (lineItemsRowIndex == null) return;
+                    const first = lines[0];
+                    const payBy =
+                        first?.payBy === PAY_BY_COMPANY || first?.payBy === PAY_BY_EMPLOYEE
+                            ? first.payBy
+                            : String(first?.payByCompanyId || '').trim()
+                              ? PAY_BY_COMPANY
+                              : String(first?.payByEmployeeId || '').trim()
+                                ? PAY_BY_EMPLOYEE
+                                : '';
+                    const empId = String(first?.payByEmployeeId || '').trim();
+                    const empName = String(first?.payByEmployeeName || '').trim();
+                    let companyId = String(first?.payByCompanyId || '').trim();
+                    let companyName = String(first?.payByCompanyName || '').trim();
+                    if (payBy === PAY_BY_EMPLOYEE && empId && !companyId) {
+                        const auto = resolveAutoCompany(
+                            {
+                                payByEmployeeId: empId,
+                                assignedToType: 'Employee',
+                                assignedToId: empId,
+                            },
+                            employeeOptions,
+                            companySelectOptions,
+                        );
+                        companyId = auto.payByCompanyId || '';
+                        companyName = auto.payByCompanyName || '';
+                    }
+                    updateRow(lineItemsRowIndex, {
+                        lineItems: lines,
+                        expenseAccountId:
+                            first?.accountId ||
+                            rows[lineItemsRowIndex]?.expenseAccountId ||
+                            expenseAccountId ||
+                            '',
+                        expenseAccountName:
+                            first?.accountName ||
+                            rows[lineItemsRowIndex]?.expenseAccountName ||
+                            expenseAccountName ||
+                            '',
+                        ...(payBy
+                            ? {
+                                  payBy,
+                                  payByEmployeeId:
+                                      payBy === PAY_BY_EMPLOYEE ? empId : '',
+                                  payByEmployeeName:
+                                      payBy === PAY_BY_EMPLOYEE ? empName : '',
+                                  payByCompanyId: companyId,
+                                  payByCompanyName: companyName,
+                              }
+                            : {}),
+                    });
+                    setLineItemsRowIndex(null);
+                    setError('');
+                }}
+            />
 
             <AttachmentSourceModal
                 isOpen={attachMenuIndex != null}
@@ -1904,102 +2061,6 @@ export default function AddBillModal({
                 onUseNew={() => {
                     if (attachMenuIndex == null) return;
                     chooseNewUpload(attachMenuIndex);
-                }}
-            />
-
-            <PayByChoiceModal
-                isOpen={payByRowIndex != null}
-                onClose={() => setPayByRowIndex(null)}
-                accountNo={payByRowIndex != null ? rows[payByRowIndex]?.accountNo : ''}
-                differenceAmount={
-                    payByRowIndex != null
-                        ? Math.abs(
-                              Number(rows[payByRowIndex]?.contractAmount || 0) -
-                                  Number(rows[payByRowIndex]?.actualAmount || 0),
-                          )
-                        : 0
-                }
-                lockedPayBy={
-                    payByRowIndex != null &&
-                    Number(rows[payByRowIndex]?.actualAmount || 0) <
-                        Number(rows[payByRowIndex]?.contractAmount || 0)
-                        ? PAY_BY_COMPANY
-                        : ''
-                }
-                initialPayBy={
-                    payByRowIndex != null
-                        ? Number(rows[payByRowIndex]?.actualAmount || 0) <
-                          Number(rows[payByRowIndex]?.contractAmount || 0)
-                            ? PAY_BY_COMPANY
-                            : rows[payByRowIndex]?.payBy ||
-                              assignedPartyDefaults(rows[payByRowIndex]).defaultPayBy ||
-                              ''
-                        : ''
-                }
-                initialCompanyId={
-                    payByRowIndex != null ? rows[payByRowIndex]?.payByCompanyId || '' : ''
-                }
-                initialCompanyName={
-                    payByRowIndex != null ? rows[payByRowIndex]?.payByCompanyName || '' : ''
-                }
-                initialEmployeeId={
-                    payByRowIndex != null ? rows[payByRowIndex]?.payByEmployeeId || '' : ''
-                }
-                initialEmployeeName={
-                    payByRowIndex != null ? rows[payByRowIndex]?.payByEmployeeName || '' : ''
-                }
-                assignedToType={
-                    payByRowIndex != null ? rows[payByRowIndex]?.assignedToType || '' : ''
-                }
-                assignedToId={
-                    payByRowIndex != null ? rows[payByRowIndex]?.assignedToId || '' : ''
-                }
-                assignedToName={
-                    payByRowIndex != null ? rows[payByRowIndex]?.assignedToName || '' : ''
-                }
-                companyOptions={companyOptions}
-                employeeOptions={employeeOptions}
-                onConfirm={(choice) => {
-                    if (payByRowIndex == null) return;
-                    const row = rows[payByRowIndex];
-                    const diff =
-                        Number(row?.contractAmount || 0) - Number(row?.actualAmount || 0);
-                    const shares = resolvePayShares(choice.payBy, diff);
-                    const nextRow = {
-                        ...row,
-                        payBy: choice.payBy,
-                        companyDiffAmount: shares.companyAmount,
-                        employeeDiffAmount: shares.employeeAmount,
-                        payByEmployeeId:
-                            choice.payBy === PAY_BY_EMPLOYEE
-                                ? choice.payByEmployeeId
-                                : '',
-                        payByEmployeeName:
-                            choice.payBy === PAY_BY_EMPLOYEE
-                                ? choice.payByEmployeeName
-                                : '',
-                        payByCompanyId:
-                            choice.payBy === PAY_BY_COMPANY
-                                ? choice.payByCompanyId
-                                : row.payByCompanyId || '',
-                        payByCompanyName:
-                            choice.payBy === PAY_BY_COMPANY
-                                ? choice.payByCompanyName
-                                : row.payByCompanyName || '',
-                    };
-                    // Keep / auto Company name even when Contract Paid By is Employee.
-                    if (!String(nextRow.payByCompanyId || '').trim()) {
-                        const auto = resolveAutoCompany(
-                            nextRow,
-                            employeeOptions,
-                            companySelectOptions,
-                        );
-                        nextRow.payByCompanyId = auto.payByCompanyId;
-                        nextRow.payByCompanyName = auto.payByCompanyName;
-                    }
-                    updateRow(payByRowIndex, nextRow);
-                    setPayByRowIndex(null);
-                    setError('');
                 }}
             />
         </div>

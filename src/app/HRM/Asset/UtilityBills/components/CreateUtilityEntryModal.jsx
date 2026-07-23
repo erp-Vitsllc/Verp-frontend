@@ -51,8 +51,46 @@ function emptyValuesForFields(enabledKeys) {
 const inputClass =
     'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white';
 
+function valuesFromEntry(entry, enabledKeys) {
+    const base = emptyValuesForFields(enabledKeys);
+    const src = entry?.values && typeof entry.values === 'object' ? entry.values : {};
+    const next = { ...base };
+    enabledKeys.forEach((key) => {
+        if (key === CONTRACT_KEY) {
+            next.contractStart = String(src.contractStart || '').trim();
+            next.contractEnd = String(src.contractEnd || '').trim();
+        } else if (key === PAYMENT_DATE_KEY) {
+            const day = Number(src.paymentDay ?? src.paymentDate);
+            next.paymentDay =
+                Number.isInteger(day) && day >= 1 && day <= 31 ? String(day) : '';
+        } else if (key === 'monthlyRental') {
+            next.monthlyRental =
+                src.monthlyRental === '' || src.monthlyRental == null
+                    ? ''
+                    : String(src.monthlyRental);
+        } else if (key === 'provider') {
+            next.provider = String(src.provider || '').trim();
+        } else {
+            next[key] = src[key] == null ? '' : String(src[key]);
+        }
+    });
+    return next;
+}
+
+function attachmentFromEntry(entry) {
+    const file = entry?.values?.attachment;
+    if (file && typeof file === 'object' && file.name) {
+        return {
+            name: String(file.name || ''),
+            mime: String(file.mime || 'application/pdf'),
+            dataUrl: String(file.dataUrl || ''),
+        };
+    }
+    return null;
+}
+
 /**
- * Create entry modal — fields follow Yes toggles on Add Utility.
+ * Create / edit entry modal — fields follow Yes toggles on Add Utility.
  * Assignment is excluded (Assign button appears on the table row instead).
  */
 export default function CreateUtilityEntryModal({
@@ -61,7 +99,9 @@ export default function CreateUtilityEntryModal({
     utilityType = '',
     enabledFields = {},
     onSave,
+    initialEntry = null,
 }) {
+    const isEdit = Boolean(initialEntry?.id);
     const assignmentEnabled = enabledFields?.assignment === 'yes';
     const attachmentEnabled = enabledFields?.attachment === 'yes';
 
@@ -124,8 +164,13 @@ export default function CreateUtilityEntryModal({
     useEffect(() => {
         if (!isOpen) return;
         let cancelled = false;
-        setValues(emptyValuesForFields(enabledKeys));
-        setAttachment(null);
+        if (initialEntry?.id) {
+            setValues(valuesFromEntry(initialEntry, enabledKeys));
+            setAttachment(attachmentEnabled ? attachmentFromEntry(initialEntry) : null);
+        } else {
+            setValues(emptyValuesForFields(enabledKeys));
+            setAttachment(null);
+        }
         setShowAddProvider(false);
         setProviderMenuOpen(false);
         setNewProviderName('');
@@ -155,7 +200,7 @@ export default function CreateUtilityEntryModal({
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- enabledKeysKey tracks enabledKeys
-    }, [isOpen, utilityType, enabledKeysKey, attachmentEnabled]);
+    }, [isOpen, utilityType, enabledKeysKey, attachmentEnabled, initialEntry?.id]);
 
     useEffect(() => {
         if (!providerMenuOpen) return undefined;
@@ -288,6 +333,7 @@ export default function CreateUtilityEntryModal({
         }
 
         onSave?.({
+            entryId: isEdit ? String(initialEntry.id) : undefined,
             type: utilityType,
             values: payloadValues,
         });
@@ -583,7 +629,7 @@ export default function CreateUtilityEntryModal({
             >
                 <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-100">
                     <h2 id="create-utility-entry-title" className="text-lg sm:text-xl font-bold text-gray-800">
-                        Create {utilityType}
+                        {isEdit ? `Edit ${utilityType}` : `Create ${utilityType}`}
                     </h2>
                     <button
                         type="button"
@@ -660,7 +706,7 @@ export default function CreateUtilityEntryModal({
                             }
                             className="px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium"
                         >
-                            Save
+                            {isEdit ? 'Save changes' : 'Save'}
                         </button>
                     </div>
                 </form>
