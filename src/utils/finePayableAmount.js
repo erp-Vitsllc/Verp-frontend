@@ -6,32 +6,52 @@ function isCompanyParty(emp) {
 }
 
 /**
- * One party's share of service charge (never counted twice on top of individualAmount).
+ * One party's share of service charge.
+ * Split sibling records already store this party's share on fine.serviceCharge — do not halve again.
  */
-export function resolvePartyServiceShare(fine, entry, isCompanyParty = false) {
+export function resolvePartyServiceShare(fine, entry, isCompanyPartyFlag = false) {
     const perRecord = parseFloat(entry?.serviceCharge ?? 0) || 0;
     if (perRecord > 0) return perRecord;
 
     const totalSc = parseFloat(fine?.serviceCharge || 0) || 0;
+    if (totalSc <= 0) return 0;
+
     const rf = (fine?.responsibleFor || 'Employee').trim();
-    if (rf !== 'Employee & Company' || totalSc <= 0) {
-        return isCompanyParty ? 0 : totalSc;
+    const assignees = (fine?.assignedEmployees || []).filter(
+        (ae) => ae?.employeeId && ae.employeeId !== 'PENDING',
+    );
+    const partyCount = assignees.length;
+
+    if (rf === 'Company') {
+        return isCompanyPartyFlag ? totalSc : 0;
     }
-    if (fine?.isGroupView || (fine?.assignedEmployees?.length || 0) > 1) {
-        return totalSc / 2;
+    if (rf !== 'Employee & Company') {
+        return isCompanyPartyFlag ? 0 : totalSc;
     }
-    const comp = parseFloat(fine?.companyAmount || 0) || 0;
-    const hasVega = fine?.assignedEmployees?.some((e) => e.employeeId === 'VEGA-HR-0000');
-    if (hasVega || comp > 0) return totalSc / 2;
-    return totalSc;
+
+    // Employee & Company — sibling docs: root SC is already this party's share
+    if (!fine?.isGroupView && partyCount <= 1) {
+        return totalSc;
+    }
+
+    // Group / multi-party document: divide full SC equally among parties
+    const n = Math.max(partyCount, 2);
+    return totalSc / n;
 }
 
-function resolveRowBaseAmount(fine, entry, isCompanyParty) {
-    let base = parseFloat(
-        entry?.employeeAmount ??
-        (isCompanyParty ? fine?.companyAmount : fine?.employeeAmount) ??
-        0,
-    ) || 0;
+function resolveRowBaseAmount(fine, entry, isCompanyPartyFlag) {
+    let base = parseFloat(entry?.employeeAmount) || 0;
+    if (base <= 0) {
+        if (isCompanyPartyFlag) {
+            base = parseFloat(fine?.companyAmount) || 0;
+            // Company sibling stores company base in employeeAmount (companyAmount is 0)
+            if (base <= 0 && (fine?.assignedEmployees || []).length <= 1) {
+                base = parseFloat(fine?.employeeAmount) || 0;
+            }
+        } else {
+            base = parseFloat(fine?.employeeAmount) || 0;
+        }
+    }
     const totalSc = parseFloat(fine?.serviceCharge || 0) || 0;
     if (base < 0 && totalSc > 0) {
         base += totalSc;
@@ -60,7 +80,7 @@ export function resolveEmployeeFinePayableAmount(fine, employeeId) {
         const stored = parseFloat(entry.individualAmount) || 0;
         if (stored > 0) {
             if (sc > 0 && rowBase > 0 && stored < expected - 0.01) return expected;
-            return stored;
+            return Math.max(stored, expected > 0 ? expected : 0);
         }
     }
     if (entry.fineAmount != null && entry.fineAmount !== '') {
@@ -68,7 +88,7 @@ export function resolveEmployeeFinePayableAmount(fine, employeeId) {
         if (stored > 0) {
             if (sc > 0 && rowBase > 0 && stored < expected - 0.01) return expected;
             if (sc > 0 && Math.abs(stored - rowBase) < 0.01) return expected;
-            return stored;
+            return Math.max(stored, expected > 0 ? expected : 0);
         }
     }
 
@@ -108,7 +128,7 @@ export function resolveCompanyFinePayableAmount(fine, companyEntry = null) {
         const stored = parseFloat(entry.individualAmount) || 0;
         if (stored > 0) {
             if (sc > 0 && rowBase > 0 && stored < expected - 0.01) return expected;
-            return stored;
+            return Math.max(stored, expected > 0 ? expected : 0);
         }
     }
     if (entry?.fineAmount != null && entry.fineAmount !== '') {
@@ -116,7 +136,7 @@ export function resolveCompanyFinePayableAmount(fine, companyEntry = null) {
         if (stored > 0) {
             if (sc > 0 && rowBase > 0 && stored < expected - 0.01) return expected;
             if (sc > 0 && Math.abs(stored - rowBase) < 0.01) return expected;
-            return stored;
+            return Math.max(stored, expected > 0 ? expected : 0);
         }
     }
 

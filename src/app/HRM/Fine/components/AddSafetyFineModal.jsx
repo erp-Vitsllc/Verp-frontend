@@ -398,18 +398,12 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             const baseFineAmount = parseFloat(totalFineAmount) || 0;
             const grandTotalFine = getVehicleFinePayableTotal(baseFineAmount, serviceChargeAmount);
 
-            let totalPartiesCount = selectedEmployees.length;
-            if (responsibleFor === 'Employee & Company' || responsibleFor === 'Company') {
-                totalPartiesCount += 1;
-            }
+            // Service charge is split equally across every bill party (each employee + company when involved)
+            let totalPartiesCount = Math.max(1, selectedEmployees.length);
             if (responsibleFor === 'Company') {
                 totalPartiesCount = 1;
-            }
-            if (responsibleFor === 'Employee') {
-                totalPartiesCount = Math.max(1, selectedEmployees.length);
-            }
-            if (responsibleFor === 'Employee & Company') {
-                totalPartiesCount = 2;
+            } else if (responsibleFor === 'Employee & Company') {
+                totalPartiesCount = selectedEmployees.length + 1;
             }
 
             let totalEmpAmount = 0;
