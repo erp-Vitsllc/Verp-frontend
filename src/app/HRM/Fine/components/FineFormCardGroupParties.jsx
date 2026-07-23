@@ -107,8 +107,9 @@ function partyRowKey(member, idx) {
 function accountOptionLabel(account) {
     const name = String(account?.name || account?.label || '').trim();
     const code = String(account?.code || '').trim();
-    if (name && code) return `${name} (${code})`;
-    return name || code || String(account?.id || '');
+    const type = String(account?.type || '').trim();
+    const base = name && code ? `${name} (${code})` : name || code || String(account?.id || '');
+    return type ? `${base} · ${type}` : base;
 }
 
 /**
@@ -162,15 +163,16 @@ export default function FineFormCardGroupParties({
             setListsLoading(true);
             try {
                 const orgParams = organizationId ? { organizationId } : {};
+                // Same full CoA endpoint as Payments Made → Paid Through
                 const [supportRes, vendorRes] = await Promise.all([
-                    axiosInstance.get('/zoho/bills/support', {
+                    axiosInstance.get('/zoho/vendorpayments/support', {
                         params: {
                             ...orgParams,
-                            // Full active Chart of Accounts for Fine Payable dropdown
-                            fullAccounts: 'true',
+                            accountsOnly: 'true',
+                            includeInactive: 'true',
                         },
                         skipToast: true,
-                        timeout: 45000,
+                        timeout: 90000,
                     }),
                     axiosInstance.get('/zoho/vendors', {
                         params: { ...orgParams, limit: 2000 },
@@ -179,8 +181,12 @@ export default function FineFormCardGroupParties({
                     }),
                 ]);
                 if (cancelled) return;
-                setAccounts(mapZohoPaymentAccounts(supportRes?.data?.data?.accounts));
+                const accountRows = supportRes?.data?.data?.accounts || [];
+                setAccounts(mapZohoPaymentAccounts(accountRows));
                 setVendors(mapZohoVendors(vendorRes?.data?.data));
+                if (!accountRows.length) {
+                    console.warn('[FineParties] Chart of Accounts empty', supportRes?.data?.meta);
+                }
             } catch {
                 if (!cancelled) {
                     setAccounts([]);
@@ -280,9 +286,66 @@ export default function FineFormCardGroupParties({
                 label: accountOptionLabel(a),
                 name: a.name || '',
                 code: a.code || '',
+                type: a.type || '',
+                searchText: [
+                    a.name,
+                    a.code,
+                    a.type,
+                    a.label,
+                    a.raw?.account_name,
+                    a.raw?.account_code,
+                    a.raw?.account_type,
+                    a.raw?.account_type_formatted,
+                    a.raw?.description,
+                    a.raw?.parent_account_name,
+                ]
+                    .filter(Boolean)
+                    .join(' '),
             })),
         [accounts],
     );
+
+    /** Match Fine / Fines / partial words across name, code, type, parent. */
+    const filterAccountOption = (candidate, inputValue) => {
+        const raw = String(inputValue || '').trim().toLowerCase();
+        if (!raw) return true;
+
+        const normalize = (s) =>
+            String(s || '')
+                .toLowerCase()
+                .replace(/&/g, ' and ')
+                .replace(/[^a-z0-9\u0600-\u06ff]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+        const hay = normalize(
+            [
+                candidate?.label,
+                candidate?.data?.label,
+                candidate?.data?.name,
+                candidate?.data?.code,
+                candidate?.data?.type,
+                candidate?.data?.searchText,
+            ].join(' '),
+        );
+
+        const q = normalize(raw);
+        if (!q) return true;
+        if (hay.includes(q)) return true;
+
+        // "fines" ↔ "fine"
+        if (q.endsWith('s') && hay.includes(q.slice(0, -1))) return true;
+        if (!q.endsWith('s') && hay.includes(`${q}s`)) return true;
+
+        // Every token must appear (e.g. "vehicle fine")
+        const tokens = q.split(' ').filter(Boolean);
+        return tokens.length > 0 && tokens.every((tok) => {
+            if (hay.includes(tok)) return true;
+            if (tok.endsWith('s') && hay.includes(tok.slice(0, -1))) return true;
+            if (!tok.endsWith('s') && hay.includes(`${tok}s`)) return true;
+            return false;
+        });
+    };
 
     if (!fine || parties.length === 0) return null;
 
@@ -633,8 +696,13 @@ export default function FineFormCardGroupParties({
                                                         option?.value || '',
                                                     )
                                                 }
+                                                filterOption={filterAccountOption}
                                                 placeholder={
-                                                    listsLoading ? 'Loading…' : 'Search accounts…'
+                                                    listsLoading
+                                                        ? 'Loading Chart of Accounts…'
+                                                        : accountOptions.length
+                                                          ? `Search ${accountOptions.length} accounts…`
+                                                          : 'No accounts loaded'
                                                 }
                                                 isSearchable
                                                 isClearable={false}
@@ -653,8 +721,14 @@ export default function FineFormCardGroupParties({
                                                     typeof document !== 'undefined' ? document.body : null
                                                 }
                                                 menuPosition="fixed"
-                                                maxMenuHeight={220}
-                                                noOptionsMessage={() => 'No accounts found'}
+                                                maxMenuHeight={280}
+                                                noOptionsMessage={() =>
+                                                    listsLoading
+                                                        ? 'Loading…'
+                                                        : accountOptions.length
+                                                          ? 'No matching account'
+                                                          : 'Chart of Accounts empty — check Zoho connection'
+                                                }
                                             />
                                         </div>
                                     </td>

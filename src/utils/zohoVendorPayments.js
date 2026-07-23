@@ -293,9 +293,9 @@ export function mapZohoExpenseOption(expense) {
         recordType: 'expense',
         billNumber: cleanText(
             expense.expense_number ||
-                expense.reference_number ||
-                expense.account_name ||
-                `EXP-${id.slice(-6)}`,
+            expense.reference_number ||
+            expense.account_name ||
+            `EXP-${id.slice(-6)}`,
         ),
         poNumber: '—',
         locationId: String(expense.location_id || '').trim(),

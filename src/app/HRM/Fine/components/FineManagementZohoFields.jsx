@@ -52,10 +52,14 @@ export default function FineManagementZohoFields({
             try {
                 const orgParams = organizationId ? { organizationId } : {};
                 if (mode === 'accountsPayable') {
-                    const supportRes = await axiosInstance.get('/zoho/bills/support', {
-                        params: { ...orgParams, fullAccounts: 'true' },
+                    const supportRes = await axiosInstance.get('/zoho/vendorpayments/support', {
+                        params: {
+                            ...orgParams,
+                            accountsOnly: 'true',
+                            includeInactive: 'true',
+                        },
                         skipToast: true,
-                        timeout: 45000,
+                        timeout: 90000,
                     });
                     if (cancelled) return;
                     setVendors([]);
@@ -67,10 +71,14 @@ export default function FineManagementZohoFields({
                             skipToast: true,
                             timeout: 45000,
                         }),
-                        axiosInstance.get('/zoho/bills/support', {
-                            params: { ...orgParams, fullAccounts: 'true' },
+                        axiosInstance.get('/zoho/vendorpayments/support', {
+                            params: {
+                                ...orgParams,
+                                accountsOnly: 'true',
+                                includeInactive: 'true',
+                            },
                             skipToast: true,
-                            timeout: 45000,
+                            timeout: 90000,
                         }),
                     ]);
                     if (cancelled) return;

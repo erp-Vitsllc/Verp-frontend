@@ -274,9 +274,9 @@ function FineDetailsPageContent() {
                     String(managementZoho.zohoVendorId || fine?.zohoVendorId || '').trim();
                 const resolvedVendorName = String(
                     managementZoho.zohoVendorName ||
-                        fine?.zohoVendorName ||
-                        fine?.fineSource ||
-                        '',
+                    fine?.zohoVendorName ||
+                    fine?.fineSource ||
+                    '',
                 ).trim();
 
                 // Accounts already set Vendor name (Fine Source) — resolve Zoho vendor id if missing.
@@ -438,9 +438,9 @@ function FineDetailsPageContent() {
                             ? (res.data.message ||
                                 'Fine approved. One Zoho Bill created with all parties as Item Table lines.')
                             : isAccountsStage
-                              ? (res.data.message ||
-                                  'Sent to Management. Zoho Bill will be created after Management approves.')
-                              : (res.data.message || 'Fine approved successfully.'),
+                                ? (res.data.message ||
+                                    'Sent to Management. Zoho Bill will be created after Management approves.')
+                                : (res.data.message || 'Fine approved successfully.'),
                     variant: "success",
                     className: "bg-green-50 border-green-200 text-green-800"
                 });
@@ -504,13 +504,13 @@ function FineDetailsPageContent() {
     const validateWorkflowAssignments = () => {
         if (!fine) return true;
         const workflow = fine.workflow || [];
-        
+
         // HR Check
         const hrStep = workflow.find(w => w.role === 'HR');
-        const hrName = (hrStep?.assignedTo?.firstName) 
-            ? `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim() 
+        const hrName = (hrStep?.assignedTo?.firstName)
+            ? `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim()
             : (fine.hrHODName && fine.hrHODName !== 'Unknown' ? fine.hrHODName : null);
-            
+
         if (!hrName) {
             toast({
                 title: "Incomplete Flowchart",
@@ -525,7 +525,7 @@ function FineDetailsPageContent() {
         const accName = (accStep?.assignedTo?.firstName)
             ? `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim()
             : (fine.accountsHODName && fine.accountsHODName !== 'Unknown' ? fine.accountsHODName : null);
-            
+
         if (!accName) {
             toast({
                 title: "Incomplete Flowchart",
@@ -755,7 +755,7 @@ function FineDetailsPageContent() {
         const checkRoles = async () => {
             if (!currentUser || !fine) return;
             setCheckingPermissions(true);
-            
+
             // Check HR
             let hr = isHrUser(currentUser, fine);
 
@@ -776,26 +776,26 @@ function FineDetailsPageContent() {
                 const flowRes = await axiosInstance.get('/Flowchart');
                 const flowchartRows = flowRes?.data || [];
                 const actualId = currentUser._id || currentUser.id || currentUser.employeeObjectId;
-                
+
                 if (!ac) {
-                    ac = flowchartRows.some(row => 
-                        row.category === 'assetcontroller' && 
-                        row.status === 'Active' && 
-                        (String(row.empObjectId?._id) === String(actualId) || 
-                         String(row.empObjectId) === String(actualId) || 
-                         String(row.employeeId) === String(currentUser.employeeId) ||
-                         String(row.employeeId) === String(currentUser.employeeObjectId))
+                    ac = flowchartRows.some(row =>
+                        row.category === 'assetcontroller' &&
+                        row.status === 'Active' &&
+                        (String(row.empObjectId?._id) === String(actualId) ||
+                            String(row.empObjectId) === String(actualId) ||
+                            String(row.employeeId) === String(currentUser.employeeId) ||
+                            String(row.employeeId) === String(currentUser.employeeObjectId))
                     );
                 }
 
                 if (!hr) {
-                    hr = flowchartRows.some(row => 
-                        row.category === 'hr' && 
-                        row.status === 'Active' && 
-                        (String(row.empObjectId?._id) === String(actualId) || 
-                         String(row.empObjectId) === String(actualId) || 
-                         String(row.employeeId) === String(currentUser.employeeId) ||
-                         String(row.employeeId) === String(currentUser.employeeObjectId))
+                    hr = flowchartRows.some(row =>
+                        row.category === 'hr' &&
+                        row.status === 'Active' &&
+                        (String(row.empObjectId?._id) === String(actualId) ||
+                            String(row.empObjectId) === String(actualId) ||
+                            String(row.employeeId) === String(currentUser.employeeId) ||
+                            String(row.employeeId) === String(currentUser.employeeObjectId))
                     );
                 }
             } catch (e) {
@@ -1327,8 +1327,8 @@ function FineDetailsPageContent() {
         if (roleToMatch) {
             const step = (fine.workflow || []).find(w => w.role === roleToMatch && w.status === 'Pending');
             if (step?.assignedTo && typeof step.assignedTo === 'object') {
-                const name = (step.assignedTo.firstName || step.assignedTo.name) 
-                    ? `${step.assignedTo.firstName || ''} ${step.assignedTo.lastName || ''}`.trim() || step.assignedTo.name 
+                const name = (step.assignedTo.firstName || step.assignedTo.name)
+                    ? `${step.assignedTo.firstName || ''} ${step.assignedTo.lastName || ''}`.trim() || step.assignedTo.name
                     : null;
                 if (name && name !== 'Unknown') return name;
             }
@@ -1348,7 +1348,7 @@ function FineDetailsPageContent() {
         if ((s === 'Pending Authorization' || roleToMatch === 'Management') && fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
 
         // If we found a specific role but no name yet, return null so we don't show "HR: HR"
-        return null; 
+        return null;
     }, [fine]);
 
     const activePartyEntry = useMemo(
@@ -1576,26 +1576,26 @@ function FineDetailsPageContent() {
     const designation = mainEmployee.designation || '-';
     const department = mainEmployee.department || '-';
     const hodName = mainEmployee.reportsTo?.name || 'Manager'; // Fallback logic
-    
+
     // Get company share for company fines
     const getCompanyShare = (f) => {
         if (!f) return 0;
         if (!isCompanyFine) return 0;
         return parseFloat(f.companyAmount || f.fineAmount || 0);
     };
-    
+
     // Get company name for display - prioritize populated company object
-    const displayName = isCompanyFine 
+    const displayName = isCompanyFine
         ? (fine?.company?.name || employeeDetails?.employeeName || fine?.assignedEmployees?.find(emp => emp.employeeId === 'VEGA-HR-0000')?.employeeName || 'Company')
         : employeeName;
-    
+
     // Get company ID for display - prefer companyId string over _id
-    const displayCompanyId = isCompanyFine 
+    const displayCompanyId = isCompanyFine
         ? (fine?.company?.companyId || employeeDetails?.companyId || fine?.company?._id || '-')
         : null;
 
     // Get HR name for company fines (use hrHODName)
-    const displayHODName = isCompanyFine 
+    const displayHODName = isCompanyFine
         ? (fine?.hrHODName || 'HR')
         : hodName;
 
@@ -1706,34 +1706,34 @@ function FineDetailsPageContent() {
                                 {confirmConfig.action === 'approve' &&
                                     fine?.fineStatus === 'Pending Authorization' &&
                                     !String(fine?.zohoVendorId || managementZoho.zohoVendorId || '').trim() ? (
-                                        <div className="mt-4 space-y-3 text-left">
-                                            <FineManagementZohoFields
-                                                organizationId={
-                                                    managementZoho.zohoOrganizationId ||
-                                                    fine?.zohoOrganizationId ||
-                                                    ''
-                                                }
-                                                value={managementZoho}
-                                                onChange={setManagementZoho}
-                                                requireExpenseAccount={
-                                                    !String(fine?.expenseAccountId || '').trim() &&
-                                                    !(
-                                                        Array.isArray(partyPayables) &&
-                                                        partyPayables.length > 0 &&
-                                                        partyPayables.every((p) =>
-                                                            String(p.expenseAccountId || '').trim(),
-                                                        )
-                                                    ) &&
-                                                    !buildGroupMembersForFine(fine).every((p) =>
+                                    <div className="mt-4 space-y-3 text-left">
+                                        <FineManagementZohoFields
+                                            organizationId={
+                                                managementZoho.zohoOrganizationId ||
+                                                fine?.zohoOrganizationId ||
+                                                ''
+                                            }
+                                            value={managementZoho}
+                                            onChange={setManagementZoho}
+                                            requireExpenseAccount={
+                                                !String(fine?.expenseAccountId || '').trim() &&
+                                                !(
+                                                    Array.isArray(partyPayables) &&
+                                                    partyPayables.length > 0 &&
+                                                    partyPayables.every((p) =>
                                                         String(p.expenseAccountId || '').trim(),
                                                     )
-                                                }
-                                                fineSourceHint={
-                                                    fine?.fineSource || fine?.zohoVendorName || ''
-                                                }
-                                            />
-                                        </div>
-                                    ) : null}
+                                                ) &&
+                                                !buildGroupMembersForFine(fine).every((p) =>
+                                                    String(p.expenseAccountId || '').trim(),
+                                                )
+                                            }
+                                            fineSourceHint={
+                                                fine?.fineSource || fine?.zohoVendorName || ''
+                                            }
+                                        />
+                                    </div>
+                                ) : null}
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                                 <AlertDialogCancel className="border-gray-200 hover:bg-gray-50 text-gray-600 font-bold">
@@ -1776,8 +1776,8 @@ function FineDetailsPageContent() {
                                             const missingPayable =
                                                 parties.length > 0
                                                     ? parties.some(
-                                                          (p) => !String(p.expenseAccountId || '').trim(),
-                                                      )
+                                                        (p) => !String(p.expenseAccountId || '').trim(),
+                                                    )
                                                     : !String(fine?.expenseAccountId || '').trim();
                                             if (missingPayable) {
                                                 toast({
@@ -1813,145 +1813,145 @@ function FineDetailsPageContent() {
                             <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
                                 {employeeForCard && (
                                     <div className="w-full h-full min-h-0">
-                                    <ProfileHeader
-                                        employee={employeeForCard}
-                                        hideProgressBar={true}
-                                        hideStatusToggle={true}
-                                        hideRole={true}
-                                        hideContactNumber={true}
-                                        hideEmail={true}
-                                        enlargeProfilePic={false}
-                                        showNameUnderProfilePic={true}
-                                        hideEmployeeStatus={true}
-                                        imageError={imageError}
-                                        setImageError={setImageError}
-                                        subtitle={fine.fineId}
-                                        statusLabel={null}
-                                        extraContent={(
-                                            <div className="mt-3 space-y-3 w-full">
-                                                <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 cursor-pointer" onClick={toggleSummaryMode} title="Click to toggle between Count, Amount, and Remaining">
-                                                    {/* Total - Blue */}
-                                                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-blue-100">
-                                                        <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">
-                                                            {summaryViewMode === 'count' ? 'Total Count' : summaryViewMode === 'amount' ? 'Total Amount' : 'Balance'}
-                                                        </span>
-                                                        <span className="text-sm sm:text-lg font-bold text-blue-800 shrink-0 tabular-nums">
-                                                            {summaryViewMode === 'count' 
-                                                                ? (displayFineSummaries.totalFineCount || 0) 
-                                                                : summaryViewMode === 'amount' 
-                                                                    ? (displayFineSummaries.totalAmount || 0).toLocaleString()
-                                                                    : (displayFineSummaries.outstandingBalance || 0).toLocaleString()
-                                                            }
-                                                        </span>
-                                                    </div>
-
-                                                    {/* Vehicle - Green */}
-                                                    <div className="bg-green-50 p-2 rounded-lg border border-green-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-green-100">
-                                                        <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Vehicle</span>
-                                                        <span className="text-sm sm:text-lg font-bold text-green-800 shrink-0 tabular-nums">
-                                                            {summaryViewMode === 'count' 
-                                                                ? (displayFineSummaries.aggregates?.['Vehicle']?.count || 0) 
-                                                                : summaryViewMode === 'amount' 
-                                                                    ? (displayFineSummaries.aggregates?.['Vehicle']?.amount || 0).toLocaleString()
-                                                                    : ((displayFineSummaries.aggregates?.['Vehicle']?.amount || 0) - (displayFineSummaries.aggregates?.['Vehicle']?.paid || 0)).toLocaleString()
-                                                            }
-                                                        </span>
-                                                    </div>
-
-                                                    {/* Safety - Purple */}
-                                                    <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-purple-100">
-                                                        <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Safety</span>
-                                                        <span className="text-sm sm:text-lg font-bold text-purple-800 shrink-0 tabular-nums">
-                                                            {summaryViewMode === 'count' 
-                                                                ? (displayFineSummaries.aggregates?.['Safety']?.count || 0) 
-                                                                : summaryViewMode === 'amount' 
-                                                                    ? (displayFineSummaries.aggregates?.['Safety']?.amount || 0).toLocaleString()
-                                                                    : ((displayFineSummaries.aggregates?.['Safety']?.amount || 0) - (displayFineSummaries.aggregates?.['Safety']?.paid || 0)).toLocaleString()
-                                                            }
-                                                        </span>
-                                                    </div>
-
-                                                    {/* Project Damage - Amber */}
-                                                    <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-amber-100">
-                                                        <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Project Damage</span>
-                                                        <span className="text-sm sm:text-lg font-bold text-amber-800 shrink-0 tabular-nums">
-                                                            {summaryViewMode === 'count' 
-                                                                ? (displayFineSummaries.aggregates?.['Project']?.count || 0) 
-                                                                : summaryViewMode === 'amount' 
-                                                                    ? (displayFineSummaries.aggregates?.['Project']?.amount || 0).toLocaleString()
-                                                                    : ((displayFineSummaries.aggregates?.['Project']?.amount || 0) - (displayFineSummaries.aggregates?.['Project']?.paid || 0)).toLocaleString()
-                                                            }
-                                                        </span>
-                                                    </div>
-
-                                                    {/* Loss and Damage - Red */}
-                                                    <div className="bg-red-50 p-2 rounded-lg border border-red-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-red-100">
-                                                        <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Loss & Damage</span>
-                                                        <span className="text-sm sm:text-lg font-bold text-red-800 shrink-0 tabular-nums">
-                                                            {summaryViewMode === 'count' 
-                                                                ? (displayFineSummaries.aggregates?.['Loss']?.count || 0) 
-                                                                : summaryViewMode === 'amount' 
-                                                                    ? (displayFineSummaries.aggregates?.['Loss']?.amount || 0).toLocaleString()
-                                                                    : ((displayFineSummaries.aggregates?.['Loss']?.amount || 0) - (displayFineSummaries.aggregates?.['Loss']?.paid || 0)).toLocaleString()
-                                                            }
-                                                        </span>
-                                                    </div>
-
-                                                    {/* Other Fines - Gray */}
-                                                    <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-gray-100">
-                                                        <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Other Fines</span>
-                                                        <span className="text-sm sm:text-lg font-bold text-gray-800 shrink-0 tabular-nums">
-                                                            {summaryViewMode === 'count' 
-                                                                ? (displayFineSummaries.aggregates?.['Other']?.count || 0) 
-                                                                : summaryViewMode === 'amount' 
-                                                                    ? (displayFineSummaries.aggregates?.['Other']?.amount || 0).toLocaleString()
-                                                                    : ((displayFineSummaries.aggregates?.['Other']?.amount || 0) - (displayFineSummaries.aggregates?.['Other']?.paid || 0)).toLocaleString()
-                                                            }
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Status Badge - hidden when fine is already approved */}
-                                                {(() => {
-                                                    const s = fine?.fineStatus;
-                                                    const isApprovedFine = ['Approved', 'Active', 'Completed', 'Paid'].includes(s);
-                                                    if (isApprovedFine) return null;
-
-                                                    let role = '';
-                                                    if (s === 'Pending HR') role = 'HR';
-                                                    else if (s === 'Pending Accounts') role = 'Accounts';
-                                                    else if (s === 'Pending Authorization') role = 'Management';
-                                                    else if (s === 'Pending' || s === 'Pending Review') {
-                                                        const activeWf = (fine.workflow || []).find(w => w.status === 'Pending');
-                                                        if (activeWf) role = activeWf.role;
-                                                    }
-
-                                                    let label = '';
-                                                    if (s === 'Draft') label = 'Waiting for Requester';
-                                                    else if (s === 'Approved') label = 'Approved';
-                                                    else if (waitingForName) label = `Waiting for ${role || 'HR'}: ${waitingForName}`;
-                                                    else if (role) label = `Waiting for ${role}`;
-                                                    else label = s;
-
-                                                    if (!label) return null;
-
-                                                    const isApproved = label.includes('Approved');
-
-                                                    return (
-                                                        <div className="w-full">
-                                                            <span className={`text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center
-                                                                ${isApproved
-                                                                    ? 'bg-green-50 text-green-700 border-green-200'
-                                                                    : 'bg-amber-50 text-amber-700 border-amber-200'}
-                                                            `}>
-                                                                {label}
+                                        <ProfileHeader
+                                            employee={employeeForCard}
+                                            hideProgressBar={true}
+                                            hideStatusToggle={true}
+                                            hideRole={true}
+                                            hideContactNumber={true}
+                                            hideEmail={true}
+                                            enlargeProfilePic={false}
+                                            showNameUnderProfilePic={true}
+                                            hideEmployeeStatus={true}
+                                            imageError={imageError}
+                                            setImageError={setImageError}
+                                            subtitle={fine.fineId}
+                                            statusLabel={null}
+                                            extraContent={(
+                                                <div className="mt-3 space-y-3 w-full">
+                                                    <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 cursor-pointer" onClick={toggleSummaryMode} title="Click to toggle between Count, Amount, and Remaining">
+                                                        {/* Total - Blue */}
+                                                        <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-blue-100">
+                                                            <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">
+                                                                {summaryViewMode === 'count' ? 'Total Count' : summaryViewMode === 'amount' ? 'Total Amount' : 'Balance'}
+                                                            </span>
+                                                            <span className="text-sm sm:text-lg font-bold text-blue-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (displayFineSummaries.totalFineCount || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                        ? (displayFineSummaries.totalAmount || 0).toLocaleString()
+                                                                        : (displayFineSummaries.outstandingBalance || 0).toLocaleString()
+                                                                }
                                                             </span>
                                                         </div>
-                                                    );
-                                                })()}
-                                            </div>
-                                        )}
-                                    />
+
+                                                        {/* Vehicle - Green */}
+                                                        <div className="bg-green-50 p-2 rounded-lg border border-green-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-green-100">
+                                                            <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Vehicle</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-green-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (displayFineSummaries.aggregates?.['Vehicle']?.count || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                        ? (displayFineSummaries.aggregates?.['Vehicle']?.amount || 0).toLocaleString()
+                                                                        : ((displayFineSummaries.aggregates?.['Vehicle']?.amount || 0) - (displayFineSummaries.aggregates?.['Vehicle']?.paid || 0)).toLocaleString()
+                                                                }
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Safety - Purple */}
+                                                        <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-purple-100">
+                                                            <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Safety</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-purple-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (displayFineSummaries.aggregates?.['Safety']?.count || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                        ? (displayFineSummaries.aggregates?.['Safety']?.amount || 0).toLocaleString()
+                                                                        : ((displayFineSummaries.aggregates?.['Safety']?.amount || 0) - (displayFineSummaries.aggregates?.['Safety']?.paid || 0)).toLocaleString()
+                                                                }
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Project Damage - Amber */}
+                                                        <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-amber-100">
+                                                            <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Project Damage</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-amber-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (displayFineSummaries.aggregates?.['Project']?.count || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                        ? (displayFineSummaries.aggregates?.['Project']?.amount || 0).toLocaleString()
+                                                                        : ((displayFineSummaries.aggregates?.['Project']?.amount || 0) - (displayFineSummaries.aggregates?.['Project']?.paid || 0)).toLocaleString()
+                                                                }
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Loss and Damage - Red */}
+                                                        <div className="bg-red-50 p-2 rounded-lg border border-red-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-red-100">
+                                                            <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Loss & Damage</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-red-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (displayFineSummaries.aggregates?.['Loss']?.count || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                        ? (displayFineSummaries.aggregates?.['Loss']?.amount || 0).toLocaleString()
+                                                                        : ((displayFineSummaries.aggregates?.['Loss']?.amount || 0) - (displayFineSummaries.aggregates?.['Loss']?.paid || 0)).toLocaleString()
+                                                                }
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Other Fines - Gray */}
+                                                        <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-gray-100">
+                                                            <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Other Fines</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-gray-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (displayFineSummaries.aggregates?.['Other']?.count || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                        ? (displayFineSummaries.aggregates?.['Other']?.amount || 0).toLocaleString()
+                                                                        : ((displayFineSummaries.aggregates?.['Other']?.amount || 0) - (displayFineSummaries.aggregates?.['Other']?.paid || 0)).toLocaleString()
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Status Badge - hidden when fine is already approved */}
+                                                    {(() => {
+                                                        const s = fine?.fineStatus;
+                                                        const isApprovedFine = ['Approved', 'Active', 'Completed', 'Paid'].includes(s);
+                                                        if (isApprovedFine) return null;
+
+                                                        let role = '';
+                                                        if (s === 'Pending HR') role = 'HR';
+                                                        else if (s === 'Pending Accounts') role = 'Accounts';
+                                                        else if (s === 'Pending Authorization') role = 'Management';
+                                                        else if (s === 'Pending' || s === 'Pending Review') {
+                                                            const activeWf = (fine.workflow || []).find(w => w.status === 'Pending');
+                                                            if (activeWf) role = activeWf.role;
+                                                        }
+
+                                                        let label = '';
+                                                        if (s === 'Draft') label = 'Waiting for Requester';
+                                                        else if (s === 'Approved') label = 'Approved';
+                                                        else if (waitingForName) label = `Waiting for ${role || 'HR'}: ${waitingForName}`;
+                                                        else if (role) label = `Waiting for ${role}`;
+                                                        else label = s;
+
+                                                        if (!label) return null;
+
+                                                        const isApproved = label.includes('Approved');
+
+                                                        return (
+                                                            <div className="w-full">
+                                                                <span className={`text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center
+                                                                ${isApproved
+                                                                        ? 'bg-green-50 text-green-700 border-green-200'
+                                                                        : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                                            `}>
+                                                                    {label}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            )}
+                                        />
                                     </div>
                                 )}
                                 {/* EmploymentSummary removed */}
@@ -1975,8 +1975,8 @@ function FineDetailsPageContent() {
 
                                         const statusBoxClass =
                                             status === 'Approved' || isApprovedState ? 'bg-green-50 border-green-100 text-green-700' :
-                                            status === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
-                                            'bg-yellow-50 border-yellow-100 text-yellow-700';
+                                                status === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
+                                                    'bg-yellow-50 border-yellow-100 text-yellow-700';
 
                                         const cells = [];
 
@@ -2105,11 +2105,10 @@ function FineDetailsPageContent() {
                                     href={groupOverviewHref || '#'}
                                     scroll={false}
                                     onClick={selectGroupOverview}
-                                    className={`py-3 px-5 text-sm font-semibold border-b-2 transition-all duration-200 cursor-pointer ${
-                                        isGroupOverviewActive
+                                    className={`py-3 px-5 text-sm font-semibold border-b-2 transition-all duration-200 cursor-pointer ${isGroupOverviewActive
                                             ? 'border-blue-600 text-blue-600'
                                             : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                    }`}
+                                        }`}
                                     title="Group fine overview"
                                 >
                                     Group Fine
@@ -2129,11 +2128,10 @@ function FineDetailsPageContent() {
                                                 e.preventDefault();
                                                 selectGroupParty(member);
                                             }}
-                                            className={`py-3 px-5 text-sm font-semibold border-b-2 transition-all duration-200 cursor-pointer ${
-                                                active
+                                            className={`py-3 px-5 text-sm font-semibold border-b-2 transition-all duration-200 cursor-pointer ${active
                                                     ? 'border-blue-600 text-blue-600'
                                                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                            }`}
+                                                }`}
                                             title={member.isCompany ? 'Company share' : member.employeeId || label}
                                         >
                                             {member.isCompany ? `Co. ${label}` : label}
@@ -2155,42 +2153,38 @@ function FineDetailsPageContent() {
 
                         {/* Sub-tabs — Fine Form / History (secondary chips under group main tabs) */}
                         <div
-                            className={`w-full flex flex-wrap items-center mb-6 print:hidden ${
-                                isGroup && groupParties.length > 0
+                            className={`w-full flex flex-wrap items-center mb-6 print:hidden ${isGroup && groupParties.length > 0
                                     ? 'gap-2 pt-3'
                                     : 'border-b border-gray-200'
-                            }`}
+                                }`}
                         >
                             {isGroup && groupParties.length > 0 ? (
                                 <>
                                     <button
                                         onClick={() => setActiveTab('fineForm')}
-                                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
-                                            activeTab === 'fineForm'
+                                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${activeTab === 'fineForm'
                                                 ? 'bg-slate-800 text-white shadow-sm'
                                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
-                                        }`}
+                                            }`}
                                     >
                                         Fine Form
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('historyDetails')}
-                                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
-                                            activeTab === 'historyDetails'
+                                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${activeTab === 'historyDetails'
                                                 ? 'bg-slate-800 text-white shadow-sm'
                                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
-                                        }`}
+                                            }`}
                                     >
                                         Fine History & Details
                                     </button>
                                     {isApprovedFineStatus(fine.fineStatus) && (
                                         <button
                                             onClick={() => setActiveTab('approvedAttachments')}
-                                            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
-                                                activeTab === 'approvedAttachments'
+                                            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${activeTab === 'approvedAttachments'
                                                     ? 'bg-slate-800 text-white shadow-sm'
                                                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
-                                            }`}
+                                                }`}
                                         >
                                             Attachment
                                         </button>
@@ -2200,21 +2194,19 @@ function FineDetailsPageContent() {
                                 <>
                                     <button
                                         onClick={() => setActiveTab('fineForm')}
-                                        className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
-                                            activeTab === 'fineForm'
+                                        className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${activeTab === 'fineForm'
                                                 ? 'border-blue-600 text-blue-600'
                                                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                        }`}
+                                            }`}
                                     >
                                         Fine Form
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('historyDetails')}
-                                        className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
-                                            activeTab === 'historyDetails'
+                                        className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${activeTab === 'historyDetails'
                                                 ? 'border-blue-600 text-blue-600'
                                                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                        }`}
+                                            }`}
                                     >
                                         Fine History & Details
                                     </button>
@@ -2230,11 +2222,10 @@ function FineDetailsPageContent() {
                                     {isApprovedFineStatus(fine.fineStatus) && (
                                         <button
                                             onClick={() => setActiveTab('approvedAttachments')}
-                                            className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
-                                                activeTab === 'approvedAttachments'
+                                            className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${activeTab === 'approvedAttachments'
                                                     ? 'border-blue-600 text-blue-600'
                                                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                            }`}
+                                                }`}
                                         >
                                             Attachment
                                         </button>
@@ -2248,42 +2239,42 @@ function FineDetailsPageContent() {
                             id="fine-form-container"
                             className={`w-full ${activeTab === 'fineForm' ? 'block' : 'hidden'}`}
                         >
-                                <FineFormCards
-                                    fine={fine}
-                                    isCompanyFine={isCompanyFine}
-                                    isLossDamage={isLossDamageFineType(fine)}
-                                    lossDamageFields={lossDamageFormFields}
-                                    showGroupPlaceholder={showGroupPlaceholder}
-                                    isGroupOverview={isGroupOverviewActive}
-                                    employeeName={employeeName}
-                                    displayName={displayName}
-                                    department={department}
-                                    hodName={displayHODName}
-                                    designation={designation}
-                                    mainEmployee={mainEmployee}
-                                    fineSummaries={displayFineSummaries}
-                                    employeeOwnerId={employeeOwnerId}
-                                    getEmpShare={(f) => getEmpShare(f, employeeOwnerId)}
-                                    getCompShare={getCompShare}
-                                    formatDate={formatDate}
-                                    assetDetails={assetDetails}
-                                    allEmployeeFines={allEmployeeFines}
-                                    allEmployeeLoans={allEmployeeLoans}
-                                    canEditPartyPayables={
-                                        (fine?.fineStatus === 'Pending Accounts' ||
-                                            fine?.fineStatus === 'Pending Finance') &&
-                                        canPerformAction()
+                            <FineFormCards
+                                fine={fine}
+                                isCompanyFine={isCompanyFine}
+                                isLossDamage={isLossDamageFineType(fine)}
+                                lossDamageFields={lossDamageFormFields}
+                                showGroupPlaceholder={showGroupPlaceholder}
+                                isGroupOverview={isGroupOverviewActive}
+                                employeeName={employeeName}
+                                displayName={displayName}
+                                department={department}
+                                hodName={displayHODName}
+                                designation={designation}
+                                mainEmployee={mainEmployee}
+                                fineSummaries={displayFineSummaries}
+                                employeeOwnerId={employeeOwnerId}
+                                getEmpShare={(f) => getEmpShare(f, employeeOwnerId)}
+                                getCompShare={getCompShare}
+                                formatDate={formatDate}
+                                assetDetails={assetDetails}
+                                allEmployeeFines={allEmployeeFines}
+                                allEmployeeLoans={allEmployeeLoans}
+                                canEditPartyPayables={
+                                    (fine?.fineStatus === 'Pending Accounts' ||
+                                        fine?.fineStatus === 'Pending Finance') &&
+                                    canPerformAction()
+                                }
+                                onPartyPayablesChange={setPartyPayables}
+                                onPaymentSuccess={async () => {
+                                    try {
+                                        const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                        setFine(fineRes.data);
+                                    } catch (e) {
+                                        console.error('Failed to refresh fine after payment', e);
                                     }
-                                    onPartyPayablesChange={setPartyPayables}
-                                    onPaymentSuccess={async () => {
-                                        try {
-                                            const fineRes = await axiosInstance.get(`/Fine/${id}`);
-                                            setFine(fineRes.data);
-                                        } catch (e) {
-                                            console.error('Failed to refresh fine after payment', e);
-                                        }
-                                    }}
-                                />
+                                }}
+                            />
                         </div>
 
                         {isApprovedFineStatus(fine.fineStatus) && (
@@ -2312,7 +2303,7 @@ function FineDetailsPageContent() {
                                                 <p className="text-xs text-gray-500">Overview of the logged fine record</p>
                                             </div>
                                         </div>
-                                        
+
                                         <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Fine ID</span>
@@ -2393,7 +2384,7 @@ function FineDetailsPageContent() {
                                                 </span>
                                             </div>
                                         </div>
-                                        
+
                                         <div className="mt-4 pt-4 border-t border-gray-100">
                                             <span className="text-xs text-gray-400 block font-medium mb-1">Description / Remarks</span>
                                             <p className="text-sm text-gray-600 italic bg-gray-50 p-3 rounded-lg border border-gray-100">
@@ -2405,8 +2396,8 @@ function FineDetailsPageContent() {
                                             const damageImages = Array.isArray(fine.attachments) && fine.attachments.length > 0
                                                 ? fine.attachments
                                                 : fine.attachment?.url
-                                                  ? [fine.attachment]
-                                                  : [];
+                                                    ? [fine.attachment]
+                                                    : [];
                                             if (!damageImages.length) return null;
                                             return (
                                                 <div className="mt-4 pt-4 border-t border-gray-100">
@@ -2454,7 +2445,7 @@ function FineDetailsPageContent() {
                                                         <p className="text-xs text-gray-500">Details of the damaged or lost asset</p>
                                                     </div>
                                                 </div>
-                                                
+
                                                 {/* Redirect Link */}
                                                 {(fine.assetObjectId || assetDetails?._id) && (
                                                     <Link
@@ -2474,7 +2465,7 @@ function FineDetailsPageContent() {
                                                     </Link>
                                                 )}
                                             </div>
-                                            
+
                                             {loadingAsset ? (
                                                 <div className="flex justify-center py-6">
                                                     <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
@@ -2503,13 +2494,12 @@ function FineDetailsPageContent() {
                                                     </div>
                                                     <div>
                                                         <span className="text-xs text-gray-400 block font-medium">Status</span>
-                                                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold inline-block border ${
-                                                            String(assetDetails?.status || '').toLowerCase() === 'lost' 
-                                                                ? 'bg-red-50 text-red-700 border-red-200' 
-                                                                : String(assetDetails?.status || '').toLowerCase() === 'damaged' 
+                                                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold inline-block border ${String(assetDetails?.status || '').toLowerCase() === 'lost'
+                                                                ? 'bg-red-50 text-red-700 border-red-200'
+                                                                : String(assetDetails?.status || '').toLowerCase() === 'damaged'
                                                                     ? 'bg-amber-50 text-amber-700 border-amber-200'
                                                                     : 'bg-blue-50 text-blue-700 border-blue-200'
-                                                        }`}>
+                                                            }`}>
                                                             {assetDetails?.status || 'Lost'}
                                                         </span>
                                                     </div>
@@ -2519,7 +2509,7 @@ function FineDetailsPageContent() {
                                                             {assetDetails?.assetValue ? `${Number(assetDetails.assetValue).toLocaleString()} AED` : '-'}
                                                         </span>
                                                     </div>
-                                                    
+
                                                     {(fine.accessoryId || fine.accessoryName) && (
                                                         <div className="col-span-2 border-t border-gray-100 pt-3 mt-1">
                                                             <h5 className="font-semibold text-xs text-gray-500 uppercase tracking-wider mb-2">Affected Accessory</h5>
@@ -2549,103 +2539,103 @@ function FineDetailsPageContent() {
 
                     {/* Edit Fine Modal */}
                     {(showEditModal || isResubmittingModal) && (
-                    <>
-                        {fine.fineType === 'Vehicle Fine' && (
-                            <AddVehicleFineModal
-                                isOpen={showEditModal || isResubmittingModal}
-                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
-                                onSuccess={refreshData}
-                                employees={allEmployees}
-                                initialData={fine}
-                                isResubmitting={isResubmittingModal}
-                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
-                                fineCategory="Violation"
-                                fineTypeName="Vehicle Fine"
-                            />
-                        )}
-                        {fine.fineType === 'Vehicle Damage' && (
-                            <AddVehicleFineModal
-                                isOpen={showEditModal || isResubmittingModal}
-                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
-                                onSuccess={refreshData}
-                                employees={allEmployees}
-                                initialData={fine}
-                                isResubmitting={isResubmittingModal}
-                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
-                                fineCategory="Damage"
-                                fineTypeName="Vehicle Damage"
-                                allowMultipleImages
-                            />
-                        )}
-                        {fine.fineType === 'Safety Fine' && (
-                            <AddSafetyFineModal
-                                isOpen={showEditModal || isResubmittingModal}
-                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
-                                onSuccess={refreshData}
-                                employees={allEmployees}
-                                initialData={fine}
-                                isResubmitting={isResubmittingModal}
-                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
-                            />
-                        )}
-                        {fine.fineType === 'Project Damage' && (
-                            <AddProjectDamageModal
-                                isOpen={showEditModal || isResubmittingModal}
-                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
-                                onSuccess={refreshData}
-                                employees={allEmployees}
-                                initialData={fine}
-                                isResubmitting={isResubmittingModal}
-                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
-                            />
-                        )}
-                        {fine.fineType === 'Loss & Damage' && (
-                            <AddLossDamageModal
-                                isOpen={showEditModal || isResubmittingModal}
-                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
-                                onSuccess={refreshData}
-                                employees={allEmployees}
-                                initialData={{
-                                    ...fine,
-                                    ...(assetDetails
-                                        ? {
-                                            accessories: assetDetails.accessories || fine.accessories,
-                                            assetValue: assetDetails.assetValue ?? fine.assetValue,
-                                            purchaseDate: assetDetails.purchaseDate ?? fine.purchaseDate,
-                                            assetPurchaseDate: assetDetails.purchaseDate ?? fine.assetPurchaseDate,
-                                        }
-                                        : {}),
-                                }}
-                                isResubmitting={isResubmittingModal}
-                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
-                                assetControllerOnlyEdit={approvedAssetControllerOnlyEdit}
-                            />
-                        )}
-                        {(fine.fineType === 'Other Fines' || fine.subCategory === 'Other Fines' || fine.fineType === 'Other Damage' || fine.subCategory === 'Other Damage') && (
-                            <AddOtherDamageModal
-                                isOpen={showEditModal || isResubmittingModal}
-                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
-                                onSuccess={refreshData}
-                                employees={allEmployees}
-                                initialData={fine}
-                                isResubmitting={isResubmittingModal}
-                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
-                            />
-                        )}
-                        {/* Fallback for general fines or unmatched types */}
-                        {!['Vehicle Fine', 'Vehicle Damage', 'Safety Fine', 'Project Damage', 'Loss & Damage', 'Other Fines', 'Other Damage'].includes(fine.fineType) && fine.subCategory !== 'Other Fines' && fine.subCategory !== 'Other Damage' && (
-                            <AddFineModal
-                                isOpen={showEditModal || isResubmittingModal}
-                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
-                                onSuccess={refreshData}
-                                employees={allEmployees}
-                                initialData={fine}
-                                currentUser={currentUser}
-                                isResubmitting={isResubmittingModal}
-                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
-                            />
-                        )}
-                    </>
+                        <>
+                            {fine.fineType === 'Vehicle Fine' && (
+                                <AddVehicleFineModal
+                                    isOpen={showEditModal || isResubmittingModal}
+                                    onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                    onSuccess={refreshData}
+                                    employees={allEmployees}
+                                    initialData={fine}
+                                    isResubmitting={isResubmittingModal}
+                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    fineCategory="Violation"
+                                    fineTypeName="Vehicle Fine"
+                                />
+                            )}
+                            {fine.fineType === 'Vehicle Damage' && (
+                                <AddVehicleFineModal
+                                    isOpen={showEditModal || isResubmittingModal}
+                                    onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                    onSuccess={refreshData}
+                                    employees={allEmployees}
+                                    initialData={fine}
+                                    isResubmitting={isResubmittingModal}
+                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    fineCategory="Damage"
+                                    fineTypeName="Vehicle Damage"
+                                    allowMultipleImages
+                                />
+                            )}
+                            {fine.fineType === 'Safety Fine' && (
+                                <AddSafetyFineModal
+                                    isOpen={showEditModal || isResubmittingModal}
+                                    onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                    onSuccess={refreshData}
+                                    employees={allEmployees}
+                                    initialData={fine}
+                                    isResubmitting={isResubmittingModal}
+                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                />
+                            )}
+                            {fine.fineType === 'Project Damage' && (
+                                <AddProjectDamageModal
+                                    isOpen={showEditModal || isResubmittingModal}
+                                    onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                    onSuccess={refreshData}
+                                    employees={allEmployees}
+                                    initialData={fine}
+                                    isResubmitting={isResubmittingModal}
+                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                />
+                            )}
+                            {fine.fineType === 'Loss & Damage' && (
+                                <AddLossDamageModal
+                                    isOpen={showEditModal || isResubmittingModal}
+                                    onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                    onSuccess={refreshData}
+                                    employees={allEmployees}
+                                    initialData={{
+                                        ...fine,
+                                        ...(assetDetails
+                                            ? {
+                                                accessories: assetDetails.accessories || fine.accessories,
+                                                assetValue: assetDetails.assetValue ?? fine.assetValue,
+                                                purchaseDate: assetDetails.purchaseDate ?? fine.purchaseDate,
+                                                assetPurchaseDate: assetDetails.purchaseDate ?? fine.assetPurchaseDate,
+                                            }
+                                            : {}),
+                                    }}
+                                    isResubmitting={isResubmittingModal}
+                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    assetControllerOnlyEdit={approvedAssetControllerOnlyEdit}
+                                />
+                            )}
+                            {(fine.fineType === 'Other Fines' || fine.subCategory === 'Other Fines' || fine.fineType === 'Other Damage' || fine.subCategory === 'Other Damage') && (
+                                <AddOtherDamageModal
+                                    isOpen={showEditModal || isResubmittingModal}
+                                    onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                    onSuccess={refreshData}
+                                    employees={allEmployees}
+                                    initialData={fine}
+                                    isResubmitting={isResubmittingModal}
+                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                />
+                            )}
+                            {/* Fallback for general fines or unmatched types */}
+                            {!['Vehicle Fine', 'Vehicle Damage', 'Safety Fine', 'Project Damage', 'Loss & Damage', 'Other Fines', 'Other Damage'].includes(fine.fineType) && fine.subCategory !== 'Other Fines' && fine.subCategory !== 'Other Damage' && (
+                                <AddFineModal
+                                    isOpen={showEditModal || isResubmittingModal}
+                                    onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                    onSuccess={refreshData}
+                                    employees={allEmployees}
+                                    initialData={fine}
+                                    currentUser={currentUser}
+                                    isResubmitting={isResubmittingModal}
+                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                />
+                            )}
+                        </>
                     )}
                 </div>
             </div>
