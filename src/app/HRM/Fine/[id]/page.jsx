@@ -30,7 +30,7 @@ import {
     buildFineVendorPaymentPrefill,
     canAccountsPayFineVendorBill,
 } from '../utils/fineVendorPaymentPrefill';
-import { mapZohoVendors } from '@/utils/zohoVendors';
+import { mapZohoVendors, matchZohoVendorByName } from '@/utils/zohoVendors';
 import {
     isLossDamageFineType,
     buildLossDamageFormFields,
@@ -295,11 +295,7 @@ function FineDetailsPageContent() {
                             timeout: 45000,
                         });
                         const vendors = mapZohoVendors(vendorRes?.data?.data);
-                        const hint = resolvedVendorName.toLowerCase();
-                        const match = vendors.find((v) => {
-                            const name = String(v.label || v.name || '').trim().toLowerCase();
-                            return name === hint || name.includes(hint) || hint.includes(name);
-                        });
+                        const match = matchZohoVendorByName(vendors, resolvedVendorName);
                         if (match?.id) resolvedVendorId = String(match.id).trim();
                     } catch (lookupErr) {
                         console.warn('Could not resolve Zoho vendor from Fine Source:', lookupErr);

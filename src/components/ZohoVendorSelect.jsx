@@ -113,6 +113,7 @@ export default function ZohoVendorSelect({
                     value: label,
                     label,
                     email: vendor?.email || '',
+                    data: vendor || null,
                 };
             }),
         [optionLabels, vendorMetaByLabel],
@@ -125,17 +126,25 @@ export default function ZohoVendorSelect({
             value: current,
             label: current,
             email: '',
+            data: null,
         };
     }, [value, selectOptions]);
 
     const isDisabled = disabled || loading;
+
+    const handleChange = (option) => {
+        const label = option?.value || '';
+        const vendor = option?.data || vendorMetaByLabel.get(label) || null;
+        // First arg stays a string for existing callers; second arg is full vendor when available
+        onChange?.(label, vendor);
+    };
 
     return (
         <div className={`space-y-1 ${className}`.trim()}>
             <Select
                 classNamePrefix="zoho-vendor"
                 value={selectedOption}
-                onChange={(option) => onChange?.(option?.value || '')}
+                onChange={handleChange}
                 options={selectOptions}
                 isDisabled={isDisabled}
                 isClearable

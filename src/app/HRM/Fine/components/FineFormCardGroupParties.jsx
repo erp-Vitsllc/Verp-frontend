@@ -6,7 +6,7 @@ import { Users } from 'lucide-react';
 import { buildGroupMembersForFine } from '@/utils/fineGroupClassification';
 import axiosInstance from '@/utils/axios';
 import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
-import { mapZohoVendors } from '@/utils/zohoVendors';
+import { mapZohoVendors, matchZohoVendorByName } from '@/utils/zohoVendors';
 import { useToast } from '@/hooks/use-toast';
 import {
     FineFormCard,
@@ -317,15 +317,7 @@ export default function FineFormCardGroupParties({
         setLocalVendor(nextLabel);
         if (!dropdownsEnabled) return;
 
-        const match = vendors.find((v) => {
-            const name = String(v.label || v.name || v.companyName || '')
-                .trim()
-                .toLowerCase();
-            const want = String(nextLabel || '')
-                .trim()
-                .toLowerCase();
-            return name === want || name.includes(want) || want.includes(name);
-        });
+        const match = matchZohoVendorByName(vendors, nextLabel);
 
         setSavingVendor(true);
         try {

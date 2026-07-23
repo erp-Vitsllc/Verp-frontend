@@ -57,6 +57,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [description, setDescription] = useState('');
     const [companyDescription, setCompanyDescription] = useState('');
     const [fineSource, setFineSource] = useState('');
+    const [zohoVendorId, setZohoVendorId] = useState('');
+    const [zohoVendorName, setZohoVendorName] = useState('');
     const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
     const [payableDuration, setPayableDuration] = useState('1');
     const [selectedEmployees, setSelectedEmployees] = useState([]); // Array of employee objects { employeeId, employeeName, fineAmount, duration }
@@ -122,6 +124,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setDescription(initialData.description || '');
             setCompanyDescription(initialData.companyDescription || '');
             setFineSource(initialData.fineSource || '');
+            setZohoVendorId(initialData.zohoVendorId || '');
+            setZohoVendorName(initialData.zohoVendorName || initialData.fineSource || '');
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
             setPayableDuration(String(initialData.payableDuration || '1'));
 
@@ -184,6 +188,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setDescription('');
             setCompanyDescription('');
             setFineSource('');
+            setZohoVendorId('');
+            setZohoVendorName('');
             setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
             setPayableDuration('1');
             setServiceCharge('');
@@ -532,6 +538,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 description: description,
                 companyDescription: companyDescription,
                 fineSource: fineSource || '',
+                zohoVendorId: zohoVendorId || '',
+                zohoVendorName: zohoVendorName || fineSource || '',
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
@@ -804,7 +812,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                         <label className="text-sm font-medium text-gray-700">Fine Source</label>
                         <ZohoVendorSelect
                             value={fineSource}
-                            onChange={setFineSource}
+                            onChange={(nextValue, vendor) => {
+                                setFineSource(nextValue);
+                                setZohoVendorId(vendor?.id || '');
+                                setZohoVendorName(nextValue || '');
+                            }}
                             placeholder="Select vendor..."
                         />
                     </div>

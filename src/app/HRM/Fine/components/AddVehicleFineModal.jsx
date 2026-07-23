@@ -57,6 +57,8 @@ export default function AddVehicleFineModal({
         companyDescription: '',
         serviceCharge: '',
         fineSource: '',
+        zohoVendorId: '',
+        zohoVendorName: '',
     });
 
     const [errors, setErrors] = useState({});
@@ -144,6 +146,8 @@ export default function AddVehicleFineModal({
                 companyDescription: initialData.companyDescription || '',
                 serviceCharge: String(initialData.serviceCharge || ''),
                 fineSource: initialData.fineSource || '',
+                zohoVendorId: initialData.zohoVendorId || '',
+                zohoVendorName: initialData.zohoVendorName || initialData.fineSource || '',
             });
 
             const savedImages = [];
@@ -189,6 +193,8 @@ export default function AddVehicleFineModal({
                 companyDescription: '',
                 serviceCharge: '',
                 fineSource: '',
+                zohoVendorId: '',
+                zohoVendorName: '',
             });
             setExistingImages([]);
             setImageAttachments([]);
@@ -647,6 +653,8 @@ export default function AddVehicleFineModal({
                 description: formData.description,
                 companyDescription: formData.companyDescription,
                 fineSource: formData.fineSource || '',
+                zohoVendorId: formData.zohoVendorId || '',
+                zohoVendorName: formData.zohoVendorName || formData.fineSource || '',
                 handoverHrApproval: initialData?.handoverApprovalFine === true,
                 handoverApprovalContext: initialData?.handoverApprovalContext || null,
                 fineStatus: isResubmitting
@@ -957,8 +965,13 @@ export default function AddVehicleFineModal({
                             <label className="text-sm font-medium text-gray-700">Fine Source</label>
                             <ZohoVendorSelect
                                 value={formData.fineSource}
-                                onChange={(nextValue) =>
-                                    setFormData((prev) => ({ ...prev, fineSource: nextValue }))
+                                onChange={(nextValue, vendor) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        fineSource: nextValue,
+                                        zohoVendorId: vendor?.id || '',
+                                        zohoVendorName: nextValue || '',
+                                    }))
                                 }
                                 placeholder="Select vendor..."
                             />

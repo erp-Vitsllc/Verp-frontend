@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
-import { mapZohoVendors } from '@/utils/zohoVendors';
+import { mapZohoVendors, matchZohoVendorByName } from '@/utils/zohoVendors';
 
 function SelectField({ label, required, value, onChange, options, placeholder, disabled }) {
     return (
@@ -94,17 +94,12 @@ export default function FineManagementZohoFields({
     // Prefill vendor from Fine Source name when empty
     useEffect(() => {
         if (!fineSourceHint || value?.zohoVendorId || !vendors.length) return;
-        const hint = String(fineSourceHint).trim().toLowerCase();
-        if (!hint) return;
-        const match = vendors.find((v) => {
-            const name = String(v.name || v.companyName || v.label || '').trim().toLowerCase();
-            return name === hint || name.includes(hint) || hint.includes(name);
-        });
+        const match = matchZohoVendorByName(vendors, fineSourceHint);
         if (match) {
             onChange?.({
                 ...value,
                 zohoVendorId: match.id,
-                zohoVendorName: match.name || match.companyName || match.label || '',
+                zohoVendorName: match.label || match.name || fineSourceHint,
             });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps

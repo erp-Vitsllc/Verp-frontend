@@ -102,3 +102,51 @@ export function mergeVendorOptionLabels(vendors, extraOptions = [], currentValue
 
     return Array.from(labels).sort((a, b) => a.localeCompare(b));
 }
+
+/** Normalize vendor names for fuzzy match (case, &, whitespace). */
+export function normalizeZohoVendorName(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/\s*&\s*/g, ' & ');
+}
+
+/**
+ * Find a Zoho vendor by display name / company name.
+ * Empty Zoho "Company Name" is fine — Name (contact_name) is enough.
+ */
+export function matchZohoVendorByName(vendors, hint) {
+    const want = normalizeZohoVendorName(hint);
+    if (!want || !Array.isArray(vendors) || vendors.length === 0) return null;
+
+    const scored = [];
+    for (const v of vendors) {
+        if (!v) continue;
+        const raw = v.raw || {};
+        const candidates = [
+            v.label,
+            v.name,
+            v.companyName,
+            raw.contact_name,
+            raw.vendor_name,
+            raw.company_name,
+            raw.contactName,
+            raw.companyName,
+        ]
+            .map(normalizeZohoVendorName)
+            .filter(Boolean);
+
+        for (const name of candidates) {
+            if (name === want) return v;
+            if (name.includes(want) || want.includes(name)) {
+                scored.push({ v, len: Math.abs(name.length - want.length) });
+            }
+        }
+    }
+
+    if (scored.length === 0) return null;
+    scored.sort((a, b) => a.len - b.len);
+    return scored[0].v;
+}
+
