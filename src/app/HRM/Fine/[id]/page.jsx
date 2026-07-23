@@ -1674,45 +1674,10 @@ function FineDetailsPageContent() {
                                                     {fine?.fineSource || 'not set'}).
                                                 </li>
                                                 <li>
-                                                    Later, <strong>one Bill Item Table</strong> will list
-                                                    each party with their Payable (Chart of Accounts).
+                                                    Payable was set on the <strong>Fine Parties</strong>{' '}
+                                                    card — one Zoho Bill Item Table will use those accounts.
                                                 </li>
                                             </ul>
-                                            {!(fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) ? (
-                                                <FineManagementZohoFields
-                                                    organizationId={
-                                                        fine?.zohoOrganizationId || ''
-                                                    }
-                                                    mode="accountsPayable"
-                                                    value={{
-                                                        zohoVendorId: '',
-                                                        zohoVendorName: '',
-                                                        expenseAccountId:
-                                                            accountsApprovePayable.expenseAccountId ||
-                                                            fine?.expenseAccountId ||
-                                                            '',
-                                                        expenseAccountName:
-                                                            accountsApprovePayable.expenseAccountName ||
-                                                            fine?.expenseAccountName ||
-                                                            '',
-                                                    }}
-                                                    onChange={(next) =>
-                                                        setAccountsApprovePayable({
-                                                            expenseAccountId:
-                                                                next.expenseAccountId || '',
-                                                            expenseAccountName:
-                                                                next.expenseAccountName || '',
-                                                        })
-                                                    }
-                                                    requireExpenseAccount
-                                                    fineSourceHint={fine?.fineSource || ''}
-                                                />
-                                            ) : (
-                                                <p className="text-[11px] text-indigo-800">
-                                                    Fill Payable for every party on the Group Fine
-                                                    Parties card before confirming.
-                                                </p>
-                                            )}
                                         </div>
                                     )}
                                 {confirmConfig.action === 'approve' &&
@@ -1823,18 +1788,27 @@ function FineDetailsPageContent() {
                                         if (
                                             confirmConfig.action === 'approve' &&
                                             (fine?.fineStatus === 'Pending Accounts' ||
-                                                fine?.fineStatus === 'Pending Finance') &&
-                                            !(fine?.isGroupView || (fine?.assignedEmployees?.length > 1)) &&
-                                            !accountsApprovePayable.expenseAccountId &&
-                                            !fine?.expenseAccountId
+                                                fine?.fineStatus === 'Pending Finance')
                                         ) {
-                                            toast({
-                                                title: 'Payable required',
-                                                description:
-                                                    'Select a Payable (Chart of Accounts) before Accounts can approve.',
-                                                variant: 'destructive',
-                                            });
-                                            return;
+                                            const parties =
+                                                Array.isArray(partyPayables) && partyPayables.length > 0
+                                                    ? partyPayables
+                                                    : buildGroupMembersForFine(fine);
+                                            const missingPayable =
+                                                parties.length > 0
+                                                    ? parties.some(
+                                                          (p) => !String(p.expenseAccountId || '').trim(),
+                                                      )
+                                                    : !String(fine?.expenseAccountId || '').trim();
+                                            if (missingPayable) {
+                                                toast({
+                                                    title: 'Payable required',
+                                                    description:
+                                                        'Fill Payable on the Fine Parties card before Accounts can approve.',
+                                                    variant: 'destructive',
+                                                });
+                                                return;
+                                            }
                                         }
                                         void handleConfirmAction();
                                     }}
