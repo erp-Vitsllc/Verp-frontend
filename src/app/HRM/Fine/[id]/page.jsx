@@ -1704,72 +1704,36 @@ function FineDetailsPageContent() {
                                         </div>
                                     )}
                                 {confirmConfig.action === 'approve' &&
-                                    fine?.fineStatus === 'Pending Authorization' && (
+                                    fine?.fineStatus === 'Pending Authorization' &&
+                                    !String(fine?.zohoVendorId || managementZoho.zohoVendorId || '').trim() ? (
                                         <div className="mt-4 space-y-3 text-left">
-                                            <div className="rounded-lg border border-green-100 bg-green-50/60 p-3">
-                                                <p className="text-xs font-semibold text-green-900 mb-1.5">
-                                                    Zoho Bill
-                                                </p>
-                                                <ul className="text-[11px] text-green-900/90 space-y-1 list-disc pl-4">
-                                                    <li>
-                                                        Creates <strong>one</strong> Bill in Zoho Purchases
-                                                        → Bills (not one bill per party).
-                                                    </li>
-                                                    <li>
-                                                        <strong>Vendor</strong> = Fine Source (
-                                                        {fine?.fineSource ||
-                                                            fine?.zohoVendorName ||
-                                                            'from Accounts'}
-                                                        ).
-                                                    </li>
-                                                    <li>
-                                                        <strong>Item Table</strong> = each party as a
-                                                        line (Account = Payable from Fine Parties card,
-                                                        Amount = fine share).
-                                                    </li>
-                                                    <li>
-                                                        After success, Payable Status becomes{' '}
-                                                        <strong>Billed</strong>.
-                                                    </li>
-                                                </ul>
-                                            </div>
-                                            {!String(fine?.zohoVendorId || managementZoho.zohoVendorId || '').trim() ? (
-                                                <FineManagementZohoFields
-                                                    organizationId={
-                                                        managementZoho.zohoOrganizationId ||
-                                                        fine?.zohoOrganizationId ||
-                                                        ''
-                                                    }
-                                                    value={managementZoho}
-                                                    onChange={setManagementZoho}
-                                                    requireExpenseAccount={
-                                                        !String(fine?.expenseAccountId || '').trim() &&
-                                                        !(
-                                                            Array.isArray(partyPayables) &&
-                                                            partyPayables.length > 0 &&
-                                                            partyPayables.every((p) =>
-                                                                String(p.expenseAccountId || '').trim(),
-                                                            )
-                                                        ) &&
-                                                        !buildGroupMembersForFine(fine).every((p) =>
+                                            <FineManagementZohoFields
+                                                organizationId={
+                                                    managementZoho.zohoOrganizationId ||
+                                                    fine?.zohoOrganizationId ||
+                                                    ''
+                                                }
+                                                value={managementZoho}
+                                                onChange={setManagementZoho}
+                                                requireExpenseAccount={
+                                                    !String(fine?.expenseAccountId || '').trim() &&
+                                                    !(
+                                                        Array.isArray(partyPayables) &&
+                                                        partyPayables.length > 0 &&
+                                                        partyPayables.every((p) =>
                                                             String(p.expenseAccountId || '').trim(),
                                                         )
-                                                    }
-                                                    fineSourceHint={
-                                                        fine?.fineSource || fine?.zohoVendorName || ''
-                                                    }
-                                                />
-                                            ) : (
-                                                <p className="text-[11px] text-green-900/90 rounded-lg border border-green-100 bg-green-50/40 px-3 py-2">
-                                                    Zoho vendor is linked
-                                                    {fine?.zohoVendorName || fine?.fineSource
-                                                        ? ` (${fine?.zohoVendorName || fine?.fineSource})`
-                                                        : ''}
-                                                    .
-                                                </p>
-                                            )}
+                                                    ) &&
+                                                    !buildGroupMembersForFine(fine).every((p) =>
+                                                        String(p.expenseAccountId || '').trim(),
+                                                    )
+                                                }
+                                                fineSourceHint={
+                                                    fine?.fineSource || fine?.zohoVendorName || ''
+                                                }
+                                            />
                                         </div>
-                                    )}
+                                    ) : null}
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                                 <AlertDialogCancel className="border-gray-200 hover:bg-gray-50 text-gray-600 font-bold">

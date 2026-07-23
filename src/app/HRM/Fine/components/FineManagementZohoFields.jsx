@@ -53,7 +53,7 @@ export default function FineManagementZohoFields({
                 const orgParams = organizationId ? { organizationId } : {};
                 if (mode === 'accountsPayable') {
                     const supportRes = await axiosInstance.get('/zoho/bills/support', {
-                        params: orgParams,
+                        params: { ...orgParams, fullAccounts: 'true' },
                         skipToast: true,
                         timeout: 45000,
                     });
@@ -68,7 +68,7 @@ export default function FineManagementZohoFields({
                             timeout: 45000,
                         }),
                         axiosInstance.get('/zoho/bills/support', {
-                            params: orgParams,
+                            params: { ...orgParams, fullAccounts: 'true' },
                             skipToast: true,
                             timeout: 45000,
                         }),

@@ -164,7 +164,11 @@ export default function FineFormCardGroupParties({
                 const orgParams = organizationId ? { organizationId } : {};
                 const [supportRes, vendorRes] = await Promise.all([
                     axiosInstance.get('/zoho/bills/support', {
-                        params: orgParams,
+                        params: {
+                            ...orgParams,
+                            // Full active Chart of Accounts for Fine Payable dropdown
+                            fullAccounts: 'true',
+                        },
                         skipToast: true,
                         timeout: 45000,
                     }),
