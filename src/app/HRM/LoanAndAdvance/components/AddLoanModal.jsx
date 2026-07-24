@@ -423,7 +423,9 @@ export default function AddLoanModal({
             ? `Edit ${formData.type === 'Advance' ? 'Advance' : 'Loan'}`
             : 'Add Loan / Advance';
 
-    const fieldDisabled = scheduleOnlyEdit || !!eligibilityWarning;
+    // Schedule-only edit locks identity fields; eligibility warnings must NOT lock the form
+    // so users can switch Type / Employee when a check fails.
+    const identityLocked = scheduleOnlyEdit;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -452,7 +454,7 @@ export default function AddLoanModal({
                         <select
                             value={formData.type}
                             onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                            disabled={fieldDisabled || (!allowLoanType && !allowAdvanceType)}
+                            disabled={identityLocked || (!allowLoanType && !allowAdvanceType)}
                             className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-gray-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
                             {allowLoanType ? <option value="Loan">Loan</option> : null}
@@ -469,7 +471,7 @@ export default function AddLoanModal({
                         <select
                             value={formData.employeeId}
                             onChange={(e) => handleEmployeeChange(e.target.value)}
-                            disabled={fieldDisabled}
+                            disabled={identityLocked}
                             className={`w-full h-10 px-3 rounded-xl border ${errors.employeeId ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-70 disabled:cursor-not-allowed`}
                         >
                             <option value="">Select Employee</option>
@@ -502,10 +504,10 @@ export default function AddLoanModal({
                             }}
                             className={`w-full h-10 px-3 rounded-xl border ${errors.amount ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
                             placeholder="Enter amount"
-                            disabled={fieldDisabled}
+                            disabled={identityLocked}
                         />
                         {errors.amount && <p className="text-xs text-red-500">{errors.amount}</p>}
-                        {selectedEmployee && !eligibilityWarning && (
+                        {selectedEmployee && (
                             <p className="text-xs text-gray-500">
                                 Max: {(formData.type === 'Advance' ? selectedEmployee.salary / 2 : selectedEmployee.salary * 3).toLocaleString()}
                             </p>
@@ -524,7 +526,6 @@ export default function AddLoanModal({
                                         if (errors.duration) setErrors({ ...errors, duration: '' });
                                     }}
                                     className={`w-full h-10 px-3 rounded-xl border ${errors.duration ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
-                                    disabled={!!eligibilityWarning && !scheduleOnlyEdit}
                                 >
                                     <option value="">Select Duration</option>
                                     {Array.from({ length: 6 }, (_, i) => i + 1).map(month => (
@@ -559,7 +560,6 @@ export default function AddLoanModal({
                                     }
                                 }}
                                 className="w-full bg-gray-50 border-gray-200"
-                                disabled={!!eligibilityWarning && !scheduleOnlyEdit}
                             />
                             {dateWarning && (
                                 <div className="flex items-center gap-1.5 text-[10px] text-red-500 mt-1.5 font-medium bg-red-50/50 p-1.5 rounded-lg border border-red-100">
@@ -581,7 +581,7 @@ export default function AddLoanModal({
                             }}
                             className={`w-full h-24 px-3 py-2 rounded-xl border ${errors.reason ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-all`}
                             placeholder="Reason for loan..."
-                            disabled={fieldDisabled}
+                            disabled={identityLocked}
                         />
                         {errors.reason && <p className="text-xs text-red-500">{errors.reason}</p>}
                     </div>

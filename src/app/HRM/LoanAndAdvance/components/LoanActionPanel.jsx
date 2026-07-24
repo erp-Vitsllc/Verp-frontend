@@ -1,6 +1,11 @@
 'use client';
 
 import { Check, X, Download, Edit, Lock, Send, Trash2, Wallet } from 'lucide-react';
+import {
+    LOAN_PENDING_PAYMENT_STATUS,
+    isLoanAwaitingEmployeePayment,
+    isLoanPostManagementStatus,
+} from '../utils/loanStatusConstants';
 
 export default function LoanActionPanel({
     loan,
@@ -22,8 +27,10 @@ export default function LoanActionPanel({
 
     const status = loan.approvalStatus || loan.status;
     const isDraft = status === 'Draft';
-    const isApprovedState = ['Approved', 'Paid'].includes(status);
-    const isFinalized = status === 'Approved' || status === 'Rejected' || isApprovedState;
+    const awaitingPayment = isLoanAwaitingEmployeePayment(status);
+    const isPaid = status === 'Paid';
+    const isPostManagement = isLoanPostManagementStatus(status);
+    const isFinalized = isPostManagement || status === 'Rejected';
     const totalAmount = Number(loan.amount || 0);
     const paidAmount = Number(loan.paidAmount || 0);
     const remainingAmount = Math.max(0, totalAmount - paidAmount);
@@ -31,21 +38,28 @@ export default function LoanActionPanel({
         'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
 
     const statusBoxClass =
-        status === 'Approved' || isApprovedState
+        isPaid
             ? 'bg-green-50 border-green-100 text-green-700'
-            : status === 'Rejected'
-              ? 'bg-red-50 border-red-100 text-red-700'
-              : 'bg-yellow-50 border-yellow-100 text-yellow-700';
+            : awaitingPayment
+              ? 'bg-amber-50 border-amber-100 text-amber-800'
+              : status === 'Rejected'
+                ? 'bg-red-50 border-red-100 text-red-700'
+                : 'bg-yellow-50 border-yellow-100 text-yellow-700';
+
+    const statusLabel =
+        status === LOAN_PENDING_PAYMENT_STATUS
+            ? 'Pending Payment'
+            : status || 'Unknown';
 
     const cells = [];
 
-    if (!isApprovedState) {
+    if (!isPaid) {
         cells.push(
             <div key="status" className={`${compactBox} ${statusBoxClass}`}>
                 <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">
                     Current Status
                 </span>
-                <span className="text-lg font-bold truncate ml-2">{status || 'Unknown'}</span>
+                <span className="text-sm sm:text-lg font-bold truncate ml-2">{statusLabel}</span>
             </div>
         );
     }
@@ -63,7 +77,7 @@ export default function LoanActionPanel({
         </button>
     );
 
-    if (isApprovedState) {
+    if (isPostManagement) {
         cells.push(
             <div key="total" className={`${compactBox} bg-red-50 border-red-100`}>
                 <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">
@@ -73,8 +87,10 @@ export default function LoanActionPanel({
                     {totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
             </div>,
-            <div key="paid" className={`${compactBox} bg-green-50 border-green-100`}>
-                <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">Paid</span>
+            <div key="paidAmt" className={`${compactBox} bg-green-50 border-green-100`}>
+                <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">
+                    Amount Paid
+                </span>
                 <span className="text-lg font-bold text-green-800 tabular-nums ml-2">
                     {paidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
@@ -87,13 +103,8 @@ export default function LoanActionPanel({
                     {remainingAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
             </div>,
-            <div key="done" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
-                <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>
-                <span className="text-lg font-bold flex items-center gap-1 ml-2">
-                    <Check className="w-4 h-4" /> Completed
-                </span>
-            </div>
         );
+
         if (canPayLoan && remainingAmount > 0.01) {
             cells.push(
                 <button
@@ -101,11 +112,20 @@ export default function LoanActionPanel({
                     type="button"
                     onClick={onPay}
                     disabled={isProcessing}
-                    className={`${compactBox} border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50`}
+                    className={`${compactBox} border-teal-100 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:opacity-50`}
                 >
-                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Pay</span>
+                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Paid</span>
                     <Wallet className="w-5 h-5 shrink-0" />
                 </button>,
+            );
+        } else if (isPaid || remainingAmount <= 0.01) {
+            cells.push(
+                <div key="done" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
+                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>
+                    <span className="text-lg font-bold flex items-center gap-1 ml-2">
+                        <Check className="w-4 h-4" /> Completed
+                    </span>
+                </div>
             );
         }
     } else if (status === 'Rejected' && canResubmit) {

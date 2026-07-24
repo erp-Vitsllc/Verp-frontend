@@ -1,3 +1,5 @@
+import { isLoanAwaitingEmployeePayment } from './loanStatusConstants';
+
 /**
  * Prefill helpers for Accounts → Payments (loan / advance Zoho payout).
  */
@@ -5,7 +7,8 @@
 export function canAccountsPayLoan(loan, user) {
     if (!loan || !user) return false;
     const status = String(loan.approvalStatus || loan.status || '');
-    if (status !== 'Approved') return false;
+    // Only after Management approval (Pending Payment to Employee, or legacy Approved)
+    if (!isLoanAwaitingEmployeePayment(status)) return false;
     const amount = Number(loan.amount) || 0;
     const paid = Number(loan.paidAmount) || 0;
     if (amount <= 0 || amount - paid <= 0.01) return false;
@@ -31,6 +34,10 @@ export function buildLoanPaymentPrefill(loan, { returnTo = '', companyId = '' } 
         returnTo,
         balance,
         paymentSource: 'Cash',
+        expenseAccountId: loan.expenseAccountId || '',
+        expenseAccountName: loan.expenseAccountName || '',
+        paidThroughAccountId: loan.paidThroughAccountId || '',
+        paidThroughAccountName: loan.paidThroughAccountName || '',
         loan: {
             _id: loan._id,
             id: loan._id,
@@ -41,6 +48,10 @@ export function buildLoanPaymentPrefill(loan, { returnTo = '', companyId = '' } 
             monthStart: loan.monthStart,
             type,
             employeeId: loan.employeeId,
+            expenseAccountId: loan.expenseAccountId || '',
+            expenseAccountName: loan.expenseAccountName || '',
+            paidThroughAccountId: loan.paidThroughAccountId || '',
+            paidThroughAccountName: loan.paidThroughAccountName || '',
         },
     };
 }

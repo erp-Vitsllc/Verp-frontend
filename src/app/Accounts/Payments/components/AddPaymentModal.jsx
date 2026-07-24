@@ -174,6 +174,16 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     ? parseFloat(prefill.balance)
                     : Math.max(0, (parseFloat(loan.amount) || 0) - (parseFloat(loan.paidAmount) || 0));
             setPaymentAmount(balance.toFixed(2));
+            const prefillExpenseId =
+                prefill.expenseAccountId || loan.expenseAccountId || '';
+            if (prefillExpenseId) {
+                setExpenseAccountId(String(prefillExpenseId));
+            }
+            const prefillPaidThroughId =
+                prefill.paidThroughAccountId || loan.paidThroughAccountId || '';
+            if (prefillPaidThroughId) {
+                setPaidThroughAccountId(String(prefillPaidThroughId));
+            }
             return;
         }
 
@@ -220,7 +230,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                         }
                     });
                     const approvedLoans = (response.data.loans || []).filter(
-                        loan => loan.status === 'Approved' || loan.approvalStatus === 'Approved'
+                        (loan) =>
+                            loan.status === 'Approved' ||
+                            loan.approvalStatus === 'Approved' ||
+                            loan.status === 'Pending Payment to Employee' ||
+                            loan.approvalStatus === 'Pending Payment to Employee'
                     );
                     setLoans(approvedLoans);
                 } catch (error) {

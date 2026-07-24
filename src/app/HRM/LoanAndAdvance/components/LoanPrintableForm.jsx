@@ -60,7 +60,7 @@ export default function LoanPrintableForm({
                     </div>
                 </div>
 
-                {['Approved', 'Paid'].includes(loan.approvalStatus || loan.status) && (() => {
+                {['Approved', 'Pending Payment to Employee', 'Paid'].includes(loan.approvalStatus || loan.status) && (() => {
                     const paidAmount = loan.paidAmount || 0;
                     const remainingAmount = Math.max(0, (loan.amount || 0) - paidAmount);
                     return (

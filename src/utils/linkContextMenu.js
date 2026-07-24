@@ -62,11 +62,34 @@ export function openLinkInNewTab(href) {
 export function openLinkInNewWindow(href) {
     const path = normalizeHref(href);
     if (!path || typeof window === 'undefined') return;
-    window.open(
-        path,
-        '_blank',
-        'noopener,noreferrer,width=1280,height=800,menubar=yes,toolbar=yes,location=yes,status=yes,scrollbars=yes,resizable=yes',
-    );
+
+    const absoluteUrl = new URL(path, window.location.origin).href;
+    const width = Math.min(1280, Math.max(960, window.screen.availWidth - 120));
+    const height = Math.min(860, Math.max(640, window.screen.availHeight - 120));
+    const left = Math.max(0, Math.round((window.screen.availWidth - width) / 2));
+    const top = Math.max(0, Math.round((window.screen.availHeight - height) / 2));
+
+    // Chromium opens a *tab* if toolbar/menubar/noopener are in the features string.
+    // Request an explicit popup with size/position only, then clear opener manually.
+    const features = [
+        'popup=yes',
+        `width=${width}`,
+        `height=${height}`,
+        `left=${left}`,
+        `top=${top}`,
+        'resizable=yes',
+        'scrollbars=yes',
+    ].join(',');
+
+    const win = window.open('about:blank', '_blank', features);
+    if (!win) return;
+    win.opener = null;
+    win.location.replace(absoluteUrl);
+    try {
+        win.focus();
+    } catch {
+        // ignore focus errors from cross-origin / browser policy
+    }
 }
 
 /**

@@ -62,7 +62,7 @@ export default function LoanHistoryDetails({ loan, employee, formatDate, typeLab
                             <span className="text-xs text-gray-400 block font-medium">Status</span>
                             <span className="font-semibold text-gray-800">{status}</span>
                         </div>
-                        {['Approved', 'Paid'].includes(status) && (
+                        {['Approved', 'Pending Payment to Employee', 'Paid'].includes(status) && (
                             <>
                                 <div>
                                     <span className="text-xs text-gray-400 block font-medium">Paid</span>

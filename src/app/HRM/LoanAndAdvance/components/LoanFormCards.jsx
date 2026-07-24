@@ -2,6 +2,7 @@
 
 import LoanFormCard1 from './LoanFormCard1';
 import LoanFormCard2 from './LoanFormCard2';
+import LoanFormCardParties from './LoanFormCardParties';
 import EntityPaymentDetailsCard from '../../shared/components/EntityPaymentDetailsCard';
 import FineFormCard3 from '../../Fine/components/FineFormCard3';
 import FineFormCard4 from '../../Fine/components/FineFormCard4';
@@ -12,7 +13,7 @@ import { isApprovedLoanRecord } from '../utils/loanScheduleUtils';
 /**
  * Loan / Advance Form tab — two independent columns (matches Fine Form layout).
  * Left: Application Details → Payment Summary → Payment Details
- * Right: HR and Accounts → Current Deduction Schedule → New Schedule
+ * Right: Loan/Adv Parties → HR and Accounts → Current Deduction Schedule → New Schedule
  */
 export default function LoanFormCards(props) {
     const {
@@ -55,6 +56,14 @@ export default function LoanFormCards(props) {
                 />
             </div>
             <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
+                <LoanFormCardParties
+                    loan={loan}
+                    employee={props.employee}
+                    formatDate={props.formatDate}
+                    canEditPartyPayables={Boolean(props.canEditPartyPayables)}
+                    onPartyPayableChange={props.onPartyPayableChange}
+                    onPartyPayableSaved={props.onPaymentSuccess}
+                />
                 <LoanFormCard2 {...props} />
                 <FineFormCard4 {...financialCardProps} />
                 <FineFormCard5 {...financialCardProps} />

@@ -4,12 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import WorkflowHistoryTimeline from '../../shared/workflowHistory/WorkflowHistoryTimeline';
 import {
-    STANDARD_WORKFLOW_STEPS,
     buildWorkflowStepEvents,
     buildLoanPostApprovalEvents,
     mergeWorkflowAndPostEvents,
 } from '../../shared/workflowHistory/buildWorkflowHistoryEvents';
 import {
+    LOAN_WORKFLOW_STEPS,
     getLoanStatusStepId,
     isLoanWorkflowConnectorGreen,
     isLoanWorkflowStepApproved,
@@ -45,7 +45,7 @@ export default function LoanWorkflowHistoryPanel({ loan, typeLabel = 'Loan' }) {
         const currentActive = getLoanStatusStepId(loan);
 
         const workflowEvents = buildWorkflowStepEvents({
-            steps: STANDARD_WORKFLOW_STEPS,
+            steps: LOAN_WORKFLOW_STEPS,
             workflow,
             isStepApproved: (step) => isLoanWorkflowStepApproved(step, loan, workflow),
             isConnectorGreen: (step) => isLoanWorkflowConnectorGreen(step, loan, workflow),
@@ -57,6 +57,12 @@ export default function LoanWorkflowHistoryPanel({ loan, typeLabel = 'Loan' }) {
                         (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
                     );
                     return loan.approvedDate || mgtStep?.actionedAt || null;
+                }
+                if (step.id === 6) {
+                    const payStep = workflow.find(
+                        (w) => w.role === 'Paid to Employee' && w.status === 'Approved'
+                    );
+                    return payStep?.actionedAt || (status === 'Paid' ? loan.updatedAt : null);
                 }
                 const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
                 return wfStep?.actionedAt || null;

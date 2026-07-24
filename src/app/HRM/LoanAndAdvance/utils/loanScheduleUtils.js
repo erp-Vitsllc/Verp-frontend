@@ -1,10 +1,16 @@
+import {
+    LOAN_PENDING_PAYMENT_STATUS,
+    LOAN_POST_MANAGEMENT_STATUSES,
+    isLoanAwaitingEmployeePayment,
+} from './loanStatusConstants';
+
 export function resolveLoanRecordStatus(loan) {
     return String(loan?.approvalStatus || loan?.applicationStatus || loan?.status || '').trim();
 }
 
 export function isApprovedLoanRecord(loan) {
     const status = resolveLoanRecordStatus(loan);
-    return ['Approved', 'Paid'].includes(status);
+    return LOAN_POST_MANAGEMENT_STATUSES.includes(status);
 }
 
 /** Pending loans may appear in New Schedule preview only. */
@@ -14,6 +20,8 @@ export function isPendingLoanScheduleStatus(loan) {
     if (isApprovedLoanRecord(loan)) return false;
     return status.toLowerCase().includes('pending');
 }
+
+export { LOAN_PENDING_PAYMENT_STATUS, isLoanAwaitingEmployeePayment };
 
 export function getFrozenLoanSchedule(loan) {
     if (!loan) return loan;

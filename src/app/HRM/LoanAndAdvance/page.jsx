@@ -175,17 +175,34 @@ function LoanPageContent() {
         // First filter by Tab (Loan vs Advance)
         if (item.type !== activeTab) return false;
 
-        // Then filter by dashboard selection
+        // Then filter by status dropdown / dashboard selection
         if (selectedStatus === 'All') return true;
 
         const status = (item.applicationStatus || item.status || '').toLowerCase();
+        const selected = String(selectedStatus || '').toLowerCase();
 
-        if (selectedStatus === 'Pending') return status.includes('pending') || status === 'draft';
-        if (selectedStatus === 'Approved') return status === 'approved';
-        if (selectedStatus === 'Outstanding') return status === 'approved' && item.activeStatus !== 'Closed';
-        if (selectedStatus === 'Recovered') return status === 'approved' && item.activeStatus === 'Closed';
+        // Dashboard buckets
+        if (selectedStatus === 'Outstanding') {
+            return (
+                (status === 'approved' || status === 'pending payment to employee') &&
+                item.activeStatus !== 'Closed'
+            );
+        }
+        if (selectedStatus === 'Recovered') {
+            return status === 'paid' || (status === 'approved' && item.activeStatus === 'Closed');
+        }
+        // Approval-stage pending (exclude Pending Payment to Employee)
+        if (selectedStatus === 'Pending') {
+            if (status === 'pending payment to employee') return false;
+            return status.includes('pending') || status === 'draft';
+        }
+        // "Approved" card includes awaiting payment after Management
+        if (selectedStatus === 'Approved') {
+            return status === 'approved' || status === 'pending payment to employee';
+        }
 
-        return true;
+        // Exact application status (Draft, Pending HR, Pending Payment to Employee, …)
+        return status === selected;
     });
 
     // Calculate Statistics
@@ -199,24 +216,30 @@ function LoanPageContent() {
         const s = stats[type];
 
         const status = (item.applicationStatus || item.status || '').toLowerCase();
+        const isPostMgt =
+            status === 'approved' ||
+            status === 'pending payment to employee' ||
+            status === 'paid';
 
-        if (status === 'approved') {
+        if (isPostMgt && status !== 'paid') {
             s.count++;
-            s.amount += (item.amount || 0); // Need to accumulate total approved amount here if not already done, wait. Actually it does it below.
+            s.amount += (item.amount || 0);
         }
 
-        if (status.includes('pending')) {
+        if (status.includes('pending') && status !== 'pending payment to employee') {
             s.pending++;
-        } else if (status === 'approved') {
+        } else if (status === 'approved' || status === 'pending payment to employee') {
             s.approved++;
 
             // Logic for Outstanding vs Recovered
-            // Only Approved loans can be Outstanding or Recovered
-            if (item.activeStatus === 'Closed') {
+            if (item.activeStatus === 'Closed' || status === 'paid') {
                 s.recovered += (item.amount || 0);
             } else {
                 s.outstanding += (item.amount || 0);
             }
+        } else if (status === 'paid') {
+            s.approved++;
+            s.recovered += (item.amount || 0);
         }
     });
 
@@ -420,18 +443,28 @@ function LoanPageContent() {
                                 ) : null}
                             </div>
 
-                            {selectedStatus !== 'All' && (
-                                <button
-                                    onClick={() => setSelectedStatus('All')}
-                                    className="text-xs font-bold text-red-500 hover:text-red-600 flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100"
+                            <div className="relative min-w-[160px] sm:min-w-[200px]">
+                                <select
+                                    value={selectedStatus}
+                                    onChange={(e) => setSelectedStatus(e.target.value)}
+                                    className="w-full h-[34px] sm:h-[38px] px-3 sm:px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all font-medium"
+                                    aria-label="Filter by status"
                                 >
-                                    CLEAR FILTER: {selectedStatus.toUpperCase()}
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            )}
+                                    <option value="All">All Statuses</option>
+                                    <option value="Draft">Draft</option>
+                                    <option value="Pending">Pending</option>
+                                    <option value="Pending HR">Pending HR</option>
+                                    <option value="Pending Accounts">Pending Accounts</option>
+                                    <option value="Pending Authorization">Pending Authorization</option>
+                                    <option value="Pending Payment to Employee">Pending Payment to Employee</option>
+                                    <option value="Approved">Approved</option>
+                                    <option value="Outstanding">Outstanding</option>
+                                    <option value="Recovered">Recovered</option>
+                                    <option value="Paid">Paid</option>
+                                    <option value="Rejected">Rejected</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                </select>
+                            </div>
                         </div>
 
                         {/* Table */}
@@ -514,12 +547,17 @@ function LoanPageContent() {
                                                     </td>
                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                         <span
-                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${item.applicationStatus === 'Approved'
-                                                                ? 'bg-blue-100 text-blue-800'
-                                                                : item.applicationStatus === 'Pending'
-                                                                    ? 'bg-yellow-100 text-yellow-800'
-                                                                    : 'bg-red-100 text-red-800'
-                                                                }`}
+                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                                                item.applicationStatus === 'Paid'
+                                                                    ? 'bg-green-100 text-green-800'
+                                                                    : item.applicationStatus === 'Approved' ||
+                                                                        item.applicationStatus === 'Pending Payment to Employee'
+                                                                      ? 'bg-blue-100 text-blue-800'
+                                                                      : String(item.applicationStatus || '').includes('Pending') ||
+                                                                          item.applicationStatus === 'Draft'
+                                                                        ? 'bg-yellow-100 text-yellow-800'
+                                                                        : 'bg-red-100 text-red-800'
+                                                            }`}
                                                         >
                                                             {item.applicationStatus || 'Pending'}
                                                         </span>

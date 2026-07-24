@@ -429,7 +429,7 @@ export function buildFinePostApprovalEvents(fine, { payments = [] } = {}) {
 export function buildLoanPostApprovalEvents(loan, { payments = [] } = {}) {
     if (!loan) return [];
     const status = loan.approvalStatus || loan.status;
-    const approved = ['Approved', 'Paid'].includes(status);
+    const approved = ['Approved', 'Pending Payment to Employee', 'Paid'].includes(status);
     if (!approved) return [];
 
     const events = [];

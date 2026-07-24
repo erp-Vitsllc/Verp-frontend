@@ -394,7 +394,7 @@ export default function LoanRequestDetails() {
     const canApproveLoan = () => {
         if (!loan || !currentUser) return false;
         const status = loan.approvalStatus || loan.status;
-        if (['Approved', 'Paid', 'Rejected', 'Cancelled'].includes(status)) return false;
+        if (['Approved', 'Pending Payment to Employee', 'Paid', 'Rejected', 'Cancelled'].includes(status)) return false;
 
         if (isAdmin()) return true;
 
@@ -464,7 +464,7 @@ export default function LoanRequestDetails() {
     const canPerformAction = () => {
         if (!loan || !currentUser) return false;
 
-        if (loan.status === 'Approved' || loan.status === 'Rejected') {
+        if (loan.status === 'Approved' || loan.status === 'Pending Payment to Employee' || loan.status === 'Rejected') {
             return false;
         }
 
@@ -670,6 +670,39 @@ export default function LoanRequestDetails() {
             targetStatus = action === 'approve' ? 'Approved' : 'Rejected';
         }
 
+        const loanStage = loan?.approvalStatus || loan?.status;
+        if (action === 'approve' && loanStage === 'Pending Accounts') {
+            if (!String(loan?.expenseAccountId || '').trim()) {
+                toast({
+                    title: 'Expense Account required',
+                    description:
+                        'Fill Expense Account on the Loan/Advance Parties card before Accounts can approve.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+            if (!String(loan?.paidThroughAccountId || '').trim()) {
+                toast({
+                    title: 'Paid Through required',
+                    description:
+                        'Fill Paid Through on the Loan/Advance Parties card before Accounts can approve.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+            if (
+                String(loan.expenseAccountId).trim() ===
+                String(loan.paidThroughAccountId).trim()
+            ) {
+                toast({
+                    title: 'Accounts must differ',
+                    description: 'Expense Account and Paid Through must be different.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+        }
+
         setIsProcessing(true);
         try {
             await axiosInstance.put(`/Employee/loans/${id}/status`, {
@@ -836,7 +869,7 @@ export default function LoanRequestDetails() {
                                                     </div>
                                                     {(() => {
                                                         const s = loan?.approvalStatus || loan?.status;
-                                                        const isApprovedState = ['Approved', 'Paid'].includes(s);
+                                                        const isApprovedState = ['Approved', 'Pending Payment to Employee', 'Paid'].includes(s);
                                                         if (isApprovedState) return null;
                                                         let role = '';
                                                         let waitingForName = '';
@@ -978,6 +1011,11 @@ export default function LoanRequestDetails() {
                                 allEmployeeFines={allEmployeeFines}
                                 allEmployeeLoans={allEmployeeLoans}
                                 employeeOwnerId={employeeOwnerId}
+                                canEditPartyPayables={
+                                    (loan?.approvalStatus === 'Pending Accounts' ||
+                                        loan?.status === 'Pending Accounts') &&
+                                    canPerformAction()
+                                }
                                 onPaymentSuccess={() => fetchLoanDetails()}
                             />
                         </div>

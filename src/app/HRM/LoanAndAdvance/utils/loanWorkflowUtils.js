@@ -4,6 +4,7 @@ export const LOAN_WORKFLOW_STEPS = [
     { id: 3, label: 'HR', role: 'HR' },
     { id: 4, label: 'Accounts', role: 'Accounts' },
     { id: 5, label: 'Management', role: 'Management' },
+    { id: 6, label: 'Paid to Employee', role: 'Paid to Employee' },
 ];
 
 export function getLoanStatusStepId(loan) {
@@ -15,6 +16,7 @@ export function getLoanStatusStepId(loan) {
         'Pending Accounts': 4,
         'Pending Authorization': 5,
         Approved: 6,
+        'Pending Payment to Employee': 6,
         Paid: 6,
     };
     return map[status] || 2;
@@ -22,7 +24,21 @@ export function getLoanStatusStepId(loan) {
 
 export function isLoanWorkflowStepApproved(step, loan, workflow = []) {
     const status = loan?.approvalStatus || loan?.status;
-    if (['Approved', 'Paid'].includes(status)) return true;
+
+    // Step 6 completes only when Accounts has disbursed (status Paid)
+    if (step.id === 6) {
+        return (
+            status === 'Paid' ||
+            workflow.some((w) => w.role === 'Paid to Employee' && w.status === 'Approved')
+        );
+    }
+
+    if (status === 'Paid') return true;
+    if (status === 'Approved' || status === 'Pending Payment to Employee') {
+        // Management done — steps 1–5 complete; step 6 still pending payment
+        return step.id <= 5;
+    }
+
     if (step.id === 1) return true;
     if (step.id === 2) return String(status || '').toLowerCase() !== 'draft';
     if (step.id === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
@@ -37,6 +53,7 @@ export function isLoanWorkflowStepApproved(step, loan, workflow = []) {
 
 export function isLoanWorkflowConnectorGreen(step, loan, workflow = []) {
     const status = loan?.approvalStatus || loan?.status;
+    const postMgt = ['Approved', 'Pending Payment to Employee', 'Paid'].includes(status);
     const nextId = step.id + 1;
     if (nextId === 2) return String(status || '').toLowerCase() !== 'draft';
     if (nextId === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
@@ -45,7 +62,15 @@ export function isLoanWorkflowConnectorGreen(step, loan, workflow = []) {
         return (
             workflow.some(
                 (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
-            ) || ['Approved', 'Paid'].includes(status)
+            ) || postMgt
+        );
+    }
+    if (nextId === 6) {
+        return (
+            postMgt ||
+            workflow.some(
+                (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
+            )
         );
     }
     return false;
@@ -102,6 +127,14 @@ export function getLoanStepActor(step, loan, workflow = []) {
         if (loan.ceoName && loan.ceoName !== 'Unknown') return loan.ceoName;
         return 'CEO / Management';
     }
+    if (step.id === 6) {
+        const payStep = workflow.find((w) => w.role === 'Paid to Employee');
+        if (payStep?.assignedTo?.firstName) {
+            return `${payStep.assignedTo.firstName} ${payStep.assignedTo.lastName || ''}`.trim();
+        }
+        if (loan.accountsHODName && loan.accountsHODName !== 'Unknown') return loan.accountsHODName;
+        return 'Accounts Officer';
+    }
     return '';
 }
 
@@ -109,6 +142,11 @@ export function getLoanStepDateStr(step, loan, workflow = [], format) {
     let dateValue = null;
     if (step.id <= 2) {
         dateValue = loan.createdAt;
+    } else if (step.id === 6) {
+        const payStep = workflow.find(
+            (w) => w.role === 'Paid to Employee' && w.status === 'Approved',
+        );
+        dateValue = payStep?.actionedAt || (loan.approvalStatus === 'Paid' ? loan.updatedAt : null);
     } else {
         const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
         dateValue = wfStep?.actionedAt;

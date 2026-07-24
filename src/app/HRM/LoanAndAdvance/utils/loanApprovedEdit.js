@@ -1,4 +1,6 @@
-export const APPROVED_LOAN_STATUSES = ['Approved', 'Paid'];
+import { LOAN_POST_MANAGEMENT_STATUSES } from './loanStatusConstants';
+
+export const APPROVED_LOAN_STATUSES = LOAN_POST_MANAGEMENT_STATUSES;
 
 export function isApprovedLoanStatus(status) {
     return APPROVED_LOAN_STATUSES.includes(status);
