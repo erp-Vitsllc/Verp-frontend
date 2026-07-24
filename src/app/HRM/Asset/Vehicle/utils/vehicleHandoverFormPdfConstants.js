@@ -46,7 +46,7 @@ export const PDF_CELL_LABEL_CLASS = 'text-[11pt] font-semibold leading-tight';
 export const PDF_SECTION_EMPHASIS_CLASS = 'text-[11pt] font-semibold';
 
 export const PDF_ACCESSORY_LABELS = {
-    spareTyre: 'Spare type.',
+    spareTyre: 'Spare Tyre',
     toolsKit: 'Tools Kit',
     scissorJack: 'Scissor Jacky',
     firstAidKit: 'Fist Aid Kit',

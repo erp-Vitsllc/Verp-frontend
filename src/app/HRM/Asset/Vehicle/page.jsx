@@ -6,7 +6,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList, Trash2, Filter, Pencil, Wrench } from 'lucide-react';
+import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, Trash2, Filter, Pencil, Wrench } from 'lucide-react';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import {
     isVehicleProfileActivationActive,
@@ -694,13 +694,6 @@ export default function VehicleAssetPage() {
                                 >
                                     <LayoutDashboard size={18} />
                                     Fleet dashboard
-                                </Link>
-                                <Link
-                                    href="/HRM/Asset/Vehicle/service-requests"
-                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-white border border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors whitespace-nowrap"
-                                >
-                                    <ClipboardList size={18} />
-                                    Service requests
                                 </Link>
                                 {canCreateService ? (
                                 <button

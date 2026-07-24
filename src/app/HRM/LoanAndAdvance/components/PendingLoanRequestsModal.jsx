@@ -5,7 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
-import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
+import { buildLoanNotificationPath } from '@/utils/loanNotificationRouting';
 import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
 import { mapPendingInboxToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
@@ -20,7 +20,7 @@ import {
 } from '../utils/loanPendingInboxCount';
 
 function loanHref(row) {
-    return buildDashboardNotificationPath(row) || '';
+    return buildLoanNotificationPath(row) || '';
 }
 
 export default function PendingLoanRequestsModal({

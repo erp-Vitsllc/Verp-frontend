@@ -187,6 +187,8 @@ export default function EntityPaymentDetailsCard({
     entityRecord = null,
     employeeId = '',
     isPayable = true,
+    /** When false, Pay is hidden (e.g. non-Accounts users). */
+    allowPay = true,
     onPaymentSuccess,
 }) {
     const pathname = usePathname();
@@ -250,7 +252,7 @@ export default function EntityPaymentDetailsCard({
         });
     }, [entityRecord, entityType, schedulePayments, employeeId]);
 
-    const canPay = isPayable && remaining > 0.01 && Boolean(entityRecord);
+    const canPay = Boolean(allowPay) && isPayable && remaining > 0.01 && Boolean(entityRecord);
 
     const handleOpenPayModal = () => {
         if (!entityRecord) return;

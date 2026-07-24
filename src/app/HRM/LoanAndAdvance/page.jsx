@@ -84,9 +84,10 @@ function LoanPageContent() {
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
 
-    const showLoanTab = !mounted || canViewLoanList();
-    const showAdvanceTab = !mounted || canViewAdvanceList();
+    const showLoanTab = mounted && canViewLoanList();
+    const showAdvanceTab = mounted && canViewAdvanceList();
     const canAdd = mounted && canAccessAddLoanOrAdvance();
+    const hasAnyListTab = showLoanTab || showAdvanceTab;
 
     const listReturnParams = useMemo(() => ({
         tab: activeTab,
@@ -473,6 +474,12 @@ function LoanPageContent() {
                                     Salary Advance List
                                 </button>
                                 ) : null}
+                                {mounted && !hasAnyListTab ? (
+                                    <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                        No Loan or Advance list permission. Enable <strong>Loan</strong> and/or{' '}
+                                        <strong>Advance</strong> View on this group (under Loan and Advance).
+                                    </p>
+                                ) : null}
                             </div>
 
                             <div className="relative min-w-[160px] sm:min-w-[200px]">
@@ -500,6 +507,7 @@ function LoanPageContent() {
                         </div>
 
                         {/* Table */}
+                        {hasAnyListTab ? (
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
                                 <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
@@ -580,18 +588,22 @@ function LoanPageContent() {
                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                         <span
                                                             className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                                                item.applicationStatus === 'Approved' ||
+                                                                item.applicationStatus === 'Pending Payment to Employee' ||
                                                                 item.applicationStatus === 'Paid'
-                                                                    ? 'bg-green-100 text-green-800'
-                                                                    : item.applicationStatus === 'Approved' ||
-                                                                        item.applicationStatus === 'Pending Payment to Employee'
-                                                                      ? 'bg-blue-100 text-blue-800'
-                                                                      : String(item.applicationStatus || '').includes('Pending') ||
-                                                                          item.applicationStatus === 'Draft'
-                                                                        ? 'bg-yellow-100 text-yellow-800'
-                                                                        : 'bg-red-100 text-red-800'
+                                                                    ? 'bg-blue-100 text-blue-800'
+                                                                    : String(item.applicationStatus || '').includes('Pending') ||
+                                                                        item.applicationStatus === 'Draft'
+                                                                      ? 'bg-yellow-100 text-yellow-800'
+                                                                      : 'bg-red-100 text-red-800'
                                                             }`}
                                                         >
-                                                            {item.applicationStatus || 'Pending'}
+                                                            {item.applicationStatus === 'Paid' ||
+                                                            item.applicationStatus === 'Pending Payment to Employee'
+                                                                ? item.applicationStatus === 'Pending Payment to Employee'
+                                                                    ? 'Pending Payment to Employee'
+                                                                    : 'Approved'
+                                                                : item.applicationStatus || 'Pending'}
                                                         </span>
                                                     </td>
                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
@@ -619,6 +631,7 @@ function LoanPageContent() {
                                 </table>
                             </div>
                         </div>
+                        ) : null}
                     </div>
                 </div>
             </div>

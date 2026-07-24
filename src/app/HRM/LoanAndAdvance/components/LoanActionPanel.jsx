@@ -4,6 +4,7 @@ import { Check, X, Download, Edit, Lock, Send, Trash2, Wallet } from 'lucide-rea
 import {
     LOAN_PENDING_PAYMENT_STATUS,
     isLoanAwaitingEmployeePayment,
+    isLoanFullyDisbursed,
     isLoanPostManagementStatus,
 } from '../utils/loanStatusConstants';
 
@@ -27,8 +28,8 @@ export default function LoanActionPanel({
 
     const status = loan.approvalStatus || loan.status;
     const isDraft = status === 'Draft';
-    const awaitingPayment = isLoanAwaitingEmployeePayment(status);
-    const isPaid = status === 'Paid';
+    const awaitingPayment = isLoanAwaitingEmployeePayment(loan);
+    const isPaid = isLoanFullyDisbursed(loan);
     const isPostManagement = isLoanPostManagementStatus(status);
     const isFinalized = isPostManagement || status === 'Rejected';
     const totalAmount = Number(loan.amount || 0);
@@ -46,23 +47,22 @@ export default function LoanActionPanel({
                 ? 'bg-red-50 border-red-100 text-red-700'
                 : 'bg-yellow-50 border-yellow-100 text-yellow-700';
 
-    const statusLabel =
-        status === LOAN_PENDING_PAYMENT_STATUS
-            ? 'Pending Payment'
-            : status || 'Unknown';
+    const statusLabel = isPaid
+        ? 'Approved'
+        : status === LOAN_PENDING_PAYMENT_STATUS
+          ? 'Pending Payment'
+          : status || 'Unknown';
 
     const cells = [];
 
-    if (!isPaid) {
-        cells.push(
-            <div key="status" className={`${compactBox} ${statusBoxClass}`}>
-                <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">
-                    Current Status
-                </span>
-                <span className="text-sm sm:text-lg font-bold truncate ml-2">{statusLabel}</span>
-            </div>
-        );
-    }
+    cells.push(
+        <div key="status" className={`${compactBox} ${statusBoxClass}`}>
+            <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">
+                Current Status
+            </span>
+            <span className="text-sm sm:text-lg font-bold truncate ml-2">{statusLabel}</span>
+        </div>
+    );
 
     cells.push(
         <button

@@ -18,7 +18,7 @@ function isCashReward(reward) {
 /**
  * Payment Details card — same pattern as Fine (under reward details).
  */
-export default function RewardPaymentTab({ reward, onPaymentSuccess }) {
+export default function RewardPaymentTab({ reward, onPaymentSuccess, allowPay = true }) {
     if (!reward) return null;
 
     const totalPayable = Number(reward.amount) || 0;
@@ -50,6 +50,7 @@ export default function RewardPaymentTab({ reward, onPaymentSuccess }) {
             entityRecord={reward}
             employeeId={reward.employeeId}
             isPayable={isRewardPaymentEligible(reward)}
+            allowPay={Boolean(allowPay)}
             onPaymentSuccess={onPaymentSuccess}
         />
     );

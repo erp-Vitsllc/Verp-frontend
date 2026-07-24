@@ -33,6 +33,7 @@ import { formatRewardStatusLabel, isRewardPaymentEligible, formatRewardPaymentLa
 import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '../utils/rewardPaymentPrefill';
 import { canEditRewardCertificate } from '../utils/rewardPermissionAccess';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
+import PermissionGuard from '@/components/PermissionGuard';
 
 export default function RewardDetailsPage({ params }) {
     const { id } = use(params);
@@ -558,7 +559,7 @@ export default function RewardDetailsPage({ params }) {
                 }
             }
 
-            await axiosInstance.put(`/Reward/${reward._id}`, updatePayload);
+            await axiosInstance.put(`/Reward/${reward._id}/status`, updatePayload);
             toast({
                 title: "Success",
                 description: `Reward ${finalStatus === 'Pending Authorization' ? 'authorized' : finalStatus.toLowerCase()} successfully`,
@@ -775,6 +776,7 @@ export default function RewardDetailsPage({ params }) {
     }
 
     return (
+        <PermissionGuard moduleId="hrm_reward" permissionType="view">
         <div className="flex min-h-screen w-full max-w-full overflow-x-hidden bg-[#F2F6F9]">
             {/* Font Import for Certificate */}
             <style jsx global>{`
@@ -1152,6 +1154,7 @@ export default function RewardDetailsPage({ params }) {
                                 );
                             }}
                             onPartyPayableSaved={() => fetchData()}
+                            allowPay={canAccountsPayCashReward(reward, currentUser)}
                         />
                                 </div>
 
@@ -1257,5 +1260,6 @@ export default function RewardDetailsPage({ params }) {
                 </AlertDialogContent>
             </AlertDialog>
         </div>
+        </PermissionGuard>
     );
 }

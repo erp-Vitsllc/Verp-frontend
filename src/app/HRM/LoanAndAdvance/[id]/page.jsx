@@ -1134,15 +1134,48 @@ export default function LoanRequestDetails() {
                                 allEmployeeFines={allEmployeeFines}
                                 allEmployeeLoans={allEmployeeLoans}
                                 employeeOwnerId={employeeOwnerId}
-                                canEditPartyPayables={
-                                    ((loan?.approvalStatus === 'Pending Accounts' ||
-                                        loan?.status === 'Pending Accounts') ||
-                                        ((loan?.approvalStatus === 'Paid' ||
-                                            loan?.status === 'Paid') &&
-                                            !String(loan?.zohoExpenseId || '').trim() &&
-                                            Boolean(String(loan?.zohoSyncError || '').trim()))) &&
-                                    canPerformAction()
-                                }
+                                canEditPartyPayables={(() => {
+                                    if (!loan || !currentUser) return false;
+                                    const status = String(loan.approvalStatus || loan.status || '');
+                                    const hasZoho = Boolean(String(loan.zohoExpenseId || '').trim());
+                                    const syncErr = Boolean(String(loan.zohoSyncError || '').trim());
+                                    const amount = Number(loan.amount) || 0;
+                                    const paid = Number(loan.paidAmount) || 0;
+                                    const unpaid = amount > 0 && amount - paid > 0.01;
+
+                                    const dept = String(currentUser.department || '').toLowerCase();
+                                    const desig = String(currentUser.designation || '').toLowerCase();
+                                    const isFinanceUser =
+                                        isAdmin() ||
+                                        dept.includes('finance') ||
+                                        dept.includes('account') ||
+                                        dept.includes('payroll') ||
+                                        desig.includes('account') ||
+                                        desig.includes('finance') ||
+                                        desig.includes('payroll');
+
+                                    // 1) Pending Accounts — first Accounts edit (approve stage)
+                                    const atAccountsStage =
+                                        status === 'Pending Accounts' && canApproveLoan();
+
+                                    // 2) Pay to Employee — second Accounts edit before Mark Paid / Zoho
+                                    const atPayToEmployee =
+                                        !hasZoho &&
+                                        (status === 'Pending Payment to Employee' ||
+                                            (status === 'Approved' && unpaid)) &&
+                                        canAccountsPayLoan(loan, currentUser);
+
+                                    // 3) Disbursed but Zoho failed — allow Accounts to fix COA + retry
+                                    const fixFailedZoho =
+                                        !hasZoho &&
+                                        syncErr &&
+                                        isFinanceUser &&
+                                        (status === 'Paid' ||
+                                            (Number(loan?.amount) > 0 &&
+                                                Number(loan?.paidAmount) >= Number(loan?.amount) - 0.01));
+
+                                    return atAccountsStage || atPayToEmployee || fixFailedZoho;
+                                })()}
                                 onPartyPayableChange={(next) => {
                                     if (!next) return;
                                     setLoan((prev) =>
@@ -1162,6 +1195,7 @@ export default function LoanRequestDetails() {
                                 onPartyPayableSaved={() => fetchLoanDetails()}
                                 onRetryZohoSuccess={() => fetchLoanDetails()}
                                 onPaymentSuccess={() => fetchLoanDetails()}
+                                allowPay={canAccountsPayLoan(loan, currentUser)}
                             />
                         </div>
 

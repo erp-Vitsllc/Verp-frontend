@@ -21,6 +21,7 @@ import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { buildAssetNotificationPath, buildVehicleDetailPath, parseAssetNotificationMeta, resolveVehicleExpiryFocusFromLabel, resolveVehicleExpiryTabFromLabel } from '@/utils/assetNotificationRouting';
 import { buildFineNotificationPath } from '@/utils/fineNotificationRouting';
 import { buildRewardNotificationPath } from '@/utils/rewardNotificationRouting';
+import { buildLoanNotificationPath } from '@/utils/loanNotificationRouting';
 
 /** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
 export function myRequestNotificationSecondaryText(item) {
@@ -321,7 +322,7 @@ const buildCompanyNotRenewPath = (item, meta) => {
  */
 export const buildDashboardNotificationPath = (item) => {
     if (!item || typeof item !== 'object') return '';
-    const typeRaw = String(item.type || '').trim();
+    const typeRaw = String(item.type || item.requestType || '').trim();
     const type = typeRaw.toLowerCase();
 
     if (item.type === 'Document Expiry Reminder') {
@@ -419,12 +420,7 @@ export const buildDashboardNotificationPath = (item) => {
     }
 
     if (type.includes('loan') || type === 'advance' || type.includes('loan/advance') || type.includes('loan and advance')) {
-        const loanKey =
-            item.loan?.loanId ||
-            item.loan?._id ||
-            item.requestObjectId ||
-            item.id;
-        return loanKey ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(loanKey))}` : '';
+        return buildLoanNotificationPath(item) || '';
     }
     if (type.includes('reward')) {
         const path = buildRewardNotificationPath(item);

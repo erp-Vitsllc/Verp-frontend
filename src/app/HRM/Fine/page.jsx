@@ -38,6 +38,7 @@ import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import { canAccessAddFine } from '@/app/HRM/Fine/utils/finePermissionAccess';
+import PermissionGuard from '@/components/PermissionGuard';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -1293,8 +1294,10 @@ function FinePageContent() {
 
 export default function FinePage() {
     return (
-        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
-            <FinePageContent />
-        </Suspense>
+        <PermissionGuard moduleId="hrm_fine" permissionType="view">
+            <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+                <FinePageContent />
+            </Suspense>
+        </PermissionGuard>
     );
 }

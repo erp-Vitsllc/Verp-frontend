@@ -43,7 +43,18 @@ import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
-import { buildFineVendorPaymentPrefill } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
+import { buildFineVendorPaymentPrefill, canAccountsPayFineEmployeeShare, isAccountsFinanceUser } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
+import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile, isRewardPaymentEligible } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
+import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
+import {
+    canAccountsPayLoan,
+    buildLoanPaymentPrefill,
+} from '@/app/HRM/LoanAndAdvance/utils/loanPaymentPrefill';
+import {
+    isLoanVisibleOnEmployeeProfile,
+    formatLoanProfileStatus,
+    formatLoanProfilePaymentLabel,
+} from '@/app/HRM/LoanAndAdvance/utils/loanStatusConstants';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 import AssetCheckboxAssignModal from '../modals/AssetCheckboxAssignModal';
@@ -68,7 +79,6 @@ import {
     shouldShowPaymentInHistory,
 } from '@/utils/paymentStatusDisplay';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
-import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import EmployeeSalaryVehicleUtilityPanel from './EmployeeSalaryVehicleUtilityPanel';
 import EmployeeExpensesPanel from './EmployeeExpensesPanel';
 
@@ -1120,29 +1130,24 @@ export default function SalaryTab({
             return;
         }
 
-        const zohoReady = selectedPayableFines.filter((f) => String(f.zohoBillId || '').trim());
+        // Accounts only — Zoho Bill is vendor-side; salary Pay is employee recovery (status stays Approved until ERP pay).
         if (
-            zohoReady.length === selectedPayableFines.length &&
-            zohoReady.length === 1 &&
-            String(zohoReady[0].vendorBillStatus || '').toLowerCase() !== 'paid'
+            !selectedPayableFines.every((f) =>
+                canAccountsPayFineEmployeeShare(f, currentUser, getFineFilteredBalance(f)),
+            )
         ) {
-            const prefill = buildFineVendorPaymentPrefill(zohoReady[0], {
-                returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+            toast({
+                variant: 'destructive',
+                title: 'Accounts only',
+                description: 'Only Accounts can pay fines from the employee salary profile.',
             });
-            if (prefill?.zohoBillIds?.length) {
-                sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
-                const params = new URLSearchParams();
-                params.set('addFinePay', '1');
-                if (prefill.organizationId) params.set('organizationId', prefill.organizationId);
-                if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
-                router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
-                return;
-            }
+            return;
         }
 
         const payload = {
             employeeId,
             returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+            paymentSource: 'Salary',
             fines: selectedPayableFines.map((f) => ({
                 _id: f._id,
                 fineId: f.fineId,
@@ -1187,6 +1192,15 @@ export default function SalaryTab({
         if (!rewardRouteId) return;
         saveListReturnState(`${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`);
         router.push(`/HRM/Reward/rewrd.${encodeURIComponent(rewardRouteId)}`);
+    };
+
+    const openLoanAdvanceDetails = (loan, e) => {
+        e?.stopPropagation();
+        const mongoId = loan?._id || loan?.id;
+        if (!mongoId) return;
+        const typeSlug = String(loan?.type || 'Loan').replace(/\s+/g, '-');
+        saveListReturnState(`${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`);
+        router.push(`/HRM/LoanAndAdvance/${typeSlug}-${mongoId}`);
     };
 
     const toggleFineExpansion = async (fineId, referenceId) => {
@@ -2648,7 +2662,9 @@ export default function SalaryTab({
                                     </button>
                                 </div>
                             )}
-                        {selectedSalaryAction === 'Fine' && selectedPayableFines.length > 0 && (
+                        {selectedSalaryAction === 'Fine' &&
+                            selectedPayableFines.length > 0 &&
+                            isAccountsFinanceUser(currentUser) && (
                             <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
                                 {isFineMonthFilterActive && !fineMonthFilterInvalid && (
                                     <div className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
@@ -2765,6 +2781,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
                                     </>
                                 )}
@@ -2816,7 +2833,10 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Amount</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Deduction</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
                                     </>
                                 )}
@@ -3266,7 +3286,12 @@ export default function SalaryTab({
                                         return (
                                             <React.Fragment key={fine._id || index}>
                                                 <tr
-                                                    onClick={() => toggleFineExpansion(fine._id || index, fine.fineId)}
+                                                    data-nav-href={
+                                                        fine.fineId || fine._id
+                                                            ? `/HRM/Fine/${encodeURIComponent(fine.fineId || fine._id)}`
+                                                            : undefined
+                                                    }
+                                                    onClick={(e) => openFineDetails(fine, e)}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
                                                 >
                                                     <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
@@ -3281,7 +3306,17 @@ export default function SalaryTab({
                                                     </td>
                                                     <td className="py-3 px-4 text-sm font-bold text-gray-700">
                                                         <div className="flex items-center gap-2">
-                                                            {isExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
+                                                            <button
+                                                                type="button"
+                                                                className="p-0.5 rounded hover:bg-gray-100"
+                                                                title={isExpanded ? 'Hide receipts' : 'Show receipts'}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    toggleFineExpansion(fine._id || index, fine.fineId);
+                                                                }}
+                                                            >
+                                                                {isExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
+                                                            </button>
                                                             {fine.fineId || '—'}
                                                             {pendingFinePayments.length > 0 ? (
                                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${getPaymentStatusBadgeClass('Processing')}`}>
@@ -3551,6 +3586,31 @@ export default function SalaryTab({
                                                     {paymentLabel}
                                                 </span>
                                             </td>
+                                            <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                {canAccountsPayCashReward(reward, currentUser) &&
+                                                isRewardPaymentEligible(reward) ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const prefill = buildRewardPaymentPrefill(reward, {
+                                                                returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+                                                            });
+                                                            if (!prefill) return;
+                                                            sessionStorage.setItem(
+                                                                'rewardPaymentPrefill',
+                                                                JSON.stringify(prefill),
+                                                            );
+                                                            router.push('/Accounts/Payments?addRewardPay=1');
+                                                        }}
+                                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                    >
+                                                        <Wallet size={12} />
+                                                        Pay
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-gray-400">—</span>
+                                                )}
+                                            </td>
                                             <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                 <button
                                                     type="button"
@@ -3569,7 +3629,7 @@ export default function SalaryTab({
                                         })
                                     ) : (
                                     <tr>
-                                        <td colSpan={7} className="py-16 text-center text-gray-400 text-sm">
+                                        <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
                                             No Rewards to display
                                         </td>
                                     </tr>
@@ -3580,10 +3640,35 @@ export default function SalaryTab({
                             {/* Handling other tabs that are not yet implemented with data */}
                             {selectedSalaryAction === 'Loans' && (
                                 (() => {
-                                    const actualLoans = loans.filter(l => (l.type || 'Loan') === 'Loan' && l.status === 'Approved');
+                                    const actualLoans = (loans || []).filter(
+                                        (l) =>
+                                            (l.type || 'Loan') === 'Loan' &&
+                                            isLoanVisibleOnEmployeeProfile(l),
+                                    );
+                                    const openLoanPay = (loan) => {
+                                        const prefill = buildLoanPaymentPrefill(loan, {
+                                            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+                                        });
+                                        if (!prefill) return;
+                                        sessionStorage.setItem('loanPaymentPrefill', JSON.stringify(prefill));
+                                        router.push('/Accounts/Payments?addLoanPay=1');
+                                    };
                                     return actualLoans.length > 0 ? (
-                                        actualLoans.map((loan, index) => (
-                                            <tr key={loan._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                        actualLoans.map((loan, index) => {
+                                            const statusLabel = formatLoanProfileStatus(loan);
+                                            const paymentLabel = formatLoanProfilePaymentLabel(loan);
+                                            const canPay = canAccountsPayLoan(loan, currentUser);
+                                            return (
+                                            <tr
+                                                key={loan._id || index}
+                                                data-nav-href={
+                                                    loan._id || loan.id
+                                                        ? `/HRM/LoanAndAdvance/${String(loan.type || 'Loan').replace(/\s+/g, '-')}-${loan._id || loan.id}`
+                                                        : undefined
+                                                }
+                                                className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                                                onClick={(e) => openLoanAdvanceDetails(loan, e)}
+                                            >
                                                 <td className="py-3 px-4 text-sm text-gray-500">
                                                     {loan.loanId || 'Loan'}
                                                 </td>
@@ -3591,10 +3676,18 @@ export default function SalaryTab({
                                                     {loan.createdAt ? formatDate(loan.createdAt) : (loan.appliedDate ? formatDate(loan.appliedDate) : '—')}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {loan.amount?.toFixed(2) || '0.00'}
+                                                    AED {Number(loan.amount || 0).toFixed(2)}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {loan.duration ? (loan.amount / loan.duration).toFixed(2) : '0.00'}
+                                                    AED {loan.duration ? (Number(loan.amount || 0) / loan.duration).toFixed(2) : '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm font-medium text-gray-700">
+                                                    {statusLabel}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm">
+                                                    <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
+                                                        {paymentLabel}
+                                                    </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
                                                     <div className="flex flex-wrap gap-2">
@@ -3611,7 +3704,21 @@ export default function SalaryTab({
                                                         })()}
                                                     </div>
                                                 </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                    {canPay ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openLoanPay(loan)}
+                                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                        >
+                                                            <Wallet size={12} />
+                                                            Pay
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-400">—</span>
+                                                    )}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                     {loan.attachment ? (
                                                         <button
                                                             onClick={() => {
@@ -3638,10 +3745,11 @@ export default function SalaryTab({
                                                     ) : '—'}
                                                 </td>
                                             </tr>
-                                        ))
+                                            );
+                                        })
                                     ) : (
                                         <tr>
-                                            <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
+                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
                                                 No Loans to display
                                             </td>
                                         </tr>
@@ -3651,10 +3759,33 @@ export default function SalaryTab({
 
                             {selectedSalaryAction === 'Advance' && (
                                 (() => {
-                                    const advances = loans.filter(l => l.type === 'Advance' && l.status === 'Approved');
+                                    const advances = (loans || []).filter(
+                                        (l) => l.type === 'Advance' && isLoanVisibleOnEmployeeProfile(l),
+                                    );
+                                    const openAdvancePay = (loan) => {
+                                        const prefill = buildLoanPaymentPrefill(loan, {
+                                            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+                                        });
+                                        if (!prefill) return;
+                                        sessionStorage.setItem('loanPaymentPrefill', JSON.stringify(prefill));
+                                        router.push('/Accounts/Payments?addLoanPay=1');
+                                    };
                                     return advances.length > 0 ? (
-                                        advances.map((advance, index) => (
-                                            <tr key={advance._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                        advances.map((advance, index) => {
+                                            const statusLabel = formatLoanProfileStatus(advance);
+                                            const paymentLabel = formatLoanProfilePaymentLabel(advance);
+                                            const canPay = canAccountsPayLoan(advance, currentUser);
+                                            return (
+                                            <tr
+                                                key={advance._id || index}
+                                                data-nav-href={
+                                                    advance._id || advance.id
+                                                        ? `/HRM/LoanAndAdvance/Advance-${advance._id || advance.id}`
+                                                        : undefined
+                                                }
+                                                className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                                                onClick={(e) => openLoanAdvanceDetails(advance, e)}
+                                            >
                                                 <td className="py-3 px-4 text-sm text-gray-500">
                                                     {advance.loanId || 'Advance'}
                                                 </td>
@@ -3662,10 +3793,18 @@ export default function SalaryTab({
                                                     {advance.createdAt ? formatDate(advance.createdAt) : (advance.appliedDate ? formatDate(advance.appliedDate) : '—')}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {advance.amount?.toFixed(2) || '0.00'}
+                                                    AED {Number(advance.amount || 0).toFixed(2)}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {advance.duration ? (advance.amount / advance.duration).toFixed(2) : '0.00'}
+                                                    AED {advance.duration ? (Number(advance.amount || 0) / advance.duration).toFixed(2) : '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm font-medium text-gray-700">
+                                                    {statusLabel}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm">
+                                                    <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
+                                                        {paymentLabel}
+                                                    </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
                                                     <div className="flex flex-wrap gap-2">
@@ -3682,7 +3821,21 @@ export default function SalaryTab({
                                                         })()}
                                                     </div>
                                                 </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                    {canPay ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openAdvancePay(advance)}
+                                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                        >
+                                                            <Wallet size={12} />
+                                                            Pay
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-400">—</span>
+                                                    )}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                     {advance.attachment ? (
                                                         <button
                                                             onClick={() => {
@@ -3709,10 +3862,11 @@ export default function SalaryTab({
                                                     ) : '—'}
                                                 </td>
                                             </tr>
-                                        ))
+                                            );
+                                        })
                                     ) : (
                                         <tr>
-                                            <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
+                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
                                                 No Advances to display
                                             </td>
                                         </tr>

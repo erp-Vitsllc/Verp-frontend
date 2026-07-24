@@ -61,6 +61,7 @@ export default function FineFormCards(props) {
             entityRecord={fine}
             employeeId={fineEmployeeId}
             isPayable={isApprovedFineStatus(fine.fineStatus) && fineTotalPayable > 0}
+            allowPay={Boolean(props.allowPay)}
             onPaymentSuccess={props.onPaymentSuccess}
         />
     ) : null;

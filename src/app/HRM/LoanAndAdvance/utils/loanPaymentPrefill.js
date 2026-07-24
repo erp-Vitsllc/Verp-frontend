@@ -15,9 +15,8 @@ function idEquals(a, b) {
  */
 export function canAccountsPayLoan(loan, user) {
     if (!loan || !user) return false;
-    const status = String(loan.approvalStatus || loan.status || '');
-    // Only after Management approval (Pending Payment to Employee, or legacy Approved)
-    if (!isLoanAwaitingEmployeePayment(status)) return false;
+    // Only after Management approval (Pending Payment to Employee, or legacy Approved with balance)
+    if (!isLoanAwaitingEmployeePayment(loan)) return false;
     const amount = Number(loan.amount) || 0;
     const paid = Number(loan.paidAmount) || 0;
     if (amount <= 0 || amount - paid <= 0.01) return false;

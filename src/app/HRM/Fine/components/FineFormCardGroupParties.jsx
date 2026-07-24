@@ -397,7 +397,7 @@ export default function FineFormCardGroupParties({
                 });
                 return;
             }
-            await axiosInstance.put(`/Fine/${targetId}`, {
+            await axiosInstance.put(`/Fine/${targetId}/party-payable`, {
                 fineSource: nextLabel,
                 zohoVendorId: match?.id || '',
                 zohoVendorName: nextLabel,
@@ -449,7 +449,7 @@ export default function FineFormCardGroupParties({
 
         setSavingKey(key);
         try {
-            await axiosInstance.put(`/Fine/${targetId}`, {
+            await axiosInstance.put(`/Fine/${targetId}/party-payable`, {
                 partyPayables: [
                     {
                         fineRecordId: targetId,

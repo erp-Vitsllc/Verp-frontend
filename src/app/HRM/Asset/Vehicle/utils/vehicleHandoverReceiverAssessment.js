@@ -49,7 +49,7 @@ function resolveApiOrigin() {
 }
 
 export const RECEIVER_ASSESSMENT_ITEMS = [
-    { key: 'spareTyre', label: 'Spare type' },
+    { key: 'spareTyre', label: 'Spare Tyre' },
     { key: 'toolsKit', label: 'Tools Kit' },
     { key: 'scissorJack', label: 'Scissor Jack' },
     { key: 'firstAidKit', label: 'First Aid Kit' },
@@ -720,7 +720,7 @@ export function buildReceiverAssessmentRows(historyEntry, vehicle, options = {})
 }
 
 const VEHICLE_ACCESSORY_PRICE_ALIASES = {
-    spareTyre: ['spare type', 'spare tyre', 'spare tire'],
+    spareTyre: ['spare tyre', 'spare tire', 'tyre', 'tire', 'spare type', 'spare tools'],
     toolsKit: ['tools kit', 'tool kit'],
     scissorJack: ['scissor jack', 'jack'],
     firstAidKit: ['first aid kit', 'first aid'],

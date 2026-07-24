@@ -531,7 +531,10 @@ export default function RewardFormCardParties({
         const syncErr = String(reward.zohoSyncError || '').trim();
 
         if (hasExpense) {
-            return { label: 'Paid / Posted to Zoho', className: 'text-emerald-700' };
+            if (status === 'Approved (Paid)' || status === 'Paid' || (total > 0 && paid >= total - 0.01)) {
+                return { label: 'Paid / Posted to Zoho', className: 'text-emerald-700' };
+            }
+            return { label: 'Posted to Zoho (not paid)', className: 'text-emerald-700' };
         }
         if ((status === 'Approved (Paid)' || status === 'Paid' || (total > 0 && paid >= total - 0.01)) && syncErr) {
             return { label: 'Paid — Zoho failed', className: 'text-red-700' };

@@ -1,3 +1,9 @@
+import {
+    LOAN_PENDING_PAYMENT_STATUS,
+    isLoanFullyDisbursed,
+    isLoanPostManagementStatus,
+} from './loanStatusConstants';
+
 export const LOAN_WORKFLOW_STEPS = [
     { id: 1, label: 'Created', role: 'System' },
     { id: 2, label: 'Requester', role: 'Requester' },
@@ -9,6 +15,7 @@ export const LOAN_WORKFLOW_STEPS = [
 
 export function getLoanStatusStepId(loan) {
     const status = loan?.approvalStatus || loan?.status;
+    if (isLoanFullyDisbursed(loan)) return 6;
     const map = {
         Draft: 2,
         Pending: 3,
@@ -16,7 +23,7 @@ export function getLoanStatusStepId(loan) {
         'Pending Accounts': 4,
         'Pending Authorization': 5,
         Approved: 6,
-        'Pending Payment to Employee': 6,
+        [LOAN_PENDING_PAYMENT_STATUS]: 6,
         Paid: 6,
     };
     return map[status] || 2;
@@ -25,16 +32,16 @@ export function getLoanStatusStepId(loan) {
 export function isLoanWorkflowStepApproved(step, loan, workflow = []) {
     const status = loan?.approvalStatus || loan?.status;
 
-    // Step 6 completes only when Accounts has disbursed (status Paid)
+    // Step 6 completes when Accounts has disbursed (balance cleared / Paid to Employee approved)
     if (step.id === 6) {
         return (
-            status === 'Paid' ||
+            isLoanFullyDisbursed(loan) ||
             workflow.some((w) => w.role === 'Paid to Employee' && w.status === 'Approved')
         );
     }
 
-    if (status === 'Paid') return true;
-    if (status === 'Approved' || status === 'Pending Payment to Employee') {
+    if (isLoanFullyDisbursed(loan) || status === 'Paid') return true;
+    if (status === 'Approved' || status === LOAN_PENDING_PAYMENT_STATUS) {
         // Management done — steps 1–5 complete; step 6 still pending payment
         return step.id <= 5;
     }
@@ -53,7 +60,7 @@ export function isLoanWorkflowStepApproved(step, loan, workflow = []) {
 
 export function isLoanWorkflowConnectorGreen(step, loan, workflow = []) {
     const status = loan?.approvalStatus || loan?.status;
-    const postMgt = ['Approved', 'Pending Payment to Employee', 'Paid'].includes(status);
+    const postMgt = isLoanPostManagementStatus(status);
     const nextId = step.id + 1;
     if (nextId === 2) return String(status || '').toLowerCase() !== 'draft';
     if (nextId === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
@@ -142,11 +149,13 @@ export function getLoanStepDateStr(step, loan, workflow = [], format) {
     let dateValue = null;
     if (step.id <= 2) {
         dateValue = loan.createdAt;
-    } else if (step.id === 6) {
+    } else     if (step.id === 6) {
         const payStep = workflow.find(
             (w) => w.role === 'Paid to Employee' && w.status === 'Approved',
         );
-        dateValue = payStep?.actionedAt || (loan.approvalStatus === 'Paid' ? loan.updatedAt : null);
+        dateValue =
+            payStep?.actionedAt ||
+            (isLoanFullyDisbursed(loan) || loan.approvalStatus === 'Paid' ? loan.updatedAt : null);
     } else {
         const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
         dateValue = wfStep?.actionedAt;

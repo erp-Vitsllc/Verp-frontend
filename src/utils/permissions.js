@@ -36,14 +36,12 @@ export const getUserPermissions = () => {
         }
 
         // Self-service defaults only fill keys missing from the group payload — never override
-        // explicit group rows (including isView: false). Asset is group-controlled only.
+        // explicit group rows (including isView: false). Fine / Loan / Reward are group-controlled only
+        // (checked View → show for that group; unchecked → hide).
         const employeeUserStr = localStorage.getItem('employeeUser');
         if (employeeUserStr) {
             const defaultEmployeePermissions = {
                 hrm: { isView: true, isActive: true },
-                hrm_fine: { isView: true, isActive: true },
-                hrm_reward: { isView: true, isActive: true },
-                hrm_loan: { isView: true, isActive: true },
             };
             Object.keys(defaultEmployeePermissions).forEach((key) => {
                 if (permissions[key] === undefined) {

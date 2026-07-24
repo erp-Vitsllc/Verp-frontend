@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import axiosInstance from '@/utils/axios';
+import { useMemo } from 'react';
 import WorkflowHistoryTimeline from '../../shared/workflowHistory/WorkflowHistoryTimeline';
 import {
     buildWorkflowStepEvents,
@@ -16,26 +15,9 @@ import {
     getLoanStepActor,
     toTitleCase,
 } from '../../LoanAndAdvance/utils/loanWorkflowUtils';
+import { isLoanFullyDisbursed } from '../../LoanAndAdvance/utils/loanStatusConstants';
 
 export default function LoanWorkflowHistoryPanel({ loan, typeLabel = 'Loan' }) {
-    const [payments, setPayments] = useState([]);
-
-    useEffect(() => {
-        if (!loan?.loanId) return;
-        const paymentType = loan.type === 'Advance' ? 'Advance' : 'Loan';
-        axiosInstance
-            .get('/Payment', {
-                params: {
-                    referenceId: loan.loanId,
-                    relatedEntityType: 'Loan',
-                    paymentType,
-                    limit: 50,
-                },
-            })
-            .then((res) => setPayments(res.data?.payments || []))
-            .catch(() => setPayments([]));
-    }, [loan?.loanId, loan?.type]);
-
     const events = useMemo(() => {
         if (!loan) return [];
         const workflow = loan.workflow || [];
@@ -54,15 +36,20 @@ export default function LoanWorkflowHistoryPanel({ loan, typeLabel = 'Loan' }) {
                 if (step.id <= 2) return loan.createdAt;
                 if (step.id === 5) {
                     const mgtStep = workflow.find(
-                        (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
+                        (w) =>
+                            (w.role === 'Management' || w.role === 'CEO') &&
+                            w.status === 'Approved',
                     );
                     return loan.approvedDate || mgtStep?.actionedAt || null;
                 }
                 if (step.id === 6) {
                     const payStep = workflow.find(
-                        (w) => w.role === 'Paid to Employee' && w.status === 'Approved'
+                        (w) => w.role === 'Paid to Employee' && w.status === 'Approved',
                     );
-                    return payStep?.actionedAt || (status === 'Paid' ? loan.updatedAt : null);
+                    return (
+                        payStep?.actionedAt ||
+                        (isLoanFullyDisbursed(loan) || status === 'Paid' ? loan.updatedAt : null)
+                    );
                 }
                 const wfStep = workflow.find((w) => w.role === step.role && w.status === 'Approved');
                 return wfStep?.actionedAt || null;
@@ -72,14 +59,14 @@ export default function LoanWorkflowHistoryPanel({ loan, typeLabel = 'Loan' }) {
             rejectionReason: loan.rejectionReason,
         });
 
-        const postEvents = buildLoanPostApprovalEvents(loan, { payments });
+        const postEvents = buildLoanPostApprovalEvents(loan);
         return mergeWorkflowAndPostEvents(workflowEvents, postEvents, loan);
-    }, [loan, payments]);
+    }, [loan]);
 
     return (
         <WorkflowHistoryTimeline
             title={`${typeLabel} Workflow History`}
-            subtitle="Approvals, payments, schedule edits, and acknowledgment documents"
+            subtitle="Approvals, schedule edits, and acknowledgment documents"
             events={events}
             entityKind="loan"
             entityRouteId={loan?.id || loan?._id || loan?.loanId}

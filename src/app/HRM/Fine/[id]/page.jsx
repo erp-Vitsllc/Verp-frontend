@@ -16,6 +16,7 @@ import { jsPDF } from 'jspdf';
 import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText, Wallet } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
+import PermissionGuard from '@/components/PermissionGuard';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import AddFineModal from '../components/AddFineModal';
@@ -30,6 +31,7 @@ import FineManagementZohoFields from '../components/FineManagementZohoFields';
 import {
     buildFineVendorPaymentPrefill,
     canAccountsPayFineVendorBill,
+    canAccountsPayFineEmployeeShare,
 } from '../utils/fineVendorPaymentPrefill';
 import { mapZohoVendors, matchZohoVendorByName } from '@/utils/zohoVendors';
 import {
@@ -449,7 +451,7 @@ function FineDetailsPageContent() {
                     toast({ title: "Error", description: "Rejection reason is mandatory.", variant: "destructive" });
                     return;
                 }
-                res = await axiosInstance.put(`/Fine/${targetId}`, {
+                res = await axiosInstance.put(`/Fine/${targetId}/reject`, {
                     fineStatus: 'Rejected',
                     rejectionReason: rejectionReason
                 });
@@ -474,7 +476,7 @@ function FineDetailsPageContent() {
                     }
                 }
 
-                res = await axiosInstance.put(`/Fine/${targetId}`, payload);
+                res = await axiosInstance.put(`/Fine/${targetId}/status`, payload);
                 toast({
                     title: "Success",
                     description: `Fine status updated to ${status}.`,
@@ -2266,6 +2268,14 @@ function FineDetailsPageContent() {
                                     canPerformAction()
                                 }
                                 onPartyPayablesChange={setPartyPayables}
+                                allowPay={canAccountsPayFineEmployeeShare(
+                                    fine,
+                                    currentUser,
+                                    Math.max(
+                                        0,
+                                        computeFinePayableTotal(fine) - (Number(fine?.paidAmount) || 0),
+                                    ),
+                                )}
                                 onPaymentSuccess={async () => {
                                     try {
                                         const fineRes = await axiosInstance.get(`/Fine/${id}`);
@@ -2664,8 +2674,10 @@ function FineDetailsPageContent() {
 
 export default function FineDetailsPage() {
     return (
-        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
-            <FineDetailsPageContent />
-        </Suspense>
+        <PermissionGuard moduleId="hrm_fine" permissionType="view">
+            <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+                <FineDetailsPageContent />
+            </Suspense>
+        </PermissionGuard>
     );
 }

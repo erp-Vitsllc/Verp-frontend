@@ -39,6 +39,7 @@ export function buildPaymentHistoryEvents({
     totalPayable = 0,
     payments = [],
     recordUpdatedAt,
+    omitPaidSummary = false,
 }) {
     const events = [];
 
@@ -70,7 +71,8 @@ export function buildPaymentHistoryEvents({
 
     const paid = Number(paidAmount) || 0;
     const total = Number(totalPayable) || 0;
-    if (paid > 0 && events.length === 0) {
+    // Loan/Advance: Paid to Employee workflow step already covers disbursement — skip Fully Paid row.
+    if (!omitPaidSummary && paid > 0 && events.length === 0) {
         const fullyPaid = total > 0 && paid >= total - 0.01;
         events.push({
             id: fullyPaid ? 'payment-full' : 'payment-partial',
@@ -426,14 +428,13 @@ export function buildFinePostApprovalEvents(fine, { payments = [] } = {}) {
     return sortEventsChronologically(events);
 }
 
-export function buildLoanPostApprovalEvents(loan, { payments = [] } = {}) {
+export function buildLoanPostApprovalEvents(loan, { payments: _payments = [] } = {}) {
     if (!loan) return [];
     const status = loan.approvalStatus || loan.status;
     const approved = ['Approved', 'Pending Payment to Employee', 'Paid'].includes(status);
     if (!approved) return [];
 
     const events = [];
-    const typeLabel = loan.type === 'Advance' ? 'Advance' : 'Loan';
 
     const editEvents = buildAttachmentEditHistoryEvents(loan, {
         scheduleLabel: 'Repayment Schedule Updated',
@@ -441,28 +442,7 @@ export function buildLoanPostApprovalEvents(loan, { payments = [] } = {}) {
     });
     events.push(...enrichAccessoryEditEventDetails(editEvents, loan));
 
-    events.push(
-        ...buildPaymentHistoryEvents({
-            paidAmount: loan.paidAmount,
-            totalPayable: loan.amount,
-            payments,
-            recordUpdatedAt: loan.updatedAt,
-        })
-    );
-
-    if (status === 'Paid') {
-        events.push({
-            id: 'loan-status-paid',
-            kind: 'status',
-            label: `${typeLabel} Marked as Paid`,
-            badge: 'Completed',
-            badgeVariant: 'approved',
-            actor: 'Payroll / Accounts',
-            date: loan.updatedAt,
-            connectorGreen: true,
-        });
-    }
-
+    // No payment rows here — Paid to Employee workflow step already covers disbursement.
     return sortEventsChronologically(events);
 }
 

@@ -529,7 +529,7 @@ export default function LoanFormCardParties({
         const syncErr = String(loan.zohoSyncError || '').trim();
 
         if (hasExpense) {
-            return { label: 'Paid / Posted to Zoho', className: 'text-emerald-700' };
+            return { label: status === 'Paid' ? 'Paid / Posted to Zoho' : 'Posted to Zoho (not paid)', className: 'text-emerald-700' };
         }
         if ((status === 'Paid' || (total > 0 && paid >= total - 0.01)) && syncErr) {
             return { label: 'Paid — Zoho failed', className: 'text-red-700' };
@@ -551,6 +551,10 @@ export default function LoanFormCardParties({
 
         if (!bothFilled) {
             return { label: 'Not filled', className: 'text-amber-700' };
+        }
+
+        if (status === 'Pending Payment to Employee' || status === 'Approved') {
+            return { label: 'Ready for payment', className: 'text-blue-700' };
         }
 
         return { label: 'Ready for approval', className: 'text-blue-700' };

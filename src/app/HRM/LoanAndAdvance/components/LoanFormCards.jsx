@@ -52,6 +52,7 @@ export default function LoanFormCards(props) {
                     entityRecord={loan}
                     employeeId={loan.employeeId}
                     isPayable={isApprovedLoanRecord(loan)}
+                    allowPay={Boolean(props.allowPay)}
                     onPaymentSuccess={props.onPaymentSuccess}
                 />
             </div>
