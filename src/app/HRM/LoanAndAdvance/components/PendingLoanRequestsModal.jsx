@@ -10,9 +10,10 @@ import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLo
 import { mapPendingInboxToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import {
-    clearModuleNotificationFeedsCache,
-    loadModuleNotificationBundle,
-} from '@/utils/moduleNotifications';
+    LOAN_PENDING_INBOX_ENDPOINT,
+    fetchLoanPendingInbox,
+    getCachedPendingInbox,
+} from '@/utils/pendingInboxFetch';
 import {
     countVisibleLoanPendingInbox,
     notifyLoanPendingInboxChanged,
@@ -42,18 +43,26 @@ export default function PendingLoanRequestsModal({
     );
 
     const load = useCallback(async ({ force = false } = {}) => {
-        const block = shouldUseBlockingNotificationLoader(itemsRef.current.length);
+        const cached = !force ? getCachedPendingInbox(LOAN_PENDING_INBOX_ENDPOINT) : null;
+        if (cached && itemsRef.current.length === 0) {
+            setItems(cached);
+            const count = countVisibleLoanPendingInbox(cached);
+            if (typeof onPendingInboxCount === 'function') {
+                onPendingInboxCount(count);
+            }
+        }
+
+        if (cached && !force) {
+            return;
+        }
+
+        const block = shouldUseBlockingNotificationLoader(
+            itemsRef.current.length || (cached?.length ?? 0),
+        );
         if (block) setLoading(true);
         else setRefreshing(true);
         try {
-            if (force) clearModuleNotificationFeedsCache();
-            const { bundle } = await loadModuleNotificationBundle(axiosInstance, {
-                skipEmployees: true,
-                force: true,
-            });
-            const list = Array.isArray(bundle?.byModule?.['Loan and Advance'])
-                ? bundle.byModule['Loan and Advance']
-                : [];
+            const list = await fetchLoanPendingInbox(axiosInstance, { force });
             setItems(list);
             const count = countVisibleLoanPendingInbox(list);
             if (typeof onPendingInboxCount === 'function') {
@@ -106,7 +115,7 @@ export default function PendingLoanRequestsModal({
             isOpen={isOpen}
             onClose={onClose}
             title="Loan & Advance notifications"
-            subtitle="Approvals and pay-to-employee tasks assigned to you."
+            subtitle="Approvals and pay-to-employee tasks pending with your account."
             items={notificationRows}
             loading={loading && items.length === 0}
             refreshing={refreshing}

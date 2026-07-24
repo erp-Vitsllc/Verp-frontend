@@ -419,7 +419,12 @@ export const buildDashboardNotificationPath = (item) => {
     }
 
     if (type.includes('loan') || type === 'advance' || type.includes('loan/advance') || type.includes('loan and advance')) {
-        return item.id ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(item.id))}` : '';
+        const loanKey =
+            item.loan?.loanId ||
+            item.loan?._id ||
+            item.requestObjectId ||
+            item.id;
+        return loanKey ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(loanKey))}` : '';
     }
     if (type.includes('reward')) {
         const path = buildRewardNotificationPath(item);

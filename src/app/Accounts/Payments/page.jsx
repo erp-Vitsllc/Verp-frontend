@@ -19,6 +19,7 @@ import {
     notifyPaymentPendingInboxChanged,
 } from './utils/paymentPendingInboxCount';
 import { fetchPaymentPendingInbox } from '@/utils/pendingInboxFetch';
+import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -253,7 +254,10 @@ function PaymentsPageContent() {
                 description: "Payment record deleted successfully",
                 variant: "success",
             });
+            notifyPaymentPendingInboxChanged();
+            clearModuleNotificationFeedsCache();
             fetchPayments();
+            fetchPendingInboxCount({ force: true });
         } catch (err) {
             console.error('Error deleting payment:', err);
             toast({

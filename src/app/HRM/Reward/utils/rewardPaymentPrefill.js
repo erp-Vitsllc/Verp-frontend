@@ -41,6 +41,11 @@ export function buildRewardPaymentPrefill(reward, { returnTo = '', companyId = '
         returnTo,
         balance,
         paymentSource: 'Cash',
+        organizationId: reward.zohoOrganizationId || '',
+        expenseAccountId: reward.expenseAccountId || '',
+        expenseAccountName: reward.expenseAccountName || '',
+        paidThroughAccountId: reward.paidThroughAccountId || '',
+        paidThroughAccountName: reward.paidThroughAccountName || '',
         reward: {
             _id: reward._id,
             id: reward._id,
@@ -51,6 +56,11 @@ export function buildRewardPaymentPrefill(reward, { returnTo = '', companyId = '
             employeeId: reward.employeeId,
             employeeName: reward.employeeName,
             title: reward.title,
+            zohoOrganizationId: reward.zohoOrganizationId || '',
+            expenseAccountId: reward.expenseAccountId || '',
+            expenseAccountName: reward.expenseAccountName || '',
+            paidThroughAccountId: reward.paidThroughAccountId || '',
+            paidThroughAccountName: reward.paidThroughAccountName || '',
         },
     };
 }

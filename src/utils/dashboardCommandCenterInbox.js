@@ -135,6 +135,7 @@ export function buildExactModuleNotificationLists(args = {}) {
         fineItems: args.fineItems,
         paymentItems: args.paymentItems,
         rewardItems: args.rewardItems,
+        loanItems: args.loanItems,
         liveExpiryHrView: args.liveExpiryHrView,
         mandatoryCardsHrLive: args.mandatoryCardsHrLive,
         statsData: args.statsMeta
@@ -169,6 +170,7 @@ export function mergeCommandCenterWithModuleInboxes(userStatsItems = [], feeds =
         fineItems: feeds.fineItems,
         paymentItems: feeds.paymentItems,
         rewardItems: feeds.rewardItems,
+        loanItems: feeds.loanItems,
         liveExpiryHrView: feeds.liveExpiryHrView,
         mandatoryCardsHrLive: feeds.mandatoryCardsHrLive,
         statsData: feeds.statsMeta

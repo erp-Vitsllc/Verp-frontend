@@ -17,6 +17,7 @@ import {
     notifyFinePendingInboxChanged,
 } from './utils/finePendingInboxCount';
 import { fetchFinePendingInbox } from '@/utils/pendingInboxFetch';
+import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { Trash2, X, Pencil, ChevronDown, ChevronRight, Bell } from 'lucide-react';
 import { buildFineFocusElementId, runFineListFocusScroll } from '@/utils/fineNotificationRouting';
 import {
@@ -338,7 +339,10 @@ function FinePageContent() {
                 description: "Fine record deleted successfully",
                 variant: "success",
             });
+            notifyFinePendingInboxChanged();
+            clearModuleNotificationFeedsCache();
             fetchFines();
+            fetchPendingInboxCount({ force: true });
         } catch (err) {
             console.error('Error deleting fine:', err);
             toast({

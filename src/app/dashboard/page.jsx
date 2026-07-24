@@ -17,10 +17,12 @@ import {
     groupCommandCenterByModule,
     formatCommandCenterNotificationMessage,
 } from '@/utils/dashboardCommandCenterInbox';
+import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { ASSET_PENDING_INBOX_CHANGED } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { FINE_PENDING_INBOX_CHANGED } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { PAYMENT_PENDING_INBOX_CHANGED } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
 import { REWARD_PENDING_INBOX_CHANGED } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
+import { LOAN_PENDING_INBOX_CHANGED } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
 
 import {
     isDashboardPendingItem,
@@ -442,6 +444,7 @@ function DashboardContent() {
             if (!viewingOwnInbox) return;
             if (refreshTimer) clearTimeout(refreshTimer);
             refreshTimer = setTimeout(() => {
+                clearModuleNotificationFeedsCache();
                 fetchUserStats();
             }, 400);
         };
@@ -450,6 +453,7 @@ function DashboardContent() {
             window.addEventListener(FINE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             window.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             window.addEventListener(REWARD_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+            window.addEventListener(LOAN_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
         }
 
         return () => {
@@ -460,6 +464,7 @@ function DashboardContent() {
                 window.removeEventListener(FINE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
                 window.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
                 window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+                window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             }
         };
 

@@ -21,6 +21,7 @@ import {
     countVisibleRewardPendingInbox,
     notifyRewardPendingInboxChanged,
 } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
+import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import {
     BarChart,
     Bar,
@@ -208,7 +209,10 @@ function RewardContent() {
                 description: "Reward record deleted successfully",
                 variant: "success",
             });
+            notifyRewardPendingInboxChanged();
+            clearModuleNotificationFeedsCache();
             fetchRewards();
+            fetchPendingInboxCount({ force: true });
         } catch (err) {
             console.error('Error deleting reward:', err);
             toast({

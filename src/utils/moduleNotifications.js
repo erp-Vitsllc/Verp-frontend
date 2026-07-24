@@ -17,6 +17,7 @@ import { isPendingInboxRowVisible } from '@/app/HRM/Asset/utils/assetRequestLabe
 import { countVisibleFinePendingInbox } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { countVisiblePaymentPendingInbox } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
 import { countVisibleRewardPendingInbox } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
+import { countVisibleLoanPendingInbox } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import {
     buildCompanyPageNotifications,
@@ -29,6 +30,7 @@ import {
     fetchFinePendingInbox,
     fetchPaymentPendingInbox,
     fetchRewardPendingInbox,
+    fetchLoanPendingInbox,
 } from '@/utils/pendingInboxFetch';
 import {
     filterToolsAssetInboxRows,
@@ -76,6 +78,8 @@ function tagModule(item, moduleCategory) {
 function pendingInboxToItem(row, moduleCategory) {
     const requestType = String(row?.requestType || '').trim() || 'Request';
     const id =
+        row?.loan?.loanId ||
+        row?.loan?._id ||
         row?.reward?.rewardId ||
         row?.reward?._id ||
         row?.primaryFineId ||
@@ -92,7 +96,11 @@ function pendingInboxToItem(row, moduleCategory) {
             actionId: row?.dashboardActionId ? String(row.dashboardActionId) : '',
             type: requestType,
             requestedBy: row?.requestedByName || row?.subjectName || 'Unknown',
-            employeeName: row?.subjectName || row?.reward?.employeeName || '',
+            employeeName:
+                row?.subjectName ||
+                row?.loan?.applicantName ||
+                row?.reward?.employeeName ||
+                '',
             requestedDate: row?.requestedDate,
             actionedDate: null,
             status: 'Pending',
@@ -109,6 +117,7 @@ function pendingInboxToItem(row, moduleCategory) {
             asset: row?.asset || null,
             reward: row?.reward || null,
             payment: row?.payment || null,
+            loan: row?.loan || null,
             isGroup: row?.isGroup === true || requestType === 'Group Fine Request',
             isBulk: row?.isBulk,
             bulkAssetIds: row?.bulkAssetIds,
@@ -249,7 +258,7 @@ export async function loadModuleNotificationFeeds(
         skipEmployees = false,
         statsData: providedStats = null,
         force = false,
-        /** When set, load Fine/Asset/Reward/Payment bells for that employee (team Command Center). */
+        /** When set, load Fine/Asset/Reward/Payment/Loan bells for that employee (team Command Center). */
         targetUserId = null,
     } = {},
 ) {
@@ -301,6 +310,7 @@ export async function loadModuleNotificationFeeds(
             fetchFinePendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchPaymentPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchRewardPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
+            fetchLoanPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             loadCompanyNotificationBundle(axiosInstance, {
                 hrLive: hrLiveGuess,
                 cachedCompanies: [],
@@ -323,11 +333,12 @@ export async function loadModuleNotificationFeeds(
         const fineItems = valueOr(settled, 2, []);
         const paymentItems = valueOr(settled, 3, []);
         const rewardItems = valueOr(settled, 4, []);
-        const notificationBundle = valueOr(settled, 5, {
+        const loanItems = valueOr(settled, 5, []);
+        const notificationBundle = valueOr(settled, 6, {
             statsRes: { data: { items: [] } },
             companiesList: [],
         });
-        const empRes = skipEmployees ? { data: {} } : valueOr(settled, 6, { data: {} });
+        const empRes = skipEmployees ? { data: {} } : valueOr(settled, 7, { data: {} });
         const empPayload = empRes?.data?.employees ?? empRes?.data;
 
         const statsData = providedStats || notificationBundle?.statsRes?.data || { items: [] };
@@ -350,6 +361,7 @@ export async function loadModuleNotificationFeeds(
             fineItems: Array.isArray(fineItems) ? fineItems : [],
             paymentItems: Array.isArray(paymentItems) ? paymentItems : [],
             rewardItems: Array.isArray(rewardItems) ? rewardItems : [],
+            loanItems: Array.isArray(loanItems) ? loanItems : [],
             ...hrFlags,
         };
 
@@ -382,6 +394,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         fineItems = [],
         paymentItems = [],
         rewardItems = [],
+        loanItems = [],
         liveExpiryHrView: liveFlag,
         mandatoryCardsHrLive: mandatoryFlag,
     } = feeds;
@@ -432,6 +445,9 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const reward = (Array.isArray(rewardItems) ? rewardItems : []).map((row) =>
         pendingInboxToItem(row, 'Reward'),
     );
+    const loan = (Array.isArray(loanItems) ? loanItems : []).map((row) =>
+        pendingInboxToItem(row, 'Loan and Advance'),
+    );
 
     const toolsRawVisible = dedupeAssetPendingInboxItems(toolsItems).filter(isPendingInboxRowVisible);
     const toolsVisible = filterToolsAssetInboxRows(toolsRawVisible);
@@ -459,10 +475,6 @@ export function buildModuleNotificationBundle(feeds = {}) {
         .map((row) => tagModule({ ...row, scope: 'inbox' }, 'Vehicle Asset'));
     const vehicleAsset = dedupe([...vehicleFromInbox, ...vehicleExpiryFromStats, ...vehicleSharedFromStats]);
 
-    const loan = pendingItems
-        .filter((item) => isLoanNotification(item))
-        .map((row) => tagModule(row, 'Loan and Advance'));
-
     const byModule = {
         Company: company,
         Employees: employees,
@@ -485,7 +497,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         // Match Vehicle Asset section length (inbox + vehicle document expiry).
         vehicleAsset: vehicleAsset.length,
         utilityBill: utilityBillVisible.length,
-        loan: loan.length,
+        loan: countVisibleLoanPendingInbox(loanItems),
     };
     counts.asset =
         (counts.toolsAsset || 0) + (counts.vehicleAsset || 0) + (counts.utilityBill || 0);
@@ -622,6 +634,7 @@ function statsItemToPendingInboxRow(item = {}) {
         fine: item.fine,
         reward: item.reward,
         payment: item.payment,
+        loan: item.loan,
         isBulk: item.isBulk,
         isGroup: item.isGroup,
         status: item.status || 'Pending',
@@ -650,6 +663,7 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
     });
     const paymentPending = pending.filter((i) => String(i?.type || '').trim() === 'Payment Approval');
     const rewardPending = pending.filter((i) => String(i?.type || '').trim() === 'Reward');
+    const loanPending = pending.filter((i) => isLoanNotification(i));
     const toolsPending = pending.filter((i) => isToolsAssetInboxRow(i));
     const utilityPending = pending.filter((i) => isUtilityBillInboxRow(i));
     const vehiclePending = pending.filter((i) => isVehicleAssetInboxRow(i));
@@ -665,6 +679,7 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
         fineItems: finePending.map(statsItemToPendingInboxRow),
         paymentItems: paymentPending.map(statsItemToPendingInboxRow),
         rewardItems: rewardPending.map(statsItemToPendingInboxRow),
+        loanItems: loanPending.map(statsItemToPendingInboxRow),
     });
 
     return mergeUserStatsWithModuleBundle(items, bundle);

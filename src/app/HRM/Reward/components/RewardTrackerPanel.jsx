@@ -10,13 +10,12 @@ function buildRewardSteps(reward) {
         { id: 1, label: 'Created', role: 'Created' },
         { id: 2, label: 'Requester', role: 'Requester' },
         { id: 3, label: 'Reportee', role: 'Manager' },
+        { id: 4, label: 'Management', role: 'Management' },
     ];
+    // Cash/Gift: Accounts after Management (expense + paid-through → Zoho Expense)
     if (isCashOrGift) {
-        steps.push({ id: 4, label: 'Accounts', role: 'Accounts' });
-        steps.push({ id: 5, label: 'Management', role: 'Management' });
+        steps.push({ id: 5, label: 'Accounts', role: 'Accounts' });
         steps.push({ id: 6, label: 'Payment', role: 'Payment' });
-    } else {
-        steps.push({ id: 4, label: 'Management', role: 'Management' });
     }
     return { steps, isCashOrGift };
 }
@@ -33,15 +32,20 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
         if (step.id === 1) return true;
         if (step.id === 2) return (reward.rewardStatus || '').toLowerCase() !== 'draft';
         if (step.id === 3) return workflow.some((w) => w.role === 'Manager' && w.status === 'Approved');
-        if (isCashOrGift && step.id === 4) {
-            return workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
-        }
-        const managementId = isCashOrGift ? 5 : 4;
-        if (step.id === managementId) {
+        if (step.id === 4) {
             return (
                 workflow.some(
                     (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
-                ) || ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus)
+                ) ||
+                (isCashOrGift
+                    ? ['Pending Accounts', 'Approved', 'Approved (Paid)'].includes(reward.rewardStatus)
+                    : ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus))
+            );
+        }
+        if (isCashOrGift && step.id === 5) {
+            return (
+                workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved') ||
+                ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus)
             );
         }
         if (isCashOrGift && step.role === 'Payment') return isFullyPaid;
@@ -53,15 +57,20 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
         const nextId = step.id + 1;
         if (nextId === 2) return reward.rewardStatus !== 'Draft';
         if (nextId === 3) return workflow.some((w) => w.role === 'Manager' && w.status === 'Approved');
-        if (isCashOrGift && nextId === 4) {
-            return workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
-        }
-        const managementId = isCashOrGift ? 5 : 4;
-        if (nextId === managementId) {
+        if (nextId === 4) {
             return (
                 workflow.some(
                     (w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved'
-                ) || ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus)
+                ) ||
+                (isCashOrGift
+                    ? ['Pending Accounts', 'Approved', 'Approved (Paid)'].includes(reward.rewardStatus)
+                    : ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus))
+            );
+        }
+        if (isCashOrGift && nextId === 5) {
+            return (
+                workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved') ||
+                ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus)
             );
         }
         if (isCashOrGift && nextId === 6) {
@@ -86,15 +95,7 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
         else if (employee?.primaryReportee?.firstName) {
             stepName = `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}`.trim();
         } else stepName = 'Reportee';
-    } else if (step.id === 4 && isCashOrGift) {
-        const accountsStep = workflow.find((w) => w.role === 'Accounts');
-        if (accountsStep?.assignedTo?.firstName) {
-            stepName = `${accountsStep.assignedTo.firstName} ${accountsStep.assignedTo.lastName || ''}`.trim();
-        } else if (accountsStep?.assignedTo?.name) stepName = accountsStep.assignedTo.name;
-        else if (reward.accountsHODName && reward.accountsHODName !== 'Unknown') {
-            stepName = reward.accountsHODName;
-        } else stepName = 'Accounts HOD';
-    } else if (step.id === (isCashOrGift ? 5 : 4)) {
+    } else if (step.id === 4) {
         const managementStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
         if (managementStep?.assignedTo?.firstName) {
             stepName = `${managementStep.assignedTo.firstName} ${managementStep.assignedTo.lastName || ''}`.trim();
@@ -106,6 +107,14 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
                     : '');
         } else if (reward.ceoName && reward.ceoName !== 'Unknown') stepName = reward.ceoName;
         else stepName = 'Management';
+    } else if (isCashOrGift && step.id === 5) {
+        const accountsStep = workflow.find((w) => w.role === 'Accounts');
+        if (accountsStep?.assignedTo?.firstName) {
+            stepName = `${accountsStep.assignedTo.firstName} ${accountsStep.assignedTo.lastName || ''}`.trim();
+        } else if (accountsStep?.assignedTo?.name) stepName = accountsStep.assignedTo.name;
+        else if (reward.accountsHODName && reward.accountsHODName !== 'Unknown') {
+            stepName = reward.accountsHODName;
+        } else stepName = 'Accounts HOD';
     } else if (isCashOrGift && step.role === 'Payment') {
         stepName = reward.rewardStatus === 'Approved (Paid)' ? 'Paid' : 'Accounts';
     }
@@ -142,21 +151,23 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
         } else if (step.id === 3) {
             const managerStep = workflow.find((w) => w.role === 'Manager');
             start = managerStep?.actionedAt;
-            if (isCashOrGift) {
-                const accountsStep = workflow.find((w) => w.role === 'Accounts');
-                end = accountsStep?.actionedAt;
-                if (start && !end && currentActive === 4) isLive = true;
-            } else {
-                const managementStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
-                end = managementStep?.actionedAt;
-                if (start && !end && currentActive === 4) isLive = true;
-            }
-        } else if (step.id === 4 && isCashOrGift) {
-            const accountsStep = workflow.find((w) => w.role === 'Accounts');
-            start = accountsStep?.actionedAt;
             const managementStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
             end = managementStep?.actionedAt;
+            if (start && !end && currentActive === 4) isLive = true;
+        } else if (step.id === 4 && isCashOrGift) {
+            const managementStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
+            start = managementStep?.actionedAt;
+            const accountsStep = workflow.find((w) => w.role === 'Accounts');
+            end = accountsStep?.actionedAt;
             if (start && !end && currentActive === 5) isLive = true;
+        } else if (isCashOrGift && step.id === 5) {
+            const accountsStep = workflow.find((w) => w.role === 'Accounts');
+            start = accountsStep?.actionedAt;
+            if (start && reward.rewardStatus === 'Approved') isLive = false;
+            end =
+                reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)'
+                    ? accountsStep?.actionedAt || reward.approvedDate || reward.updatedAt
+                    : null;
         }
 
         const effectiveEnd = end || (isLive ? new Date() : null);
@@ -196,12 +207,14 @@ export default function RewardTrackerPanel({ reward, employee, orientation = 'ho
     const workflow = reward.workflow || [];
     const { steps, isCashOrGift } = buildRewardSteps(reward);
     const internalStatus = reward.approvalStatus || reward.rewardStatus;
+    // Cash/Gift: Created→Requester→Reportee→Management→Accounts→Payment
+    // Certificate: Created→Requester→Reportee→Management
     const statusMap = {
         Draft: 2,
         Pending: 3,
         'Pending HR': 3,
-        'Pending Accounts': 4,
-        'Pending Authorization': isCashOrGift ? 5 : 4,
+        'Pending Authorization': 4,
+        'Pending Accounts': isCashOrGift ? 5 : 4,
         Approved: isCashOrGift ? 6 : 5,
         'Approved (Paid)': isCashOrGift ? 7 : 5,
     };

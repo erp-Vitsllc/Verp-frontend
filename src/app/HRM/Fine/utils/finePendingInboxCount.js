@@ -1,3 +1,8 @@
+import {
+    clearPendingInboxCache,
+    FINE_PENDING_INBOX_ENDPOINT,
+} from '@/utils/pendingInboxFetch';
+
 export const FINE_PENDING_INBOX_CHANGED = 'fine-pending-inbox-changed';
 
 /** Same count as the Fine page bell icon (all pending inbox rows for the viewer). */
@@ -7,7 +12,10 @@ export function countVisibleFinePendingInbox(items) {
 }
 
 export function notifyFinePendingInboxChanged() {
+    clearPendingInboxCache(FINE_PENDING_INBOX_ENDPOINT);
     if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent(FINE_PENDING_INBOX_CHANGED));
+        const event = new CustomEvent(FINE_PENDING_INBOX_CHANGED);
+        window.dispatchEvent(event);
+        document.dispatchEvent(event);
     }
 }

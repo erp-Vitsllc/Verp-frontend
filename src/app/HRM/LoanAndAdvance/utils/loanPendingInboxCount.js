@@ -1,3 +1,8 @@
+import {
+    clearPendingInboxCache,
+    LOAN_PENDING_INBOX_ENDPOINT,
+} from '@/utils/pendingInboxFetch';
+
 export const LOAN_PENDING_INBOX_CHANGED = 'loan-pending-inbox-changed';
 
 /** Same count as the Loan page bell (pending loan/advance rows for the viewer). */
@@ -7,10 +12,10 @@ export function countVisibleLoanPendingInbox(items) {
 }
 
 export function notifyLoanPendingInboxChanged() {
-    if (typeof document !== 'undefined') {
-        document.dispatchEvent(new CustomEvent(LOAN_PENDING_INBOX_CHANGED));
-    }
+    clearPendingInboxCache(LOAN_PENDING_INBOX_ENDPOINT);
     if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent(LOAN_PENDING_INBOX_CHANGED));
+        const event = new CustomEvent(LOAN_PENDING_INBOX_CHANGED);
+        window.dispatchEvent(event);
+        document.dispatchEvent(event);
     }
 }

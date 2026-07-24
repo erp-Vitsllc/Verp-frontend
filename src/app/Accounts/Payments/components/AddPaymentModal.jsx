@@ -56,7 +56,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     const [zohoAccountsLoading, setZohoAccountsLoading] = useState(false);
 
     const preferredRewardOrgId = String(
-        prefill?.organizationId || prefill?.loan?.zohoOrganizationId || '',
+        prefill?.organizationId ||
+            prefill?.reward?.zohoOrganizationId ||
+            prefill?.loan?.zohoOrganizationId ||
+            '',
     ).trim();
     const preferredRewardCompanyId = String(
         rewardCompanyId || prefill?.companyId || '',
@@ -203,6 +206,16 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     : Math.max(0, (parseFloat(reward.amount) || 0) - (parseFloat(reward.paidAmount) || 0));
             setPaymentAmount(balance.toFixed(2));
             setPaymentSource(prefill.paymentSource || 'Cash');
+            const prefillExpenseId =
+                prefill.expenseAccountId || reward.expenseAccountId || '';
+            if (prefillExpenseId) {
+                setExpenseAccountId(String(prefillExpenseId));
+            }
+            const prefillPaidThroughId =
+                prefill.paidThroughAccountId || reward.paidThroughAccountId || '';
+            if (prefillPaidThroughId) {
+                setPaidThroughAccountId(String(prefillPaidThroughId));
+            }
             return;
         }
 

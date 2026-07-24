@@ -29,6 +29,12 @@ import {
 import axiosInstance from '@/utils/axios';
 import AddLoanModal from './components/AddLoanModal';
 import PendingLoanRequestsModal from './components/PendingLoanRequestsModal';
+import {
+    countVisibleLoanPendingInbox,
+    notifyLoanPendingInboxChanged,
+} from './utils/loanPendingInboxCount';
+import { fetchLoanPendingInbox } from '@/utils/pendingInboxFetch';
+import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 
 // Animated Counter Component
 const AnimatedCounter = ({ value, duration = 600 }) => {
@@ -155,7 +161,15 @@ function LoanPageContent() {
                 description: "Record deleted successfully",
                 variant: "success",
             });
+            clearModuleNotificationFeedsCache();
+            notifyLoanPendingInboxChanged();
             fetchLoans();
+            try {
+                const items = await fetchLoanPendingInbox(axiosInstance, { force: true, skipToast: true });
+                setPendingInboxCount(countVisibleLoanPendingInbox(items));
+            } catch {
+                setPendingInboxCount(0);
+            }
         } catch (err) {
             console.error('Error deleting record:', err);
             toast({
