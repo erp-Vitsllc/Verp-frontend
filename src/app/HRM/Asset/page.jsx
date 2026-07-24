@@ -703,18 +703,16 @@ function getAssetListWaitingLabel(item) {
         return 'Action required';
     }
 
-    // Assignment Accept: show who has the inbox task.
-    // Assignees without ERP login cannot act — primary reportee gets the task (never show assignee then).
+    // Assignment Accept: show who has the inbox task (actionRequiredBy).
+    // Backend sets AR to assignee when they have portal/user account; otherwise to primary reportee.
     if (isAssignmentAcknowledgmentOnly(item)) {
         if (item.assignedCompany) {
             if (fromAr) return fromAr;
             return resolveAssetCompanyLabel(item);
         }
-        if (fromAr && !arIsAssignee) return fromAr;
-        if (fromReportee) return fromReportee;
         if (fromAr) return fromAr;
-        // Only show assignee when there is no primary reportee to act for them.
-        if (assigneeLabel && !fromReportee) return assigneeLabel;
+        if (fromReportee) return fromReportee;
+        if (assigneeLabel) return assigneeLabel;
         return 'Acknowledgment';
     }
 

@@ -117,26 +117,42 @@ export default function ToolsAssetProfileHeaderCards({
 
                     <div className="pt-4 mt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
                         <div className="min-w-0">
-                            <p className="text-[14px] font-black text-slate-900 uppercase tracking-tight truncate">
-                                {isTerminalAssetStatus(asset)
-                                    ? String(asset?.status || 'Lost')
-                                    : isActiveCompanyAllocationUi
-                                        ? asset?.assignedCompany?.name || 'Company assigned'
-                                        : isAssetActivelyAssigned(asset)
-                                            ? `${asset?.assignedTo?.firstName || ''} ${asset?.assignedTo?.lastName || ''}`.trim()
-                                            : asset?.pendingAction
-                                                ? `Pending — ${asset.pendingAction}`
-                                                : 'Unassigned'}
-                            </p>
-                            <p className="text-[12px] font-bold text-slate-500 mt-1">
-                                {isTerminalAssetStatus(asset)
-                                    ? 'No longer assigned — see history for prior holders'
-                                    : isActiveCompanyAllocationUi || isAssetActivelyAssigned(asset)
-                                        ? `Since ${isActiveCompanyAllocationUi && asset?.assignedDate ? assignedSince : assignedSince}`
-                                        : asset?.pendingAction
-                                            ? 'Awaiting Asset Controller action'
-                                            : 'Available for assignment'}
-                            </p>
+                            {(() => {
+                                const isAckPending =
+                                    (asset?.status === 'Pending' || asset?.acceptanceStatus === 'Pending') &&
+                                    (asset?.assignedTo || asset?.assignedCompany) &&
+                                    !asset?.pendingAction;
+                                const holderName = isActiveCompanyAllocationUi
+                                    ? asset?.assignedCompany?.name || 'Company assigned'
+                                    : asset?.assignedTo
+                                        ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                        : asset?.assignedCompany?.name || 'Company assigned';
+
+                                let title = 'Unassigned';
+                                let subtitle = 'Available for assignment';
+                                if (isTerminalAssetStatus(asset)) {
+                                    title = String(asset?.status || 'Lost');
+                                    subtitle = 'No longer assigned — see history for prior holders';
+                                } else if (isActiveCompanyAllocationUi || isAssetActivelyAssigned(asset)) {
+                                    title = holderName;
+                                    subtitle = `Since ${assignedSince}`;
+                                } else if (isAckPending) {
+                                    title = holderName || 'Pending assignment';
+                                    subtitle = 'Awaiting assignment acknowledgment';
+                                } else if (asset?.pendingAction) {
+                                    title = `Pending — ${asset.pendingAction}`;
+                                    subtitle = 'Awaiting Asset Controller action';
+                                }
+
+                                return (
+                                    <>
+                                        <p className="text-[14px] font-black text-slate-900 uppercase tracking-tight truncate">
+                                            {title}
+                                        </p>
+                                        <p className="text-[12px] font-bold text-slate-500 mt-1">{subtitle}</p>
+                                    </>
+                                );
+                            })()}
                             {temporaryAssignmentEndsInfo &&
                                 (asset?.status === 'Assigned' ||
                                     asset?.acceptanceStatus === 'Accepted' ||

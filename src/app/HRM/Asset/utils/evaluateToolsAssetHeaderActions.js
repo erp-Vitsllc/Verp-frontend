@@ -88,11 +88,12 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
     const isDraft = statusLower === 'draft';
     const isSaveOnlyDraft = isDraft && !asset?.actionRequiredBy;
     const isPending = statusLower === 'pending';
-    const isAlreadyPending =
-        isPending ||
-        isSubmittedForApprovalState ||
-        (isDraft && asset.actionRequiredBy);
     const isAssignmentAcknowledgmentPending = isAssetAssignmentAcknowledgmentPending(asset);
+    // Assignment Accept wait is not a creation/L&D pending — do not stamp all buttons "(PENDING...)".
+    const isAlreadyPending =
+        isSubmittedForApprovalState ||
+        (isDraft && asset.actionRequiredBy) ||
+        (isPending && !isAssignmentAcknowledgmentPending);
     const isAwaitingCreationApproval =
         isSubmittedForApprovalState ||
         (isDraft && asset.actionRequiredBy != null) ||

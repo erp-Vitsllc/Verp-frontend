@@ -288,20 +288,18 @@ const getAssetApproverDisplayName = (asset) => {
             if (arName) return arName;
             return 'Company coordinator';
         }
-        // Task holder who can act in ERP — not the assignee without portal login.
-        if (arName && !arIsAssignee) return arName;
-        if (reporteeName) return reporteeName;
+        // Trust actionRequiredBy: assignee (has portal) or HOD/reportee (no portal) — never prefer HOD over AR.
         if (arName) return arName;
-        if (assigneeName && !reporteeName) return assigneeName;
+        if (reporteeName) return reporteeName;
+        if (assigneeName) return assigneeName;
         return 'Acknowledgment';
     }
 
     // If there is an active pending action (like EOL or Loss & Damage), the approver is actionRequiredBy.
     if (asset.pendingAction) {
-        if (arName && !arIsAssignee) return arName;
+        if (arName) return arName;
         const ac = empDisplayName(asset.assetController);
         if (ac) return ac;
-        if (arName) return arName;
         return '';
     }
 
@@ -1453,14 +1451,11 @@ function AssetDetailsPageContent() {
 
         const actionRequiredId = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
         const assigneeId = asset.assignedTo?._id?.toString() || asset.assignedTo?.toString();
-        const primaryReporteeId =
-            asset.assignedTo?.primaryReportee?._id?.toString() ||
-            asset.assignedTo?.primaryReportee?.toString();
         const me = currentUserEmployeeId?.toString();
+        // Only the designated task holder (or assignee when AR is them) may deep-link respond — not HOD by default.
         const canRespond =
             (actionRequiredId && me && actionRequiredId === me) ||
-            (assigneeId && me && assigneeId === me) ||
-            (primaryReporteeId && me && primaryReporteeId === me);
+            (assigneeId && me && assigneeId === me && (!actionRequiredId || actionRequiredId === assigneeId));
         if (!canRespond) return;
 
         assignmentRespondHandledRef.current = true;
@@ -2686,24 +2681,6 @@ function AssetDetailsPageContent() {
                                     !asset.pendingAction &&
                                     (asset.status === 'Pending' || asset.status === 'Assigned');
 
-                                const assigneeCompanyEmailBanner = asset?.assignedTo?.companyEmail;
-                                const assigneeHasCompanyEmail = !!(
-                                    assigneeCompanyEmailBanner && String(assigneeCompanyEmailBanner).trim().length > 0
-                                );
-
-                                // Delegate banner: primary reportee when assignee has no company email or no portal access
-                                const primaryReporteeId =
-                                    asset?.assignedTo?.primaryReportee?._id?.toString?.() ||
-                                    asset?.assignedTo?.primaryReportee?.toString?.() ||
-                                    null;
-                                const isPrimaryReporteeAssignmentDelegate = isAssignmentPending &&
-                                    asset?.assignedToType === 'Employee' &&
-                                    asset?.assignedTo &&
-                                    !!primaryReporteeId &&
-                                    primaryReporteeId === currentUserEmployeeId?.toString() &&
-                                    (!assigneeHasCompanyEmail ||
-                                        asset?.assignedTo?.enablePortalAccess === false);
-
                                 // For company-assigned assets, only the targeted action owner can approve
                                 const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
                                 const isCompanyApprover =
@@ -2711,11 +2688,11 @@ function AssetDetailsPageContent() {
                                     isAssignmentPending &&
                                     (isActionRequiredByMe || effectiveIsHR);
 
-                                // Flowchart Assigned User / Admin (company coordinator) accepts company allocations.
+                                // Only actionRequiredBy may Accept — when assignee has portal/user account, AR is them (not HOD).
                                 const shouldShowAssignmentAck =
                                     isCompanyAsset
                                         ? isCompanyApprover
-                                        : (isActionRequiredByMe && isAssignmentPending) || isPrimaryReporteeAssignmentDelegate;
+                                        : (isActionRequiredByMe && isAssignmentPending);
 
                                 if (shouldShowAssignmentAck) {
                                     return (
