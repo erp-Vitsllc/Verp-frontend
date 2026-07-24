@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import {
     mapZohoOrganizationOptions,
@@ -22,6 +22,11 @@ export function useZohoOrganizations({
     const [options, setOptions] = useState([]);
     const [organizationId, setOrganizationIdState] = useState('');
 
+    const preferredOrganizationIdRef = useRef(preferredOrganizationId);
+    const preferredCompanyIdRef = useRef(preferredCompanyId);
+    preferredOrganizationIdRef.current = preferredOrganizationId;
+    preferredCompanyIdRef.current = preferredCompanyId;
+
     const load = useCallback(async () => {
         if (!enabled) {
             setLoading(false);
@@ -40,8 +45,8 @@ export function useZohoOrganizations({
             setOptions(mapped.options);
             setOrganizationIdState((prev) =>
                 resolveInitialZohoOrganizationId({
-                    preferredId: preferredOrganizationId || prev,
-                    preferredCompanyId,
+                    preferredId: preferredOrganizationIdRef.current || prev,
+                    preferredCompanyId: preferredCompanyIdRef.current,
                     defaultOrganizationId: mapped.defaultOrganizationId,
                     options: mapped.options,
                 }),
@@ -56,7 +61,7 @@ export function useZohoOrganizations({
         } finally {
             setLoading(false);
         }
-    }, [enabled, preferredCompanyId, preferredOrganizationId]);
+    }, [enabled]);
 
     useEffect(() => {
         void load();

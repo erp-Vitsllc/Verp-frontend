@@ -55,7 +55,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     const [paidThroughAccountId, setPaidThroughAccountId] = useState('');
     const [zohoAccountsLoading, setZohoAccountsLoading] = useState(false);
 
-    const preferredRewardOrgId = String(prefill?.organizationId || '').trim();
+    const preferredRewardOrgId = String(
+        prefill?.organizationId || prefill?.loan?.zohoOrganizationId || '',
+    ).trim();
     const preferredRewardCompanyId = String(
         rewardCompanyId || prefill?.companyId || '',
     ).trim();
@@ -335,7 +337,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 let params = {
                     relatedEntityType:
                         paymentType === 'Loan' || paymentType === 'Advance'
-                            ? 'Loan'
+                            ? paymentType
                             : paymentType === 'Reward'
                               ? 'Reward'
                               : 'Fine',
@@ -812,7 +814,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     referenceId: entityRef,
                     relatedEntityType:
                         type === 'Loan' || type === 'Advance'
-                            ? 'Loan'
+                            ? type
                             : type === 'Reward'
                               ? 'Reward'
                               : type === 'UtilityBill'

@@ -1016,6 +1016,22 @@ export default function LoanRequestDetails() {
                                         loan?.status === 'Pending Accounts') &&
                                     canPerformAction()
                                 }
+                                onPartyPayableChange={(next) => {
+                                    if (!next) return;
+                                    setLoan((prev) =>
+                                        prev
+                                            ? {
+                                                  ...prev,
+                                                  expenseAccountId: String(next.expenseAccountId || '').trim(),
+                                                  expenseAccountName: String(next.expenseAccountName || '').trim(),
+                                                  paidThroughAccountId: String(next.paidThroughAccountId || '').trim(),
+                                                  paidThroughAccountName: String(
+                                                      next.paidThroughAccountName || '',
+                                                  ).trim(),
+                                              }
+                                            : prev,
+                                    );
+                                }}
                                 onPaymentSuccess={() => fetchLoanDetails()}
                             />
                         </div>

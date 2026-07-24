@@ -489,18 +489,23 @@ function RewardContent() {
 
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 sm:mb-4">
                             <h2 className="text-lg sm:text-xl font-bold text-gray-800">Reward Directory</h2>
-                            {selectedStatus !== 'All' && (
-                                <button
-                                    onClick={() => setSelectedStatus('All')}
-                                    className="text-xs font-bold text-red-500 hover:text-red-600 flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100"
+                            <div className="relative min-w-[140px] sm:min-w-[180px] flex-1 sm:flex-none">
+                                <select
+                                    value={selectedStatus}
+                                    onChange={(e) => setSelectedStatus(e.target.value)}
+                                    className="w-full h-[34px] sm:h-[38px] px-3 sm:px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all font-medium"
+                                    aria-label="Filter by status"
                                 >
-                                    CLEAR FILTER: {selectedStatus.toUpperCase()}
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            )}
+                                    <option value="All">All Statuses</option>
+                                    <option value="Pending">Pending</option>
+                                    <option value="Approved">Approved</option>
+                                    <option value="Rejected">Rejected</option>
+                                    <option value="Draft">Draft</option>
+                                    <option value="Cash">Cash</option>
+                                    <option value="Gift">Gift</option>
+                                    <option value="Certificate">Certificate</option>
+                                </select>
+                            </div>
                         </div>
 
                         {/* Rewards Table */}

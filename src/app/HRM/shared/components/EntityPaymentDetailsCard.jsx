@@ -42,8 +42,8 @@ async function fetchEntityPayments({ entityType, referenceId }) {
         params.referenceId = referenceId;
         params.relatedEntityType = 'Reward';
     } else {
+        // Loan / Advance — match by loanId + paymentType (relatedEntityType may be Loan or Advance)
         params.referenceId = referenceId;
-        params.relatedEntityType = 'Loan';
         params.paymentType = entityType === 'Advance' ? 'Advance' : 'Loan';
     }
 
@@ -269,8 +269,17 @@ export default function EntityPaymentDetailsCard({
         }
 
         if (entityType === 'Loan' || entityType === 'Advance') {
+            const companyId = String(
+                entityRecord?.employee?.company?._id ||
+                    entityRecord?.employee?.company ||
+                    entityRecord?.companyId ||
+                    entityRecord?.company?._id ||
+                    entityRecord?.company ||
+                    '',
+            ).trim();
             const prefill = buildLoanPaymentPrefill(entityRecord, {
                 returnTo: pathname,
+                companyId,
             });
             try {
                 sessionStorage.setItem('loanPaymentPrefill', JSON.stringify(prefill));
