@@ -52,6 +52,9 @@ import {
 import {
     REWARD_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
+import {
+    LOAN_PENDING_INBOX_CHANGED,
+} from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
 import { handleLinkContextMenu } from '@/utils/linkContextMenu';
 
 const logoPath = '/assets/employee/sidebar-logo.png';
@@ -391,6 +394,10 @@ export default function Sidebar() {
             clearModuleNotificationFeedsCache();
             loadSidebarCounts();
         };
+        const handleLoanInboxChanged = () => {
+            clearModuleNotificationFeedsCache();
+            loadSidebarCounts();
+        };
         const handleModuleNotificationsUpdated = (event) => {
             const counts = event?.detail?.counts;
             if (counts) {
@@ -405,9 +412,11 @@ export default function Sidebar() {
             document.addEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
             document.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
             document.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
+            document.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
         }
         if (typeof window !== 'undefined') {
             window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
+            window.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
         }
         return () => {
             if (cancelInitialIdle) cancelInitialIdle();
@@ -416,6 +425,7 @@ export default function Sidebar() {
             if (typeof window !== 'undefined') {
                 window.removeEventListener('focus', handleFocus);
                 window.removeEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
+                window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
             }
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', handleVisibility);
@@ -423,6 +433,7 @@ export default function Sidebar() {
                 document.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
                 document.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
                 document.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
+                document.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
             }
         };
     }, [mounted]);

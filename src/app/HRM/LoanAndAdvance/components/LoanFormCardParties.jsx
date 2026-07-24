@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Select from 'react-select';
 import { Users } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -104,6 +104,29 @@ function accountOptionLabel(account) {
     return type ? `${base} · ${type}` : base;
 }
 
+/** Normalize Zoho account_type / account_type_formatted for matching. */
+function normalizeAccountType(type) {
+    return String(type || '')
+        .toLowerCase()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/** Cash/Bank selected as Expense Account — Zoho API rejects these. */
+function isInvalidExpenseAccountType(type) {
+    const t = normalizeAccountType(type);
+    return (
+        t === 'cash' ||
+        t === 'bank' ||
+        t === 'credit card' ||
+        t === 'undeposited funds' ||
+        /\bcash\b/.test(t) ||
+        /\bbank\b/.test(t) ||
+        t.includes('credit card')
+    );
+}
+
 function resolveCompanyId(employee, loan) {
     return String(
         employee?.company?._id ||
@@ -117,8 +140,8 @@ function resolveCompanyId(employee, loan) {
 }
 
 /**
- * Loan / Advance Parties — VEGA/NNIT toggle + full CoA for Expense Account & Paid Through.
- * Editable only at Accounts stage after HR approval.
+ * Loan / Advance Parties — VEGA/NNIT + same Expense Account / Paid Through
+ * lists as Accounts → Expenses → Add Expense (`/zoho/expenses/support`).
  */
 export default function LoanFormCardParties({
     loan,
@@ -127,12 +150,15 @@ export default function LoanFormCardParties({
     canEditPartyPayables = false,
     onPartyPayableChange,
     onPartyPayableSaved,
+    onRetryZohoSuccess,
 }) {
     const { toast } = useToast();
-    const [accounts, setAccounts] = useState([]);
+    const [expenseAccounts, setExpenseAccounts] = useState([]);
+    const [paidThroughAccounts, setPaidThroughAccounts] = useState([]);
     const [listsLoading, setListsLoading] = useState(false);
     const [listsError, setListsError] = useState('');
     const [savingField, setSavingField] = useState('');
+    const [retryingZoho, setRetryingZoho] = useState(false);
     const [localAccounts, setLocalAccounts] = useState({
         expenseAccountId: '',
         expenseAccountName: '',
@@ -143,7 +169,13 @@ export default function LoanFormCardParties({
     const lastOrgRef = useRef('');
 
     const companyId = resolveCompanyId(employee, loan);
-    const dropdownsEnabled = Boolean(canEditPartyPayables);
+    const zohoSyncError = String(loan?.zohoSyncError || '').trim();
+    const hasZohoExpense = Boolean(String(loan?.zohoExpenseId || '').trim());
+    const needsZohoRetry =
+        String(loan?.approvalStatus || loan?.status || '') === 'Paid' &&
+        !hasZohoExpense &&
+        Boolean(zohoSyncError);
+    const dropdownsEnabled = Boolean(canEditPartyPayables || needsZohoRetry);
     const typeLabel = loan?.type === 'Advance' ? 'Advance' : 'Loan';
     const partyName =
         loan?.applicantName ||
@@ -164,12 +196,13 @@ export default function LoanFormCardParties({
         preferredCompanyId: companyId,
     });
 
-    // Full Chart of Accounts for the selected VEGA / NNIT org (same endpoint as Fine / Payments Made)
+    // Same lists as Accounts → Expenses → Add Expense (/zoho/expenses/support)
     const [coaReloadKey, setCoaReloadKey] = useState(0);
 
     useEffect(() => {
         if (!loan || !organizationId) {
-            setAccounts([]);
+            setExpenseAccounts([]);
+            setPaidThroughAccounts([]);
             setListsLoading(false);
             setListsError('');
             return undefined;
@@ -179,12 +212,8 @@ export default function LoanFormCardParties({
             setListsLoading(true);
             setListsError('');
             try {
-                const supportRes = await axiosInstance.get('/zoho/vendorpayments/support', {
-                    params: {
-                        organizationId,
-                        includeInactive: 'true',
-                        accountsOnly: 'true',
-                    },
+                const supportRes = await axiosInstance.get('/zoho/expenses/support', {
+                    params: { organizationId },
                     skipToast: true,
                     timeout: 120000,
                     validateStatus: (s) => s < 500,
@@ -193,26 +222,33 @@ export default function LoanFormCardParties({
                 if (cancelled) return;
 
                 if (supportRes?.status >= 400 || supportRes?.data?.success === false) {
-                    setAccounts([]);
+                    setExpenseAccounts([]);
+                    setPaidThroughAccounts([]);
                     setListsError(
                         supportRes?.data?.message ||
-                            `Could not load ${activeZohoOrg?.brand || 'Zoho'} Chart of Accounts`,
+                            `Could not load ${activeZohoOrg?.brand || 'Zoho'} expense accounts`,
                     );
                     return;
                 }
 
-                const rows = mapZohoPaymentAccounts(supportRes?.data?.data?.accounts || []);
-                setAccounts(rows);
+                const support = supportRes?.data?.data || {};
+                const expenseRows = mapZohoPaymentAccounts(support.accounts || []);
+                const paidThroughRows = mapZohoPaymentAccounts(
+                    support.paidThroughAccounts || support.accounts || [],
+                );
+                setExpenseAccounts(expenseRows);
+                setPaidThroughAccounts(paidThroughRows);
 
-                if (!rows.length) {
+                if (!expenseRows.length && !paidThroughRows.length) {
                     setListsError(
                         supportRes?.data?.message ||
-                            `No Chart of Accounts for ${activeZohoOrg?.brand || 'selected'} Zoho org. Wait a minute if Zoho rate-limited, then retry.`,
+                            `No expense accounts for ${activeZohoOrg?.brand || 'selected'} Zoho org. Wait a minute if Zoho rate-limited, then retry.`,
                     );
                 }
             } catch (err) {
                 if (!cancelled) {
-                    setAccounts([]);
+                    setExpenseAccounts([]);
+                    setPaidThroughAccounts([]);
                     setListsError(
                         err?.response?.data?.message || err.message || 'Failed to load accounts',
                     );
@@ -227,6 +263,50 @@ export default function LoanFormCardParties({
         // activeZohoOrg?.brand is display-only — do not re-fetch when brand label resolves
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [organizationId, loan?._id, loan?.loanId, coaReloadKey]);
+
+    const needsZohoConnect = /not connected|re-authorize|not configured|not authorized|oauth|invalid_code|refresh_token/i.test(
+        String(listsError || ''),
+    );
+
+    const connectZohoForOrg = useCallback(async () => {
+        if (!organizationId) {
+            toast({
+                variant: 'destructive',
+                title: 'Select Zoho company',
+                description: 'Pick VEGA or NNIT first, then connect Zoho Books.',
+            });
+            return;
+        }
+        try {
+            const response = await axiosInstance.get('/zoho/auth-url', {
+                skipToast: true,
+                params: { organizationId },
+            });
+            const authorizationUrl = response?.data?.data?.authorizationUrl;
+            if (!authorizationUrl) {
+                throw new Error('Authorization URL was not returned');
+            }
+            const popup = window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
+            if (!popup) {
+                window.location.assign(authorizationUrl);
+            } else {
+                toast({
+                    title: 'Complete Zoho login',
+                    description: `Authorize ${activeZohoOrg?.brand || 'this'} Zoho Books org, then click Retry expense accounts.`,
+                    className: 'bg-teal-50 border-teal-200 text-teal-900',
+                });
+            }
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not start Zoho connect',
+                description:
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    'Check Zoho settings in the backend .env, then restart the server.',
+            });
+        }
+    }, [organizationId, activeZohoOrg?.brand, toast]);
 
     useEffect(() => {
         if (!loan) return;
@@ -262,9 +342,9 @@ export default function LoanFormCardParties({
         loan?._id,
     ]);
 
-    const accountOptions = useMemo(
-        () =>
-            accounts.map((a) => ({
+    const toSelectOptions = useCallback(
+        (rows) =>
+            (rows || []).map((a) => ({
                 value: String(a.id),
                 label: accountOptionLabel(a),
                 name: a.name || '',
@@ -285,7 +365,17 @@ export default function LoanFormCardParties({
                     .filter(Boolean)
                     .join(' '),
             })),
-        [accounts],
+        [],
+    );
+
+    // Same lists as Accounts → Expenses → Add Expense
+    const expenseAccountOptions = useMemo(
+        () => toSelectOptions(expenseAccounts),
+        [expenseAccounts, toSelectOptions],
+    );
+    const paidThroughAccountOptions = useMemo(
+        () => toSelectOptions(paidThroughAccounts),
+        [paidThroughAccounts, toSelectOptions],
     );
 
     const filterAccountOption = (candidate, inputValue) => {
@@ -344,7 +434,7 @@ export default function LoanFormCardParties({
             });
             toast({
                 title: `${fieldLabel} saved`,
-                description: `${activeZohoOrg?.brand || 'Zoho'} Chart of Accounts updated for this ${typeLabel.toLowerCase()}.`,
+                description: `${activeZohoOrg?.brand || 'Zoho'} Add Expense accounts updated for this ${typeLabel.toLowerCase()}.`,
                 className: 'bg-green-50 border-green-200 text-green-800',
             });
             onPartyPayableSaved?.();
@@ -372,7 +462,8 @@ export default function LoanFormCardParties({
         };
         dirtyRef.current = true;
         setLocalAccounts(cleared);
-        setAccounts([]);
+        setExpenseAccounts([]);
+        setPaidThroughAccounts([]);
         onPartyPayableChange?.(cleared);
 
         if (!dropdownsEnabled) return;
@@ -415,7 +506,7 @@ export default function LoanFormCardParties({
     const bothFilled = Boolean(expenseId && paidThroughId && organizationId);
 
     const selectedExpense =
-        accountOptions.find((o) => o.value === expenseId) ||
+        expenseAccountOptions.find((o) => o.value === expenseId) ||
         (expenseId
             ? {
                   value: expenseId,
@@ -423,7 +514,7 @@ export default function LoanFormCardParties({
               }
             : null);
     const selectedPaidThrough =
-        accountOptions.find((o) => o.value === paidThroughId) ||
+        paidThroughAccountOptions.find((o) => o.value === paidThroughId) ||
         (paidThroughId
             ? {
                   value: paidThroughId,
@@ -435,8 +526,15 @@ export default function LoanFormCardParties({
         const status = String(loan.approvalStatus || loan.status || '');
         const hasExpense = Boolean(String(loan.zohoExpenseId || loan.zohoJournalId || '').trim());
         const paid = Number(loan.paidAmount) || 0;
+        const syncErr = String(loan.zohoSyncError || '').trim();
 
-        if (hasExpense || status === 'Paid' || (total > 0 && paid >= total - 0.01)) {
+        if (hasExpense) {
+            return { label: 'Paid / Posted to Zoho', className: 'text-emerald-700' };
+        }
+        if ((status === 'Paid' || (total > 0 && paid >= total - 0.01)) && syncErr) {
+            return { label: 'Paid — Zoho failed', className: 'text-red-700' };
+        }
+        if (status === 'Paid' || (total > 0 && paid >= total - 0.01)) {
             return { label: 'Paid / Posted', className: 'text-emerald-700' };
         }
 
@@ -458,10 +556,89 @@ export default function LoanFormCardParties({
         return { label: 'Ready for approval', className: 'text-blue-700' };
     })();
 
+    const handleRetryZohoExpense = async () => {
+        const targetId = loan?._id || loan?.id;
+        if (!targetId || retryingZoho) return;
+
+        const expenseAccountId = String(localAccounts.expenseAccountId || '').trim();
+        const paidThroughAccountId = String(localAccounts.paidThroughAccountId || '').trim();
+        if (!expenseAccountId || !paidThroughAccountId) {
+            toast({
+                variant: 'destructive',
+                title: 'Accounts required',
+                description: 'Pick a valid Expense Account and Paid Through before retrying Zoho.',
+            });
+            return;
+        }
+        if (expenseAccountId === paidThroughAccountId) {
+            toast({
+                variant: 'destructive',
+                title: 'Accounts must differ',
+                description: 'Expense Account and Paid Through must be different.',
+            });
+            return;
+        }
+
+        const expenseOpt = expenseAccountOptions.find((o) => o.value === expenseAccountId);
+        if (expenseOpt && isInvalidExpenseAccountType(expenseOpt.type)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid Expense Account',
+                description:
+                    'Pick from the Expense Account list (same as Zoho Add Expense). Cash / Bank belong in Paid Through.',
+            });
+            return;
+        }
+
+        setRetryingZoho(true);
+        try {
+            const res = await axiosInstance.post(
+                `/Employee/loans/${targetId}/retry-zoho-expense`,
+                {
+                    zohoOrganizationId: organizationId || '',
+                    expenseAccountId,
+                    expenseAccountName: localAccounts.expenseAccountName || '',
+                    paidThroughAccountId,
+                    paidThroughAccountName: localAccounts.paidThroughAccountName || '',
+                },
+                { validateStatus: (s) => s < 500 },
+            );
+            if (res?.status >= 400 || res?.data?.success === false) {
+                throw new Error(res?.data?.message || 'Zoho retry failed');
+            }
+            toast({
+                title: 'Zoho Expense created',
+                description:
+                    res?.data?.message ||
+                    `Expense ${res?.data?.expenseNumber || res?.data?.expenseId || ''} posted to ${activeZohoOrg?.brand || 'Zoho'}.`,
+                className: 'bg-green-50 border-green-200 text-green-800',
+            });
+            onRetryZohoSuccess?.(res?.data);
+            onPartyPayableSaved?.();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Zoho retry failed',
+                description: err?.response?.data?.message || err.message || 'Could not create expense.',
+            });
+        } finally {
+            setRetryingZoho(false);
+        }
+    };
+
     const handleExpenseChange = async (accountId) => {
         const id = String(accountId || '').trim();
-        const match = accounts.find((a) => String(a.id) === id);
-        const option = accountOptions.find((o) => o.value === id);
+        const match = expenseAccounts.find((a) => String(a.id) === id);
+        const option = expenseAccountOptions.find((o) => o.value === id);
+        if (option && isInvalidExpenseAccountType(option.type)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid Expense Account',
+                description:
+                    'Cash / Bank belong in Paid Through. Pick an account from the Expense Account list (same as Zoho Add Expense).',
+            });
+            return;
+        }
         const expenseAccountName = option?.label || accountOptionLabel(match) || '';
         const next = {
             ...localAccounts,
@@ -476,8 +653,8 @@ export default function LoanFormCardParties({
 
     const handlePaidThroughChange = async (accountId) => {
         const id = String(accountId || '').trim();
-        const match = accounts.find((a) => String(a.id) === id);
-        const option = accountOptions.find((o) => o.value === id);
+        const match = paidThroughAccounts.find((a) => String(a.id) === id);
+        const option = paidThroughAccountOptions.find((o) => o.value === id);
         const paidThroughAccountName = option?.label || accountOptionLabel(match) || '';
         const next = {
             ...localAccounts,
@@ -509,10 +686,8 @@ export default function LoanFormCardParties({
             ? 'Loading Zoho companies…'
             : 'Select VEGA or NNIT first…'
         : listsLoading
-          ? `Loading ${brandLabel} Chart of Accounts…`
-          : accountOptions.length
-            ? `Search ${accountOptions.length} ${brandLabel} accounts…`
-            : listsError || `No ${brandLabel} accounts loaded`;
+          ? `Loading ${brandLabel} Add Expense accounts…`
+          : `Search ${brandLabel} accounts…`;
     const thClass =
         'bg-white text-left text-[9px] font-bold text-gray-500 uppercase tracking-wider px-1.5 py-1.5 rounded-md shadow-[0_0_0_1px_rgba(0,0,0,0.04)]';
     const tdClass = 'px-1 py-1.5 text-[10px] text-gray-800 align-middle';
@@ -524,21 +699,31 @@ export default function LoanFormCardParties({
         missing,
         onChange,
         instanceId,
+        options,
+        emptyHint,
+        searchHint,
     }) => (
         <div title={value?.label || ''}>
             <Select
                 classNamePrefix={`loan-party-${fieldKey}`}
                 instanceId={instanceId}
                 styles={accountSelectStyles(missing)}
-                options={accountOptions}
+                options={options}
                 value={value}
                 onChange={(option) => onChange(option?.value || '')}
                 filterOption={filterAccountOption}
-                placeholder={accountPlaceholder}
+                placeholder={
+                    !organizationId || accountsBusy
+                        ? accountPlaceholder
+                        : options.length
+                          ? searchHint ||
+                            `Search ${options.length} ${brandLabel} accounts…`
+                          : emptyHint || accountPlaceholder
+                }
                 isSearchable
                 isClearable={false}
                 isDisabled={
-                    !dropdownsEnabled || !organizationId || accountsBusy || saving
+                    !dropdownsEnabled || !organizationId || accountsBusy || saving || retryingZoho
                 }
                 isLoading={accountsBusy || savingField === fieldKey}
                 components={{
@@ -552,10 +737,11 @@ export default function LoanFormCardParties({
                 noOptionsMessage={() =>
                     accountsBusy
                         ? 'Loading…'
-                        : accountOptions.length
+                        : options.length
                           ? 'No matching account'
-                          : listsError ||
-                            `Full ${brandLabel} Chart of Accounts empty — check Zoho connection`
+                          : emptyHint ||
+                            listsError ||
+                            `No ${brandLabel} Add Expense accounts — check Zoho connection`
                 }
             />
         </div>
@@ -567,7 +753,7 @@ export default function LoanFormCardParties({
             iconBg="bg-indigo-50"
             iconColor="text-indigo-600"
             title={`${typeLabel} Parties`}
-            subtitle="Pick VEGA or NNIT → Expense Account + Paid Through from that org’s full Chart of Accounts"
+            subtitle="Same Expense Account + Paid Through lists as Accounts → Expenses → Add Expense"
             headerAction={
                 showZohoOrgPicker || activeZohoOrg ? (
                     <ZohoOrganizationPicker
@@ -642,23 +828,50 @@ export default function LoanFormCardParties({
 
             {dropdownsEnabled ? (
                 <p className="mb-3 text-[10px] text-indigo-700 bg-indigo-50/80 rounded-lg px-3 py-2">
-                    Toggle <strong>VEGA</strong> or <strong>NNIT</strong>, then fill{' '}
-                    <strong>Expense Account</strong> (debit) and <strong>Paid Through</strong>{' '}
-                    (credit) from that company’s <strong>full</strong> Zoho Chart of Accounts.
-                    Paid expense posts into the same Zoho org.
+                    Toggle <strong>VEGA</strong> or <strong>NNIT</strong>.{' '}
+                    <strong>Expense Account</strong> and <strong>Paid Through</strong> use the same
+                    dropdown lists as Zoho / Accounts → Expenses → Add Expense.
                 </p>
+            ) : null}
+
+            {needsZohoRetry ? (
+                <div className="mb-3 text-[10px] text-red-800 bg-red-50 rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                        <strong>Zoho Expense not created.</strong> {zohoSyncError} Fix Expense
+                        Account / Paid Through, then retry.
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => void handleRetryZohoExpense()}
+                        disabled={retryingZoho || accountsBusy || saving}
+                        className="rounded-md border border-red-300 bg-white px-2 py-1 text-[10px] font-bold text-red-800 hover:bg-red-100 disabled:opacity-50"
+                    >
+                        {retryingZoho ? 'Retrying…' : 'Retry Zoho Expense'}
+                    </button>
+                </div>
             ) : null}
 
             {listsError && organizationId && !listsLoading ? (
                 <div className="mb-3 text-[10px] text-red-700 bg-red-50 rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-2">
                     <span>{listsError}</span>
-                    <button
-                        type="button"
-                        onClick={() => setCoaReloadKey((k) => k + 1)}
-                        className="shrink-0 rounded-md border border-red-200 bg-white px-2 py-1 text-[10px] font-bold text-red-800 hover:bg-red-100"
-                    >
-                        Retry Chart of Accounts
-                    </button>
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        {needsZohoConnect ? (
+                            <button
+                                type="button"
+                                onClick={() => void connectZohoForOrg()}
+                                className="rounded-md border border-teal-200 bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800 hover:bg-teal-100"
+                            >
+                                Connect Zoho Books
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            onClick={() => setCoaReloadKey((k) => k + 1)}
+                            className="rounded-md border border-red-200 bg-white px-2 py-1 text-[10px] font-bold text-red-800 hover:bg-red-100"
+                        >
+                            Retry expense accounts
+                        </button>
+                    </div>
                 </div>
             ) : null}
 
@@ -699,6 +912,9 @@ export default function LoanFormCardParties({
                                     missing: !expenseId,
                                     onChange: handleExpenseChange,
                                     instanceId: `loan-party-expense-${loan._id || loan.loanId}`,
+                                    options: expenseAccountOptions,
+                                    emptyHint: `No Expense Account options for ${brandLabel}`,
+                                    searchHint: `Expense Account (${expenseAccountOptions.length})…`,
                                 })}
                             </td>
                             <td className={`${tdClass} font-bold text-red-600`}>
@@ -712,6 +928,9 @@ export default function LoanFormCardParties({
                                     missing: !paidThroughId,
                                     onChange: handlePaidThroughChange,
                                     instanceId: `loan-party-paid-through-${loan._id || loan.loanId}`,
+                                    options: paidThroughAccountOptions,
+                                    emptyHint: `No Paid Through options for ${brandLabel}`,
+                                    searchHint: `Paid Through (${paidThroughAccountOptions.length})…`,
                                 })}
                             </td>
                             <td

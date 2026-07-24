@@ -136,7 +136,11 @@ function isLoanNotification(item = {}) {
     if (LOAN_TYPES.has(type)) return true;
     if (low.includes('loan')) return true;
     // Avoid matching unrelated strings that merely contain "advance" as a substring.
-    return low === 'advance' || low.startsWith('advance ');
+    if (low === 'advance' || low.startsWith('advance ')) return true;
+    // Pay-to-employee tasks often keep type Loan/Advance with this extra1 prefix.
+    const extra1 = String(item?.extra1 || '').toLowerCase();
+    if (extra1.includes('pay to employee')) return true;
+    return false;
 }
 
 function dedupe(items = []) {

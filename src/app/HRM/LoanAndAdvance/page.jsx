@@ -8,7 +8,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import ListTableRowLink from '@/components/ListTableRowLink';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import {
@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import axiosInstance from '@/utils/axios';
 import AddLoanModal from './components/AddLoanModal';
+import PendingLoanRequestsModal from './components/PendingLoanRequestsModal';
 
 // Animated Counter Component
 const AnimatedCounter = ({ value, duration = 600 }) => {
@@ -74,6 +75,8 @@ function LoanPageContent() {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [recordToDelete, setRecordToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
+    const [pendingInboxCount, setPendingInboxCount] = useState(0);
 
     const showLoanTab = !mounted || canViewLoanList();
     const showAdvanceTab = !mounted || canViewAdvanceList();
@@ -260,17 +263,32 @@ function LoanPageContent() {
                                 </p>
                             </div>
 
-                            {canAdd ? (
-                            <button
-                                onClick={handleAddLoan}
-                                className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M12 5v14M5 12h14"></path>
-                                </svg>
-                                Add Loan/Advance
-                            </button>
-                            ) : null}
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:gap-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingInboxModalOpen(true)}
+                                    className="relative p-1.5 sm:p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
+                                    title="Loan & Advance notifications assigned to you"
+                                >
+                                    <Bell size={20} />
+                                    {pendingInboxCount > 0 ? (
+                                        <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
+                                            {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
+                                        </span>
+                                    ) : null}
+                                </button>
+                                {canAdd ? (
+                                <button
+                                    onClick={handleAddLoan}
+                                    className="bg-teal-500 hover:bg-teal-600 text-white px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M12 5v14M5 12h14"></path>
+                                    </svg>
+                                    Add Loan/Advance
+                                </button>
+                                ) : null}
+                            </div>
                         </div>
 
                         {/* Stats Dashboard */}
@@ -597,6 +615,13 @@ function LoanPageContent() {
                 onSuccess={handleModalSuccess}
                 employees={employees}
                 existingLoans={loans}
+            />
+
+            <PendingLoanRequestsModal
+                isOpen={pendingInboxModalOpen}
+                onClose={() => setPendingInboxModalOpen(false)}
+                onRefreshParent={fetchLoans}
+                onPendingInboxCount={setPendingInboxCount}
             />
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

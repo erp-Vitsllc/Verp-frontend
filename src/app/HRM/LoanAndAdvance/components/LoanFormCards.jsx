@@ -62,7 +62,8 @@ export default function LoanFormCards(props) {
                     formatDate={props.formatDate}
                     canEditPartyPayables={Boolean(props.canEditPartyPayables)}
                     onPartyPayableChange={props.onPartyPayableChange}
-                    onPartyPayableSaved={props.onPaymentSuccess}
+                    onPartyPayableSaved={props.onPartyPayableSaved || props.onPaymentSuccess}
+                    onRetryZohoSuccess={props.onRetryZohoSuccess || props.onPaymentSuccess}
                 />
                 <LoanFormCard2 {...props} />
                 <FineFormCard4 {...financialCardProps} />

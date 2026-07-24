@@ -418,7 +418,9 @@ export const buildDashboardNotificationPath = (item) => {
         return empKey ? `/emp/${encodeURIComponent(String(empKey))}?tab=work-details` : '';
     }
 
-    if (type.includes('loan')) return item.id ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(item.id))}` : '';
+    if (type.includes('loan') || type === 'advance' || type.includes('loan/advance') || type.includes('loan and advance')) {
+        return item.id ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(item.id))}` : '';
+    }
     if (type.includes('reward')) {
         const path = buildRewardNotificationPath(item);
         return path || '';

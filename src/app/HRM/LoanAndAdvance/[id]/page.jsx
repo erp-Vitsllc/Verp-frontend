@@ -31,8 +31,9 @@ import { buildLoanFormSummaries, EMPTY_LOAN_FORM_SUMMARIES } from '../utils/buil
 import { isApprovedLoanRecord } from '../utils/loanScheduleUtils';
 import {
     canAccountsPayLoan,
-    buildLoanPaymentPrefill,
 } from '../utils/loanPaymentPrefill';
+import { notifyLoanPendingInboxChanged } from '../utils/loanPendingInboxCount';
+import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
@@ -704,23 +705,41 @@ export default function LoanRequestDetails() {
         }
 
         setIsProcessing(true);
+        const actionLabel =
+            action === 'approve' ? 'Approving' : action === 'reject' ? 'Rejecting' : 'Updating';
+        const loadingToast = toast({
+            title: `${actionLabel}…`,
+            description:
+                action === 'approve'
+                    ? 'Please wait — updating status, notifications, and attachments can take a moment.'
+                    : 'Please wait while the request is updated.',
+            className: 'bg-amber-50 border-amber-200 text-amber-900',
+            duration: 120000,
+        });
         try {
             await axiosInstance.put(`/Employee/loans/${id}/status`, {
                 status: targetStatus,
             });
 
-            toast({
-                title: "Success",
+            loadingToast.update({
+                id: loadingToast.id,
+                title: 'Success',
                 description: `Loan request ${targetStatus === 'Pending' ? 'submitted' : action === 'approve' ? 'approved' : 'rejected'} successfully.`,
-                className: "bg-green-50 border-green-200 text-green-800"
+                className: 'bg-green-50 border-green-200 text-green-800',
+                duration: 5000,
             });
+            clearModuleNotificationFeedsCache();
+            notifyLoanPendingInboxChanged();
             await fetchLoanDetails();
         } catch (err) {
             console.error("Error updating status:", err);
-            toast({
-                variant: "destructive",
-                title: "Error",
-                description: err.response?.data?.message || "Failed to update loan status.",
+            loadingToast.update({
+                id: loadingToast.id,
+                title: 'Error',
+                description: err.response?.data?.message || 'Failed to update loan status.',
+                variant: 'destructive',
+                className: undefined,
+                duration: 8000,
             });
         } finally {
             setIsProcessing(false);
@@ -745,6 +764,133 @@ export default function LoanRequestDetails() {
 
     const handleApprove = () => openConfirmation('approve');
     const handleReject = () => openConfirmation('reject');
+
+    /**
+     * Paid → create ERP payment + Zoho Expense from Loan Parties fields
+     * (Expense Account, Paid Through, org, amount, acknowledgment attachment).
+     */
+    const handleMarkPaid = async () => {
+        if (!loan) return;
+
+        const expenseAccountId = String(loan.expenseAccountId || '').trim();
+        const paidThroughAccountId = String(loan.paidThroughAccountId || '').trim();
+        const expenseAccountName = String(loan.expenseAccountName || '').trim();
+        const paidThroughAccountName = String(loan.paidThroughAccountName || '').trim();
+        const zohoOrganizationId = String(loan.zohoOrganizationId || '').trim();
+        const amount = Number(loan.amount) || 0;
+        const paid = Number(loan.paidAmount) || 0;
+        const balance = Math.max(0, amount - paid);
+
+        if (!expenseAccountId || !paidThroughAccountId) {
+            toast({
+                variant: 'destructive',
+                title: 'Accounts required',
+                description:
+                    'Fill Expense Account and Paid Through on the Loan Parties card before marking Paid.',
+            });
+            return;
+        }
+        if (expenseAccountId === paidThroughAccountId) {
+            toast({
+                variant: 'destructive',
+                title: 'Accounts must differ',
+                description: 'Expense Account and Paid Through must be different.',
+            });
+            return;
+        }
+        if (!zohoOrganizationId) {
+            toast({
+                variant: 'destructive',
+                title: 'Zoho company required',
+                description: 'Pick VEGA or NNIT on the Loan Parties card before marking Paid.',
+            });
+            return;
+        }
+        if (balance <= 0.01) {
+            toast({
+                variant: 'destructive',
+                title: 'Already paid',
+                description: 'There is no remaining amount to pay.',
+            });
+            return;
+        }
+
+        const ack =
+            (Array.isArray(loan.approvalAttachments) &&
+                loan.approvalAttachments.find((a) => a?.url || a?.publicId || a?.data)) ||
+            loan.attachment ||
+            null;
+        const attachment =
+            ack && (ack.url || ack.publicId || ack.data || ack.name)
+                ? {
+                      name: ack.name || `${typeLabel}_Acknowledgment_${loan.loanId || id}.pdf`,
+                      url: ack.url || '',
+                      publicId: ack.publicId || '',
+                      mimeType: ack.mimeType || 'application/pdf',
+                      data: ack.data || undefined,
+                  }
+                : null;
+
+        setIsProcessing(true);
+        const loadingToast = toast({
+            title: 'Recording payment…',
+            description: 'Creating payment and Zoho Expense from Loan Parties accounts.',
+            className: 'bg-amber-50 border-amber-200 text-amber-900',
+            duration: 120000,
+        });
+
+        try {
+            const paymentType = loan.type === 'Advance' ? 'Advance' : 'Loan';
+            const res = await axiosInstance.post('/Payment', {
+                paymentType,
+                paidBy: loan.employeeId,
+                amount: balance,
+                status: 'Completed',
+                description: `Payment for ${loan.loanId || id}`,
+                referenceId: loan.loanId || id,
+                relatedEntityType: paymentType,
+                relatedEntityId: loan._id || id,
+                paymentSource: attachment ? 'Cash' : 'Salary',
+                attachment: attachment || undefined,
+                zohoOrganizationId,
+                expenseAccountId,
+                expenseAccountName,
+                paidThroughAccountId,
+                paidThroughAccountName,
+            });
+
+            loadingToast.update({
+                id: loadingToast.id,
+                title: res?.data?.zohoSync?.ok === false ? 'Paid in ERP — Zoho failed' : 'Paid',
+                description:
+                    res?.data?.message ||
+                    `${typeLabel} marked paid. Zoho Expense uses Expense Account + Paid Through from Loan Parties.`,
+                className:
+                    res?.data?.zohoSync?.ok === false
+                        ? 'bg-amber-50 border-amber-200 text-amber-900'
+                        : 'bg-green-50 border-green-200 text-green-800',
+                duration: res?.data?.zohoSync?.ok === false ? 10000 : 6000,
+            });
+            clearModuleNotificationFeedsCache();
+            notifyLoanPendingInboxChanged();
+            await fetchLoanDetails();
+        } catch (err) {
+            console.error('Loan mark paid failed:', err);
+            loadingToast.update({
+                id: loadingToast.id,
+                title: 'Payment failed',
+                description:
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    'Could not create payment / Zoho Expense.',
+                variant: 'destructive',
+                className: undefined,
+                duration: 8000,
+            });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
 
     const handleDownloadPDF = async () => {
         try {
@@ -922,30 +1068,7 @@ export default function LoanRequestDetails() {
                                     onSubmit={() => handleUpdateStatus('Pending')}
                                     onCancel={() => handleUpdateStatus('Cancelled')}
                                     onResubmit={() => setIsResubmittingModal(true)}
-                                    onPay={() => {
-                                        const companyId = String(
-                                            employee?.company?._id ||
-                                                employee?.company ||
-                                                employee?.companyId ||
-                                                '',
-                                        ).trim();
-                                        const prefill = buildLoanPaymentPrefill(loan, {
-                                            returnTo:
-                                                typeof window !== 'undefined'
-                                                    ? `${window.location.pathname}${window.location.search}`
-                                                    : '',
-                                            companyId,
-                                        });
-                                        try {
-                                            sessionStorage.setItem(
-                                                'loanPaymentPrefill',
-                                                JSON.stringify(prefill),
-                                            );
-                                        } catch (err) {
-                                            console.error(err);
-                                        }
-                                        router.push('/Accounts/Payments?addLoanPay=1');
-                                    }}
+                                    onPay={handleMarkPaid}
                                 />
                             </div>
                         </div>
@@ -1012,8 +1135,12 @@ export default function LoanRequestDetails() {
                                 allEmployeeLoans={allEmployeeLoans}
                                 employeeOwnerId={employeeOwnerId}
                                 canEditPartyPayables={
-                                    (loan?.approvalStatus === 'Pending Accounts' ||
-                                        loan?.status === 'Pending Accounts') &&
+                                    ((loan?.approvalStatus === 'Pending Accounts' ||
+                                        loan?.status === 'Pending Accounts') ||
+                                        ((loan?.approvalStatus === 'Paid' ||
+                                            loan?.status === 'Paid') &&
+                                            !String(loan?.zohoExpenseId || '').trim() &&
+                                            Boolean(String(loan?.zohoSyncError || '').trim()))) &&
                                     canPerformAction()
                                 }
                                 onPartyPayableChange={(next) => {
@@ -1032,6 +1159,8 @@ export default function LoanRequestDetails() {
                                             : prev,
                                     );
                                 }}
+                                onPartyPayableSaved={() => fetchLoanDetails()}
+                                onRetryZohoSuccess={() => fetchLoanDetails()}
                                 onPaymentSuccess={() => fetchLoanDetails()}
                             />
                         </div>
