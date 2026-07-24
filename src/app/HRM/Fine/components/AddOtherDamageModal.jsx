@@ -63,13 +63,34 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
     // Populate data when modal opens
     useEffect(() => {
         if (isOpen && initialData) {
+            const sc = parseFloat(initialData.serviceCharge || 0) || 0;
+            const rf = initialData.responsibleFor || 'Employee';
+            const realEmployees = (initialData.assignedEmployees || []).filter(
+                (emp) => emp.employeeId && emp.employeeId !== 'VEGA-HR-0000',
+            );
+            const partyCount =
+                rf === 'Employee & Company'
+                    ? Math.max(2, realEmployees.length + 1)
+                    : Math.max(1, realEmployees.length || 1);
+            const scPerParty = partyCount > 0 ? sc / partyCount : 0;
+            let empPayable = parseFloat(initialData.employeeAmount || 0) || 0;
+            let compPayable = parseFloat(initialData.companyAmount || 0) || 0;
+            // Stored amounts are base — convert to payable for UI when SC exists
+            if (rf === 'Employee & Company' && sc > 0) {
+                const grand = parseFloat(initialData.fineAmount || 0) || 0;
+                if (Math.abs(empPayable + compPayable - grand) > 0.05) {
+                    empPayable = empPayable + scPerParty * Math.max(1, realEmployees.length);
+                    compPayable = compPayable + scPerParty;
+                }
+            }
+
             setFormData({
                 description: initialData.description || '',
                 // When editing, load the GRAND TOTAL deduction amount
                 deductionAmount: String(initialData.fineAmount || ''),
-                paidBy: initialData.responsibleFor || 'Employee',
-                employeeAmount: String(initialData.employeeAmount ?? ''),
-                companyAmount: String(initialData.companyAmount ?? ''),
+                paidBy: rf,
+                employeeAmount: String(empPayable || initialData.employeeAmount || ''),
+                companyAmount: String(compPayable || initialData.companyAmount || ''),
                 companyDescription: initialData.companyDescription || '',
                 attachment: null,
                 attachmentBase64: '',
@@ -84,12 +105,24 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             let emps = [];
             if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
                 // Filter out company record from the table view
-                const realEmployees = initialData.assignedEmployees.filter(emp => emp.employeeId !== 'VEGA-HR-0000');
                 emps = realEmployees.map(emp => ({
                     employeeId: emp.employeeId,
                     employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
-                    // Prefer employeeAmount (base) or fineAmount for per-person input; fallback to split
-                    fineAmount: emp.employeeAmount ?? emp.fineAmount ?? emp.individualAmount ?? (initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2) : (parseFloat(initialData.fineAmount) / realEmployees.length).toFixed(2)),
+                    // Prefer payable (individualAmount/fineAmount); fallback to base + SC share
+                    fineAmount:
+                        emp.individualAmount ??
+                        emp.fineAmount ??
+                        (emp.employeeAmount != null
+                            ? String(
+                                  Number(
+                                      (
+                                          (parseFloat(emp.employeeAmount) || 0) + scPerParty
+                                      ).toFixed(2),
+                                  ),
+                              )
+                            : (initialData.employeeAmount
+                                  ? (empPayable / Math.max(1, realEmployees.length)).toFixed(2)
+                                  : (parseFloat(initialData.fineAmount) / Math.max(1, realEmployees.length)).toFixed(2))),
                     duration: emp.payableDuration || initialData.payableDuration || '1'
                 }));
             } else if (initialData.employeeId && initialData.employeeId !== 'VEGA-HR-0000') {
@@ -97,7 +130,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 emps = [{
                     employeeId: initialData.employeeId,
                     employeeName: empName,
-                    fineAmount: initialData.fineAmount || '0',
+                    fineAmount: String(parseFloat(initialData.fineAmount || 0) || 0),
                     duration: initialData.payableDuration || '1'
                 }];
             }
@@ -218,12 +251,10 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             if (!formData.companyAmount) newErrors.companyAmount = 'Company amount is required';
             const empTarget = parseFloat(formData.employeeAmount) || 0;
             const compTarget = parseFloat(formData.companyAmount) || 0;
-            const serviceChargeAmount = parseFloat(formData.serviceCharge) || 0;
             
-            // Single validation: Total Fine Amount must equal Service Charge + Employee Portion + Company Portion
-            const expectedTotal = serviceChargeAmount + empTarget + compTarget;
-            if (Math.abs(totalInput - expectedTotal) > 0.01) {
-                newErrors.deductionAmount = `Total deduction amount (AED ${totalInput.toFixed(2)}) must equal service charge (AED ${serviceChargeAmount.toFixed(2)}) + employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) = AED ${expectedTotal.toFixed(2)}`;
+            // Single validation: Employee + Company payable amounts must equal Total (already includes SC)
+            if (Math.abs(totalInput - (empTarget + compTarget)) > 0.01) {
+                newErrors.deductionAmount = `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) must equal total (AED ${totalInput.toFixed(2)}). Portions already include service charge.`;
             }
         }
 
@@ -282,12 +313,29 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             setSubmitting(true);
             const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
             const grandTotalFine = parseFloat(formData.deductionAmount) || 0;
-            const baseFineAmount = grandTotalFine - serviceChargeAmount;
+            const baseFineAmount = Math.max(0, grandTotalFine - serviceChargeAmount);
 
-            // Use the base portion values directly from individual fields if in split mode
-            // or calculate from total if in simple mode
-            const totalEmpAmount = formData.paidBy === 'Company' ? 0 : (formData.paidBy === 'Employee' ? baseFineAmount : (parseFloat(formData.employeeAmount) || 0));
-            const totalCompAmount = formData.paidBy === 'Employee' ? 0 : (formData.paidBy === 'Company' ? baseFineAmount : (parseFloat(formData.companyAmount) || 0));
+            const totalPartiesCount =
+                selectedEmployees.length + (formData.paidBy === 'Employee & Company' ? 1 : 0);
+            const scPerParty =
+                totalPartiesCount > 0 ? serviceChargeAmount / totalPartiesCount : 0;
+
+            // UI employee/company amounts are payable (include SC). Strip SC for stored bases.
+            let totalEmpAmount = 0;
+            let totalCompAmount = 0;
+            if (formData.paidBy === 'Employee') {
+                totalEmpAmount = baseFineAmount;
+            } else if (formData.paidBy === 'Company') {
+                totalCompAmount = baseFineAmount;
+            } else {
+                const empPayable = parseFloat(formData.employeeAmount) || 0;
+                const compPayable = parseFloat(formData.companyAmount) || 0;
+                totalEmpAmount = Math.max(
+                    0,
+                    empPayable - scPerParty * selectedEmployees.length,
+                );
+                totalCompAmount = Math.max(0, compPayable - scPerParty);
+            }
 
             // Determine Company
             let commonCompanyId = selectedCompanyId;
@@ -312,22 +360,17 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 companyAmount: totalCompAmount,
                 serviceCharge: serviceChargeAmount,
                 employees: (() => {
-                    // Service charge is divided equally among ALL parties
-                    const totalPartiesCount = selectedEmployees.length + (formData.paidBy === 'Employee & Company' ? 1 : 0);
-                    const scPerParty = totalPartiesCount > 0 ? (serviceChargeAmount / totalPartiesCount) : 0;
-                    
                     const list = selectedEmployees.map(emp => {
-                        // Individual base amount (without service charge)
-                        const individualBaseAmount = parseFloat(emp.fineAmount) || 0;
-                        // Individual total = base amount + service charge share
-                        const individualTotal = individualBaseAmount + scPerParty;
+                        // UI row amount already includes service-charge share
+                        const individualPayable = parseFloat(emp.fineAmount) || 0;
+                        const individualBase = Math.max(0, individualPayable - scPerParty);
                         
                         return {
                             employeeId: emp.employeeId,
                             employeeName: emp.employeeName,
-                            fineAmount: individualTotal.toFixed(2), // Total includes service charge share
-                            individualAmount: individualTotal.toFixed(2), // Include service charge share
-                            employeeAmount: individualBaseAmount.toFixed(2), // Base employee amount
+                            fineAmount: individualPayable.toFixed(2),
+                            individualAmount: individualPayable.toFixed(2),
+                            employeeAmount: individualBase.toFixed(2),
                             companyAmount: "0.00",
                             payableDuration: parseInt(payableDuration) || 1
                         };
@@ -335,15 +378,15 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
 
                     // Add company share record if "Employee & Company"
                     if (formData.paidBy === 'Employee & Company') {
-                        const individualCompBase = parseFloat(compAmt) || 0;
-                        const individualTotal = individualCompBase + scPerParty;
+                        const individualPayable = parseFloat(formData.companyAmount) || 0;
+                        const individualBase = Math.max(0, individualPayable - scPerParty);
                         
                         list.push({
                             employeeId: 'VEGA-HR-0000',
                             employeeName: 'Vega Digital IT Solutions',
-                            fineAmount: individualTotal.toFixed(2),
-                            individualAmount: individualTotal.toFixed(2),
-                            employeeAmount: individualCompBase.toFixed(2),
+                            fineAmount: individualPayable.toFixed(2),
+                            individualAmount: individualPayable.toFixed(2),
+                            employeeAmount: individualBase.toFixed(2),
                             companyAmount: "0.00",
                             payableDuration: 1
                         });
@@ -404,8 +447,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
 
                     {formData.paidBy === 'Employee & Company' && (
                         <div className="grid grid-cols-2 gap-5">
-                            <div className="space-y-1.5"><label className="text-sm font-medium">Employee Amount</label><input type="number" value={formData.employeeAmount} onChange={(e) => setFormData(p => ({ ...p, employeeAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200" /></div>
-                            <div className="space-y-1.5"><label className="text-sm font-medium">Company Amount</label><input type="number" value={formData.companyAmount} onChange={(e) => setFormData(p => ({ ...p, companyAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200" /></div>
+                            <div className="space-y-1.5"><label className="text-sm font-medium">Employee Amount (incl. service charge)</label><input type="number" value={formData.employeeAmount} onChange={(e) => setFormData(p => ({ ...p, employeeAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200" /></div>
+                            <div className="space-y-1.5"><label className="text-sm font-medium">Company Amount (incl. service charge)</label><input type="number" value={formData.companyAmount} onChange={(e) => setFormData(p => ({ ...p, companyAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200" /></div>
                         </div>
                     )}
 

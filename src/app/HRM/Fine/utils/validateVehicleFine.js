@@ -167,6 +167,8 @@ export function validateVehicleFine(input, options = {}) {
     if (responsibleFor === 'Employee & Company') {
         const empAmt = parseMoney(input.employeeAmount);
         const compAmt = parseMoney(input.companyAmount);
+        // UI portions are payable totals (fine share + service-charge share)
+        const portionsTarget = grandTotal;
 
         if (input.employeeAmount === '' || input.employeeAmount == null) {
             errors.employeeAmount = 'Employee amount is required';
@@ -184,13 +186,12 @@ export function validateVehicleFine(input, options = {}) {
             errors.companyAmount = 'Enter a valid company amount greater than 0';
         }
 
-        if (baseFine !== null && empAmt !== null && compAmt !== null) {
-            // Portions split the Fine Amount only; Total payable = Fine Amount + Service Charge
-            if (Math.abs(empAmt + compAmt - baseFine) > 0.01) {
+        if (portionsTarget !== null && empAmt !== null && compAmt !== null) {
+            if (Math.abs(empAmt + compAmt - portionsTarget) > 0.01) {
                 errors.amountMismatch =
                     serviceCharge > 0
-                        ? `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount (AED ${baseFine.toFixed(2)}). Total payable = Fine Amount + Service Charge (AED ${grandTotal.toFixed(2)}).`
-                        : `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount (AED ${baseFine.toFixed(2)})`;
+                        ? `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount + Service Charge (AED ${portionsTarget.toFixed(2)}).`
+                        : `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount (AED ${portionsTarget.toFixed(2)})`;
             }
         }
     }

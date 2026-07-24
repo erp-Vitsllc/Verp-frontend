@@ -165,6 +165,8 @@ export default function LoanFormCardParties({
     });
 
     // Full Chart of Accounts for the selected VEGA / NNIT org (same endpoint as Fine / Payments Made)
+    const [coaReloadKey, setCoaReloadKey] = useState(0);
+
     useEffect(() => {
         if (!loan || !organizationId) {
             setAccounts([]);
@@ -185,9 +187,19 @@ export default function LoanFormCardParties({
                     },
                     skipToast: true,
                     timeout: 120000,
+                    validateStatus: (s) => s < 500,
                 });
 
                 if (cancelled) return;
+
+                if (supportRes?.status >= 400 || supportRes?.data?.success === false) {
+                    setAccounts([]);
+                    setListsError(
+                        supportRes?.data?.message ||
+                            `Could not load ${activeZohoOrg?.brand || 'Zoho'} Chart of Accounts`,
+                    );
+                    return;
+                }
 
                 const rows = mapZohoPaymentAccounts(supportRes?.data?.data?.accounts || []);
                 setAccounts(rows);
@@ -195,7 +207,7 @@ export default function LoanFormCardParties({
                 if (!rows.length) {
                     setListsError(
                         supportRes?.data?.message ||
-                            `No Chart of Accounts for ${activeZohoOrg?.brand || 'selected'} Zoho org`,
+                            `No Chart of Accounts for ${activeZohoOrg?.brand || 'selected'} Zoho org. Wait a minute if Zoho rate-limited, then retry.`,
                     );
                 }
             } catch (err) {
@@ -214,7 +226,7 @@ export default function LoanFormCardParties({
         };
         // activeZohoOrg?.brand is display-only — do not re-fetch when brand label resolves
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [organizationId, loan?._id, loan?.loanId]);
+    }, [organizationId, loan?._id, loan?.loanId, coaReloadKey]);
 
     useEffect(() => {
         if (!loan) return;
@@ -638,9 +650,16 @@ export default function LoanFormCardParties({
             ) : null}
 
             {listsError && organizationId && !listsLoading ? (
-                <p className="mb-3 text-[10px] text-red-700 bg-red-50 rounded-lg px-3 py-2">
-                    {listsError}
-                </p>
+                <div className="mb-3 text-[10px] text-red-700 bg-red-50 rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                    <span>{listsError}</span>
+                    <button
+                        type="button"
+                        onClick={() => setCoaReloadKey((k) => k + 1)}
+                        className="shrink-0 rounded-md border border-red-200 bg-white px-2 py-1 text-[10px] font-bold text-red-800 hover:bg-red-100"
+                    >
+                        Retry Chart of Accounts
+                    </button>
+                </div>
             ) : null}
 
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">

@@ -2350,13 +2350,32 @@ function FineDetailsPageContent() {
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Employee Portion</span>
                                                 <span className="font-semibold text-red-600">
-                                                    {Number(fine.employeeAmount || 0).toLocaleString()} AED
+                                                    {Number((() => {
+                                                        const humans = (fine.assignedEmployees || []).filter(
+                                                            (ae) =>
+                                                                ae?.employeeId &&
+                                                                ae.employeeId !== 'VEGA-HR-0000' &&
+                                                                ae.employeeId !== 'PENDING',
+                                                        );
+                                                        if (humans.length > 0) {
+                                                            return humans.reduce(
+                                                                (sum, ae) =>
+                                                                    sum +
+                                                                    (resolveEmployeeFinePayableAmount(
+                                                                        fine,
+                                                                        ae.employeeId,
+                                                                    ) || 0),
+                                                                0,
+                                                            );
+                                                        }
+                                                        return getEmpShare(fine, employeeOwnerId) || 0;
+                                                    })()).toLocaleString()} AED
                                                 </span>
                                             </div>
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Company Portion</span>
                                                 <span className="font-semibold text-gray-800">
-                                                    {Number(fine.companyAmount || 0).toLocaleString()} AED
+                                                    {Number(getCompShare(fine) || 0).toLocaleString()} AED
                                                 </span>
                                             </div>
                                             <div>

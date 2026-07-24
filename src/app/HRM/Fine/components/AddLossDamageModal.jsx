@@ -157,24 +157,22 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const { grand } = computeFineTotals(asset, accList, nextFd);
             const grandStr = grand > 0 ? String(grand) : '';
             const totalLimit = parseFloat(grandStr) || 0;
-            const sc = parseFloat(nextFd.serviceCharge || 0) || 0;
-            const baseFine = Math.max(0, totalLimit - sc);
             const currentResponsible = nextFd.responsibleFor || 'Employee';
 
             if (currentResponsible === 'Employee & Company') {
-                const half = baseFine / 2;
+                const half = totalLimit / 2;
                 return {
                     ...nextFd,
                     fineAmount: grandStr,
                     employeeAmount: String(half),
-                    companyAmount: String(baseFine - half),
+                    companyAmount: String(totalLimit - half),
                 };
             }
             if (currentResponsible === 'Employee') {
-                return { ...nextFd, fineAmount: grandStr, employeeAmount: String(baseFine), companyAmount: '0' };
+                return { ...nextFd, fineAmount: grandStr, employeeAmount: String(totalLimit), companyAmount: '0' };
             }
             if (currentResponsible === 'Company') {
-                return { ...nextFd, fineAmount: grandStr, employeeAmount: '0', companyAmount: String(baseFine) };
+                return { ...nextFd, fineAmount: grandStr, employeeAmount: '0', companyAmount: String(totalLimit) };
             }
             return { ...nextFd, fineAmount: grandStr };
         });
@@ -412,18 +410,34 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             }
 
             const isBoth = (initialData.responsibleFor || 'Employee') === 'Employee & Company';
-            const grandForUi = parseFloat(String(baseFineAmount || 0)) || 0;
+            const grandForUi = storedFine > 0 ? storedFine : (parseFloat(String(baseFineAmount || 0)) || 0) + sc;
 
             let uiEmployeeAmount = '';
             let uiCompanyAmount = '';
 
             if (isBoth) {
-                uiEmployeeAmount = initialData.employeeAmount != null && initialData.employeeAmount !== ''
-                    ? String(initialData.employeeAmount)
-                    : (grandForUi > 0 ? String(grandForUi / 2) : '');
-                uiCompanyAmount = initialData.companyAmount != null && initialData.companyAmount !== ''
-                    ? String(initialData.companyAmount)
-                    : (grandForUi > 0 ? String(grandForUi / 2) : '');
+                let empBase = parseFloat(initialData.employeeAmount || 0) || 0;
+                let compBase = parseFloat(initialData.companyAmount || 0) || 0;
+                // Stored bases → payable for UI (include SC share)
+                if (
+                    sc > 0 &&
+                    Math.abs(empBase + compBase - grandForUi) > 0.05
+                ) {
+                    empBase = empBase + sc / 2;
+                    compBase = compBase + sc / 2;
+                }
+                uiEmployeeAmount =
+                    empBase > 0 || initialData.employeeAmount != null
+                        ? String(empBase)
+                        : grandForUi > 0
+                          ? String(grandForUi / 2)
+                          : '';
+                uiCompanyAmount =
+                    compBase > 0 || initialData.companyAmount != null
+                        ? String(compBase)
+                        : grandForUi > 0
+                          ? String(grandForUi / 2)
+                          : '';
             } else if ((initialData.responsibleFor || 'Employee') === 'Employee') {
                 uiEmployeeAmount = grandForUi > 0 ? String(grandForUi) : '';
                 uiCompanyAmount = '0';
@@ -547,23 +561,21 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         setFormData((prev) => {
             if (prev.fineAmount === nextAmount) return prev;
             const totalLimit = Math.max(0, parseFloat(nextAmount) || 0);
-            const sc = parseFloat(prev.serviceCharge || 0) || 0;
-            // Portions split the base fine only (Total − Service Charge)
-            const baseFine = Math.max(0, totalLimit - sc);
+            // Portions are payable totals (already include service charge)
             if (prev.responsibleFor === 'Employee & Company') {
-                const half = Number((baseFine / 2).toFixed(2));
+                const half = Number((totalLimit / 2).toFixed(2));
                 return {
                     ...prev,
                     fineAmount: nextAmount,
                     employeeAmount: String(half),
-                    companyAmount: String(Number((baseFine - half).toFixed(2))),
+                    companyAmount: String(Number((totalLimit - half).toFixed(2))),
                 };
             }
             if (prev.responsibleFor === 'Employee') {
-                return { ...prev, fineAmount: nextAmount, employeeAmount: String(baseFine), companyAmount: '0' };
+                return { ...prev, fineAmount: nextAmount, employeeAmount: String(totalLimit), companyAmount: '0' };
             }
             if (prev.responsibleFor === 'Company') {
-                return { ...prev, fineAmount: nextAmount, employeeAmount: '0', companyAmount: String(baseFine) };
+                return { ...prev, fineAmount: nextAmount, employeeAmount: '0', companyAmount: String(totalLimit) };
             }
             return { ...prev, fineAmount: nextAmount };
         });
@@ -597,14 +609,11 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const updateFineAmountAndPortions = (newFineAmount, nextState = {}) => {
         setFormData(prev => {
             const currentResponsible = nextState.responsibleFor || prev.responsibleFor;
-            const currentServiceCharge = nextState.serviceCharge !== undefined ? nextState.serviceCharge : prev.serviceCharge;
             const totalLimit = parseFloat(newFineAmount) || 0;
-            const sc = parseFloat(currentServiceCharge || 0) || 0;
-            const baseFine = Math.max(0, totalLimit - sc);
 
             if (currentResponsible === 'Employee & Company') {
-                const newEmp = baseFine / 2;
-                const newComp = baseFine - newEmp;
+                const newEmp = totalLimit / 2;
+                const newComp = totalLimit - newEmp;
                 return {
                     ...prev,
                     ...nextState,
@@ -618,7 +627,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     ...prev,
                     ...nextState,
                     fineAmount: newFineAmount,
-                    employeeAmount: String(baseFine),
+                    employeeAmount: String(totalLimit),
                     companyAmount: '0',
                 };
             }
@@ -628,7 +637,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     ...nextState,
                     fineAmount: newFineAmount,
                     employeeAmount: '0',
-                    companyAmount: String(baseFine),
+                    companyAmount: String(totalLimit),
                 };
             }
             return {
@@ -725,19 +734,13 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
     const handleEmployeeAmountChange = (val) => {
         const total = parseFloat(formData.fineAmount || 0) || 0;
-        const sc = parseFloat(formData.serviceCharge || 0) || 0;
-        const baseFine = Math.max(0, total - sc);
 
         const numVal = parseFloat(val) || 0;
         let finalEmp = numVal;
-        if (finalEmp > baseFine) {
-            finalEmp = baseFine;
-        }
-        if (finalEmp < 0) {
-            finalEmp = 0;
-        }
+        if (finalEmp > total) finalEmp = total;
+        if (finalEmp < 0) finalEmp = 0;
 
-        const finalComp = Math.max(0, baseFine - finalEmp);
+        const finalComp = Math.max(0, total - finalEmp);
 
         setFormData(prev => ({
             ...prev,
@@ -748,19 +751,13 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
     const handleCompanyAmountChange = (val) => {
         const total = parseFloat(formData.fineAmount || 0) || 0;
-        const sc = parseFloat(formData.serviceCharge || 0) || 0;
-        const baseFine = Math.max(0, total - sc);
 
         const numVal = parseFloat(val) || 0;
         let finalComp = numVal;
-        if (finalComp > baseFine) {
-            finalComp = baseFine;
-        }
-        if (finalComp < 0) {
-            finalComp = 0;
-        }
+        if (finalComp > total) finalComp = total;
+        if (finalComp < 0) finalComp = 0;
 
-        const finalEmp = Math.max(0, baseFine - finalComp);
+        const finalEmp = Math.max(0, total - finalComp);
 
         setFormData(prev => ({
             ...prev,
@@ -880,16 +877,12 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         if (formData.responsibleFor === 'Employee & Company') {
             const empTarget = parseFloat(formData.employeeAmount || 0);
             const compTarget = parseFloat(formData.companyAmount || 0);
-            const sc = parseFloat(formData.serviceCharge || 0) || 0;
             const totalRequired = parseFloat(formData.fineAmount || 0);
-            const baseRequired = Math.max(0, totalRequired - sc);
 
-            // Portions are base shares; Total Fine Value already includes service charge
-            if (Math.abs(empTarget + compTarget - baseRequired) > 0.01) {
+            // Portions are payable (include service charge) and must equal Total Fine Value
+            if (Math.abs(empTarget + compTarget - totalRequired) > 0.01) {
                 newErrors.amountMismatch =
-                    sc > 0
-                        ? `Employee (AED ${empTarget.toFixed(2)}) + Company (AED ${compTarget.toFixed(2)}) must equal Total − Service Charge (AED ${baseRequired.toFixed(2)}). Total Fine Value AED ${totalRequired.toFixed(2)} already includes service charge AED ${sc.toFixed(2)}.`
-                        : `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) must equal total fine value (AED ${totalRequired.toFixed(2)})`;
+                    `Employee (AED ${empTarget.toFixed(2)}) + Company (AED ${compTarget.toFixed(2)}) must equal Total Fine Value (AED ${totalRequired.toFixed(2)}). Portions already include service charge.`;
             }
         }
 
@@ -954,28 +947,30 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
         const employeesList = [];
         if (formData.responsibleFor !== 'Company' && effectiveEmployeeId) {
-            const empBase = formData.responsibleFor === 'Employee'
-                ? baseFineAmount
+            const empPayable = formData.responsibleFor === 'Employee'
+                ? grandTotalFine
                 : parseFloat(formData.employeeAmount || 0) || 0;
+            const empBase = Math.max(0, empPayable - scPerParty);
             employeesList.push({
                 employeeId: effectiveEmployeeId,
                 employeeName: effectiveEmployeeName,
                 employeeAmount: empBase.toFixed(2),
-                individualAmount: (empBase + scPerParty).toFixed(2),
-                fineAmount: (empBase + scPerParty).toFixed(2),
+                individualAmount: empPayable.toFixed(2),
+                fineAmount: empPayable.toFixed(2),
                 daysWorked: 0,
             });
         }
         if (formData.responsibleFor === 'Employee & Company' || formData.responsibleFor === 'Company') {
-            const compBase = formData.responsibleFor === 'Company'
-                ? baseFineAmount
+            const compPayable = formData.responsibleFor === 'Company'
+                ? grandTotalFine
                 : parseFloat(formData.companyAmount || 0) || 0;
+            const compBase = Math.max(0, compPayable - scPerParty);
             employeesList.push({
                 employeeId: 'VEGA-HR-0000',
                 employeeName: 'Vega Digital IT Solutions',
                 employeeAmount: compBase.toFixed(2),
-                individualAmount: (compBase + scPerParty).toFixed(2),
-                fineAmount: (compBase + scPerParty).toFixed(2),
+                individualAmount: compPayable.toFixed(2),
+                fineAmount: compPayable.toFixed(2),
                 daysWorked: 0,
             });
         }
@@ -999,12 +994,12 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 ? 0
                 : (formData.responsibleFor === 'Employee'
                     ? baseFineAmount
-                    : parseFloat(formData.employeeAmount || 0) || 0),
+                    : Math.max(0, (parseFloat(formData.employeeAmount || 0) || 0) - scPerParty)),
             companyAmount: formData.responsibleFor === 'Employee'
                 ? 0
                 : (formData.responsibleFor === 'Company'
                     ? baseFineAmount
-                    : parseFloat(formData.companyAmount || 0) || 0),
+                    : Math.max(0, (parseFloat(formData.companyAmount || 0) || 0) - scPerParty)),
             payableDuration:
                 formData.sourceOfIncome === 'Salary'
                     ? parseInt(formData.payableDuration, 10)
@@ -1478,7 +1473,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                 {formData.responsibleFor === 'Employee & Company' && (
                                     <>
                                         <div className="space-y-1.5">
-                                            <label className="text-sm font-medium text-gray-700">Employee Portion (AED)</label>
+                                            <label className="text-sm font-medium text-gray-700">Employee Portion (incl. service charge)</label>
                                             <input
                                                 type="number"
                                                 value={formData.employeeAmount}
@@ -1492,7 +1487,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                             />
                                         </div>
                                         <div className="space-y-1.5">
-                                            <label className="text-sm font-medium text-gray-700">Company Portion (AED)</label>
+                                            <label className="text-sm font-medium text-gray-700">Company Portion (incl. service charge)</label>
                                             <input
                                                 type="number"
                                                 value={formData.companyAmount}
@@ -1509,16 +1504,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                             <p className="text-xs text-red-500 col-span-full">{errors.amountMismatch}</p>
                                         ) : parseFloat(formData.serviceCharge || 0) > 0 ? (
                                             <p className="text-[11px] text-gray-400 col-span-full">
-                                                Portions split the base fine only (Total − Service Charge ={' '}
-                                                {Math.max(
-                                                    0,
-                                                    (parseFloat(formData.fineAmount) || 0) -
-                                                        (parseFloat(formData.serviceCharge) || 0),
-                                                ).toLocaleString(undefined, {
-                                                    minimumFractionDigits: 2,
-                                                    maximumFractionDigits: 2,
-                                                })}{' '}
-                                                AED).
+                                                Employee + Company portions already include service charge and must equal Total Fine Value.
                                             </p>
                                         ) : null}
                                     </>
