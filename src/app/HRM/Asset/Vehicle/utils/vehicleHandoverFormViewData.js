@@ -75,17 +75,30 @@ function resolveWorkflowStage(historyEntry, stageKey) {
         name: stage.actorName || '—',
         date: stage.date || null,
         time: stage.date || null,
-        signature: stage.actorSignature || null,
+        signature: pickSignature(stage.actorSignature, stage.signature, stage),
     };
 }
 
 function pickSignature(...candidates) {
     for (const candidate of candidates) {
         if (!candidate) continue;
-        if (typeof candidate === 'string') return candidate;
+        if (typeof candidate === 'string') {
+            const trimmed = candidate.trim();
+            if (trimmed) return trimmed;
+            continue;
+        }
         if (typeof candidate !== 'object') continue;
-        if (candidate.signature) return candidate.signature;
-        if (candidate.url || candidate.data || candidate.path) return candidate;
+        if (candidate.signature) {
+            const nested = pickSignature(candidate.signature);
+            if (nested) return nested;
+        }
+        if (candidate.actorSignature) {
+            const nested = pickSignature(candidate.actorSignature);
+            if (nested) return nested;
+        }
+        if (candidate.url || candidate.data || candidate.path || candidate.publicId) {
+            return candidate;
+        }
     }
     return null;
 }
@@ -162,12 +175,22 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
         isReturn || stageMatchesHandoverToLabel(targetStageRaw, handoverToLabel);
     const assigneeIsHandoverTo =
         !isReturn && personMatchesHandoverToLabel(assignee, handoverToLabel);
-    const handoverToPerson = assigneeIsHandoverTo ? assignee : null;
+    const handoverToPerson = assigneeIsHandoverTo
+        ? assignee
+        : isReturn && personMatchesHandoverToLabel(assignee, handoverToLabel)
+          ? assignee
+          : null;
     const handoverToSignature = pickSignature(
         targetIsHandoverTo ? targetFromWorkflow.signature : null,
+        targetIsHandoverTo ? targetStageRaw : null,
         handoverToPerson,
         assigneeIsHandoverTo ? vehicle?.assignedTo : null,
         assigneeIsHandoverTo ? vehicle?.acceptedBy : null,
+        // Return Hand Over To = workflow target (Admin Officer) — also allow their live profile signature
+        // when stage actor matches the Hand Over To label.
+        isReturn && stageMatchesHandoverToLabel(targetStageRaw, handoverToLabel)
+            ? targetFromWorkflow.signature
+            : null,
     );
     const receiverStamp =
         (targetIsHandoverTo ? targetFromWorkflow.date : null) ||

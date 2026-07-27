@@ -14,9 +14,13 @@ function getSignatureUrl(sig) {
             sig.url ||
             sig.data ||
             sig.path ||
+            sig.publicId ||
             (typeof sig.signature === 'string'
                 ? sig.signature
-                : sig.signature?.url || sig.signature?.data) ||
+                : sig.signature?.url ||
+                  sig.signature?.data ||
+                  sig.signature?.path ||
+                  sig.signature?.publicId) ||
             null;
     }
 

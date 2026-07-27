@@ -28,6 +28,7 @@ import {
     Settings,
     GitBranch,
     Trash2,
+    Activity,
     ChevronRight,
     Search,
     Receipt,
@@ -170,6 +171,7 @@ const menuItems = [
                 ],
             },
             { label: 'Flowchart', icon: GitBranch, permissionModule: 'settings' },
+            { label: 'Activity Logs', icon: Activity, restoreRecovery: true },
             { label: 'Deleted Records', icon: Trash2, restoreRecovery: true },
         ],
     },
@@ -217,6 +219,7 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'User') return '/Settings/User';
         if (label === 'Group') return '/Settings/Group';
         if (label === 'Flowchart') return '/Settings/FlowChart';
+        if (label === 'Activity Logs') return '/Settings/ActivityLogs';
         if (label === 'Deleted Records') return '/Settings/DeletedRecords';
     }
     if (parentId === 'Accounts' && label === 'Vendors') return '/Accounts/Vendors';
@@ -645,6 +648,8 @@ export default function Sidebar() {
             performLogout({ reason: 'manual' });
         } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
             router.push('/Settings/FlowChart');
+        } else if (parentId === 'Settings' && subItem.label === 'Activity Logs') {
+            router.push('/Settings/ActivityLogs');
         } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {
             router.push('/Settings/DeletedRecords');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
@@ -696,6 +701,8 @@ export default function Sidebar() {
             return pathname?.startsWith('/Settings/Group');
         } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
             return pathname?.startsWith('/Settings/FlowChart');
+        } else if (parentId === 'Settings' && subItem.label === 'Activity Logs') {
+            return pathname?.startsWith('/Settings/ActivityLogs');
         } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {
             return pathname?.startsWith('/Settings/DeletedRecords');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {

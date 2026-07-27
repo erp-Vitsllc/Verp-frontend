@@ -25,9 +25,19 @@ function getSignatureUrl(sig) {
             sig.url ||
             sig.data ||
             sig.path ||
+            sig.publicId ||
             (typeof sig.signature === 'string'
                 ? sig.signature
-                : sig.signature?.url || sig.signature?.data) ||
+                : sig.signature?.url ||
+                  sig.signature?.data ||
+                  sig.signature?.path ||
+                  sig.signature?.publicId) ||
+            (typeof sig.actorSignature === 'string'
+                ? sig.actorSignature
+                : sig.actorSignature?.url ||
+                  sig.actorSignature?.data ||
+                  sig.actorSignature?.path ||
+                  sig.actorSignature?.publicId) ||
             null;
     }
 
@@ -39,9 +49,21 @@ function getSignatureUrl(sig) {
 
     const normalizedPath = url.startsWith('/') ? url : `/${url}`;
     const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace('/api', '');
-    const isUpload = normalizedPath.includes('uploads') || normalizedPath.includes('signatures');
+    const isUpload =
+        normalizedPath.includes('uploads') ||
+        normalizedPath.includes('signatures') ||
+        normalizedPath.includes('employee');
 
     if (isUpload || !normalizedPath.startsWith('/assets')) {
+        // Prefer storage stream for raw S3 keys (publicId) so PDF can load the image.
+        if (!normalizedPath.includes('uploads') && !normalizedPath.startsWith('/storage')) {
+            const key = url.replace(/^\//, '');
+            const storageBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace(
+                /\/$/,
+                '',
+            );
+            return `${storageBase}/storage/file?key=${encodeURIComponent(key)}`;
+        }
         return `${apiBase}${normalizedPath}`.replace(/([^:]\/)\/+/g, '$1');
     }
 
@@ -70,7 +92,6 @@ function ReceiverField({ label, value, signature }) {
                         <img
                             src={sigUrl}
                             alt="Signature"
-                            crossOrigin="anonymous"
                             className="max-h-10 object-contain object-left"
                             onError={(e) => {
                                 e.currentTarget.style.display = 'none';
@@ -100,7 +121,6 @@ function SignatureImage({ signature, alt }) {
         <img
             src={sigUrl}
             alt={alt}
-            crossOrigin="anonymous"
             className="max-h-10 object-contain object-left"
             onError={(e) => {
                 e.currentTarget.style.display = 'none';
