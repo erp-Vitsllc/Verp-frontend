@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
+import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
 
 const selectStyles = {
     control: (base, state) => ({
@@ -57,9 +58,19 @@ export default function ZohoPayAccountSelect({
                 const res = await axiosInstance.get('/zoho/bills/support', {
                     params,
                     skipToast: true,
+                    timeout: 120000,
                 });
                 if (cancelled) return;
-                setAccounts(Array.isArray(res.data?.accounts) ? res.data.accounts : []);
+                // API shape: { success, data: { accounts, locations } } — same as Bills modal
+                const support = res.data?.data || res.data || {};
+                const mapped = mapZohoPaymentAccounts(support.accounts);
+                setAccounts(mapped);
+                if (!mapped.length) {
+                    setError(
+                        res.data?.message ||
+                            'No Chart of Accounts returned from Zoho. Check Zoho connection.',
+                    );
+                }
             } catch (err) {
                 if (cancelled) return;
                 setAccounts([]);
@@ -78,9 +89,12 @@ export default function ZohoPayAccountSelect({
         accounts.forEach((account) => {
             const groupLabel = account.type || 'Other';
             if (!groups.has(groupLabel)) groups.set(groupLabel, []);
+            const label = account.code
+                ? `${account.code} — ${account.name}`
+                : String(account.name || '');
             groups.get(groupLabel).push({
                 value: String(account.id || ''),
-                label: String(account.name || ''),
+                label,
             });
         });
         return [...groups.entries()]
@@ -116,7 +130,7 @@ export default function ZohoPayAccountSelect({
                 isDisabled={disabled || loading}
                 isClearable
                 isSearchable
-                placeholder={loading ? 'Loading accounts…' : placeholder}
+                placeholder={loading ? 'Loading Chart of Accounts…' : placeholder}
                 options={groupedOptions}
                 value={selected}
                 onChange={(option) => {
@@ -127,9 +141,17 @@ export default function ZohoPayAccountSelect({
                 }}
                 menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
                 menuPosition="fixed"
-                noOptionsMessage={() => (error ? error : 'No accounts found')}
+                noOptionsMessage={() =>
+                    loading
+                        ? 'Loading Chart of Accounts…'
+                        : error
+                          ? error
+                          : 'No accounts found in Zoho Chart of Accounts'
+                }
             />
-            {error ? <p className="mt-1 text-[10px] text-amber-700">{error}</p> : null}
+            {error && !loading ? (
+                <p className="mt-1 text-[10px] text-amber-700">{error}</p>
+            ) : null}
         </div>
     );
 }
