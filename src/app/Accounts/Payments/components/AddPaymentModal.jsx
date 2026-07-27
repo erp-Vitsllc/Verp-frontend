@@ -97,12 +97,23 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 id: a.id,
                 label: a.label || a.name || a.id,
                 name: a.name || a.label || '',
+                type: a.type || '',
             })),
         [zohoAccounts],
     );
 
+    const bankAccountOptions = useMemo(() => {
+        const bankLike = expenseAccountOptions.filter((a) => {
+            const hay = `${a.type} ${a.name} ${a.label}`.toLowerCase();
+            return /bank|cash|credit\s*card|payment\s*clearing|petty/.test(hay);
+        });
+        return bankLike.length ? bankLike : expenseAccountOptions;
+    }, [expenseAccountOptions]);
+
     const selectedExpenseAccount = expenseAccountOptions.find((a) => a.id === expenseAccountId);
-    const selectedPaidThrough = expenseAccountOptions.find((a) => a.id === paidThroughAccountId);
+    const selectedPaidThrough = (
+        isFineCompanyPayment ? bankAccountOptions : expenseAccountOptions
+    ).find((a) => a.id === paidThroughAccountId);
 
     // Fetch fines and loans when payment type changes (or apply prefill once)
     useEffect(() => {
@@ -1473,12 +1484,12 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         <div>
                                             <h3 className="text-sm font-bold text-gray-800">
                                                 {isFineCompanyPayment
-                                                    ? 'Payment to company · Chart of Accounts'
+                                                    ? 'Payment to company · Zoho Banking'
                                                     : 'Zoho Books · Chart of Accounts'}
                                             </h3>
                                             <p className="text-xs text-gray-500 mt-0.5">
                                                 {isFineCompanyPayment
-                                                    ? 'Banking posts to the selected bank. From Account and Refund reflect on Chart of Accounts (VEGA). Tax is always exclusive.'
+                                                    ? 'Posts to Zoho Banking under the selected bank. Transaction = Refund · Tax exclusive · From Account on Chart of Accounts.'
                                                     : isUtilityEmployeeBalance
                                                       ? 'Pay employee utility balance. Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'
                                                       : 'Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'}
@@ -1579,10 +1590,13 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                     {zohoAccountsLoading
                                                         ? 'Loading Chart of Accounts…'
                                                         : isFineCompanyPayment
-                                                          ? 'Select banking account (Chart of Accounts Vega)'
+                                                          ? 'Select Zoho bank account'
                                                           : 'Select Paid Through account'}
                                                 </option>
-                                                {expenseAccountOptions.map((opt) => (
+                                                {(isFineCompanyPayment
+                                                    ? bankAccountOptions
+                                                    : expenseAccountOptions
+                                                ).map((opt) => (
                                                     <option key={`pt-${opt.id}`} value={opt.id}>
                                                         {opt.label}
                                                     </option>

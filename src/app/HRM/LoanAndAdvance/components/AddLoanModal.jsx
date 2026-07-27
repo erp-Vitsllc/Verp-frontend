@@ -13,8 +13,10 @@ import {
 } from '../utils/loanPermissionAccess';
 import { getStoredUser, isActiveFlowchartHrUser } from '../utils/isFlowchartHrUser';
 
-const VISA_LT_3_MONTHS_MSG =
+const VISA_LT_3_MONTHS_BLOCK_MSG =
     'Visa expires in less than 3 months. Cannot apply for a Loan.';
+const VISA_LT_3_MONTHS_CONFIRM_MSG =
+    'Visa expires in less than 3 months. Do you want to proceed?';
 const VISA_REPAYMENT_LIMIT_MSG =
     'Repayment period exceeds visa expiry limit (Expiry - 2 months). Please reduce duration or change start date.';
 
@@ -51,7 +53,9 @@ export default function AddLoanModal({
     const [dateWarning, setDateWarning] = useState('');
     const [maxDuration, setMaxDuration] = useState(6);
     const [isFlowchartHr, setIsFlowchartHr] = useState(false);
+    const [flowchartHrResolved, setFlowchartHrResolved] = useState(false);
     const isFlowchartHrRef = useRef(false);
+    const flowchartHrResolvedRef = useRef(false);
     const [visaConfirmOpen, setVisaConfirmOpen] = useState(false);
     const [visaConfirmMessages, setVisaConfirmMessages] = useState([]);
     const [pendingForcedStatus, setPendingForcedStatus] = useState(null);
@@ -138,28 +142,36 @@ export default function AddLoanModal({
         }
     }, [isOpen, initialData, employees, scheduleOnlyEdit, employeeDetails]);
 
-    // Resolve whether the current user is the Flowchart-assigned HR (visa override privilege).
+    // Resolve whether the current user is Flowchart HR (visa override privilege).
     useEffect(() => {
         if (!isOpen) {
             setIsFlowchartHr(false);
             isFlowchartHrRef.current = false;
+            setFlowchartHrResolved(false);
+            flowchartHrResolvedRef.current = false;
             return;
         }
         let cancelled = false;
+        setFlowchartHrResolved(false);
+        flowchartHrResolvedRef.current = false;
         (async () => {
             try {
                 const user = getStoredUser();
                 const { data } = await axiosInstance.get('/Flowchart');
-                const rows = Array.isArray(data) ? data : [];
+                const rows = Array.isArray(data) ? data : data?.responsibilities || [];
                 const isHr = isActiveFlowchartHrUser(user, rows);
                 if (!cancelled) {
                     isFlowchartHrRef.current = isHr;
                     setIsFlowchartHr(isHr);
+                    flowchartHrResolvedRef.current = true;
+                    setFlowchartHrResolved(true);
                 }
             } catch {
                 if (!cancelled) {
                     isFlowchartHrRef.current = false;
                     setIsFlowchartHr(false);
+                    flowchartHrResolvedRef.current = true;
+                    setFlowchartHrResolved(true);
                 }
             }
         })();
@@ -170,10 +182,10 @@ export default function AddLoanModal({
 
     // Re-run eligibility once flowchart HR status is known (async).
     useEffect(() => {
-        if (!isOpen || !selectedEmployee || scheduleOnlyEdit) return;
+        if (!isOpen || !flowchartHrResolved || !selectedEmployee || scheduleOnlyEdit) return;
         checkEligibility(selectedEmployee, formData.type);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only when HR flag resolves
-    }, [isFlowchartHr]);
+    }, [isFlowchartHr, flowchartHrResolved]);
 
     // If Create Loan / Create Advance permission changes, drop unavailable type from the toggle.
     useEffect(() => {
@@ -256,6 +268,7 @@ export default function AddLoanModal({
         });
         let newMaxDuration = 12;
         const flowchartHr = isFlowchartHrRef.current;
+        const hrResolved = flowchartHrResolvedRef.current;
 
         // Check if employee already has an active or pending loan/advance of the SAME type
         if (existingLoans && existingLoans.length > 0) {
@@ -309,10 +322,11 @@ export default function AddLoanModal({
 
                 if (monthsUntilExpiry < 3) {
                     // Flowchart HR: soft warning → confirm on submit. Others: hard block.
-                    if (flowchartHr) {
-                        setVisaEligibilityWarning(VISA_LT_3_MONTHS_MSG);
+                    // Until HR status resolves, keep soft so we don't flash a false hard-block.
+                    if (flowchartHr || !hrResolved) {
+                        setVisaEligibilityWarning(VISA_LT_3_MONTHS_CONFIRM_MSG);
                     } else {
-                        setEligibilityWarning(VISA_LT_3_MONTHS_MSG);
+                        setEligibilityWarning(VISA_LT_3_MONTHS_BLOCK_MSG);
                         return;
                     }
                 }
@@ -337,15 +351,15 @@ export default function AddLoanModal({
 
     const validateForm = ({ bypassVisa = false } = {}) => {
         const newErrors = {};
-        const flowchartHr = isFlowchartHrRef.current;
+        const canVisaOverride = isFlowchartHrRef.current;
 
         if (scheduleOnlyEdit) {
             if (formData.type !== 'Advance' && !formData.duration) {
                 newErrors.duration = 'Duration is required';
             }
             if (!formData.monthStart) newErrors.monthStart = 'Deduction start is required';
-            if (dateWarning && !(bypassVisa && flowchartHr)) {
-                if (flowchartHr) {
+            if (dateWarning && !(bypassVisa && canVisaOverride)) {
+                if (canVisaOverride) {
                     // Handled by confirmation dialog in handleSubmit
                     setErrors(newErrors);
                     return Object.keys(newErrors).length === 0 ? 'needs_visa_confirm' : false;
@@ -403,8 +417,15 @@ export default function AddLoanModal({
         }
 
         const visaMessages = collectVisaConfirmMessages();
-        if (visaMessages.length > 0 && !(bypassVisa && flowchartHr)) {
-            if (flowchartHr) {
+        if (visaMessages.length > 0 && !(bypassVisa && canVisaOverride)) {
+            if (!flowchartHrResolvedRef.current) {
+                toast({
+                    title: 'Please wait',
+                    description: 'Checking flowchart HR permissions…',
+                });
+                return false;
+            }
+            if (canVisaOverride) {
                 setErrors(newErrors);
                 if (Object.keys(newErrors).length > 0) return false;
                 return 'needs_visa_confirm';
@@ -602,7 +623,11 @@ export default function AddLoanModal({
                             <AlertCircle size={16} className="mt-0.5 shrink-0" />
                             <p>
                                 {visaEligibilityWarning}
-                                {isFlowchartHr ? ' You can proceed after confirmation.' : ''}
+                                {isFlowchartHr
+                                    ? ' Click Save to confirm.'
+                                    : !flowchartHrResolved
+                                      ? ' Checking HR permissions…'
+                                      : ''}
                             </p>
                         </div>
                     )}
@@ -760,8 +785,8 @@ export default function AddLoanModal({
                 title="Visa expiry warning"
                 description={
                     visaConfirmMessages.length
-                        ? `${visaConfirmMessages.join('\n\n')}\n\nDo you want to proceed anyway?`
-                        : 'Visa expiry validation failed. Do you want to proceed anyway?'
+                        ? `${visaConfirmMessages.join('\n\n')}\n\nDo you want to proceed?`
+                        : 'Visa expires in less than 3 months. Do you want to proceed?'
                 }
                 confirmLabel="OK"
                 cancelLabel="Cancel"

@@ -83,9 +83,8 @@ function buildVendorPaymentSchedule(fine, totalAmount) {
 }
 
 /**
- * Payment to vendors for an employee fine — same Chart of Accounts fields as
- * company Add Payment (remaining, schedule, transaction expense, tax, from account, banking)
- * plus Vendor.
+ * Payment to vendors for an employee fine.
+ * Fields: Vendor + Paid Through only → continues to Accounts → Payments Made.
  */
 export default function FineVendorPayModal({
     isOpen,
@@ -99,10 +98,8 @@ export default function FineVendorPayModal({
     const [vendors, setVendors] = useState([]);
     const [accounts, setAccounts] = useState([]);
     const [loadingSupport, setLoadingSupport] = useState(false);
-    const [saving, setSaving] = useState(false);
     const [vendorId, setVendorId] = useState('');
-    const [fromAccountId, setFromAccountId] = useState('');
-    const [bankingAccountId, setBankingAccountId] = useState('');
+    const [paidThroughAccountId, setPaidThroughAccountId] = useState('');
     const [amount, setAmount] = useState('');
     const [selectedCardIndex, setSelectedCardIndex] = useState(null);
 
@@ -164,8 +161,9 @@ export default function FineVendorPayModal({
         if (!isOpen || !fine) return;
         setAmount(remainingAmount > 0 ? remainingAmount.toFixed(2) : '');
         setVendorId(String(fine.zohoVendorId || '').trim());
-        setFromAccountId(String(fine.expenseAccountId || '').trim());
-        setBankingAccountId('');
+        setPaidThroughAccountId(
+            String(fine.paidThroughAccountId || fine.expenseAccountId || '').trim(),
+        );
         setSelectedCardIndex(null);
     }, [isOpen, fine, remainingAmount]);
 
@@ -223,60 +221,20 @@ export default function FineVendorPayModal({
         setAmount(Number(box.remaining || 0).toFixed(2));
     };
 
-    const handleContinueToBillPayment = () => {
-        const prefill = buildFineVendorPaymentPrefill(fine, { returnTo });
-        if (vendorId) {
-            prefill.vendorId = vendorId;
-            const v = vendorOptions.find((o) => o.id === vendorId);
-            if (v) prefill.vendorName = v.label;
-        }
-        if (amount) prefill.amount = Number(amount).toFixed(2);
-        try {
-            sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
-        } catch {
-            /* ignore */
-        }
-        const params = new URLSearchParams();
-        params.set('addFinePay', '1');
-        if (prefill.organizationId || organizationId) {
-            params.set('organizationId', prefill.organizationId || organizationId);
-        }
-        if (prefill.companyId) params.set('companyId', prefill.companyId);
-        if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
-        onClose?.();
-        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
-    };
-
-    const handleSubmitExpense = async () => {
+    const handleContinueToPaymentsMade = () => {
         if (!vendorId) {
             toast({
                 variant: 'destructive',
                 title: 'Vendor required',
-                description: 'Select a vendor for this fine payment.',
+                description: 'Select a vendor for this payment.',
             });
             return;
         }
-        if (!fromAccountId) {
+        if (!paidThroughAccountId) {
             toast({
                 variant: 'destructive',
-                title: 'From Account required',
-                description: 'Select a From Account from Chart of Accounts.',
-            });
-            return;
-        }
-        if (!bankingAccountId) {
-            toast({
-                variant: 'destructive',
-                title: 'Banking required',
-                description: 'Select the banking account to post this payment.',
-            });
-            return;
-        }
-        if (fromAccountId === bankingAccountId) {
-            toast({
-                variant: 'destructive',
-                title: 'Invalid accounts',
-                description: 'From Account and Banking must be different accounts.',
+                title: 'Paid Through required',
+                description: 'Select the Paid Through account.',
             });
             return;
         }
@@ -293,55 +251,36 @@ export default function FineVendorPayModal({
             toast({
                 variant: 'destructive',
                 title: 'Organization required',
-                description: 'Select VEGA or NNIT Chart of Accounts organization.',
+                description: 'Select VEGA or NNIT organization.',
             });
             return;
         }
 
-        setSaving(true);
+        const paidThrough = accountOptions.find((o) => o.id === paidThroughAccountId);
+        const prefill = buildFineVendorPaymentPrefill(fine, {
+            returnTo,
+            vendorId,
+            vendorName: vendorOptions.find((o) => o.id === vendorId)?.label || '',
+            amount: payAmt.toFixed(2),
+            paidThroughAccountId,
+            paidThroughAccountName: paidThrough?.name || paidThrough?.label || '',
+            organizationId,
+        });
         try {
-            const fromAccount = accountOptions.find((a) => a.id === fromAccountId);
-            const today = new Date().toISOString().slice(0, 10);
-            const fineId = String(fine.fineId || fine._id || '').trim();
-            await axiosInstance.post(
-                '/zoho/expenses',
-                {
-                    date: today,
-                    vendor_id: vendorId,
-                    account_id: fromAccountId,
-                    paid_through_account_id: bankingAccountId,
-                    amount: payAmt,
-                    currency_code: 'AED',
-                    is_inclusive_tax: false,
-                    tax_treatment: 'vat_not_registered',
-                    place_of_supply: 'DU',
-                    reference_number: fineId.slice(0, 100),
-                    description:
-                        `Fine vendor payment · ${fineId} · Transaction expense: Refund · Tax exclusive · ${fromAccount?.name || ''}`.trim(),
-                },
-                {
-                    params: { organizationId },
-                },
-            );
-            toast({
-                title: 'Vendor payment posted',
-                description:
-                    'Fine amount posted to the selected From Account and banking account on Chart of Accounts.',
-            });
-            onSuccess?.();
-            onClose?.();
-        } catch (err) {
-            toast({
-                variant: 'destructive',
-                title: 'Payment failed',
-                description:
-                    err?.response?.data?.message ||
-                    err?.message ||
-                    'Could not post vendor payment to Zoho.',
-            });
-        } finally {
-            setSaving(false);
+            sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
+        } catch {
+            /* ignore */
         }
+        const params = new URLSearchParams();
+        params.set('addFinePay', '1');
+        if (prefill.organizationId || organizationId) {
+            params.set('organizationId', prefill.organizationId || organizationId);
+        }
+        if (prefill.companyId) params.set('companyId', prefill.companyId);
+        if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
+        onSuccess?.();
+        onClose?.();
+        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
     };
 
     const inputClass =
@@ -444,11 +383,10 @@ export default function FineVendorPayModal({
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
                                 <h3 className="text-sm font-bold text-gray-800">
-                                    Payment to vendors · Chart of Accounts
+                                    Payment to vendors · Zoho Payments Made
                                 </h3>
                                 <p className="text-xs text-gray-500 mt-0.5">
-                                    Banking posts to the selected bank. From Account and Refund
-                                    reflect on Chart of Accounts (VEGA). Tax is always exclusive.
+                                    Vendor + Paid Through → recorded in Zoho Payments Made.
                                 </p>
                             </div>
                             {(showZohoOrgPicker || activeZohoOrg) && (
@@ -460,31 +398,6 @@ export default function FineVendorPayModal({
                                     size="sm"
                                 />
                             )}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-800 mb-2">
-                                    Transaction expense
-                                </label>
-                                <input
-                                    type="text"
-                                    value="Refund"
-                                    readOnly
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-gray-100 text-gray-700 cursor-not-allowed"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-800 mb-2">
-                                    Tax
-                                </label>
-                                <input
-                                    type="text"
-                                    value="Exclusive"
-                                    readOnly
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-gray-100 text-gray-700 cursor-not-allowed"
-                                />
-                            </div>
                         </div>
 
                         <div>
@@ -508,57 +421,27 @@ export default function FineVendorPayModal({
                             </select>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-800 mb-2">
-                                    From Account <span className="text-red-500">*</span>
-                                </label>
-                                <select
-                                    value={fromAccountId}
-                                    onChange={(e) => setFromAccountId(e.target.value)}
-                                    disabled={loadingSupport}
-                                    className={inputClass}
-                                >
-                                    <option value="">
-                                        {loadingSupport
-                                            ? 'Loading Chart of Accounts…'
-                                            : 'Select from account (Chart of Accounts)'}
+                        <div>
+                            <label className="block text-sm font-bold text-gray-800 mb-2">
+                                Paid Through <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                value={paidThroughAccountId}
+                                onChange={(e) => setPaidThroughAccountId(e.target.value)}
+                                disabled={loadingSupport}
+                                className={inputClass}
+                            >
+                                <option value="">
+                                    {loadingSupport
+                                        ? 'Loading Chart of Accounts…'
+                                        : 'Select Paid Through account'}
+                                </option>
+                                {accountOptions.map((opt) => (
+                                    <option key={opt.id} value={opt.id}>
+                                        {opt.label}
                                     </option>
-                                    {accountOptions.map((opt) => (
-                                        <option key={opt.id} value={opt.id}>
-                                            {opt.label}
-                                        </option>
-                                    ))}
-                                </select>
-                                <p className="text-xs text-gray-400 mt-1">
-                                    Fine amount is posted to this account.
-                                </p>
-                            </div>
-
-                            {!hasZohoBill && (
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-800 mb-2">
-                                        Banking <span className="text-red-500">*</span>
-                                    </label>
-                                    <select
-                                        value={bankingAccountId}
-                                        onChange={(e) => setBankingAccountId(e.target.value)}
-                                        disabled={loadingSupport}
-                                        className={inputClass}
-                                    >
-                                        <option value="">
-                                            {loadingSupport
-                                                ? 'Loading Chart of Accounts…'
-                                                : 'Select banking account (Chart of Accounts Vega)'}
-                                        </option>
-                                        {accountOptions.map((opt) => (
-                                            <option key={`bank-${opt.id}`} value={opt.id}>
-                                                {opt.label}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
+                                ))}
+                            </select>
                         </div>
 
                         <div>
@@ -583,10 +466,13 @@ export default function FineVendorPayModal({
                             </div>
                         </div>
 
-                        {hasZohoBill && (
+                        {hasZohoBill ? (
                             <p className="text-xs text-teal-700 bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
-                                This fine has a Zoho vendor bill. Continue to Record Payment to settle
-                                it with the selected vendor.
+                                Continues to Zoho Payments Made to settle the vendor bill.
+                            </p>
+                        ) : (
+                            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                Continues to Zoho Payments Made to record this vendor payment.
                             </p>
                         )}
                     </div>
@@ -600,25 +486,15 @@ export default function FineVendorPayModal({
                     >
                         Cancel
                     </button>
-                    {hasZohoBill ? (
-                        <button
-                            type="button"
-                            onClick={handleContinueToBillPayment}
-                            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold"
-                        >
-                            Continue to Add Payment
-                        </button>
-                    ) : (
-                        <button
-                            type="button"
-                            disabled={saving}
-                            onClick={handleSubmitExpense}
-                            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-sm font-semibold"
-                        >
-                            {saving ? <Loader2 size={16} className="animate-spin" /> : null}
-                            Pay Now
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        disabled={loadingSupport}
+                        onClick={handleContinueToPaymentsMade}
+                        className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-sm font-semibold"
+                    >
+                        {loadingSupport ? <Loader2 size={16} className="animate-spin" /> : null}
+                        Continue to Payments Made
+                    </button>
                 </div>
             </div>
         </div>

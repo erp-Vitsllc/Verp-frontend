@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     ArrowUpDown,
     Loader2,
@@ -43,11 +43,13 @@ function statusBadgeClass(status) {
     return 'bg-slate-50 text-slate-600 border-slate-200';
 }
 
-export default function PurchasesBillsPage() {
+function PurchasesBillsPageContent() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const initialQuery = String(searchParams.get('q') || '').trim();
     const [mounted, setMounted] = useState(false);
-    const [search, setSearch] = useState('');
-    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [search, setSearch] = useState(initialQuery);
+    const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
     const [sortKey, setSortKey] = useState('date');
     const [sortDirection, setSortDirection] = useState('desc');
     const [currentPage, setCurrentPage] = useState(1);
@@ -71,6 +73,12 @@ export default function PurchasesBillsPage() {
     useEffect(() => {
         setMounted(true);
     }, []);
+
+    useEffect(() => {
+        const next = String(searchParams.get('q') || '').trim();
+        setSearch(next);
+        setDebouncedSearch(next);
+    }, [searchParams]);
 
     useEffect(() => {
         const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -390,5 +398,19 @@ export default function PurchasesBillsPage() {
                 </div>
             </div>
         </PermissionGuard>
+    );
+}
+
+export default function PurchasesBillsPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen w-full items-center justify-center bg-[#f4f6f8]">
+                    <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
+                </div>
+            }
+        >
+            <PurchasesBillsPageContent />
+        </Suspense>
     );
 }

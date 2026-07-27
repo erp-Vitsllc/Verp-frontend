@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, Eye, Upload, X } from 'lucide-react';
+import { Eye, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -383,18 +383,7 @@ export default function UtilityBillReviewModal({
     const [attachMenuIndex, setAttachMenuIndex] = useState(null);
     const [payByRowIndex, setPayByRowIndex] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
-    const [payMenuOpen, setPayMenuOpen] = useState(false);
-    const payMenuRef = useRef(null);
     const { employeeOptions, companyOptions } = usePayByPartyOptions(isOpen);
-
-    useEffect(() => {
-        if (!payMenuOpen) return undefined;
-        const onDocClick = (e) => {
-            if (!payMenuRef.current?.contains(e.target)) setPayMenuOpen(false);
-        };
-        document.addEventListener('mousedown', onDocClick);
-        return () => document.removeEventListener('mousedown', onDocClick);
-    }, [payMenuOpen]);
 
     // Only re-fetch when the batch opens / changes — not when parent entry lists reload
     // (that was re-hitting /UtilityBill/batch and spamming 404s for stale links).
@@ -1038,18 +1027,13 @@ export default function UtilityBillReviewModal({
         }
     };
 
-    /**
-     * Open Accounts → Payments Made /new (Record Payment page) prefilled from the selected bills.
-     * mode 'bills'      → amount = total Actual bill amount.
-     * mode 'difference' → amount = total |Contract − Actual| difference.
-     * Vendor is auto-selected from the bill provider (providers already include Zoho vendors).
-     */
-    const openPayViaPurchases = (mode) => {
+    /** Open Accounts → Bills list for the selected Zoho-synced utility bills. */
+    const openZohoBills = () => {
         const payable = rows.filter(
             (r) => r.inBatch && r.billId && String(r.status) === 'Approved',
         );
         if (!payable.length) {
-            setError('No bills available to pay.');
+            setError('No bills available to open.');
             return;
         }
         const missingZoho = payable.filter((r) => !rowHasZohoBill(r));
@@ -1067,288 +1051,23 @@ export default function UtilityBillReviewModal({
             });
             return;
         }
-        const stillDraft = payable.filter(
-            (r) => String(r.zohoBillStatus || '').toLowerCase() === 'draft',
-        );
-        if (stillDraft.length) {
-            setError(
-                'Zoho bill is still Draft. Click “Open Zoho bill” first — then Accounts can pay in Payments Made.',
-            );
-            return;
-        }
         const anySelected = payable.some((r) => r.selected);
         const selected = anySelected ? payable.filter((r) => r.selected) : payable;
         if (!selected.length) {
-            setError('Select at least one bill to pay.');
+            setError('Select at least one bill to open.');
             return;
         }
         setError('');
-        setPayMenuOpen(false);
-
-        const total = selected.reduce((sum, r) => {
-            const contract = Number(r.contractAmount) || 0;
-            const actual = Number(r.actualAmount) || 0;
-            return mode === 'difference'
-                ? sum + Math.abs(contract - actual)
-                : sum + actual;
-        }, 0);
-
-        const providers = Array.from(
-            new Set(
-                selected
-                    .map((r) => String(r.provider || '').trim())
-                    .filter((p) => p && p !== '—'),
-            ),
-        );
-        const vendorName = providers.length === 1 ? providers[0] : '';
-
-        const vendorIds = Array.from(
-            new Set(
-                selected
-                    .map((r) => String(r.zohoVendorId || '').trim())
-                    .filter(Boolean),
-            ),
-        );
-        const vendorId = vendorIds.length === 1 ? vendorIds[0] : '';
-
-        const orgIds = Array.from(
-            new Set(
-                selected
-                    .map((r) => String(r.zohoOrganizationId || '').trim())
-                    .filter(Boolean),
-            ),
-        );
-        const organizationId = orgIds.length === 1 ? orgIds[0] : '';
-        const companyIds = Array.from(
-            new Set(
-                selected
-                    .map((r) => String(r.payByCompanyId || '').trim())
-                    .filter(Boolean),
-            ),
-        );
-        const companyId = companyIds.length === 1 ? companyIds[0] : '';
-
-        const utilityBillLinks = selected
-            .filter((r) => r.billId)
-            .flatMap((r) => {
-                const ids = Array.from(
-                    new Set(
-                        [
-                            ...(Array.isArray(r.zohoBillIds) ? r.zohoBillIds : []),
-                            r.zohoBillId,
-                        ]
-                            .map((id) => String(id || '').trim())
-                            .filter(Boolean),
-                    ),
-                );
-                if (!ids.length) {
-                    return [
-                        {
-                            utilityBillId: String(r.billId),
-                            zohoBillId: '',
-                            billNumber: String(r.billNumber || '').trim(),
-                        },
-                    ];
-                }
-                return ids.map((zohoBillId, index) => ({
-                    utilityBillId: String(r.billId),
-                    zohoBillId,
-                    billNumber:
-                        ids.length > 1
-                            ? `${String(r.billNumber || '').trim()}-${index + 1}`
-                            : String(r.billNumber || '').trim(),
-                }));
-            });
-        const zohoBillIds = utilityBillLinks
-            .map((link) => link.zohoBillId)
-            .filter(Boolean);
-
-        const partyRows = selected.map((r) => {
-            const payBy = normalizePayBy(r.payBy);
-            const contract = Number(r.contractAmount) || 0;
-            const actual = Number(r.actualAmount) || 0;
-            const difference = Math.abs(contract - actual);
-            const shares = resolvePayShares(payBy, difference);
-            const companyAmt =
-                mode === 'difference'
-                    ? shares.companyAmount
-                    : Number(r.companyPayAmount) || 0;
-            const employeeAmt =
-                mode === 'difference'
-                    ? shares.employeeAmount
-                    : Number(r.employeePayAmount) || 0;
-            const rowAmount =
-                mode === 'difference'
-                    ? difference
-                    : actual > 0
-                      ? actual
-                      : companyAmt + employeeAmt;
-            return {
-                utilityBillId: String(r.billId || ''),
-                accountNo: String(r.accountNo || '').trim(),
-                payBy,
-                amount:
-                    mode === 'difference'
-                        ? payBy === 'company'
-                            ? companyAmt
-                            : payBy === 'employee'
-                              ? employeeAmt
-                              : rowAmount
-                        : rowAmount,
-                companyPayAmount: companyAmt,
-                employeePayAmount: employeeAmt,
-                payByCompanyId: String(r.payByCompanyId || '').trim(),
-                payByCompanyName: String(r.payByCompanyName || '').trim(),
-                payByEmployeeId: String(r.payByEmployeeId || '').trim(),
-                payByEmployeeName: String(r.payByEmployeeName || '').trim(),
-                partyAccountId: String(r.partyAccountId || '').trim(),
-                partyAccountName: String(r.partyAccountName || '').trim(),
-                partyAccountCode: String(r.partyAccountCode || '').trim(),
-                expenseAccountId: String(r.expenseAccountId || '').trim(),
-                expenseAccountName: String(r.expenseAccountName || '').trim(),
-            };
-        });
-
-        const dominantPayBy = (() => {
-            const modes = partyRows.map((r) => r.payBy).filter(Boolean);
-            if (modes.every((m) => m === 'company')) return 'company';
-            if (modes.every((m) => m === 'employee')) return 'employee';
-            if (modes.some((m) => m === 'employee') && modes.some((m) => m === 'company')) {
-                return 'employee_and_company';
-            }
-            return modes[0] || '';
-        })();
-        const employeeNames = Array.from(
-            new Set(partyRows.map((r) => r.payByEmployeeName).filter(Boolean)),
-        );
-        const employeeIds = Array.from(
-            new Set(partyRows.map((r) => r.payByEmployeeId).filter(Boolean)),
-        );
-        const companyNames = Array.from(
-            new Set(partyRows.map((r) => r.payByCompanyName).filter(Boolean)),
-        );
-        const salaryPayableAccounts = Array.from(
-            new Map(
-                partyRows
-                    .filter((r) => r.partyAccountId || r.partyAccountName || r.partyAccountCode)
-                    .map((r) => [
-                        `${r.partyAccountId}|${r.partyAccountCode}|${r.partyAccountName}`,
-                        {
-                            id: r.partyAccountId,
-                            name: r.partyAccountName || 'Salary Payable',
-                            code: r.partyAccountCode,
-                            payBy: r.payBy,
-                            partyName:
-                                r.payBy === 'company'
-                                    ? r.payByCompanyName
-                                    : r.payByEmployeeName,
-                        },
-                    ]),
-            ).values(),
-        );
-        const expenseAccounts = Array.from(
-            new Map(
-                partyRows
-                    .filter((r) => r.expenseAccountId || r.expenseAccountName)
-                    .map((r) => [
-                        r.expenseAccountId || r.expenseAccountName,
-                        {
-                            id: r.expenseAccountId,
-                            name: r.expenseAccountName,
-                        },
-                    ]),
-            ).values(),
-        );
-
-        const typeLabel = batch?.utilityType || '';
-        const monthLabel = batch?.billMonth || '';
-        const accountNos = selected.map((r) => r.accountNo).filter(Boolean).join(', ');
-
-        const paymentDates = Array.from(
-            new Set(
-                selected
-                    .map((r) => String(r.billDate || '').trim())
-                    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
-            ),
-        );
-        const paymentDate =
-            paymentDates.length === 1
-                ? paymentDates[0]
-                : monthLabel && /^\d{4}-\d{2}$/.test(monthLabel)
-                  ? `${monthLabel}-16`
-                  : new Date().toISOString().slice(0, 10);
-
-        const utilityBatchId = String(batch?.batchId || batchId || '');
-        const billReference = selected
-            .map((row) => String(row.billNumber || '').trim())
-            .filter(Boolean)
-            .join(', ')
-            .slice(0, 100);
-        const totalCompanyPay = partyRows.reduce(
-            (sum, r) => sum + (Number(r.companyPayAmount) || 0),
-            0,
-        );
-        const totalEmployeePay = partyRows.reduce(
-            (sum, r) => sum + (Number(r.employeePayAmount) || 0),
-            0,
-        );
-        const prefill = {
-            vendorId,
-            vendorName,
-            amount: total > 0 ? total.toFixed(2) : '',
-            date: paymentDate,
-            referenceNumber: billReference || utilityBatchId,
-            notes: `Utility ${mode === 'difference' ? 'difference' : 'bill'} payment · ${typeLabel} ${monthLabel}${
-                accountNos ? ` · Acc ${accountNos}` : ''
-            }`.trim(),
-            utilityType: typeLabel,
-            billMonth: monthLabel,
-            mode,
-            billsOnly: true,
-            selectedBillIds: zohoBillIds,
-            zohoBillIds,
-            utilityBatchId,
-            utilityBillIds: utilityBillLinks.map((link) => link.utilityBillId),
-            utilityBillLinks,
-            organizationId,
-            companyId,
-            payBy: dominantPayBy,
-            payByCompanyId: companyId,
-            payByCompanyName: companyNames.length === 1 ? companyNames[0] : '',
-            payByEmployeeId: employeeIds.length === 1 ? employeeIds[0] : '',
-            payByEmployeeName: employeeNames.length === 1 ? employeeNames[0] : '',
-            companyPayAmount: totalCompanyPay,
-            employeePayAmount: totalEmployeePay,
-            partyRows,
-            partyAccountId: salaryPayableAccounts[0]?.id || '',
-            partyAccountName: salaryPayableAccounts[0]?.name || '',
-            partyAccountCode: salaryPayableAccounts[0]?.code || '',
-            // Difference settle Debits Paid Through · Credits Acc2 — do not default Paid Through to Acc2.
-            paidThroughAccountId: '',
-            paidThroughAccountName: '',
-            salaryPayableAccounts,
-            expenseAccounts,
-        };
-        sessionStorage.setItem('utilityVendorPaymentPrefill', JSON.stringify(prefill));
         onClose?.();
 
+        const billNumber = selected
+            .map((r) => String(r.billNumber || '').trim())
+            .find(Boolean);
         const params = new URLSearchParams();
-        params.set('addUtilityPay', '1');
-        if (vendorId) params.set('vendorId', vendorId);
-        if (vendorName) params.set('vendorName', vendorName);
-        if (paymentDate) params.set('date', paymentDate);
-        if (prefill.amount) params.set('amount', prefill.amount);
-        if (utilityBatchId) params.set('batchId', utilityBatchId);
-        if (mode) params.set('mode', mode);
-        if (typeLabel) params.set('utilityType', typeLabel);
-        if (monthLabel) params.set('billMonth', monthLabel);
-        if (zohoBillIds.length) params.set('billIds', zohoBillIds.join(','));
-        const utilityIds = utilityBillLinks.map((link) => link.utilityBillId).filter(Boolean);
-        if (utilityIds.length) params.set('utilityBillIds', utilityIds.join(','));
-        if (organizationId) params.set('organizationId', organizationId);
-        if (companyId) params.set('companyId', companyId);
-
-        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
+        if (billNumber) params.set('q', billNumber);
+        router.push(
+            params.toString() ? `/Accounts/Bills?${params.toString()}` : '/Accounts/Bills',
+        );
     };
 
     if (!isOpen) return null;
@@ -2144,43 +1863,18 @@ export default function UtilityBillReviewModal({
                                     </>
                                 ) : null}
                                 {canPay ? (
-                                    <div className="relative" ref={payMenuRef}>
-                                        <button
-                                            type="button"
-                                            disabled={
-                                                acting ||
-                                                !rows.some((r) => r.selected && r.billId)
-                                            }
-                                            onClick={() => setPayMenuOpen((v) => !v)}
-                                            className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
-                                        >
-                                            Pay
-                                            <ChevronDown
-                                                size={16}
-                                                className={`transition-transform ${
-                                                    payMenuOpen ? 'rotate-180' : ''
-                                                }`}
-                                            />
-                                        </button>
-                                        {payMenuOpen ? (
-                                            <div className="absolute right-0 bottom-full mb-1.5 w-48 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden z-10">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openPayViaPurchases('bills')}
-                                                    className="w-full px-4 py-2.5 text-left text-sm font-medium text-gray-700 hover:bg-amber-50"
-                                                >
-                                                    Pay bills
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openPayViaPurchases('difference')}
-                                                    className="w-full px-4 py-2.5 text-left text-sm font-medium text-gray-700 hover:bg-amber-50 border-t border-gray-100"
-                                                >
-                                                    Pay difference
-                                                </button>
-                                            </div>
-                                        ) : null}
-                                    </div>
+                                    <button
+                                        type="button"
+                                        disabled={
+                                            acting ||
+                                            !rows.some((r) => r.selected && r.billId)
+                                        }
+                                        onClick={openZohoBills}
+                                        title="Open selected bills in Accounts → Bills"
+                                        className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
+                                    >
+                                        Pay
+                                    </button>
                                 ) : null}
                             </div>
                         </>

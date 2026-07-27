@@ -1,22 +1,29 @@
 /**
- * Build Payments Made prefill for an approved fine with a Zoho vendor bill.
+ * Build Payments Made prefill for an approved fine (vendor payment).
  */
-export function buildFineVendorPaymentPrefill(fine, { returnTo = '' } = {}) {
+export function buildFineVendorPaymentPrefill(fine, overrides = {}) {
     if (!fine) return null;
 
-    const amount = Number(fine.fineAmount ?? fine.totalFineAmount ?? 0);
+    const amount = Number(
+        overrides.amount ?? fine.fineAmount ?? fine.totalFineAmount ?? 0,
+    );
     const zohoBillId = String(fine.zohoBillId || '').trim();
-    const vendorId = String(fine.zohoVendorId || '').trim();
-    const vendorName = String(fine.zohoVendorName || '').trim();
-    const organizationId = String(fine.zohoOrganizationId || '').trim();
+    const vendorId = String(overrides.vendorId || fine.zohoVendorId || '').trim();
+    const vendorName = String(overrides.vendorName || fine.zohoVendorName || '').trim();
+    const organizationId = String(
+        overrides.organizationId || fine.zohoOrganizationId || '',
+    ).trim();
     const companyId = String(fine.company?._id || fine.company || '').trim();
     const fineMongoId = String(fine._id || '').trim();
     const fineId = String(fine.fineId || '').trim();
     const today = new Date().toISOString().slice(0, 10);
+    const paidThroughAccountId = String(overrides.paidThroughAccountId || '').trim();
+    const paidThroughAccountName = String(overrides.paidThroughAccountName || '').trim();
+    const returnTo = String(overrides.returnTo || '').trim();
 
     return {
         mode: 'fine_bills',
-        billsOnly: true,
+        billsOnly: Boolean(zohoBillId),
         vendorId,
         vendorName,
         amount: amount > 0 ? Number(amount).toFixed(2) : '',
@@ -38,6 +45,8 @@ export function buildFineVendorPaymentPrefill(fine, { returnTo = '' } = {}) {
         ],
         organizationId,
         companyId,
+        paidThroughAccountId,
+        paidThroughAccountName,
         returnTo,
     };
 }

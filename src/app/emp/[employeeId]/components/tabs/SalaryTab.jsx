@@ -6122,7 +6122,7 @@ export default function SalaryTab({
                                         </div>
                                         <div className="text-xs text-gray-500 mt-0.5">
                                             {canVendor
-                                                ? 'Open Add Payment with vendor and payable (Chart of Accounts)'
+                                                ? 'Vendor + Paid Through → Zoho Payments Made'
                                                 : choiceFines.length > 1
                                                     ? 'Select a single fine to pay the vendor'
                                                     : 'Accounts only · select an approved fine'}
@@ -6148,7 +6148,7 @@ export default function SalaryTab({
                                         </div>
                                         <div className="text-xs text-gray-500 mt-0.5">
                                             {canCompany
-                                                ? 'Banking + From Account · Refund · tax exclusive · remaining balance'
+                                                ? 'Transaction + Bank + Tax → Zoho Banking (under bank)'
                                                 : 'No outstanding company recovery balance'}
                                         </div>
                                     </div>
