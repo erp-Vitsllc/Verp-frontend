@@ -6,6 +6,7 @@ import {
     getHandoverReason,
     getHandoverToLabel,
     fmtHandoverPerson,
+    isVehicleReturnHandoverEntry,
 } from './vehicleHandoverHistory';
 import { formatEmployeeName } from './vehicleHandoverAssignWorkflow';
 
@@ -89,6 +90,34 @@ function pickSignature(...candidates) {
     return null;
 }
 
+/** True when a workflow stage actor is the Hand Over To person (not From / proxy). */
+function stageMatchesHandoverToLabel(stage, handoverToLabel) {
+    if (!stage || !handoverToLabel || handoverToLabel === '—') return false;
+    const empId = String(stage.actorEmployeeId || '').trim();
+    if (empId && handoverToLabel.includes(`(${empId})`)) return true;
+    const actorName = String(stage.actorName || '').trim();
+    if (!actorName || actorName === '—') return false;
+    return (
+        handoverToLabel === actorName ||
+        handoverToLabel.startsWith(`${actorName} (`) ||
+        handoverToLabel.startsWith(actorName)
+    );
+}
+
+/** True when a person entity is the Hand Over To employee. */
+function personMatchesHandoverToLabel(person, handoverToLabel) {
+    if (!person || !handoverToLabel || handoverToLabel === '—') return false;
+    const empId = String(person.employeeId || '').trim();
+    if (empId && handoverToLabel.includes(`(${empId})`)) return true;
+    const name = `${person.firstName || ''} ${person.lastName || ''}`.trim();
+    if (!name) return false;
+    return (
+        handoverToLabel === name ||
+        handoverToLabel.startsWith(`${name} (`) ||
+        handoverToLabel.startsWith(name)
+    );
+}
+
 function gridFieldsToMap(fields) {
     return Object.fromEntries(fields.map((f) => [f.label, f.value || '—']));
 }
@@ -120,9 +149,30 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
     const hrFromWorkflow = resolveWorkflowStage(historyEntry, 'hr');
     const assignerFromWorkflow = resolveWorkflowStage(historyEntry, 'assigner');
     const targetFromWorkflow = resolveWorkflowStage(historyEntry, 'target');
+    const targetStageRaw = historyEntry?.details?.vehicleHandoverWorkflow?.stages?.target || null;
 
     const handoverByLabel = getHandoverByLabel(historyEntry, vehicle);
     const handoverToLabel = getHandoverToLabel(historyEntry, vehicle);
+    const isReturn =
+        isVehicleReturnHandoverEntry(historyEntry, vehicle) ||
+        String(historyEntry?.action || '').trim() === 'Returned';
+
+    // Receiver / Hand Over To signature must be that employee only — never From, assigner, or a proxy actor.
+    const targetIsHandoverTo =
+        isReturn || stageMatchesHandoverToLabel(targetStageRaw, handoverToLabel);
+    const assigneeIsHandoverTo =
+        !isReturn && personMatchesHandoverToLabel(assignee, handoverToLabel);
+    const handoverToPerson = assigneeIsHandoverTo ? assignee : null;
+    const handoverToSignature = pickSignature(
+        targetIsHandoverTo ? targetFromWorkflow.signature : null,
+        handoverToPerson,
+        assigneeIsHandoverTo ? vehicle?.assignedTo : null,
+        assigneeIsHandoverTo ? vehicle?.acceptedBy : null,
+    );
+    const receiverStamp =
+        (targetIsHandoverTo ? targetFromWorkflow.date : null) ||
+        acceptanceDate ||
+        handoverDate;
 
     return {
         headerTable: {
@@ -147,21 +197,16 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
             handoverByName: handoverByLabel,
             handoverToName: handoverToLabel,
             handoverByPerson: assigner,
-            handoverToPerson: assignee,
+            handoverToPerson,
             handoverBySignature: pickSignature(
                 assignerFromWorkflow.signature,
                 assigner,
                 vehicle?.assignedBy,
             ),
-            handoverToSignature: pickSignature(
-                targetFromWorkflow.signature,
-                assignee,
-                vehicle?.assignedTo,
-                vehicle?.acceptedBy,
-            ),
+            handoverToSignature,
             handoverDate: formatDate(handoverDate),
-            receiverDate: formatDate(acceptanceDate || handoverDate),
-            receiverTime: formatTime(acceptanceDate || handoverDate),
+            receiverDate: formatDate(receiverStamp),
+            receiverTime: formatTime(receiverStamp),
         },
         accessories: buildReceiverAssessmentRows(historyEntry, vehicle),
         bodyConditionPairs: buildBodyConditionDisplayPairs(historyEntry),
@@ -198,18 +243,11 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
             },
         },
         receiver: {
-            name: targetFromWorkflow.name !== '—'
-                ? targetFromWorkflow.name
-                : getHandoverToLabel(historyEntry),
-            date: formatDate(targetFromWorkflow.date || acceptanceDate || handoverDate),
-            time: formatTime(targetFromWorkflow.date || acceptanceDate || handoverDate),
-            person: assignee,
-            signature: pickSignature(
-                targetFromWorkflow.signature,
-                assignee,
-                vehicle?.assignedTo,
-                vehicle?.acceptedBy,
-            ),
+            name: handoverToLabel !== '—' ? handoverToLabel : '',
+            date: formatDate(receiverStamp),
+            time: formatTime(receiverStamp),
+            person: handoverToPerson,
+            signature: handoverToSignature,
         },
         workflowMeta,
         additionalInfo: (() => {

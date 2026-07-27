@@ -14,6 +14,7 @@ import {
     validateFineDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 // Reusable searchable employee dropdown
 function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasError }) {
@@ -191,12 +192,10 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             return;
         }
 
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
-        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-            setErrors(prev => ({ ...prev, attachment: 'Only PDF, JPEG, or PNG file formats are allowed' }));
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            setErrors(prev => ({ ...prev, attachment: check.message }));
+            if (e.target) e.target.value = '';
             return;
         }
 
@@ -719,7 +718,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
+                                accept={ERP_ATTACHMENT_ACCEPT}
                                 onChange={handleFileChange}
                                 className={`w-full h-10 px-3 rounded-xl border ${errors.attachment ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                 disabled={submitting}

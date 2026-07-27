@@ -3,6 +3,7 @@
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from '@/hooks/use-toast';
 import { NOTICE_PERIOD_DAY_OPTIONS } from '@/utils/employeeLabourCardValidation';
+import { ERP_PDF_ACCEPT } from '@/utils/uploadFileTypes';
 
 export default function LabourCardModal({
     isOpen,
@@ -155,7 +156,7 @@ export default function LabourCardModal({
                                 <input
                                     ref={labourCardFileRef}
                                     type="file"
-                                    accept="application/pdf,.pdf"
+                                    accept={ERP_PDF_ACCEPT}
                                     onChange={onLabourCardFileChange}
                                     className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={savingLabourCard}
@@ -225,7 +226,7 @@ export default function LabourCardModal({
                                 <input
                                     ref={labourContractFileRef}
                                     type="file"
-                                    accept="application/pdf,.pdf"
+                                    accept={ERP_PDF_ACCEPT}
                                     onChange={onLabourContractFileChange}
                                     className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.contractFile ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={savingLabourCard}

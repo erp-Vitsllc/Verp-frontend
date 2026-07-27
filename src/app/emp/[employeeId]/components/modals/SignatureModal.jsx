@@ -96,7 +96,18 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName, dateOfJoining =
 
     const handleSave = async () => {
         const canvas = canvasRef.current;
-        const signatureData = hasSigned ? canvas.toDataURL('image/png') : '';
+        let signatureData = '';
+        if (hasSigned) {
+            // JPEG has no alpha — flatten onto white before export (ERP image rule: JPEG only).
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = canvas.width;
+            exportCanvas.height = canvas.height;
+            const exportCtx = exportCanvas.getContext('2d');
+            exportCtx.fillStyle = '#ffffff';
+            exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+            exportCtx.drawImage(canvas, 0, 0);
+            signatureData = exportCanvas.toDataURL('image/jpeg', 0.92);
+        }
         const formErrors = validateEmployeeSignatureForm(
             { signedDate, signatureData },
             { dateOfJoining, requireFile: true },
@@ -169,7 +180,7 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName, dateOfJoining =
                     {errors.file && <p className="text-xs text-red-500">{errors.file}</p>}
 
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center">
-                        JPG, JPEG, or PNG only. Maximum 5 MB.
+                        JPEG only (.jpg / .jpeg), max 2 MB.
                     </p>
                 </div>
 

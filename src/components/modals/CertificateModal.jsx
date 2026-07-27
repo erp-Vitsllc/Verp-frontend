@@ -19,6 +19,7 @@ import {
     resolveCertificateTypeName,
     buildCertificateRecipientOptions,
 } from '@/utils/companyCertificateValidation';
+import { ERP_PDF_ACCEPT } from '@/utils/uploadFileTypes';
 import { isCompanyCertificateDocument } from '@/utils/companyLiveDocumentUtils';
 
 export default function CertificateModal({
@@ -592,7 +593,7 @@ export default function CertificateModal({
                                 <input
                                     type="file"
                                     onChange={handleFileChange}
-                                    accept=".pdf,application/pdf"
+                                    accept={ERP_PDF_ACCEPT}
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                                 />
                                 <div
@@ -613,7 +614,7 @@ export default function CertificateModal({
                                                 <Upload size={18} />
                                             </div>
                                             <span className="text-sm font-medium text-gray-500">
-                                                Upload PDF (max 10 MB)
+                                                Upload PDF (max 5 MB)
                                             </span>
                                         </>
                                     )}

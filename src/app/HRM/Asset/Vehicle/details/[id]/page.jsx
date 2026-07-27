@@ -162,7 +162,7 @@ import {
     vehicleServiceTypeKey,
     normalizeMongoId,
 } from '../../components/vehicleServiceUtils';
-import { canUserManageOilService } from '../../utils/vehicleOilServiceAccess';
+import { canUserManageOilService, canUserCreateOrInitiateVehicleService } from '../../utils/vehicleOilServiceAccess';
 import {
     canUserManageCarWash,
     canUserValidateCarWashAccounts,
@@ -1220,9 +1220,23 @@ function VehicleDetailsPageContent() {
             const relatedDocs = relatedVehicleDocumentsForCard(docToNotRenew, asset?.documents || []);
             const uniqueDocs = [];
             const seen = new Set();
+            const notRenewType = normVehicleDocType(docToNotRenew.type);
+            const notRenewPrimaryId = String(
+                notRenewType === 'warranty attachment'
+                    ? relatedDocs.find((d) => normVehicleDocType(d?.type) === 'warranty')?._id ||
+                          docToNotRenew._id
+                    : docToNotRenew._id,
+            );
+
             for (const d of relatedDocs) {
                 const id = String(d?._id || '');
                 if (!id || seen.has(id)) continue;
+                // Warranty: only this warranty + its attachments (never sibling warranties).
+                if (notRenewType === 'warranty' || notRenewType === 'warranty attachment') {
+                    const t = normVehicleDocType(d.type);
+                    if (t === 'warranty' && id !== notRenewPrimaryId) continue;
+                    if (t !== 'warranty' && t !== 'warranty attachment') continue;
+                }
                 seen.add(id);
                 uniqueDocs.push(d);
             }
@@ -1287,7 +1301,9 @@ function VehicleDetailsPageContent() {
                     title: 'Saved',
                     description: result.queued
                         ? 'Not renew queued. Submit for HR approval when ready.'
-                        : `${docToNotRenew.type} and related attachments moved to Old Documents (Not Renewed).`,
+                        : notRenewType === 'warranty' || notRenewType === 'warranty attachment'
+                          ? 'This warranty was moved to Old Documents (Not Renewed). Other warranties stay live.'
+                          : `${docToNotRenew.type} and related attachments moved to Old Documents (Not Renewed).`,
                 });
                 setDocToNotRenew(null);
                 fetchAssetDetails();
@@ -1304,7 +1320,10 @@ function VehicleDetailsPageContent() {
 
             toast({
                 title: 'Updated',
-                description: `${docToNotRenew.type} and related attachments moved to Old Documents (Not Renewed).`,
+                description:
+                    notRenewType === 'warranty' || notRenewType === 'warranty attachment'
+                        ? 'This warranty was moved to Old Documents (Not Renewed). Other warranties stay live.'
+                        : `${docToNotRenew.type} and related attachments moved to Old Documents (Not Renewed).`,
             });
             setAsset((prev) => {
                 if (!prev) return prev;
@@ -1410,15 +1429,19 @@ function VehicleDetailsPageContent() {
 
     const warrantyCards = useMemo(
         () =>
-            (vehicleDocumentLifecycleBuckets?.live?.warranty || []).map((doc) => ({
-                doc,
-                meta: parseWarrantyCardMeta(doc),
-            })),
+            (vehicleDocumentLifecycleBuckets?.live?.warranty || [])
+                .filter((doc) => normVehicleDocType(doc?.type) === 'warranty')
+                .map((doc) => ({
+                    doc,
+                    meta: parseWarrantyCardMeta(doc),
+                })),
         [vehicleDocumentLifecycleBuckets],
     );
 
     const excludedWarrantyCoverageTypes = useMemo(() => {
-        const docs = vehicleDocumentLifecycleBuckets?.live?.warranty || [];
+        const docs = (vehicleDocumentLifecycleBuckets?.live?.warranty || []).filter(
+            (doc) => normVehicleDocType(doc?.type) === 'warranty',
+        );
         const excludeDocId =
             docTabWarrantyDoc?._id && !isWarrantyRenew ? docTabWarrantyDoc._id : null;
         const used = new Set();
@@ -1538,6 +1561,10 @@ function VehicleDetailsPageContent() {
                 isFlowchartHr,
             }),
         [asset, currentUserEmployeeId, currentUser, isFlowchartAdminController, isAssetController, isFlowchartHr],
+    );
+    const canCreateOrInitiateService = useMemo(
+        () => canUserCreateOrInitiateVehicleService(asset, currentUser),
+        [asset, currentUser],
     );
     const carWashRequestRows = useMemo(() => buildCarWashRequestRowsFromAsset(asset), [asset]);
     const vehicleServiceTabRequestRows = useMemo(
@@ -1910,18 +1937,43 @@ function VehicleDetailsPageContent() {
         const displayValue = (value) =>
             value !== null && value !== undefined && String(value).trim() !== '' ? value : '-';
 
+        const openWarrantyOldDocuments = () => {
+            setVehicleTabSilent('document', { docTab: 'old' });
+        };
+
+        const openAddWarranty = (e) => {
+            e?.stopPropagation?.();
+            clearDocTabModalContext();
+            setDocTabWarrantyDoc(null);
+            setIsWarrantyRenew(false);
+            setShowWarrantyModal(true);
+        };
+
         return (
             <div
                 key={doc._id || `warranty-card-${cardIdx}`}
                 id={cardIdx === 0 ? 'asset-focus-vehicleWarranty' : undefined}
-                className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0"
+                role="button"
+                tabIndex={0}
+                onClick={openWarrantyOldDocuments}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openWarrantyOldDocuments();
+                    }
+                }}
+                className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0 cursor-pointer hover:border-teal-200 hover:shadow-md transition-all"
+                title="Open Old Documents"
             >
                 <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between gap-3">
                     <h3 className="text-base font-bold text-slate-800">
                         Warranty Details
                         {warrantyCards.length > 1 ? ` #${cardIdx + 1}` : ''}
                     </h3>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div
+                        className="flex items-center gap-2 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         {vehicleCardActionFlags('warranty').showEdit && (
                             <button
                                 type="button"
@@ -1939,6 +1991,16 @@ function VehicleDetailsPageContent() {
                         {vehicleCardActionFlags('warranty').showRenew && (
                             <button
                                 type="button"
+                                onClick={openAddWarranty}
+                                className="p-2 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                title="Add"
+                            >
+                                <Plus size={18} />
+                            </button>
+                        )}
+                        {vehicleCardActionFlags('warranty').showRenew && (
+                            <button
+                                type="button"
                                 onClick={() => {
                                     setDocTabWarrantyDoc(doc);
                                     setIsWarrantyRenew(true);
@@ -1948,6 +2010,19 @@ function VehicleDetailsPageContent() {
                                 title="Renew"
                             >
                                 <RefreshCw size={18} />
+                            </button>
+                        )}
+                        {vehicleCardActionFlags('warranty').showNotRenew && doc && (
+                            <button
+                                type="button"
+                                onClick={() => setDocToNotRenew(doc)}
+                                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+                                title="Not Renew"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <path d="M4.9 4.9l14.2 14.2" />
+                                </svg>
                             </button>
                         )}
                         {vehicleCardActionFlags('warranty').showDelete ? (
@@ -1992,7 +2067,10 @@ function VehicleDetailsPageContent() {
                     ))}
 
                     {(doc?.attachment || cardAttachments.length > 0) && (
-                        <div className="mt-4 pt-4 border-t border-slate-50">
+                        <div
+                            className="mt-4 pt-4 border-t border-slate-50"
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Warranty Documents</h4>
                             <div className="space-y-2">
                                 {doc?.attachment && (
@@ -4487,15 +4565,14 @@ function VehicleDetailsPageContent() {
                                 const isOilServiceTab = serviceInnerTab === 'Oil Service';
                                 const isCarWashTab = serviceInnerTab === 'Car Wash';
                                 const isVehicleServiceTabRequest = isVehicleServiceTabRequestType(serviceInnerTab);
-                                const canManageServiceTabRequest = canManageOilService;
+                                const canManageServiceTabRequest = canCreateOrInitiateService;
                                 const openServiceTypeRequest = () => {
                                     if (isCarWashTab) {
-                                        if (!canManageCarWash) {
+                                        if (!canCreateOrInitiateService) {
                                             toast({
                                                 variant: 'destructive',
                                                 title: 'Not allowed',
-                                                description:
-                                                    'Only the Super User, Admin Officer, or assigned user can raise a car wash request.',
+                                                description: 'Sign in to raise a car wash request.',
                                             });
                                             return;
                                         }
@@ -4503,14 +4580,11 @@ function VehicleDetailsPageContent() {
                                         setCarWashModalOpen(true);
                                         return;
                                     }
-                                    if ((isOilServiceTab || isVehicleServiceTabRequest) && !canManageServiceTabRequest) {
+                                    if ((isOilServiceTab || isVehicleServiceTabRequest) && !canCreateOrInitiateService) {
                                         toast({
                                             variant: 'destructive',
                                             title: 'Not allowed',
-                                            description:
-                                                serviceInnerTab === 'Tire Change'
-                                                    ? 'Only Super User, Admin Officer, or assigned user can request tire change. System auto-creation is not used for tire change.'
-                                                    : 'Only the Super User, Admin Officer, or assigned user can raise this service request.',
+                                            description: 'Sign in to raise this service request.',
                                         });
                                         return;
                                     }
@@ -4615,18 +4689,15 @@ function VehicleDetailsPageContent() {
                                                 onClick={openServiceTypeRequest}
                                                 disabled={
                                                     (isOilServiceTab &&
-                                                        (creatingOilServiceRequest || !canManageOilService)) ||
+                                                        (creatingOilServiceRequest || !canCreateOrInitiateService)) ||
                                                     (isVehicleServiceTabRequest &&
-                                                        (creatingVehicleServiceTabRequest || !canManageServiceTabRequest)) ||
-                                                    (isCarWashTab && !canManageCarWash)
+                                                        (creatingVehicleServiceTabRequest || !canCreateOrInitiateService)) ||
+                                                    (isCarWashTab && !canCreateOrInitiateService)
                                                 }
                                                 title={
-                                                    (isOilServiceTab || isVehicleServiceTabRequest) &&
-                                                        !canManageServiceTabRequest
-                                                        ? 'Only the Super User, Admin Officer, or assigned user can raise this service request'
-                                                        : isCarWashTab && !canManageCarWash
-                                                            ? 'Only the Super User, Admin Officer, or assigned user can raise a car wash request'
-                                                            : undefined
+                                                    !canCreateOrInitiateService
+                                                        ? 'Sign in to raise a service request'
+                                                        : undefined
                                                 }
                                                 className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 sm:px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors shrink-0 w-full sm:w-auto disabled:opacity-60 disabled:cursor-not-allowed"
                                             >
@@ -5416,6 +5487,21 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
+                                                                                            {showDocTabRenew ? (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => {
+                                                                                                        clearDocTabModalContext();
+                                                                                                        setDocTabWarrantyDoc(null);
+                                                                                                        setIsWarrantyRenew(false);
+                                                                                                        setShowWarrantyModal(true);
+                                                                                                    }}
+                                                                                                    className="text-emerald-500 hover:text-emerald-600 transition-colors"
+                                                                                                    title="Add"
+                                                                                                >
+                                                                                                    <Plus size={16} />
+                                                                                                </button>
+                                                                                            ) : null}
                                                                                             {showDocTabRenew ? (
                                                                                                 <button
                                                                                                     type="button"

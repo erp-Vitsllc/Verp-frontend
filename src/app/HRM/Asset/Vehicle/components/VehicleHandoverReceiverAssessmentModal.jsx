@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Upload, X } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import {
     RECEIVER_ASSESSMENT_ITEMS,
     buildAssessmentFormState,
@@ -66,6 +68,7 @@ export default function VehicleHandoverReceiverAssessmentModal({
     const [errors, setErrors] = useState({});
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [mounted, setMounted] = useState(false);
+    const { toast } = useToast();
 
     useEffect(() => {
         setMounted(true);
@@ -118,8 +121,14 @@ export default function VehicleHandoverReceiverAssessmentModal({
 
     const handlePhotoChange = async (key, file) => {
         if (!file) return;
-        if (!file.type.startsWith('image/')) {
-            setErrors((prev) => ({ ...prev, [key]: 'Upload an image file' }));
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
+            setErrors((prev) => ({ ...prev, [key]: check.message }));
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: check.message,
+            });
             return;
         }
         const dataUrl = await readFileAsDataUrl(file);
@@ -230,7 +239,7 @@ export default function VehicleHandoverReceiverAssessmentModal({
                                                     Upload photo
                                                     <input
                                                         type="file"
-                                                        accept="image/*"
+                                                        accept={ERP_JPEG_ACCEPT}
                                                         required={row.present === true}
                                                         className="hidden"
                                                         disabled={saving}

@@ -1,7 +1,8 @@
 import { stripDangerousText } from '@/utils/employeeAddValidation';
+import { validateErpPdfFile, ERP_PDF_MAX_BYTES } from './uploadFileTypes';
 
 const LETTERS_SPACES = /^[A-Za-z\s]+$/;
-export const EDUCATION_PDF_MAX_BYTES = 5 * 1024 * 1024;
+export const EDUCATION_PDF_MAX_BYTES = ERP_PDF_MAX_BYTES;
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -44,12 +45,8 @@ export function validateEducationCertificateFile(file, { requireFile = true, has
         return requireFile && !hasExisting ? ok('Certificate is required') : ok();
     }
     if (file.size === 0) return ok('Empty files are not allowed');
-    if (file.size > EDUCATION_PDF_MAX_BYTES) return ok('File size must not exceed 5MB');
-    const name = String(file.name || '').toLowerCase();
-    const mime = String(file.type || '').toLowerCase();
-    if (mime !== 'application/pdf' && !name.endsWith('.pdf')) {
-        return ok('Only PDF files are allowed');
-    }
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return ok(check.message);
     return ok();
 }
 

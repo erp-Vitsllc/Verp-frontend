@@ -1,14 +1,72 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import { isPaymentCountableTowardPaid } from '@/utils/paymentStatusDisplay';
 import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import ZohoOrganizationPicker from '@/components/ZohoOrganizationPicker';
-import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
-import { X, FileText } from 'lucide-react';
+import { mapZohoBankAccounts, mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
+import { Loader2, RefreshCw, X, FileText, Link2 } from 'lucide-react';
+
+const bankingSelectStyles = {
+    control: (base, state) => ({
+        ...base,
+        minHeight: 44,
+        borderRadius: '0.75rem',
+        borderColor: state.isFocused ? '#14b8a6' : '#e5e7eb',
+        boxShadow: state.isFocused ? '0 0 0 2px rgba(20, 184, 166, 0.2)' : 'none',
+        backgroundColor: 'rgba(249, 250, 251, 0.5)',
+        cursor: 'pointer',
+        '&:hover': {
+            borderColor: state.isFocused ? '#14b8a6' : '#d1d5db',
+        },
+    }),
+    menuPortal: (base) => ({ ...base, zIndex: 100000 }),
+};
+
+function normalizeZohoAccountType(type) {
+    return String(type || '')
+        .toLowerCase()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/** Zoho Expense "From Account" / account_id — P&L expense only (not bank/cash/AP). */
+function isValidFineCompanyFromAccount(type, name = '') {
+    const t = normalizeZohoAccountType(type);
+    const n = String(name || '').toLowerCase();
+    if (
+        t === 'cash' ||
+        t === 'bank' ||
+        t === 'credit card' ||
+        t === 'undeposited funds' ||
+        t.includes('accounts payable') ||
+        t.includes('accounts receivable') ||
+        t.includes('payment clearing') ||
+        /\bcash\b/.test(t) ||
+        /\bbank\b/.test(t) ||
+        t.includes('credit card') ||
+        /accounts\s*payable/i.test(n) ||
+        /accounts\s*receivable/i.test(n)
+    ) {
+        return false;
+    }
+    if (
+        t.includes('expense') ||
+        t.includes('cost of goods') ||
+        t.includes('cost of sales') ||
+        t === 'other expense'
+    ) {
+        return true;
+    }
+    // Allow unknown P&L types; Zoho will still validate on post.
+    return Boolean(t) && !/asset|liability|equity|income|revenue/.test(t);
+}
 
 /** Base64 data URLs above this size freeze the tab on JSON.stringify / re-render. */
 const MAX_INLINE_ATTACHMENT_CHARS = 350_000;
@@ -51,9 +109,13 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     const [paymentSource, setPaymentSource] = useState('');
     const [rewardCompanyId, setRewardCompanyId] = useState('');
     const [zohoAccounts, setZohoAccounts] = useState([]);
+    const [zohoBankAccounts, setZohoBankAccounts] = useState([]);
     const [expenseAccountId, setExpenseAccountId] = useState('');
     const [paidThroughAccountId, setPaidThroughAccountId] = useState('');
     const [zohoAccountsLoading, setZohoAccountsLoading] = useState(false);
+    const [zohoBanksLoading, setZohoBanksLoading] = useState(false);
+    const [zohoBankingNeedsReconnect, setZohoBankingNeedsReconnect] = useState(false);
+    const [zohoReconnectLoading, setZohoReconnectLoading] = useState(false);
 
     const preferredRewardOrgId = String(
         prefill?.organizationId ||
@@ -91,29 +153,96 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         preferredCompanyId: preferredRewardCompanyId,
     });
 
-    const expenseAccountOptions = useMemo(
+    const expenseAccountOptions = useMemo(() => {
+        const rows = zohoAccounts.map((a) => ({
+            id: a.id,
+            value: a.id,
+            label: a.label || a.name || a.id,
+            name: a.name || a.label || '',
+            type: a.type || '',
+        }));
+        if (!isFineCompanyPayment) return rows;
+        return rows.filter((a) => isValidFineCompanyFromAccount(a.type, a.name || a.label));
+    }, [zohoAccounts, isFineCompanyPayment]);
+
+    const bankAccountOptions = useMemo(
         () =>
-            zohoAccounts.map((a) => ({
-                id: a.id,
+            zohoBankAccounts.map((a) => ({
+                value: a.id,
                 label: a.label || a.name || a.id,
                 name: a.name || a.label || '',
                 type: a.type || '',
             })),
-        [zohoAccounts],
+        [zohoBankAccounts],
     );
 
-    const bankAccountOptions = useMemo(() => {
-        const bankLike = expenseAccountOptions.filter((a) => {
-            const hay = `${a.type} ${a.name} ${a.label}`.toLowerCase();
-            return /bank|cash|credit\s*card|payment\s*clearing|petty/.test(hay);
-        });
-        return bankLike.length ? bankLike : expenseAccountOptions;
-    }, [expenseAccountOptions]);
+    const paidThroughCoaOptions = useMemo(
+        () =>
+            expenseAccountOptions.map((a) => ({
+                value: a.id,
+                label: a.label,
+                name: a.name,
+            })),
+        [expenseAccountOptions],
+    );
+
+    const paymentSourceOptions = useMemo(
+        () => [
+            { value: 'Salary', label: 'Salary' },
+            { value: 'End of Benefits', label: 'End of Benefits' },
+            { value: 'Cash', label: 'Cash' },
+        ],
+        [],
+    );
+
+    const paymentTypeOptions = useMemo(
+        () => [
+            { value: 'Fine', label: 'Fine' },
+            { value: 'Loan', label: 'Loan' },
+            { value: 'Advance', label: 'Advance' },
+            { value: 'Reward', label: 'Reward' },
+            { value: 'UtilityBill', label: 'Utility Bill' },
+        ],
+        [],
+    );
+
+    const fineSelectOptions = useMemo(
+        () =>
+            fines.map((fine) => {
+                const value = fine.fineId || fine._id;
+                const emp = fine.assignedEmployees?.[0]?.employeeName || 'N/A';
+                return {
+                    value,
+                    label: `${fine.fineId || value} - ${emp}`,
+                };
+            }),
+        [fines],
+    );
+
+    const loanSelectOptions = useMemo(
+        () =>
+            loans.map((loan) => {
+                const value = loan.loanId || loan.id || loan._id;
+                return {
+                    value,
+                    label: `${loan.loanId || loan.id || value} - ${loan.employeeName || 'N/A'} - ${loan.amount} AED`,
+                };
+            }),
+        [loans],
+    );
 
     const selectedExpenseAccount = expenseAccountOptions.find((a) => a.id === expenseAccountId);
     const selectedPaidThrough = (
-        isFineCompanyPayment ? bankAccountOptions : expenseAccountOptions
-    ).find((a) => a.id === paidThroughAccountId);
+        isFineCompanyPayment ? bankAccountOptions : paidThroughCoaOptions
+    ).find((a) => a.value === paidThroughAccountId);
+    const selectedPaymentSource =
+        paymentSourceOptions.find((o) => o.value === paymentSource) || null;
+    const selectedPaymentType =
+        paymentTypeOptions.find((o) => o.value === paymentType) || null;
+    const selectedFineOption =
+        fineSelectOptions.find((o) => o.value === selectedFineId) || null;
+    const selectedLoanOption =
+        loanSelectOptions.find((o) => o.value === selectedLoanId) || null;
 
     // Fetch fines and loans when payment type changes (or apply prefill once)
     useEffect(() => {
@@ -320,7 +449,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         };
     }, [isOpen, isZohoStaffPayout, selectedEntity, prefill]);
 
-    // Load Zoho Chart of Accounts for the active VEGA/NNIT org
+    // Load Zoho Chart of Accounts for From Account / Paid Through
     useEffect(() => {
         if (!isOpen || !isZohoStaffPayout || !zohoOrganizationId) {
             return undefined;
@@ -330,10 +459,15 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         setZohoAccountsLoading(true);
         (async () => {
             try {
-                const response = await axiosInstance.get('/zoho/bills/support', {
+                // Fine company: same Expense Account list as Zoho → Expenses → Add Expense
+                // (not full CoA / not Banking cash like Petty Cash - Raseel)
+                const endpoint = isFineCompanyPayment
+                    ? '/zoho/expenses/support'
+                    : '/zoho/bills/support';
+                const response = await axiosInstance.get(endpoint, {
                     params: { organizationId: zohoOrganizationId },
                     skipToast: true,
-                    timeout: 45000,
+                    timeout: 90000,
                 });
                 if (cancelled) return;
                 const mapped = mapZohoPaymentAccounts(response?.data?.data?.accounts);
@@ -341,11 +475,32 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 setExpenseAccountId((prev) =>
                     prev && mapped.some((a) => a.id === prev) ? prev : '',
                 );
-                setPaidThroughAccountId((prev) =>
-                    prev && mapped.some((a) => a.id === prev) ? prev : '',
-                );
-            } catch {
-                if (!cancelled) setZohoAccounts([]);
+                if (!isFineCompanyPayment) {
+                    setPaidThroughAccountId((prev) =>
+                        prev && mapped.some((a) => a.id === prev) ? prev : '',
+                    );
+                }
+                if (!mapped.length) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'No Chart of Accounts loaded',
+                        description: isFineCompanyPayment
+                            ? 'Could not load Zoho expense accounts for From Account. Reconnect Zoho or retry.'
+                            : 'Could not load Zoho Chart of Accounts.',
+                    });
+                }
+            } catch (err) {
+                if (!cancelled) {
+                    setZohoAccounts([]);
+                    toast({
+                        variant: 'destructive',
+                        title: 'Chart of Accounts failed',
+                        description:
+                            err?.response?.data?.message ||
+                            err?.message ||
+                            'Could not load Zoho accounts.',
+                    });
+                }
             } finally {
                 if (!cancelled) setZohoAccountsLoading(false);
             }
@@ -354,7 +509,108 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         return () => {
             cancelled = true;
         };
-    }, [isOpen, isZohoStaffPayout, zohoOrganizationId]);
+        // toast omitted — unstable identity
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, isZohoStaffPayout, zohoOrganizationId, isFineCompanyPayment]);
+
+    const loadZohoBankAccounts = useCallback(async () => {
+        if (!zohoOrganizationId) return;
+        setZohoBanksLoading(true);
+        setZohoBankingNeedsReconnect(false);
+        try {
+            const response = await axiosInstance.get('/zoho/bankaccounts', {
+                params: { organizationId: zohoOrganizationId },
+                skipToast: true,
+                timeout: 60000,
+            });
+            const mapped = mapZohoBankAccounts(response?.data?.data?.accounts);
+            setZohoBankAccounts(mapped);
+            setPaidThroughAccountId((prev) =>
+                prev && mapped.some((a) => a.id === prev) ? prev : '',
+            );
+            if (!mapped.length) {
+                toast({
+                    variant: 'destructive',
+                    title: 'No Zoho bank accounts',
+                    description:
+                        'Zoho Banking returned no accounts. Reconnect Zoho with banking.READ scope if the list exists in Zoho Books → Banking.',
+                });
+            }
+        } catch (err) {
+            setZohoBankAccounts([]);
+            const msg =
+                err?.response?.data?.message ||
+                err?.message ||
+                'Could not load Zoho Banking accounts.';
+            const needsReconnect = /banking\.READ|not authorized|unauthorized|permission missing/i.test(
+                msg,
+            );
+            setZohoBankingNeedsReconnect(needsReconnect);
+            toast({
+                variant: 'destructive',
+                title: needsReconnect
+                    ? 'Zoho Banking permission missing'
+                    : 'Bank list failed',
+                description: needsReconnect
+                    ? 'Click “Reconnect Zoho” next to Banking, approve banking.READ, then Refresh.'
+                    : msg,
+            });
+        } finally {
+            setZohoBanksLoading(false);
+        }
+    }, [zohoOrganizationId, toast]);
+
+    const reconnectZohoForBanking = useCallback(async () => {
+        if (!zohoOrganizationId) {
+            toast({
+                variant: 'destructive',
+                title: 'Select organization',
+                description: 'Pick VEGA or NNIT first, then reconnect Zoho.',
+            });
+            return;
+        }
+        setZohoReconnectLoading(true);
+        try {
+            const response = await axiosInstance.get('/zoho/auth-url', {
+                params: { organizationId: zohoOrganizationId },
+                skipToast: true,
+            });
+            const authorizationUrl = response?.data?.data?.authorizationUrl;
+            if (!authorizationUrl) {
+                throw new Error('Authorization URL was not returned');
+            }
+            const popup = window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
+            if (!popup) {
+                window.location.assign(authorizationUrl);
+                return;
+            }
+            toast({
+                title: 'Approve Zoho access',
+                description:
+                    'In the Zoho window, Accept (includes Banking). Then return here and click Refresh.',
+            });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not start Zoho reconnect',
+                description:
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    'Failed to open Zoho authorization.',
+            });
+        } finally {
+            setZohoReconnectLoading(false);
+        }
+    }, [zohoOrganizationId, toast]);
+
+    // Load full Zoho Banking list for Payment to company Banking dropdown
+    useEffect(() => {
+        if (!isOpen || !isFineCompanyPayment || !zohoOrganizationId) {
+            return undefined;
+        }
+        void loadZohoBankAccounts();
+        return undefined;
+    }, [isOpen, isFineCompanyPayment, zohoOrganizationId, loadZohoBankAccounts]);
 
     // Fetch existing payments when entity is selected (not for utility bills)
     useEffect(() => {
@@ -657,10 +913,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (file.size > 5 * 1024 * 1024) {
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
             toast({
                 title: 'Validation Error',
-                description: 'File size exceeds 5MB limit',
+                description: check.message,
                 variant: 'destructive',
             });
             e.target.value = '';
@@ -767,7 +1024,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 toast({
                     title: 'Validation Error',
                     description: isFineCompanyPayment
-                        ? 'Select Banking and From Account from Zoho Chart of Accounts (VEGA).'
+                        ? 'Select Banking (Zoho bank) and From Account from Chart of Accounts.'
                         : 'Select Expense account and Paid Through from Zoho Chart of Accounts.',
                     variant: 'destructive',
                 });
@@ -782,6 +1039,21 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     variant: 'destructive',
                 });
                 return;
+            }
+            if (isFineCompanyPayment) {
+                const fromOpt = expenseAccountOptions.find((a) => a.id === expenseAccountId);
+                if (
+                    fromOpt &&
+                    !isValidFineCompanyFromAccount(fromOpt.type, fromOpt.name || fromOpt.label)
+                ) {
+                    toast({
+                        title: 'Invalid From Account',
+                        description:
+                            'From Account must be a Zoho Expense / P&L account (e.g. Fine Expense). Do not use Accounts Payable, Cash, or Bank.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
             }
         }
 
@@ -875,15 +1147,17 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                               paidThroughAccountName: selectedPaidThrough?.name || '',
                               ...(type === 'Fine'
                                   ? {
-                                        description: `Refund · Fine ${entityRef}`,
-                                        remarks: 'Transaction expense: Refund · Tax exclusive',
+                                        description: `Expense Refund · Fine ${entityRef}`,
+                                        remarks: 'Expense Refund · Tax inclusive',
+                                        paymentMode: 'Cash',
+                                        isInclusiveTax: true,
                                     }
                                   : {}),
                           }
                         : {}),
                 };
 
-                await axiosInstance.post('/Payment', paymentData);
+                return axiosInstance.post('/Payment', paymentData);
             };
 
             if (isUtilityBillPayment) {
@@ -904,7 +1178,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     .filter(Boolean)
                     .join(', ');
                 const first = checkedBills[0];
-                await submitSinglePayment(
+                const utilRes = await submitSinglePayment(
                     {
                         ...first,
                         _id: first._id || first.id,
@@ -928,31 +1202,64 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                         billIds,
                     });
                 }
+                const utilZoho = utilRes?.data?.zohoSync;
+                toast({
+                    title: utilZoho && utilZoho.ok === false ? 'Saved in ERP only' : 'Success',
+                    description:
+                        utilZoho && utilZoho.ok === false
+                            ? utilRes?.data?.message || utilZoho.message
+                            : isUtilityEmployeeBalance
+                              ? 'Utility employee balance paid (Zoho credit posted)'
+                              : 'Utility bill payment recorded for selected rows',
+                    variant: utilZoho && utilZoho.ok === false ? 'destructive' : 'success',
+                });
             } else if (isBulkFinePayment) {
                 let remainingPay = parseFloat(paymentAmount);
+                let lastZoho = null;
+                let lastMessage = '';
                 for (const fine of bulkFines) {
                     if (remainingPay <= 0) break;
                     const fineBalance = parseFloat(fine.balance) || 0;
                     if (fineBalance <= 0) continue;
                     const payAmt = Math.min(fineBalance, remainingPay);
-                    await submitSinglePayment(fine, payAmt, 'Fine');
+                    const res = await submitSinglePayment(fine, payAmt, 'Fine');
+                    lastZoho = res?.data?.zohoSync || lastZoho;
+                    lastMessage = res?.data?.message || lastMessage;
                     remainingPay -= payAmt;
                 }
+                toast({
+                    title: lastZoho && lastZoho.ok === false ? 'Saved in ERP only' : 'Success',
+                    description:
+                        lastZoho && lastZoho.ok === false
+                            ? lastMessage || lastZoho.message
+                            : 'Payments recorded successfully for selected fines',
+                    variant: lastZoho && lastZoho.ok === false ? 'destructive' : 'success',
+                });
             } else {
-                await submitSinglePayment(selectedEntity, paymentAmount, paymentType);
+                const res = await submitSinglePayment(selectedEntity, paymentAmount, paymentType);
+                const zohoSync = res?.data?.zohoSync;
+                const apiMessage = res?.data?.message;
+                if (zohoSync && zohoSync.ok === false) {
+                    toast({
+                        title: 'Saved in ERP — not in Zoho',
+                        description:
+                            apiMessage ||
+                            zohoSync.message ||
+                            'Payment saved in ERP, but Zoho posting failed.',
+                        variant: 'destructive',
+                    });
+                } else {
+                    toast({
+                        title: 'Success',
+                        description:
+                            apiMessage ||
+                            (zohoSync?.expenseId
+                                ? `Payment recorded and Zoho Expense ${zohoSync.expenseNumber || zohoSync.expenseId} created.`
+                                : 'Payment recorded successfully'),
+                        variant: 'success',
+                    });
+                }
             }
-
-            toast({
-                title: "Success",
-                description: isUtilityEmployeeBalance
-                    ? 'Utility employee balance paid (Zoho credit posted)'
-                    : isUtilityBillPayment
-                    ? "Utility bill payment recorded for selected rows"
-                    : isBulkFinePayment
-                      ? "Payments recorded successfully for selected fines"
-                      : "Payment recorded successfully",
-                variant: "success",
-            });
 
             if (!isBulkFinePayment && !isUtilityBillPayment) {
                 // Refresh existing payments and entity data to show updated colors and total amount
@@ -1038,10 +1345,12 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                             Payment Type <span className="text-red-500">*</span>
                         </label>
-                        <select
-                            value={paymentType}
-                            onChange={(e) => {
-                                setPaymentType(e.target.value);
+                        <Select
+                            classNamePrefix="payment-type"
+                            instanceId="payment-type"
+                            value={selectedPaymentType}
+                            onChange={(option) => {
+                                setPaymentType(option?.value || '');
                                 setSelectedFineId('');
                                 setSelectedLoanId('');
                                 setSelectedEntity(null);
@@ -1049,7 +1358,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                 setSelectedCardIndex(null);
                                 setBulkFines([]);
                             }}
-                            disabled={
+                            options={paymentTypeOptions}
+                            isClearable
+                            isSearchable
+                            isDisabled={
                                 isBulkFinePayment ||
                                 isUtilityBillPayment ||
                                 Boolean(
@@ -1059,15 +1371,15 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         prefill?.utilityBills?.length,
                                 )
                             }
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors disabled:opacity-70"
-                        >
-                            <option value="">Select Payment Type</option>
-                            <option value="Fine">Fine</option>
-                            <option value="Loan">Loan</option>
-                            <option value="Advance">Advance</option>
-                            <option value="Reward">Reward</option>
-                            <option value="UtilityBill">Utility Bill</option>
-                        </select>
+                            placeholder="Search payment type…"
+                            noOptionsMessage={() => 'No payment type found'}
+                            styles={bankingSelectStyles}
+                            menuPortalTarget={
+                                typeof document !== 'undefined' ? document.body : null
+                            }
+                            menuPosition="fixed"
+                            menuPlacement="auto"
+                        />
                     </div>
 
                     {isUtilityBillPayment && (
@@ -1242,18 +1554,27 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     Loading fines...
                                 </div>
                             ) : (
-                                <select
-                                    value={selectedFineId}
-                                    onChange={(e) => handleFineSelect(e.target.value)}
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors"
-                                >
-                                    <option value="">Select Fine ID</option>
-                                    {fines.map((fine) => (
-                                        <option key={fine._id || fine.fineId} value={fine.fineId || fine._id}>
-                                            {fine.fineId} - {fine.assignedEmployees?.[0]?.employeeName || 'N/A'}
-                                        </option>
-                                    ))}
-                                </select>
+                                <Select
+                                    classNamePrefix="payment-fine-id"
+                                    instanceId="payment-fine-id"
+                                    value={selectedFineOption}
+                                    onChange={(option) =>
+                                        handleFineSelect(option?.value || '')
+                                    }
+                                    options={fineSelectOptions}
+                                    isClearable
+                                    isSearchable
+                                    placeholder="Search Fine ID…"
+                                    noOptionsMessage={() => 'No fines found'}
+                                    styles={bankingSelectStyles}
+                                    menuPortalTarget={
+                                        typeof document !== 'undefined'
+                                            ? document.body
+                                            : null
+                                    }
+                                    menuPosition="fixed"
+                                    menuPlacement="auto"
+                                />
                             )}
                         </div>
                     )}
@@ -1270,19 +1591,28 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     Loading {paymentType.toLowerCase()}s...
                                 </div>
                             ) : (
-                                <select
-                                    value={selectedLoanId}
-                                    onChange={(e) => handleLoanSelect(e.target.value)}
-                                    disabled={Boolean(prefill?.loan)}
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors disabled:opacity-70"
-                                >
-                                    <option value="">Select {paymentType} ID</option>
-                                    {loans.map((loan) => (
-                                        <option key={loan.id || loan._id} value={loan.loanId || loan.id || loan._id}>
-                                            {loan.loanId || loan.id} - {loan.employeeName || 'N/A'} - {loan.amount} AED
-                                        </option>
-                                    ))}
-                                </select>
+                                <Select
+                                    classNamePrefix="payment-loan-id"
+                                    instanceId="payment-loan-id"
+                                    value={selectedLoanOption}
+                                    onChange={(option) =>
+                                        handleLoanSelect(option?.value || '')
+                                    }
+                                    options={loanSelectOptions}
+                                    isClearable
+                                    isSearchable
+                                    isDisabled={Boolean(prefill?.loan)}
+                                    placeholder={`Search ${paymentType} ID…`}
+                                    noOptionsMessage={() => `No ${paymentType.toLowerCase()}s found`}
+                                    styles={bankingSelectStyles}
+                                    menuPortalTarget={
+                                        typeof document !== 'undefined'
+                                            ? document.body
+                                            : null
+                                    }
+                                    menuPosition="fixed"
+                                    menuPlacement="auto"
+                                />
                             )}
                         </div>
                     )}
@@ -1484,12 +1814,12 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         <div>
                                             <h3 className="text-sm font-bold text-gray-800">
                                                 {isFineCompanyPayment
-                                                    ? 'Payment to company · Zoho Banking'
+                                                    ? 'Payment to company · Zoho Expense Refund'
                                                     : 'Zoho Books · Chart of Accounts'}
                                             </h3>
                                             <p className="text-xs text-gray-500 mt-0.5">
                                                 {isFineCompanyPayment
-                                                    ? 'Posts to Zoho Banking under the selected bank. Transaction = Refund · Tax exclusive · From Account on Chart of Accounts.'
+                                                    ? 'Posts Zoho Banking Expense Refund (Money In). From Account + Tax fields · Bank receives the funds.'
                                                     : isUtilityEmployeeBalance
                                                       ? 'Pay employee utility balance. Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'
                                                       : 'Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'}
@@ -1509,11 +1839,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div>
                                                 <label className="block text-sm font-bold text-gray-800 mb-2">
-                                                    Transaction expense
+                                                    Transaction
                                                 </label>
                                                 <input
                                                     type="text"
-                                                    value="Refund"
+                                                    value="Expense Refund"
                                                     readOnly
                                                     className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-gray-100 text-gray-700 cursor-not-allowed"
                                                 />
@@ -1524,7 +1854,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                 </label>
                                                 <input
                                                     type="text"
-                                                    value="Exclusive"
+                                                    value="Inclusive"
                                                     readOnly
                                                     className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-gray-100 text-gray-700 cursor-not-allowed"
                                                 />
@@ -1546,25 +1876,60 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                     </>
                                                 )}
                                             </label>
-                                            <select
-                                                value={expenseAccountId}
-                                                onChange={(e) => setExpenseAccountId(e.target.value)}
-                                                disabled={zohoAccountsLoading || !zohoAccounts.length}
-                                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50"
-                                            >
-                                                <option value="">
-                                                    {zohoAccountsLoading
+                                            {isFineCompanyPayment ? (
+                                                <p className="text-xs text-gray-400 mb-1.5">
+                                                    Expense / P&amp;L only (same as Zoho Add Expense).
+                                                    Petty Cash / banks → use Banking on the right.
+                                                </p>
+                                            ) : null}
+                                            <Select
+                                                classNamePrefix="payment-from-account"
+                                                instanceId="payment-from-account"
+                                                value={selectedExpenseAccount || null}
+                                                onChange={(option) =>
+                                                    setExpenseAccountId(option?.value || '')
+                                                }
+                                                options={expenseAccountOptions}
+                                                isLoading={zohoAccountsLoading}
+                                                isDisabled={
+                                                    zohoAccountsLoading || !zohoAccounts.length
+                                                }
+                                                isClearable
+                                                isSearchable
+                                                placeholder={
+                                                    zohoAccountsLoading
                                                         ? 'Loading Chart of Accounts…'
                                                         : isFineCompanyPayment
-                                                          ? 'Select from account (Chart of Accounts)'
-                                                          : 'Select expense account'}
-                                                </option>
-                                                {expenseAccountOptions.map((opt) => (
-                                                    <option key={opt.id} value={opt.id}>
-                                                        {opt.label}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                                          ? 'Search expense account (not bank/cash)…'
+                                                          : 'Search expense account…'
+                                                }
+                                                noOptionsMessage={({ inputValue }) => {
+                                                    if (zohoAccountsLoading) return 'Loading…';
+                                                    if (!expenseAccountOptions.length) {
+                                                        return 'No expense accounts loaded from Zoho';
+                                                    }
+                                                    const q = String(inputValue || '').trim();
+                                                    if (
+                                                        isFineCompanyPayment &&
+                                                        /rasee|petty|cash|emirates|nbd|bank|clearing/i.test(
+                                                            q,
+                                                        )
+                                                    ) {
+                                                        return 'Bank/Cash accounts go in Banking (right) — not From Account';
+                                                    }
+                                                    return q
+                                                        ? `No expense account matching "${q}"`
+                                                        : 'No accounts found';
+                                                }}
+                                                styles={bankingSelectStyles}
+                                                menuPortalTarget={
+                                                    typeof document !== 'undefined'
+                                                        ? document.body
+                                                        : null
+                                                }
+                                                menuPosition="fixed"
+                                                menuPlacement="auto"
+                                            />
                                         </div>
                                         <div>
                                             <label className="block text-sm font-bold text-gray-800 mb-2">
@@ -1580,28 +1945,132 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                     </>
                                                 )}
                                             </label>
-                                            <select
-                                                value={paidThroughAccountId}
-                                                onChange={(e) => setPaidThroughAccountId(e.target.value)}
-                                                disabled={zohoAccountsLoading || !zohoAccounts.length}
-                                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50"
-                                            >
-                                                <option value="">
-                                                    {zohoAccountsLoading
-                                                        ? 'Loading Chart of Accounts…'
-                                                        : isFineCompanyPayment
-                                                          ? 'Select Zoho bank account'
-                                                          : 'Select Paid Through account'}
-                                                </option>
-                                                {(isFineCompanyPayment
-                                                    ? bankAccountOptions
-                                                    : expenseAccountOptions
-                                                ).map((opt) => (
-                                                    <option key={`pt-${opt.id}`} value={opt.id}>
-                                                        {opt.label}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                            {isFineCompanyPayment ? (
+                                                <div className="space-y-2">
+                                                    {zohoBankingNeedsReconnect ||
+                                                    (!zohoBanksLoading &&
+                                                        !bankAccountOptions.length) ? (
+                                                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                                            Banking list needs a fresh Zoho login
+                                                            with <strong>banking.READ</strong>.
+                                                            Click <strong>Reconnect Zoho</strong>,
+                                                            Accept, then <strong>Refresh</strong>.
+                                                        </div>
+                                                    ) : null}
+                                                    <div className="flex items-start gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <Select
+                                                            classNamePrefix="zoho-banking"
+                                                            instanceId="zoho-banking-select"
+                                                            value={selectedPaidThrough || null}
+                                                            onChange={(option) =>
+                                                                setPaidThroughAccountId(
+                                                                    option?.value || '',
+                                                                )
+                                                            }
+                                                            options={bankAccountOptions}
+                                                            isLoading={zohoBanksLoading}
+                                                            isClearable
+                                                            isSearchable
+                                                            placeholder={
+                                                                zohoBanksLoading
+                                                                    ? 'Loading Zoho Banking…'
+                                                                    : 'Search Zoho bank accounts…'
+                                                            }
+                                                            noOptionsMessage={() =>
+                                                                zohoBanksLoading
+                                                                    ? 'Loading…'
+                                                                    : zohoBankingNeedsReconnect
+                                                                      ? 'Reconnect Zoho first (banking.READ)'
+                                                                      : 'No bank accounts found in Zoho Banking'
+                                                            }
+                                                            styles={bankingSelectStyles}
+                                                            menuPortalTarget={
+                                                                typeof document !== 'undefined'
+                                                                    ? document.body
+                                                                    : null
+                                                            }
+                                                            menuPosition="fixed"
+                                                            menuPlacement="auto"
+                                                        />
+                                                        <p className="text-xs text-gray-400 mt-1">
+                                                            Full list from Zoho Books → Banking
+                                                            {bankAccountOptions.length
+                                                                ? ` · ${bankAccountOptions.length} accounts`
+                                                                : ''}
+                                                            . Type to search.
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        disabled={
+                                                            zohoReconnectLoading ||
+                                                            !zohoOrganizationId
+                                                        }
+                                                        onClick={() => void reconnectZohoForBanking()}
+                                                        title="Reconnect Zoho with banking.READ"
+                                                        className="shrink-0 inline-flex items-center justify-center gap-1.5 h-11 px-3 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold disabled:opacity-50"
+                                                    >
+                                                        {zohoReconnectLoading ? (
+                                                            <Loader2
+                                                                size={14}
+                                                                className="animate-spin"
+                                                            />
+                                                        ) : (
+                                                            <Link2 size={14} />
+                                                        )}
+                                                        Reconnect
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={zohoBanksLoading || !zohoOrganizationId}
+                                                        onClick={() => void loadZohoBankAccounts()}
+                                                        title="Refresh bank list from Zoho"
+                                                        className="shrink-0 inline-flex items-center justify-center h-11 w-11 rounded-xl border border-gray-200 bg-white hover:bg-teal-50 text-teal-700 disabled:opacity-50"
+                                                    >
+                                                        {zohoBanksLoading ? (
+                                                            <Loader2 size={16} className="animate-spin" />
+                                                        ) : (
+                                                            <RefreshCw size={16} />
+                                                        )}
+                                                    </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <Select
+                                                    classNamePrefix="payment-paid-through"
+                                                    instanceId="payment-paid-through"
+                                                    value={selectedPaidThrough || null}
+                                                    onChange={(option) =>
+                                                        setPaidThroughAccountId(option?.value || '')
+                                                    }
+                                                    options={paidThroughCoaOptions}
+                                                    isLoading={zohoAccountsLoading}
+                                                    isDisabled={
+                                                        zohoAccountsLoading || !zohoAccounts.length
+                                                    }
+                                                    isClearable
+                                                    isSearchable
+                                                    placeholder={
+                                                        zohoAccountsLoading
+                                                            ? 'Loading Chart of Accounts…'
+                                                            : 'Search Paid Through account…'
+                                                    }
+                                                    noOptionsMessage={() =>
+                                                        zohoAccountsLoading
+                                                            ? 'Loading…'
+                                                            : 'No Paid Through accounts found'
+                                                    }
+                                                    styles={bankingSelectStyles}
+                                                    menuPortalTarget={
+                                                        typeof document !== 'undefined'
+                                                            ? document.body
+                                                            : null
+                                                    }
+                                                    menuPosition="fixed"
+                                                    menuPlacement="auto"
+                                                />
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1612,16 +2081,27 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     <label className="block text-sm font-bold text-gray-800 mb-2">
                                         Payment Source <span className="text-red-500">*</span>
                                     </label>
-                                    <select
-                                        value={paymentSource}
-                                        onChange={(e) => setPaymentSource(e.target.value)}
-                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors"
-                                    >
-                                        <option value="">Select payment source</option>
-                                        <option value="Salary">Salary</option>
-                                        <option value="End of Benefits">End of Benefits</option>
-                                        <option value="Cash">Cash</option>
-                                    </select>
+                                    <Select
+                                        classNamePrefix="payment-source"
+                                        instanceId="payment-source"
+                                        value={selectedPaymentSource}
+                                        onChange={(option) =>
+                                            setPaymentSource(option?.value || '')
+                                        }
+                                        options={paymentSourceOptions}
+                                        isClearable
+                                        isSearchable
+                                        placeholder="Search payment source…"
+                                        noOptionsMessage={() => 'No payment source found'}
+                                        styles={bankingSelectStyles}
+                                        menuPortalTarget={
+                                            typeof document !== 'undefined'
+                                                ? document.body
+                                                : null
+                                        }
+                                        menuPosition="fixed"
+                                        menuPlacement="auto"
+                                    />
                                 </div>
 
                                 <div className="p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
@@ -1643,7 +2123,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                 type="file"
                                                 className="hidden"
                                                 onChange={handleAttachmentChange}
-                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                accept={ERP_ATTACHMENT_ACCEPT}
                                             />
                                         </label>
                                         {attachmentName && (

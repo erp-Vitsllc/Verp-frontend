@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import AddLossDamageModal from '../../Fine/components/AddLossDamageModal';
 import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { ASSET_ACTIONS, canPerformAssetAction } from '../utils/canPerformAssetAction';
 
 export default function AccessoriesModal({
@@ -131,20 +132,25 @@ export default function AccessoriesModal({
     };
 
     const handleFileChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setNewAccessory({
-                    ...newAccessory,
-                    attachment: {
-                        name: file.name,
-                        data: reader.result
-                    }
-                });
-            };
-            reader.readAsDataURL(file);
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            if (e.target) e.target.value = '';
+            return;
         }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setNewAccessory({
+                ...newAccessory,
+                attachment: {
+                    name: file.name,
+                    data: reader.result
+                }
+            });
+        };
+        reader.readAsDataURL(file);
     };
 
     const panelClassName = embedded
@@ -202,20 +208,25 @@ export default function AccessoriesModal({
                                             type="file"
                                             ref={actionFileRef}
                                             className="hidden"
-                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            accept={ERP_ATTACHMENT_ACCEPT}
                                             onChange={(e) => {
-                                                const file = e.target.files[0];
-                                                if (file) {
-                                                    const reader = new FileReader();
-                                                    reader.onload = (re) => {
-                                                        setActionRequest({
-                                                            ...actionRequest,
-                                                            attachment: re.target.result,
-                                                            attachmentName: file.name
-                                                        });
-                                                    };
-                                                    reader.readAsDataURL(file);
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                const check = validateErpUploadFile(file);
+                                                if (!check.ok) {
+                                                    toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                                                    if (e.target) e.target.value = '';
+                                                    return;
                                                 }
+                                                const reader = new FileReader();
+                                                reader.onload = (re) => {
+                                                    setActionRequest({
+                                                        ...actionRequest,
+                                                        attachment: re.target.result,
+                                                        attachmentName: file.name
+                                                    });
+                                                };
+                                                reader.readAsDataURL(file);
                                             }}
                                         />
                                     </div>
@@ -358,7 +369,7 @@ export default function AccessoriesModal({
                                         >
                                             <Upload size={14} className="text-gray-400 group-hover:text-blue-500" />
                                             <span className="text-xs font-medium text-gray-500 group-hover:text-blue-600">Upload Attachment</span>
-                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
+                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept={ERP_ATTACHMENT_ACCEPT} />
                                         </button>
                                     )}
                                 </div>

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
+import { validateErpPdfFile } from '@/utils/uploadFileTypes';
 import { DatePicker } from '@/components/ui/date-picker';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
@@ -95,11 +96,12 @@ export default function VehiclePetrolModal({
     const handleRowFileChange = (index, e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (!isPdfUploadFile(file)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Only PDF files are allowed.',
+                description: check.message,
             });
             e.target.value = '';
             return;

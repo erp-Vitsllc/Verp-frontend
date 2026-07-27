@@ -7,6 +7,12 @@ import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import AvatarEditor from 'react-avatar-editor';
+import {
+    ERP_ATTACHMENT_ACCEPT,
+    ERP_JPEG_ACCEPT,
+    validateErpJpegFile,
+    validateErpUploadFile,
+} from '@/utils/uploadFileTypes';
 
 export default function AddAssetTypeModal({
     isOpen,
@@ -210,6 +216,39 @@ export default function AddAssetTypeModal({
     const showDraftVsSubmitButtons = isAssetMode && !initialData && !isPrivilegedAssetCreator;
     // Privileged (new asset): Draft or Add Asset (Unassigned pool). No submit-for-approval step in UI.
     const showPrivilegedNewAssetButtons = isAssetMode && !initialData && isPrivilegedAssetCreator;
+
+    const handleAttachmentFileChange = (e, setter) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setter(null);
+            return;
+        }
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            if (e.target) e.target.value = '';
+            return;
+        }
+        setter(file);
+    };
+
+    const handleImageFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            if (e.target) e.target.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setSelectedImage(reader.result);
+            setShowCropper(true);
+            setImageScale(1);
+        };
+        reader.readAsDataURL(file);
+    };
 
     const handleSubmit = async (e, creationIntent) => {
         if (e?.preventDefault) e.preventDefault();
@@ -425,7 +464,7 @@ export default function AddAssetTypeModal({
             let finalImage = imagePreview;
             if (showCropper && avatarEditorRef.current) {
                 const canvas = avatarEditorRef.current.getImageScaledToCanvas();
-                finalImage = canvas.toDataURL('image/png', 1.0);
+                finalImage = canvas.toDataURL('image/jpeg', 0.92);
             }
 
             // Always add image if it is a newly cropped/selected image (base64)
@@ -706,8 +745,8 @@ export default function AddAssetTypeModal({
                                                             type="file"
                                                             id="warranty-upload"
                                                             className="hidden"
-                                                            accept=".pdf,.jpg,.jpeg,.png"
-                                                            onChange={(e) => setWarrantyFile(e.target.files?.[0] || null)}
+                                                            accept={ERP_ATTACHMENT_ACCEPT}
+                                                            onChange={(e) => handleAttachmentFileChange(e, setWarrantyFile)}
                                                         />
                                                         <label
                                                             htmlFor="warranty-upload"
@@ -825,15 +864,15 @@ export default function AddAssetTypeModal({
                                                             <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2" />
                                                         </svg>
                                                         <p className="mb-2 text-sm text-gray-500"><span className="font-semibold">Click to upload invoice</span></p>
-                                                        <p className="text-xs text-gray-500">PDF, JPG, PNG (MAX. 5MB)</p>
+                                                        <p className="text-xs text-gray-500">PDF (max 5 MB) or JPEG (max 2 MB)</p>
                                                     </>
                                                 )}
                                             </div>
                                             <input
                                                 type="file"
                                                 className="hidden"
-                                                accept=".pdf,.jpg,.jpeg,.png"
-                                                onChange={(e) => setInvoiceFile(e.target.files?.[0] || null)}
+                                                accept={ERP_ATTACHMENT_ACCEPT}
+                                                onChange={(e) => handleAttachmentFileChange(e, setInvoiceFile)}
                                             />
                                         </label>
                                     </div>
@@ -953,19 +992,8 @@ export default function AddAssetTypeModal({
                                             <input
                                                 type="file"
                                                 className="hidden"
-                                                accept=".jpg,.jpeg,.png"
-                                                onChange={(e) => {
-                                                    const file = e.target.files[0];
-                                                    if (file) {
-                                                        const reader = new FileReader();
-                                                        reader.onloadend = () => {
-                                                            setSelectedImage(reader.result);
-                                                            setShowCropper(true);
-                                                            setImageScale(1);
-                                                        };
-                                                        reader.readAsDataURL(file);
-                                                    }
-                                                }}
+                                                accept={ERP_JPEG_ACCEPT}
+                                                onChange={handleImageFileChange}
                                             />
                                         </label>
                                     )}

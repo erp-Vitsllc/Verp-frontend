@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Upload } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import {
@@ -40,8 +41,17 @@ function monthToDateInput(monthValue) {
     return '';
 }
 
-async function readUploadFile(file) {
+async function readUploadFile(file, toast) {
     if (!file) return EMPTY_FILE;
+    const check = validateErpPdfFile(file);
+    if (!check.ok) {
+        toast?.({
+            variant: 'destructive',
+            title: 'Invalid file',
+            description: check.message,
+        });
+        return EMPTY_FILE;
+    }
     const data = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
@@ -149,9 +159,13 @@ export default function VehicleOilServiceDetailsForm({
     const canSaveDraft = showActions && !saving && !submitting;
     const canSend = showActions && !saving && !submitting && formComplete;
 
+    const { toast } = useToast();
+    const [viewingKey, setViewingKey] = useState('');
+
     const handleFileChange = async (file, key) => {
         if (!file || fieldsDisabled || !canAct) return;
-        const uploaded = await readUploadFile(file);
+        const uploaded = await readUploadFile(file, toast);
+        if (!uploaded?.name) return;
         setForm((prev) => ({ ...prev, [key]: uploaded }));
     };
 
@@ -170,9 +184,6 @@ export default function VehicleOilServiceDetailsForm({
             nextServiceMonth: toMonthValue(form.nextServiceDate),
         });
     };
-
-    const { toast } = useToast();
-    const [viewingKey, setViewingKey] = useState('');
 
     const handleViewAttachment = async (attachmentRef, label, viewKey) => {
         if (!attachmentRef || viewingKey) return;
@@ -224,7 +235,7 @@ export default function VehicleOilServiceDetailsForm({
                     <input
                         type="file"
                         className="sr-only"
-                        accept=".pdf,application/pdf"
+                        accept={ERP_PDF_ACCEPT}
                         disabled={fieldsDisabled}
                         onChange={(e) => void handleFileChange(e.target.files?.[0], key)}
                     />

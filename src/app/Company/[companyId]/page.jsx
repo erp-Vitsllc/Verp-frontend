@@ -124,6 +124,12 @@ import {
     MEMO_CATEGORY_OPTIONS,
 } from '@/utils/companyMemoValidation';
 import {
+    ERP_PDF_ACCEPT,
+    ERP_ATTACHMENT_ACCEPT,
+    validateErpPdfFile,
+    validateErpUploadFile,
+} from '@/utils/uploadFileTypes';
+import {
     isLiveCompanyDocForm,
     isCompanyCertificateDocument,
 } from '@/utils/companyLiveDocumentUtils';
@@ -2596,9 +2602,22 @@ function CompanyProfilePageContent() {
                 e.target.value = '';
                 return;
             }
-        } else if (file.size > 5 * 1024 * 1024) {
-            toast({ title: "Error", description: "File size exceeds 5MB limit", variant: "destructive" });
-            return;
+        } else {
+            const allowsMixedAttachment =
+                (modalType === 'companyDocument' ||
+                    modalType === 'addNewCategory' ||
+                    modalType === 'addInsurance') &&
+                !isEjariForm &&
+                !isMoaForm &&
+                !isLiveCompanyDocModal;
+            const check = allowsMixedAttachment
+                ? validateErpUploadFile(file)
+                : validateErpPdfFile(file);
+            if (!check.ok) {
+                toast({ title: 'Error', description: check.message, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
         }
 
 
@@ -10276,8 +10295,8 @@ function CompanyProfilePageContent() {
                                                         className={`w-full flex items-center justify-center gap-2 p-8 border-2 border-dashed ${modalErrors.attachment ? 'border-red-300 bg-red-50/10' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50/50'} rounded-xl transition-all group`}
                                                     >
                                                         <Upload size={18} className="text-gray-400 group-hover:text-blue-500" />
-                                                        <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">Upload PDF (max 10MB)</span>
-                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,application/pdf" />
+                                                        <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">Upload PDF (max 5 MB)</span>
+                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept={ERP_PDF_ACCEPT} />
                                                     </button>
                                                 )}
                                                 {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase text-center">{modalErrors.attachment}</p>}
@@ -10400,7 +10419,7 @@ function CompanyProfilePageContent() {
                                                         Attachment <span className="text-red-500">*</span>
                                                     </label>
 
-                                                    <span className="text-[10px] text-gray-400 font-medium">PDF only — max 5MB</span>
+                                                    <span className="text-[10px] text-gray-400 font-medium">PDF only — max 5 MB</span>
 
                                                 </div>
 
@@ -10461,7 +10480,7 @@ function CompanyProfilePageContent() {
 
                                                             <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload Establishment Card</span>
 
-                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,application/pdf" />
+                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept={ERP_PDF_ACCEPT} />
 
                                                         </button>
 
@@ -10853,9 +10872,9 @@ function CompanyProfilePageContent() {
 
                                                             </div>
 
-                                                            <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload License Document (PDF, max 10MB)</span>
+                                                            <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload License Document (PDF, max 5 MB)</span>
 
-                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,application/pdf" />
+                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept={ERP_PDF_ACCEPT} />
 
                                                         </button>
 
@@ -10989,7 +11008,7 @@ function CompanyProfilePageContent() {
                                                                         type="file"
                                                                         className="hidden"
                                                                         onChange={handleFileChange}
-                                                                        accept=".pdf,application/pdf"
+                                                                        accept={ERP_PDF_ACCEPT}
                                                                     />
 
                                                                 </button>
@@ -10998,7 +11017,7 @@ function CompanyProfilePageContent() {
 
                                                                 {!modalData.attachment && (
                                                                     <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
-                                                                        PDF only, max 10 MB
+                                                                        PDF only, max 5 MB
                                                                     </p>
                                                                 )}
 
@@ -11199,7 +11218,7 @@ function CompanyProfilePageContent() {
                                                                         type="file"
                                                                         className="hidden"
                                                                         onChange={handleFileChange}
-                                                                        accept=".pdf,application/pdf"
+                                                                        accept={ERP_PDF_ACCEPT}
                                                                     />
 
                                                                 </button>
@@ -11208,7 +11227,7 @@ function CompanyProfilePageContent() {
 
                                                                 {!modalData.attachment && (
                                                                     <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
-                                                                        PDF only, max 10 MB
+                                                                        PDF only, max 5 MB
                                                                     </p>
                                                                 )}
 
@@ -11412,7 +11431,7 @@ function CompanyProfilePageContent() {
                                                                         type="file"
                                                                         className="hidden"
                                                                         onChange={handleFileChange}
-                                                                        accept=".pdf,application/pdf"
+                                                                        accept={ERP_PDF_ACCEPT}
                                                                     />
 
                                                                 </button>
@@ -11421,7 +11440,7 @@ function CompanyProfilePageContent() {
 
                                                                 {!modalData.attachment && (
                                                                     <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
-                                                                        PDF only, max 10 MB
+                                                                        PDF only, max 5 MB
                                                                     </p>
                                                                 )}
 
@@ -11590,7 +11609,7 @@ function CompanyProfilePageContent() {
                                                                         type="file"
                                                                         className="hidden"
                                                                         onChange={handleFileChange}
-                                                                        accept=".pdf,application/pdf"
+                                                                        accept={ERP_PDF_ACCEPT}
                                                                     />
 
                                                                 </button>
@@ -11599,7 +11618,7 @@ function CompanyProfilePageContent() {
 
                                                                 {!modalData.attachment && (
                                                                     <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
-                                                                        PDF only, max 10 MB
+                                                                        PDF only, max 5 MB
                                                                     </p>
                                                                 )}
 
@@ -11614,7 +11633,7 @@ function CompanyProfilePageContent() {
                                                 <div className="text-center w-full">
 
                                                     <p className="text-[10px] text-gray-400 font-medium tracking-tight">
-                                                        Upload Emirates ID in PDF format only (Max 10MB)
+                                                        Upload Emirates ID in PDF format only (max 5 MB)
                                                     </p>
 
                                                 </div>
@@ -12190,11 +12209,7 @@ function CompanyProfilePageContent() {
 
                                                                     onChange={handleFileChange}
 
-                                                                    accept={
-                                                                        modalType === 'ownerPassport' || modalType === 'ownerVisa'
-                                                                            ? '.pdf,application/pdf'
-                                                                            : '.pdf,.jpg,.jpeg,.png'
-                                                                    }
+                                                                    accept={ERP_PDF_ACCEPT}
 
                                                                 />
 
@@ -12203,7 +12218,7 @@ function CompanyProfilePageContent() {
                                                             {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight text-center">{modalErrors.attachment}</p>}
                                                             {(modalType === 'ownerPassport' || modalType === 'ownerVisa') && !modalData.attachment && (
                                                                 <p className="text-[10px] text-gray-400 font-medium mt-2 text-center">
-                                                                    PDF only, max 10 MB
+                                                                    PDF only, max 5 MB
                                                                 </p>
                                                             )}
 
@@ -12875,9 +12890,9 @@ function CompanyProfilePageContent() {
 
                                                             <span className="text-sm font-semibold text-gray-400 group-hover:text-blue-600">
                                                                 {isEjariForm
-                                                                    ? 'Upload PDF (max 5MB)'
+                                                                    ? 'Upload PDF (max 5 MB)'
                                                                     : isMoaForm || isLiveCompanyDocModal
-                                                                      ? 'Upload PDF (max 10MB)'
+                                                                      ? 'Upload PDF (max 5 MB)'
                                                                       : 'Click to upload document'}
                                                             </span>
 
@@ -12891,7 +12906,7 @@ function CompanyProfilePageContent() {
 
                                                                 onChange={handleFileChange}
 
-                                                                accept={isEjariForm || isMoaForm || isLiveCompanyDocModal ? '.pdf,application/pdf' : '.pdf,.jpg,.jpeg,.png'}
+                                                                accept={isEjariForm || isMoaForm || isLiveCompanyDocModal ? ERP_PDF_ACCEPT : ERP_ATTACHMENT_ACCEPT}
 
                                                             />
 
@@ -12902,6 +12917,15 @@ function CompanyProfilePageContent() {
                                                     {modalErrors.attachment && (
                                                         <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
                                                             {modalErrors.attachment}
+                                                        </p>
+                                                    )}
+                                                    {!modalData.attachment &&
+                                                        !isEjariForm &&
+                                                        !isMoaForm &&
+                                                        !isLiveCompanyDocModal &&
+                                                        ['companyDocument', 'addNewCategory', 'addInsurance'].includes(modalType) && (
+                                                        <p className="text-[10px] text-gray-400 font-medium mt-1">
+                                                            PDF (max 5 MB) or JPEG (max 2 MB)
                                                         </p>
                                                     )}
 
@@ -14091,10 +14115,27 @@ function CompanyProfilePageContent() {
                                 <label className="text-sm font-semibold text-gray-700 block mb-1">Supporting attachment (optional)</label>
                                 <input
                                     type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    onChange={(e) => setNotRenewFile(e.target.files?.[0] || null)}
+                                    accept={ERP_ATTACHMENT_ACCEPT}
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0] || null;
+                                        if (!file) {
+                                            setNotRenewFile(null);
+                                            return;
+                                        }
+                                        const check = validateErpUploadFile(file);
+                                        if (!check.ok) {
+                                            toast({ title: 'Error', description: check.message, variant: 'destructive' });
+                                            e.target.value = '';
+                                            setNotRenewFile(null);
+                                            return;
+                                        }
+                                        setNotRenewFile(file);
+                                    }}
                                     className="text-sm w-full"
                                 />
+                                <p className="text-[10px] text-gray-400 font-medium mt-1">
+                                    PDF (max 5 MB) or JPEG (max 2 MB)
+                                </p>
                             </div>
                         </div>
 

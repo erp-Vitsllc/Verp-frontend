@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import AvatarEditor from 'react-avatar-editor';
 import { X, ZoomIn, ZoomOut, Upload, RotateCw, Check, Camera } from 'lucide-react';
+import { ERP_JPEG_ACCEPT } from '@/utils/uploadFileTypes';
 
 export default function ImageUploadModal({
     isOpen,
@@ -116,7 +117,7 @@ export default function ImageUploadModal({
                                         if (!uploading) {
                                             const input = document.createElement('input');
                                             input.type = 'file';
-                                            input.accept = 'image/*';
+                                            input.accept = ERP_JPEG_ACCEPT;
                                             input.onchange = onFileSelect;
                                             input.click();
                                         }
@@ -155,7 +156,7 @@ export default function ImageUploadModal({
                                 onClick={() => {
                                     const input = document.createElement('input');
                                     input.type = 'file';
-                                    input.accept = 'image/*';
+                                    input.accept = ERP_JPEG_ACCEPT;
                                     input.onchange = onFileSelect;
                                     input.click();
                                 }}

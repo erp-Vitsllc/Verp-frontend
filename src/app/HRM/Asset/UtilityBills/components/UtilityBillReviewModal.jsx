@@ -26,11 +26,11 @@ import PayByChoiceModal, {
 } from './PayByChoiceModal';
 import { usePayByPartyOptions } from './PayByPartySelects';
 import AttachmentSourceModal from './AttachmentSourceModal';
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
 const PAY_BY_BOTH = 'employee_and_company';
-const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024;
 
 function formatMoney(n) {
     const num = Number(n);
@@ -699,15 +699,9 @@ export default function UtilityBillReviewModal({
     const handleAttachmentFile = async (index, fileList) => {
         const file = fileList?.[0];
         if (!file) return;
-        const isPdf =
-            file.type === 'application/pdf' ||
-            file.name.toLowerCase().endsWith('.pdf');
-        if (!isPdf) {
-            setError('Only PDF files are allowed for bill attachment.');
-            return;
-        }
-        if (file.size > MAX_ATTACHMENT_BYTES) {
-            setError('Attachment must be 1.5 MB or smaller.');
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
+            setError(check.message);
             return;
         }
         try {
@@ -1544,7 +1538,7 @@ export default function UtilityBillReviewModal({
                                                                             ] = el;
                                                                         }}
                                                                         type="file"
-                                                                        accept=".pdf,application/pdf"
+                                                                        accept={ERP_PDF_ACCEPT}
                                                                         className="hidden"
                                                                         onChange={(e) => {
                                                                             handleAttachmentFile(

@@ -2,9 +2,16 @@
 
 import { useRef } from 'react';
 import { Upload, Plus } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import VehicleCarDrivenBySelect from './VehicleCarDrivenBySelect';
 import { applyCarDrivenBySelection } from '../utils/vehicleCarDrivenBySelect';
+import {
+    ERP_JPEG_ACCEPT,
+    ERP_PDF_ACCEPT,
+    validateErpJpegFile,
+    validateErpPdfFile,
+} from '@/utils/uploadFileTypes';
 
 const fieldInput =
     'w-full min-h-[36px] px-2.5 py-1.5 bg-white border border-black rounded text-sm text-slate-900 outline-none focus:ring-1 focus:ring-slate-400';
@@ -59,7 +66,9 @@ function MoneyInput({ value, onChange, disabled, placeholder, className = '' }) 
     );
 }
 
-function UploadField({ label, fileName, existingUrl, onChange, error }) {
+function UploadField({ label, fileName, existingUrl, onChange, error, accept = ERP_PDF_ACCEPT, validateFile = validateErpPdfFile }) {
+    const { toast } = useToast();
+
     return (
         <div>
             <span className={fieldLabel}>{label}</span>
@@ -79,8 +88,21 @@ function UploadField({ label, fileName, existingUrl, onChange, error }) {
                 <input
                     type="file"
                     className="sr-only"
-                    accept=".pdf,.jpg,.jpeg,.png"
+                    accept={accept}
                     onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                            const check = validateFile(file);
+                            if (!check.ok) {
+                                toast({
+                                    variant: 'destructive',
+                                    title: 'Invalid file',
+                                    description: check.message,
+                                });
+                                e.target.value = '';
+                                return;
+                            }
+                        }
                         onChange(e);
                         e.target.value = '';
                     }}
@@ -441,6 +463,8 @@ export default function VehicleAccidentRepairForm({
                         fileName={formData.tireConditionName}
                         existingUrl={formData.existingTireConditionUrl}
                         onChange={(e) => handleFileChange(e, 'tireCondition')}
+                        accept={ERP_JPEG_ACCEPT}
+                        validateFile={validateErpJpegFile}
                     />
                 </div>
 
@@ -457,7 +481,7 @@ export default function VehicleAccidentRepairForm({
                         type="file"
                         multiple
                         className="hidden"
-                        accept=".jpg,.jpeg,.png"
+                        accept={ERP_JPEG_ACCEPT}
                         onChange={(e) => {
                             appendAccidentImagesFromFiles(e.target.files);
                             e.target.value = '';
@@ -672,7 +696,7 @@ export default function VehicleAccidentRepairForm({
                         type="file"
                         multiple
                         className="hidden"
-                        accept=".jpg,.jpeg,.png"
+                        accept={ERP_JPEG_ACCEPT}
                         onChange={(e) => {
                             if (appendNewConditionImagesFromFiles) {
                                 appendNewConditionImagesFromFiles(e.target.files);

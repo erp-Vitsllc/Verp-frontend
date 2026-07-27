@@ -42,13 +42,7 @@ export const isInvoiceDocumentLabel = (labelOrDoc) =>
         typeof labelOrDoc === 'object' ? labelOrDoc : { description: labelOrDoc },
     );
 
-export const PDF_FILE_ACCEPT = '.pdf,application/pdf';
-
-export const isPdfUploadFile = (file) => {
-    if (!file) return false;
-    const name = String(file.name || '').toLowerCase();
-    return file.type === 'application/pdf' || name.endsWith('.pdf');
-};
+export { ERP_PDF_ACCEPT as PDF_FILE_ACCEPT, isErpPdfFile as isPdfUploadFile } from '@/utils/uploadFileTypes';
 
 export const registrationInvoiceAttachmentForDoc = (mainDoc, list) => {
     if (!mainDoc || normVehicleDocType(mainDoc.type) !== 'registration') return null;
@@ -95,10 +89,34 @@ export const insuranceAttachmentsForDoc = (mainDoc, list) => {
 
 export const warrantyAttachmentsForDoc = (mainDoc, list) => {
     if (!mainDoc || normVehicleDocType(mainDoc.type) !== 'warranty') return [];
+    const primaryId = String(mainDoc._id || '').trim();
     const issueKey = vehicleDocDateKey(mainDoc.issueDate);
     const expiryKey = vehicleDocDateKey(mainDoc.expiryDate);
+
+    const parseParentId = (doc) => {
+        const raw = doc?.description;
+        if (raw == null || raw === '') return '';
+        if (typeof raw !== 'string' || !raw.trim().startsWith('{')) return '';
+        try {
+            const parsed = JSON.parse(raw);
+            return String(parsed?.parentDocumentId || parsed?.warrantyDocId || '').trim();
+        } catch {
+            return '';
+        }
+    };
+
+    const linkedByParent = (list || []).filter((d) => {
+        if (normVehicleDocType(d.type) !== 'warranty attachment') return false;
+        const parentId = parseParentId(d);
+        return primaryId && parentId && parentId === primaryId;
+    });
+    if (linkedByParent.length) return linkedByParent;
+
+    // Fallback: same dates, but never treat another Warranty primary as an attachment.
     return (list || []).filter((d) => {
         if (normVehicleDocType(d.type) !== 'warranty attachment') return false;
+        const parentId = parseParentId(d);
+        if (parentId && primaryId && parentId !== primaryId) return false;
         return vehicleDocDateKey(d.issueDate) === issueKey && vehicleDocDateKey(d.expiryDate) === expiryKey;
     });
 };
@@ -264,7 +282,14 @@ export const relatedVehicleDocumentsForCard = (doc, allDocs) => {
     }
     if (t === 'warranty' || t === 'warranty attachment') {
         const primary = t === 'warranty' ? doc : resolveParentVehicleDocument(doc, allDocs) || doc;
-        return [primary, ...warrantyAttachmentsForDoc(primary, allDocs)];
+        const primaryId = String(primary?._id || '').trim();
+        // Individual warranty only — never pull sibling Warranty primaries.
+        const related = [primary, ...warrantyAttachmentsForDoc(primary, allDocs)].filter(Boolean);
+        return related.filter((d) => {
+            const id = String(d?._id || '').trim();
+            if (primaryId && id === primaryId) return true;
+            return normVehicleDocType(d?.type) === 'warranty attachment';
+        });
     }
     if (t === 'permit' || t === 'permit attachment') {
         const primary = t === 'permit' ? doc : resolveParentVehicleDocument(doc, allDocs) || doc;

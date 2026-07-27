@@ -2,6 +2,7 @@
 
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from '@/hooks/use-toast';
+import { ERP_ATTACHMENT_ACCEPT } from '@/utils/uploadFileTypes';
 
 export default function TrainingModal({
     isOpen,
@@ -126,7 +127,7 @@ export default function TrainingModal({
                             <input
                                 ref={trainingCertificateFileRef}
                                 type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
+                                accept={ERP_ATTACHMENT_ACCEPT}
                                 onChange={onTrainingFileChange}
                                 className="hidden"
                                 disabled={savingTraining}
@@ -194,7 +195,7 @@ export default function TrainingModal({
                             {trainingErrors.certificate && (
                                 <p className="text-xs text-red-500 mt-1">{trainingErrors.certificate}</p>
                             )}
-                            <p className="text-xs text-gray-500 mt-1">Upload file in PDF format only (Max 5MB)</p>
+                            <p className="text-xs text-gray-500 mt-1">Upload PDF (max 5 MB) or JPEG (max 2 MB)</p>
                         </div>
                     </div>
                 </div>

@@ -14,6 +14,7 @@ import {
     validateEmployeesDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import {
     getVehicleFinePayableTotal,
     toVehicleFinePartyPayableAmount,
@@ -348,6 +349,13 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const handleFileChange = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            setErrors(prev => ({ ...prev, attachment: check.message }));
+            if (e.target) e.target.value = '';
+            return;
+        }
 
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -922,7 +930,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     handleFileChange(e);
                                     if (errors.attachment) setErrors((prev) => ({ ...prev, attachment: '' }));
                                 }}
-                                accept=".pdf,.jpg,.jpeg,.png"
+                                accept={ERP_ATTACHMENT_ACCEPT}
                             />
                         </div>
                         {errors.attachment ? <p className="text-xs text-red-500 ml-1">{errors.attachment}</p> : null}

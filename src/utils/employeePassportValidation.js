@@ -1,8 +1,8 @@
 import { validateDate } from '@/utils/validation';
+import { validateErpPdfFile } from './uploadFileTypes';
 
 const PASSPORT_NUMBER_REGEX = /^[A-Z0-9]{6,15}$/;
 const SAFE_FILE_NAME_REGEX = /^[A-Za-z0-9._ -]+$/;
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -68,12 +68,8 @@ export function validateEmployeePassportFile({ file, fileName, fileBase64, requi
 
     if (file) {
         if (file.size === 0) return ok('Empty files are not allowed');
-        if (file.size > MAX_FILE_BYTES) return ok('File size must be less than 5MB');
-        const ext = `.${String(file.name || '').split('.').pop().toLowerCase()}`;
-        const mime = String(file.type || '').toLowerCase();
-        if (mime !== 'application/pdf' && ext !== '.pdf') {
-            return ok('Only PDF file format is allowed');
-        }
+        const check = validateErpPdfFile(file);
+        if (!check.ok) return ok(check.message);
     }
 
     return ok();

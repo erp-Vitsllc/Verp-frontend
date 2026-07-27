@@ -1,9 +1,7 @@
 import { validateDate } from '@/utils/validation';
+import { validateErpJpegFile } from './uploadFileTypes';
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_FILENAME_LENGTH = 255;
-const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png']);
-const ALLOWED_EXT = new Set(['.jpg', '.jpeg', '.png']);
 const BLOCKED_EXT = new Set(['.exe', '.bat', '.cmd', '.apk', '.msi', '.sh', '.ps1', '.com', '.scr']);
 
 const ok = (error = '') => ({ isValid: !error, error });
@@ -27,21 +25,20 @@ export function validateSignatureSignedDate(value, { dateOfJoining = '' } = {}) 
 export function validateSignatureFile({ file, requireFile = true } = {}) {
     if (!file) return requireFile ? ok('Signature image is required') : ok();
     if (file.size === 0) return ok('Empty files are not allowed');
-    if (file.size > MAX_FILE_BYTES) return ok('File size must be less than 5MB');
     const name = String(file.name || '');
     if (name.length > MAX_FILENAME_LENGTH) return ok('File name must be no more than 255 characters');
     const ext = `.${name.split('.').pop().toLowerCase()}`;
     if (BLOCKED_EXT.has(ext)) return ok('Executable files are not allowed');
-    const mime = String(file.type || '').toLowerCase();
-    if (!ALLOWED_MIME.has(mime) && !ALLOWED_EXT.has(ext)) {
-        return ok('Only JPG, JPEG, and PNG formats are allowed');
-    }
+    const check = validateErpJpegFile(file);
+    if (!check.ok) return ok(check.message);
     return ok();
 }
 
 export function validateSignatureCanvasData(dataUrl) {
     if (!dataUrl || typeof dataUrl !== 'string') return ok('Signature image is required');
-    if (!dataUrl.startsWith('data:image/')) return ok('Invalid signature image data');
+    if (!dataUrl.startsWith('data:image/jpeg') && !dataUrl.startsWith('data:image/jpg')) {
+        return ok('Signature must be a JPEG image');
+    }
     return ok();
 }
 

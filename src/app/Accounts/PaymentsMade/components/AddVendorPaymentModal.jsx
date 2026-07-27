@@ -18,6 +18,7 @@ import {
 import ZohoPaymentModeSelect from './ZohoPaymentModeSelect';
 import VendorSidePanel from '../../Bills/components/VendorSidePanel';
 import ZohoOrganizationPicker from '@/components/ZohoOrganizationPicker';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
 import { rememberZohoOrganizationId } from '@/utils/zohoOrganizations';
 
@@ -728,6 +729,23 @@ export default function AddVendorPaymentModal({
 
     const setField = (key, value) => {
         setForm((prev) => ({ ...prev, [key]: value }));
+    };
+
+    const handleAttachmentChange = (event) => {
+        const file = event.target.files?.[0];
+        if (!file) {
+            setAttachmentName('');
+            return;
+        }
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            event.target.value = '';
+            setAttachmentName('');
+            setError(check.message);
+            return;
+        }
+        setAttachmentName(file.name);
+        setError('');
     };
 
     const applyVendorSelection = useCallback(
@@ -2563,18 +2581,19 @@ export default function AddVendorPaymentModal({
                                     <input
                                         type="file"
                                         className="hidden"
-                                        onChange={(event) =>
-                                            setAttachmentName(
-                                                event.target.files?.[0]?.name || '',
-                                            )
-                                        }
+                                        accept={ERP_ATTACHMENT_ACCEPT}
+                                        onChange={handleAttachmentChange}
                                     />
                                 </label>
                                 {attachmentName ? (
                                     <span className="ml-2 text-xs text-slate-500">
                                         {attachmentName}
                                     </span>
-                                ) : null}
+                                ) : (
+                                    <p className="text-[11px] text-slate-400">
+                                        PDF max 5 MB, JPEG max 2 MB
+                                    </p>
+                                )}
                             </div>
                         </>
                     )}

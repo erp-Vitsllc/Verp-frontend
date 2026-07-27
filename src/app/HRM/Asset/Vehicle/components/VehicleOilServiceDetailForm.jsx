@@ -30,8 +30,7 @@ import {
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
-
-const PDF_MIME_TYPES = ['application/pdf'];
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 const fieldInput =
     'w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed';
@@ -128,7 +127,7 @@ function QuoteField({ existingUrl, fileName, disabled, onFile }) {
                         <input
                             type="file"
                             className="sr-only"
-                            accept=".pdf,application/pdf"
+                            accept={ERP_PDF_ACCEPT}
                             onChange={(e) => {
                                 onFile(e.target.files?.[0]);
                                 e.target.value = '';
@@ -451,11 +450,12 @@ export default function VehicleOilServiceDetailForm({
 
     const readPdfFile = (file, onDone) => {
         if (!file) return;
-        if (!PDF_MIME_TYPES.includes(file.type) && !file.name.toLowerCase().endsWith('.pdf')) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Only PDF files are allowed for quotations.',
+                description: check.message,
             });
             return;
         }
@@ -706,7 +706,7 @@ export default function VehicleOilServiceDetailForm({
 
                     {cashPaymentMode ? (
                         <>
-                            <FormFieldCell label="Quote 1" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                            <FormFieldCell label="Quote 1 (optional)" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                                 <QuoteField
                                     existingUrl={formData.existingAttachmentUrl}
                                     fileName={formData.attachmentName || formData.remarkAttachmentName}
@@ -714,7 +714,7 @@ export default function VehicleOilServiceDetailForm({
                                     onFile={(file) => handleQuoteFile('attachment', file)}
                                 />
                             </FormFieldCell>
-                            <FormFieldCell label="Quote 2" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
+                            <FormFieldCell label="Quote 2 (optional)" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
                                 <QuoteField
                                     existingUrl={formData.existingQuotation2Url}
                                     fileName={formData.quotation2Name}
@@ -722,7 +722,7 @@ export default function VehicleOilServiceDetailForm({
                                     onFile={(file) => handleQuoteFile('quotation2', file)}
                                 />
                             </FormFieldCell>
-                            <FormFieldCell label="Quote 3" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
+                            <FormFieldCell label="Quote 3 (optional)" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
                                 <QuoteField
                                     existingUrl={formData.existingQuotation3Url}
                                     fileName={formData.quotation3Name}

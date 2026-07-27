@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Check, ClipboardCheck, Loader2, RotateCcw, Save, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { validateErpJpegFile } from '@/utils/uploadFileTypes';
 import {
     RECEIVER_ASSESSMENT_ITEMS,
     applyAssessmentPresentToggle,
@@ -990,11 +991,14 @@ export default function VehicleHandoverReceiverAssessmentCard({
         if (readOnly) return;
         if (photoUploadInFlightRef.current.has(key)) return;
 
-        if (!file.type.startsWith('image/')) {
+        if (!file) return;
+
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Please upload an image file.',
+                description: check.message,
             });
             return;
         }

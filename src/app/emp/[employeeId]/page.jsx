@@ -163,6 +163,12 @@ import {
     validateExperienceCertificateFile,
 } from '@/utils/employeeExperienceValidation';
 import {
+    ERP_ATTACHMENT_ACCEPT,
+    validateErpJpegFile,
+    validateErpPdfFile,
+    validateErpUploadFile,
+} from '@/utils/uploadFileTypes';
+import {
     validateEmployeeDocumentForm,
     validateEmployeeDocumentPdfFile,
 } from '@/utils/employeeDocumentValidation';
@@ -1671,6 +1677,26 @@ function EmployeeProfilePageContent() {
         }
     };
 
+    const handleEmpDocNotRenewFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setEmpDocNotRenewFile(null);
+            return;
+        }
+        const check = validateErpUploadFile(file, { allowPdf: true, allowJpeg: true });
+        if (!check.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: check.message,
+            });
+            e.target.value = '';
+            setEmpDocNotRenewFile(null);
+            return;
+        }
+        setEmpDocNotRenewFile(file);
+    };
+
     const handleEmpDocNotRenewSubmit = async () => {
         if (!empDocNotRenewTarget || !employeeId) return;
         const reason = empDocNotRenewReason.trim();
@@ -2641,30 +2667,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const check = validateErpUploadFile(file, { allowPdf: true, allowJpeg: true });
+        if (!check.ok) {
             setTrainingErrors(prev => ({
                 ...prev,
-                certificate: 'Only PDF files are allowed.'
-            }));
-            if (e.target) { e.target.value = ''; }
-            setTrainingForm(prev => ({
-                ...prev,
-                certificate: null,
-                certificateBase64: '',
-                certificateName: '',
-                certificateMime: ''
-            }));
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setTrainingErrors(prev => ({
-                ...prev,
-                certificate: 'File size cannot exceed 5MB.'
+                certificate: check.message
             }));
             if (e.target) { e.target.value = ''; }
             setTrainingForm(prev => ({
@@ -3503,26 +3510,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             setEmiratesIdErrors(prev => ({
                 ...prev,
-                file: 'Only PDF files are allowed.'
-            }));
-            if (e.target) {
-                e.target.value = '';
-            }
-            setEmiratesIdForm(prev => ({ ...prev, file: null }));
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setEmiratesIdErrors(prev => ({
-                ...prev,
-                file: 'File size cannot exceed 5MB.'
+                file: check.message
             }));
             if (e.target) {
                 e.target.value = '';
@@ -3717,26 +3709,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             setMedicalInsuranceErrors(prev => ({
                 ...prev,
-                file: 'Only PDF files are allowed.'
-            }));
-            if (e.target) {
-                e.target.value = '';
-            }
-            setMedicalInsuranceForm(prev => ({ ...prev, file: null }));
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setMedicalInsuranceErrors(prev => ({
-                ...prev,
-                file: 'File size cannot exceed 5MB.'
+                file: check.message
             }));
             if (e.target) {
                 e.target.value = '';
@@ -4483,26 +4460,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             setDrivingLicenseErrors(prev => ({
                 ...prev,
-                file: 'Only PDF files are allowed.'
-            }));
-            if (e.target) {
-                e.target.value = '';
-            }
-            setDrivingLicenseForm(prev => ({ ...prev, file: null }));
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setDrivingLicenseErrors(prev => ({
-                ...prev,
-                file: 'File size cannot exceed 5MB.'
+                file: check.message
             }));
             if (e.target) {
                 e.target.value = '';
@@ -8119,23 +8081,26 @@ function EmployeeProfilePageContent() {
     // Handle file selection
     const handleFileSelect = (e) => {
         const file = e.target.files?.[0];
-        if (file) {
-            if (!file.type.startsWith('image/')) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Invalid file',
-                    description: 'Please select a valid image file',
-                });
-                return;
-            }
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                setSelectedImage(event.target.result);
-                setShowImageModal(true);
-                setImageScale(1);
-            };
-            reader.readAsDataURL(file);
+        if (!file) return;
+
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: check.message,
+            });
+            if (e.target) e.target.value = '';
+            return;
         }
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            setSelectedImage(event.target.result);
+            setShowImageModal(true);
+            setImageScale(1);
+        };
+        reader.readAsDataURL(file);
     };
 
     // Crop and convert image to base64 using AvatarEditor
@@ -8151,7 +8116,7 @@ function EmployeeProfilePageContent() {
                 const canvas = avatarEditorRef.current.getImageScaledToCanvas();
 
                 // Convert to base64
-                const base64Image = canvas.toDataURL('image/png', 1.0);
+                const base64Image = canvas.toDataURL('image/jpeg', 0.92);
 
                 if (!base64Image || base64Image === 'data:,') {
                     reject(new Error('Failed to convert image to base64'));
@@ -10014,8 +9979,8 @@ function EmployeeProfilePageContent() {
                             <label className="text-sm font-semibold text-gray-700 block mb-1">Supporting attachment (optional)</label>
                             <input
                                 type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => setEmpDocNotRenewFile(e.target.files?.[0] || null)}
+                                accept={ERP_ATTACHMENT_ACCEPT}
+                                onChange={handleEmpDocNotRenewFileChange}
                                 className="text-sm w-full"
                             />
                         </div>

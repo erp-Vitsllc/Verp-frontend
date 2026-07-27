@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
-
-const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024;
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
@@ -45,8 +44,10 @@ export default function ActivateDeactivateUtilityModal({
     const handleFile = async (fileList) => {
         const file = fileList?.[0];
         if (!file) return;
-        if (file.size > MAX_ATTACHMENT_BYTES) {
-            setError('Attachment must be 1.5 MB or smaller.');
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            if (fileRef.current) fileRef.current.value = '';
+            setError(check.message);
             return;
         }
         try {
@@ -136,7 +137,7 @@ export default function ActivateDeactivateUtilityModal({
                                 ref={fileRef}
                                 type="file"
                                 className="hidden"
-                                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,image/*,application/pdf"
+                                accept={ERP_ATTACHMENT_ACCEPT}
                                 onChange={(e) => handleFile(e.target.files)}
                             />
                             <button
@@ -153,7 +154,9 @@ export default function ActivateDeactivateUtilityModal({
                                     {attachment.name}
                                 </p>
                             ) : (
-                                <p className="mt-1.5 text-xs text-gray-400">Max 1.5 MB</p>
+                                <p className="mt-1.5 text-xs text-gray-400">
+                                    PDF max 5 MB, JPEG max 2 MB
+                                </p>
                             )}
                         </div>
 

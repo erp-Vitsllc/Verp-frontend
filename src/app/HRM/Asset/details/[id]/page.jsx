@@ -46,6 +46,12 @@ import {
     Trash2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import {
+    ERP_ATTACHMENT_ACCEPT,
+    ERP_JPEG_ACCEPT,
+    validateErpJpegFile,
+    validateErpUploadFile,
+} from '@/utils/uploadFileTypes';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
@@ -1666,14 +1672,19 @@ function AssetDetailsPageContent() {
     }, [toast]);
 
     const handleFileUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onloadend = () => {
-                setResponseFile(reader.result);
-            };
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            if (e.target) e.target.value = '';
+            return;
         }
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onloadend = () => {
+            setResponseFile(reader.result);
+        };
     };
 
     const checkSignature = () => {
@@ -3725,13 +3736,19 @@ function AssetDetailsPageContent() {
                                                                     Add Image
                                                                     <input
                                                                         type="file"
-                                                                        accept=".pdf,.jpg,.jpeg,.png"
+                                                                        accept={ERP_JPEG_ACCEPT}
                                                                         className="hidden"
                                                                         disabled={isDisabled}
                                                                         onChange={(e) => {
                                                                             if (isAccessRestricted || isAccessoryTabLocked) return;
                                                                             const file = e.target.files?.[0];
                                                                             if (!file) return;
+                                                                            const check = validateErpJpegFile(file);
+                                                                            if (!check.ok) {
+                                                                                toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                                                                                if (e.target) e.target.value = '';
+                                                                                return;
+                                                                            }
                                                                             const reader = new FileReader();
                                                                             reader.onloadend = () => {
                                                                                 const base64 = reader.result.split(',')[1];
@@ -4016,7 +4033,7 @@ function AssetDetailsPageContent() {
                                             </label>
                                             <input
                                                 type="file"
-                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                accept={ERP_ATTACHMENT_ACCEPT}
                                                 onChange={handleFileUpload}
                                                 className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                                             />
@@ -5005,16 +5022,21 @@ function AssetDetailsPageContent() {
                                     <div className="relative">
                                         <input
                                             type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            accept={ERP_ATTACHMENT_ACCEPT}
                                             onChange={(e) => {
                                                 const file = e.target.files?.[0];
-                                                if (file) {
-                                                    const reader = new FileReader();
-                                                    reader.onloadend = () => {
-                                                        setAccAcceptDialog(prev => ({ ...prev, attachment: reader.result }));
-                                                    };
-                                                    reader.readAsDataURL(file);
+                                                if (!file) return;
+                                                const check = validateErpUploadFile(file);
+                                                if (!check.ok) {
+                                                    toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                                                    if (e.target) e.target.value = '';
+                                                    return;
                                                 }
+                                                const reader = new FileReader();
+                                                reader.onloadend = () => {
+                                                    setAccAcceptDialog(prev => ({ ...prev, attachment: reader.result }));
+                                                };
+                                                reader.readAsDataURL(file);
                                             }}
                                             className="hidden"
                                             id="acc-accept-file-popup"

@@ -274,7 +274,7 @@ function isSessionSystemSuperUser(currentUser) {
 }
 
 /**
- * Who may create/manage vehicle service requests:
+ * Who may manage later vehicle service steps (not create/initiate):
  * Super User, Admin Officer/Controller, Asset Controller, HR,
  * assigned employee, or assignee HOD (primaryReportee).
  */
@@ -302,6 +302,21 @@ export function canUserManageOilService(
     }
     if (isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser)) return true;
     return isCurrentUserAssigneeHod(asset, currentUserEmployeeId, currentUser);
+}
+
+/**
+ * Create service + Initiate (submit pending/draft) — any signed-in user on the vehicle page.
+ */
+export function canUserCreateOrInitiateVehicleService(asset, currentUser = null) {
+    if (!asset) return false;
+    if (isSessionSystemSuperUser(currentUser)) return true;
+    return Boolean(
+        currentUser?._id ||
+            currentUser?.id ||
+            currentUser?.employeeObjectId ||
+            currentUser?.employeeId ||
+            typeof window !== 'undefined',
+    );
 }
 
 /** Tire change requests are manual only — same roles as oil service manager. */

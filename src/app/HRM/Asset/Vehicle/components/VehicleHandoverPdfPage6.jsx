@@ -108,7 +108,10 @@ export default function VehicleHandoverPdfPage6({ receiver, officeUse, className
 
             <div className="mb-10 max-w-lg">
                 <ReceiverField label="Name :" value={receiver.name} />
-                <ReceiverField label="Signature :" signature={receiver.person?.signature} />
+                <ReceiverField
+                    label="Signature :"
+                    signature={receiver.signature || receiver.person?.signature}
+                />
                 <ReceiverField label="Date:" value={receiver.date} />
                 <ReceiverField label="Time:" value={receiver.time} />
             </div>

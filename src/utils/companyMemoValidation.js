@@ -1,3 +1,5 @@
+import { validateErpPdfFile } from './uploadFileTypes';
+
 export const MEMO_CATEGORY_OPTIONS = ['HR', 'Admin', 'General', 'Project'];
 
 export function stripDangerousText(value) {
@@ -74,12 +76,9 @@ export function validateMemoPdfFile(file, { requireAttachment = true, existingAt
         return requireAttachment ? 'Attachment is required' : '';
     }
     if (!file) return '';
-    const name = String(file.name || '').toLowerCase();
-    if (!name.endsWith('.pdf')) return 'Only PDF files are allowed';
-    const mime = String(file.type || '').toLowerCase();
-    if (mime && mime !== 'application/pdf') return 'Only PDF files are allowed (application/pdf)';
-    if (file.size > 10 * 1024 * 1024) return 'File size must not exceed 10MB';
     if (file.size <= 0) return 'Attachment cannot be empty';
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return check.message;
     return '';
 }
 

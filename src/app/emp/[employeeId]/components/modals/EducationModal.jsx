@@ -2,6 +2,7 @@
 
 import { useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_PDF_ACCEPT } from '@/utils/uploadFileTypes';
 
 export default function EducationModal({
     isOpen,
@@ -167,7 +168,7 @@ export default function EducationModal({
                                     <input
                                         ref={educationCertificateFileRef}
                                         type="file"
-                                        accept=".pdf,application/pdf"
+                                        accept={ERP_PDF_ACCEPT}
                                         onChange={onEducationFileChange}
                                         className="hidden"
                                         disabled={savingEducation}

@@ -8,6 +8,7 @@ import {
     formatNoticeDurationLabel,
 } from '@/utils/employeeLabourCardValidation';
 import { ENABLED_NOTICE_REASONS } from '@/utils/employeeWorkStatus';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 export default function NoticeRequestModal({ isOpen, onClose, employeeId, employee, onSuccess }) {
     const { toast } = useToast();
@@ -29,26 +30,31 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, employ
     if (!isOpen) return null;
 
     const handleFileChange = async (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            if (file.size > 5 * 1024 * 1024) {
-                toast({ variant: "destructive", title: "File too large", description: "Max 5MB allowed" });
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => {
-                setFormData(prev => ({
-                    ...prev,
-                    attachment: {
-                        data: reader.result,
-                        name: file.name,
-                        mimeType: file.type
-                    }
-                }));
-            };
+        const file = e.target.files?.[0];
+        if (!file) {
+            setFormData(prev => ({ ...prev, attachment: null }));
+            return;
         }
+
+        const check = validateErpUploadFile(file, { allowPdf: true, allowJpeg: true });
+        if (!check.ok) {
+            toast({ variant: "destructive", title: "Invalid file", description: check.message });
+            e.target.value = '';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+            setFormData(prev => ({
+                ...prev,
+                attachment: {
+                    data: reader.result,
+                    name: file.name,
+                    mimeType: file.type
+                }
+            }));
+        };
     };
 
     const handleSubmit = async (e) => {
@@ -157,7 +163,7 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, employ
                         <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 text-center hover:bg-gray-100 transition-colors">
                             <input
                                 type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
+                                accept={ERP_ATTACHMENT_ACCEPT}
                                 onChange={handleFileChange}
                                 className="hidden"
                                 id="notice-attachment"
@@ -167,7 +173,7 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, employ
                                 <span className="text-sm text-gray-600 font-medium">
                                     {formData.attachment ? formData.attachment.name : "Click to upload document"}
                                 </span>
-                                <span className="text-xs text-gray-400">PDF, JPG, PNG (Max 5MB)</span>
+                                <span className="text-xs text-gray-400">PDF (max 5 MB) or JPEG (max 2 MB)</span>
                             </label>
                         </div>
                     </div>

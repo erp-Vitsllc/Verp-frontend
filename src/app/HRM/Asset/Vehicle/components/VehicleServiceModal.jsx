@@ -18,13 +18,27 @@ import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServ
 import VehicleServiceModalAccidentSection from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModalAccidentSection';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
+import {
+    ERP_ATTACHMENT_ACCEPT,
+    ERP_JPEG_ACCEPT,
+    ERP_PDF_ACCEPT,
+    filterErpUploadFiles,
+    validateErpJpegFile,
+    validateErpPdfFile,
+} from '@/utils/uploadFileTypes';
 
 const input = (err) =>
     `w-full h-11 px-3 bg-white border rounded-xl text-sm font-medium text-slate-700 outline-none transition-all focus:ring-2 focus:ring-teal-500/15 ${err ? 'border-red-300' : 'border-slate-200 focus:border-[#00B5AD]'
     }`;
-const MAX_IMAGE_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB
-const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg'];
-const PDF_MIME_TYPES = ['application/pdf'];
+const PDF_ATTACHMENT_KINDS = new Set([
+    'attachment',
+    'quotation2',
+    'quotation3',
+    'garageReport',
+    'garageInvoice',
+    'returnOtherDoc',
+]);
+const JPEG_ATTACHMENT_KINDS = new Set(['tireCondition']);
 
 function BodyWorkEmployeeSearch({ employees, value, onChange, disabled, hasError }) {
     const [open, setOpen] = useState(false);
@@ -472,11 +486,13 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     }, [employees, resolvedAssetControllerEmployeeId]);
     const requiresKmSchedule = isOilService || isTireChange || isCarWash;
     const requiresCurrentKmOnly = isMechanicalWork || isBodyWork;
+    /** Tire / Mechanical / Body — quote 1 mandatory. Oil — quotes optional. */
     const requiresThreeQuotations =
         isTireChange ||
         isMechanicalWork ||
-        isBodyWork ||
-        (isOilService && formData.amountMode === 'amount');
+        isBodyWork;
+    const showOilOptionalQuotations = isOilService && formData.amountMode === 'amount';
+    const showThreeQuotations = requiresThreeQuotations || showOilOptionalQuotations;
     const usesSingleMandatoryAttachment =
         formData.serviceType === 'Car Wash' ||
         formData.serviceType === 'Taxi Charge' ||
@@ -675,36 +691,30 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         const file = e.target.files?.[0];
         if (!file) return;
 
-        const isPdfField = kind === 'attachment' || kind === 'quotation2' || kind === 'quotation3';
-        if (isPdfField && !PDF_MIME_TYPES.includes(file.type)) {
-            toast({
-                variant: 'destructive',
-                title: 'Invalid file type',
-                description: 'Only PDF files are allowed for attachments.',
-            });
-            if (e.target) e.target.value = '';
-            return;
-        }
-        if (kind === 'tireCondition') {
-            if (!IMAGE_MIME_TYPES.includes(file.type)) {
+        if (PDF_ATTACHMENT_KINDS.has(kind)) {
+            const check = validateErpPdfFile(file);
+            if (!check.ok) {
                 toast({
                     variant: 'destructive',
-                    title: 'Invalid image type',
-                    description: 'Only PNG and JPEG images are allowed.',
+                    title: 'Invalid file',
+                    description: check.message,
                 });
                 if (e.target) e.target.value = '';
                 return;
             }
-            if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+        } else if (JPEG_ATTACHMENT_KINDS.has(kind)) {
+            const check = validateErpJpegFile(file);
+            if (!check.ok) {
                 toast({
                     variant: 'destructive',
-                    title: 'Image too large',
-                    description: 'Image size must be 2 MB or less.',
+                    title: 'Invalid file',
+                    description: check.message,
                 });
                 if (e.target) e.target.value = '';
                 return;
             }
         }
+
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
@@ -729,8 +739,32 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                     ...prev,
                     tireConditionName: file.name,
                     tireConditionBase64: base64,
-                    tireConditionMime: file.type || 'application/pdf',
+                    tireConditionMime: file.type || 'image/jpeg',
                     existingTireConditionUrl: '',
+                }));
+            } else if (kind === 'garageReport') {
+                setFormData(prev => ({
+                    ...prev,
+                    garageReportName: file.name,
+                    garageReportBase64: base64,
+                    garageReportMime: file.type || 'application/pdf',
+                    existingGarageReportUrl: '',
+                }));
+            } else if (kind === 'garageInvoice') {
+                setFormData(prev => ({
+                    ...prev,
+                    garageInvoiceName: file.name,
+                    garageInvoiceBase64: base64,
+                    garageInvoiceMime: file.type || 'application/pdf',
+                    existingGarageInvoiceUrl: '',
+                }));
+            } else if (kind === 'returnOtherDoc') {
+                setFormData(prev => ({
+                    ...prev,
+                    returnOtherDocName: file.name,
+                    returnOtherDocBase64: base64,
+                    returnOtherDocMime: file.type || 'application/pdf',
+                    existingReturnOtherDocUrl: '',
                 }));
             } else {
                 setFormData(prev => ({
@@ -747,28 +781,22 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     };
 
     const appendBodyWorkImagesFromFiles = (fileList) => {
-        const files = Array.from(fileList || []);
-        if (!files.length) return;
-        files.forEach((file) => {
-            if (!IMAGE_MIME_TYPES.includes(file.type)) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Invalid image type',
-                    description: 'Only PNG and JPEG images are allowed.',
-                });
-                return;
-            }
-            if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Image too large',
-                    description: 'Each image must be 2 MB or less.',
-                });
-                return;
-            }
+        const { accepted, firstError } = filterErpUploadFiles(fileList, {
+            allowPdf: false,
+            allowJpeg: true,
+        });
+        if (firstError) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: firstError,
+            });
+        }
+        if (!accepted.length) return;
+        accepted.forEach((file) => {
             const reader = new FileReader();
             reader.onloadend = () => {
-                const base64 = String(reader.result || '').split(',')[1] || '';
+                const base64 = reader.result.split(',')[1] || '';
                 if (!base64) return;
                 setFormData((prev) => ({
                     ...prev,
@@ -783,25 +811,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     };
 
     const appendAccidentImagesFromFiles = (fileList) => {
-        const files = Array.from(fileList || []);
-        if (!files.length) return;
-        files.forEach((file) => {
-            if (!IMAGE_MIME_TYPES.includes(file.type)) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Invalid image type',
-                    description: 'Only PNG and JPEG images are allowed.',
-                });
-                return;
-            }
-            if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Image too large',
-                    description: 'Each image must be 2 MB or less.',
-                });
-                return;
-            }
+        const { accepted, firstError } = filterErpUploadFiles(fileList, {
+            allowPdf: false,
+            allowJpeg: true,
+        });
+        if (firstError) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: firstError,
+            });
+        }
+        if (!accepted.length) return;
+        accepted.forEach((file) => {
             const reader = new FileReader();
             reader.onloadend = () => {
                 const base64 = String(reader.result || '').split(',')[1] || '';
@@ -1289,7 +1311,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                         type="file"
                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                         onChange={(e) => handleFileChange(e, 'tireCondition')}
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={ERP_JPEG_ACCEPT}
                                     />
                                     <div className="text-center pointer-events-none px-2">
                                         {formData.tireConditionName ? (
@@ -1450,7 +1472,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     </div>
                                     <p className="text-[10px] text-slate-500 px-2 pb-2 leading-snug">
                                         {(formData.existingBodyWorkImages || []).length + (formData.bodyWorkImages || []).length === 0
-                                            ? 'Use + to add photos (JPG, PNG, WEBP).'
+                                            ? 'Use + to add photos (JPEG, max 2 MB).'
                                             : 'Use the bar under the row to scroll. Tap a thumbnail to view full size.'}
                                     </p>
                                     <input
@@ -1458,7 +1480,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                         type="file"
                                         multiple
                                         className="hidden"
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={ERP_JPEG_ACCEPT}
                                         onChange={(e) => {
                                             appendBodyWorkImagesFromFiles(e.target.files);
                                             e.target.value = '';
@@ -1650,7 +1672,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                         ) : null}
 
                         <div className="space-y-3 order-last">
-                            {requiresThreeQuotations ? (
+                            {showThreeQuotations ? (
                                 <>
                                     {!isHrApprovalStep ? (
                                         <>
@@ -1688,7 +1710,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                             <Paperclip size={11} /> Quotations
                                                         </p>
                                                         <p className="text-[11px] text-gray-500 mt-1">
-                                                            {(isTireChange || isMechanicalWork || isBodyWork)
+                                                            {isOilService
+                                                                ? 'Quotations are optional for oil service. You may upload Quote 1–3 if available.'
+                                                                : (isTireChange || isMechanicalWork || isBodyWork)
                                                                 ? 'Upload supplier quotations (3 files). Quotation 1 is required; Quotation 2 and 3 are optional.'
                                                                 : 'Upload three separate quotation files. Quotation 1 is required; Quotation 2 and 3 are optional.'}
                                                         </p>
@@ -1698,7 +1722,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                             {
                                                                 key: 'q1',
                                                                 label: (isTireChange || isMechanicalWork || isBodyWork) ? 'Supplier quotation 1' : 'Quotation 1',
-                                                                required: true,
+                                                                required: requiresThreeQuotations,
                                                                 kind: 'attachment',
                                                                 existingUrl: formData.existingAttachmentUrl,
                                                                 fileName: formData.attachmentName,
@@ -1758,7 +1782,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                                         type="file"
                                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                                         onChange={(e) => handleFileChange(e, slot.kind)}
-                                                                        accept=".pdf,.jpg,.jpeg,.png"
+                                                                        accept={ERP_PDF_ACCEPT}
                                                                         disabled={formData.amountMode === 'warranty' && allowWarranty}
                                                                     />
                                                                     <div className="text-center pointer-events-none px-2">
@@ -1944,7 +1968,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                             type="file"
                                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                             onChange={(e) => handleFileChange(e, 'attachment')}
-                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            accept={ERP_PDF_ACCEPT}
                                             disabled={formData.amountMode === 'warranty' && allowWarranty}
                                         />
                                         <div className="text-center pointer-events-none">
@@ -1961,7 +1985,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                     </div>
                                                     <div>
                                                         <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Upload attachment</p>
-                                                        <p className="text-[10px] text-gray-300 text-center mt-0.5">PDF, JPG, PNG</p>
+                                                        <p className="text-[10px] text-gray-300 text-center mt-0.5">PDF (max 5 MB) or JPEG (max 2 MB)</p>
                                                     </div>
                                                 </div>
                                             )}

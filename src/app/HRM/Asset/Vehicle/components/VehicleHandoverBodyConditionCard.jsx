@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, Car, Loader2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import {
     BODY_CONDITION_PHOTO_SOURCE,
@@ -545,11 +546,14 @@ export default function VehicleHandoverBodyConditionCard({
     const handleChooseNewPhoto = async (key, file) => {
         if (isEditingDisabled || photoUploadInFlightRef.current.has(key)) return;
 
-        if (!file.type.startsWith('image/')) {
+        if (!file) return;
+
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Please choose an image from your gallery or device.',
+                description: check.message,
             });
             return;
         }

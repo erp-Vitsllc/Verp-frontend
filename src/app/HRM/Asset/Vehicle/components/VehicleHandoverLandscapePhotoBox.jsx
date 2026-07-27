@@ -1,6 +1,8 @@
 'use client';
 
 import { ImageIcon, Loader2, Upload } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import { HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS } from '../utils/vehicleHandoverReceiverAssessment';
 import useAssessmentMediaUrl from '../hooks/useAssessmentMediaUrl';
 
@@ -23,6 +25,7 @@ export default function VehicleHandoverLandscapePhotoBox({
     imageObjectFit = 'cover',
 }) {
     const resolved = useAssessmentMediaUrl(photo || photoUrlProp);
+    const { toast } = useToast();
     const photoUrl = resolved.url || photoUrlProp;
     const inputId = `${inputIdPrefix}-${String(label || 'photo').replace(/\s+/g, '-')}`;
     const boxClass = `${boxClassName} border bg-gray-100 ${
@@ -67,12 +70,24 @@ export default function VehicleHandoverLandscapePhotoBox({
                         <input
                             id={`${inputId}-replace`}
                             type="file"
-                            accept="image/*"
+                            accept={ERP_JPEG_ACCEPT}
                             className="hidden"
                             disabled={uploading}
                             onChange={(event) => {
                                 const file = event.target.files?.[0];
-                                if (file) onUpload?.(file);
+                                if (file) {
+                                    const check = validateErpJpegFile(file);
+                                    if (!check.ok) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Invalid file',
+                                            description: check.message,
+                                        });
+                                        event.target.value = '';
+                                        return;
+                                    }
+                                    onUpload?.(file);
+                                }
                                 event.target.value = '';
                             }}
                         />
@@ -111,12 +126,24 @@ export default function VehicleHandoverLandscapePhotoBox({
             <input
                 id={inputId}
                 type="file"
-                accept="image/*"
+                accept={ERP_JPEG_ACCEPT}
                 className="hidden"
                 disabled={uploading}
                 onChange={(event) => {
                     const file = event.target.files?.[0];
-                    if (file) onUpload?.(file);
+                    if (file) {
+                        const check = validateErpJpegFile(file);
+                        if (!check.ok) {
+                            toast({
+                                variant: 'destructive',
+                                title: 'Invalid file',
+                                description: check.message,
+                            });
+                            event.target.value = '';
+                            return;
+                        }
+                        onUpload?.(file);
+                    }
                     event.target.value = '';
                 }}
             />

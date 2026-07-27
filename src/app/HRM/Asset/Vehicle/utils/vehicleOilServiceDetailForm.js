@@ -77,10 +77,6 @@ export function buildOilServiceDetailFormState(service, asset, scheduleRow) {
 }
 
 export function validateOilServiceDetailCreateForm(formData) {
-    const hasQuote1 =
-        !!(formData.attachmentBase64 && formData.attachmentName) ||
-        !!formData.existingAttachmentUrl;
-
     const payload = {
         ...formData,
         serviceType: 'Oil Service',
@@ -93,6 +89,11 @@ export function validateOilServiceDetailCreateForm(formData) {
     };
 
     const errors = validateVehicleServiceForm(payload);
+
+    // Quotes / quote PDFs are optional for oil service — drop shared mandatory quote checks.
+    delete errors.attachment;
+    delete errors.quotation1Amount;
+    delete errors.approvedQuotationChoice;
 
     if (!String(formData.oilServiceTypeText ?? '').trim()) {
         errors.oilServiceTypeText = 'Oil type is required';
@@ -133,9 +134,6 @@ export function validateOilServiceDetailCreateForm(formData) {
         const amount = Number(formData.value);
         if (!Number.isFinite(amount) || amount <= 0) {
             errors.value = 'Amount must be greater than 0';
-        }
-        if (!hasQuote1) {
-            errors.attachment = 'Quote 1 PDF is required';
         }
     }
 

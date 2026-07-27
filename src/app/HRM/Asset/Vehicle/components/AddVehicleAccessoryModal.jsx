@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImageIcon, Loader2, Upload, X } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import {
     RECEIVER_ASSESSMENT_ITEMS,
     resolveAssessmentMediaUrl,
@@ -26,6 +28,7 @@ export default function AddVehicleAccessoryModal({
     displaySets = [],
 }) {
     const fileInputRef = useRef(null);
+    const { toast } = useToast();
     const [accessoryKey, setAccessoryKey] = useState(RECEIVER_ASSESSMENT_ITEMS[0]?.key || '');
     const [photo, setPhoto] = useState(null);
     const [amount, setAmount] = useState('');
@@ -61,7 +64,15 @@ export default function AddVehicleAccessoryModal({
         const file = event.target.files?.[0];
         event.target.value = '';
         if (!file) return;
-        if (!file.type.startsWith('image/')) return;
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: check.message,
+            });
+            return;
+        }
 
         setUploading(true);
         try {
@@ -151,7 +162,7 @@ export default function AddVehicleAccessoryModal({
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept="image/*"
+                            accept={ERP_JPEG_ACCEPT}
                             className="hidden"
                             onChange={handleFileChange}
                         />

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, X } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { validateErpJpegFile } from '@/utils/uploadFileTypes';
 import {
     BODY_CONDITION_VIEW_FIELDS,
     buildBodyConditionFormState,
@@ -76,6 +78,7 @@ export default function VehicleHandoverBodyConditionModal({
     const [errors, setErrors] = useState({});
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [mounted, setMounted] = useState(false);
+    const { toast } = useToast();
 
     useEffect(() => {
         setMounted(true);
@@ -113,8 +116,15 @@ export default function VehicleHandoverBodyConditionModal({
     };
 
     const handlePhotoChange = async (key, file) => {
-        if (!file.type.startsWith('image/')) {
-            setErrors((prev) => ({ ...prev, [key]: 'Upload an image file' }));
+        if (!file) return;
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
+            setErrors((prev) => ({ ...prev, [key]: check.message }));
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: check.message,
+            });
             return;
         }
         const dataUrl = await readFileAsDataUrl(file);

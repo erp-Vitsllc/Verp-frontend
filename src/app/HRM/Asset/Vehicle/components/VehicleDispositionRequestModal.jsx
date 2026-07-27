@@ -11,7 +11,8 @@ import {
     loanAmountFromMortgage,
     registrationExpenseFromCard,
 } from '../lib/vehicleDispositionFinancialDefaults';
-import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
+import { validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 const PANEL_CLASS =
     'rounded-xl border border-slate-200 bg-slate-50/60 p-4 md:p-5 space-y-4 shadow-sm';
@@ -88,11 +89,12 @@ export default function VehicleDispositionRequestModal({
     const handleAccidentReportFile = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (!isPdfUploadFile(file)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Only PDF files are allowed.',
+                description: check.message,
             });
             e.target.value = '';
             return;

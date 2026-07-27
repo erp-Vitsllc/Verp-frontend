@@ -20,6 +20,7 @@ import VehicleBodyWorkDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/component
 import VehicleBodyWorkWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkWorkflowPanel';
 import {
     canUserManageOilService,
+    canUserCreateOrInitiateVehicleService,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
@@ -130,6 +131,14 @@ function VehicleBodyWorkDetailPageContent() {
             }),
         [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
     );
+
+    const canCreateOrInitiate = useMemo(
+        () => canUserCreateOrInitiateVehicleService(asset, currentUser),
+        [asset, currentUser],
+    );
+
+    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
+    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageBodyWork;
 
     const isFlowchartHr = useMemo(() => {
         const hrRow = pickFlowchartHrRow(flowchartRows);
@@ -250,15 +259,21 @@ function VehicleBodyWorkDetailPageContent() {
                         vehicle={asset}
                         service={service}
                         isDraft={assignmentPending}
-                        canEditAssignment={canManageBodyWork}
+                        canEditAssignment={canEditAssignment}
                         canRequest={draftUi.canRequest}
                         requesting={draftUi.requesting}
                         onRequested={handleRequested}
                     />
 
-                    {assignmentPending && !canManageBodyWork ? (
+                    {assignmentPending && !canCreateOrInitiate ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                            Only the Super User, Admin Officer, or assigned user can complete this body work request.
+                            Sign in to complete and initiate this body work request.
+                        </div>
+                    ) : null}
+
+                    {!assignmentPending && !canManageBodyWork ? (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            Only the Super User, Admin Officer, or assigned user can submit service details.
                         </div>
                     ) : null}
 
@@ -270,7 +285,7 @@ function VehicleBodyWorkDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canEditAssignment={canManageBodyWork}
+                                    canEditAssignment={canEditAssignment}
                                     onSaved={() => {
                                         void load();
                                     }}

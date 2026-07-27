@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { X, Upload, Wrench, FileText, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { MAX_ASSET_SERVICE_DAYS } from '@/utils/assetStatusHelpers';
 import {
     AlertDialog,
@@ -50,6 +51,12 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
     const handleInvoiceChange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            if (e.target) e.target.value = '';
+            return;
+        }
         const parsed = await readFile(file);
         setInvoice(parsed);
     };
@@ -249,7 +256,7 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
                                 {invoice ? invoice.name : 'Click to upload images'}
                             </span>
                         </div>
-                        <input ref={invoiceRef} multiple={true} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={handleInvoiceChange} />
+                        <input ref={invoiceRef} multiple={true} type="file" className="hidden" accept={ERP_ATTACHMENT_ACCEPT} onChange={handleInvoiceChange} />
                     </div>
                 </div>
 

@@ -19,6 +19,7 @@ import VehicleAccidentRepairDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/com
 import VehicleAccidentRepairWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairWorkflowPanel';
 import {
     canUserManageOilService,
+    canUserCreateOrInitiateVehicleService,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
@@ -128,6 +129,14 @@ function VehicleAccidentRepairDetailPageContent() {
         [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
     );
 
+    const canCreateOrInitiate = useMemo(
+        () => canUserCreateOrInitiateVehicleService(asset, currentUser),
+        [asset, currentUser],
+    );
+
+    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
+    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageAccidentRepair;
+
     const isFlowchartAccounts = useMemo(() => {
         const accountsRow = pickFlowchartAccountsRow(flowchartRows);
         if (!accountsRow || !currentUser) return false;
@@ -225,15 +234,21 @@ function VehicleAccidentRepairDetailPageContent() {
                         vehicle={asset}
                         service={service}
                         isDraft={assignmentPending}
-                        canEditAssignment={canManageAccidentRepair}
+                        canEditAssignment={canEditAssignment}
                         canRequest={draftUi.canRequest}
                         requesting={draftUi.requesting}
                         onRequested={handleRequested}
                     />
 
-                    {assignmentPending && !canManageAccidentRepair ? (
+                    {assignmentPending && !canCreateOrInitiate ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                            Only the Super User, Admin Officer, or assigned user can complete this accident repair request.
+                            Sign in to complete and initiate this accident repair request.
+                        </div>
+                    ) : null}
+
+                    {!assignmentPending && !canManageAccidentRepair ? (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            Only the Super User, Admin Officer, or assigned user can submit service details.
                         </div>
                     ) : null}
 
@@ -245,7 +260,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canEditAssignment={canManageAccidentRepair}
+                                    canEditAssignment={canEditAssignment}
                                     onSaved={() => {
                                         void load();
                                     }}

@@ -46,10 +46,12 @@ import {
     quoteKindToKey,
     TIRE_QUOTE_DRAG_TYPE,
 } from '../utils/vehicleTireChangeQuoteDrag';
-
-const PDF_MIME_TYPES = ['application/pdf'];
-const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg'];
-const MAX_IMAGE_BYTES = 1 * 1024 * 1024;
+import {
+    ERP_JPEG_ACCEPT,
+    ERP_PDF_ACCEPT,
+    filterErpUploadFiles,
+    validateErpPdfFile,
+} from '@/utils/uploadFileTypes';
 
 function directBodyWorkImageSrc(img) {
     const url = String(img?.url || '').trim();
@@ -303,8 +305,9 @@ export default function VehicleTireChangeDetailForm({
 
     const readPdfFile = (file, onDone) => {
         if (!file) return;
-        if (!PDF_MIME_TYPES.includes(file.type) && !file.name.toLowerCase().endsWith('.pdf')) {
-            toast({ variant: 'destructive', title: 'Invalid file', description: 'Quote must be a PDF.' });
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
             return;
         }
         const reader = new FileReader();
@@ -348,16 +351,14 @@ export default function VehicleTireChangeDetailForm({
     };
 
     const appendPhotos = (files) => {
-        const list = Array.from(files || []);
-        list.forEach((file) => {
-            if (!IMAGE_MIME_TYPES.includes(file.type) && !/\.(jpe?g|png)$/i.test(file.name)) {
-                toast({ variant: 'destructive', title: 'Invalid image', description: 'Use JPG or PNG only.' });
-                return;
-            }
-            if (file.size > MAX_IMAGE_BYTES) {
-                toast({ variant: 'destructive', title: 'File too large', description: 'Max 1 MB per image.' });
-                return;
-            }
+        const { accepted, firstError } = filterErpUploadFiles(files, {
+            allowPdf: false,
+            allowJpeg: true,
+        });
+        if (firstError) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: firstError });
+        }
+        accepted.forEach((file) => {
             const reader = new FileReader();
             reader.onloadend = () => {
                 const raw = String(reader.result || '');
@@ -554,7 +555,7 @@ export default function VehicleTireChangeDetailForm({
                         <input
                             type="file"
                             className="sr-only"
-                            accept=".pdf,application/pdf"
+                            accept={ERP_PDF_ACCEPT}
                             disabled={fieldsDisabled}
                             onChange={(e) => {
                                 handleQuoteFile(kind, e.target.files?.[0]);
@@ -1015,7 +1016,7 @@ export default function VehicleTireChangeDetailForm({
                                         ref={photoInputRef}
                                         type="file"
                                         multiple
-                                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                        accept={ERP_JPEG_ACCEPT}
                                         className="hidden"
                                         onChange={(e) => {
                                             appendPhotos(e.target.files);

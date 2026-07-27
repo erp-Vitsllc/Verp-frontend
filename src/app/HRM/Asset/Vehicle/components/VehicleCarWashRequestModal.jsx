@@ -21,11 +21,9 @@ import {
     formatNextChangeMonthDisplay,
 } from './vehicleServiceUtils';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
-const PDF_MIME_TYPES = ['application/pdf'];
-const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg'];
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 /** Fixed wash-type choices on the car wash request form. */
 const CAR_WASH_TYPE_OPTIONS = ['Full Wash', 'Body Wash'];
 
@@ -159,7 +157,7 @@ function UploadField({ label, fileName, onPick, error, disabled = false }) {
                 ref={inputRef}
                 type="file"
                 className="hidden"
-                accept=".pdf,.jpg,.jpeg,.png"
+                accept={ERP_ATTACHMENT_ACCEPT}
                 disabled={disabled}
                 onChange={onPick}
             />
@@ -632,21 +630,12 @@ export default function VehicleCarWashRequestModal({
     const handleFilePick = async (event, kind) => {
         const file = event.target.files?.[0];
         if (!file) return;
-        const allowed = [...PDF_MIME_TYPES, ...IMAGE_MIME_TYPES];
-        if (!allowed.includes(file.type)) {
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Upload PDF, PNG, or JPEG only.',
-            });
-            event.target.value = '';
-            return;
-        }
-        if (file.size > MAX_UPLOAD_BYTES) {
-            toast({
-                variant: 'destructive',
-                title: 'File too large',
-                description: 'Maximum file size is 5 MB.',
+                description: check.message,
             });
             event.target.value = '';
             return;

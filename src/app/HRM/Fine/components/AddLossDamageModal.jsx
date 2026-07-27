@@ -14,6 +14,7 @@ import {
 } from '../utils/validateFineDeductionVsVisa';
 import { isEndOfServiceFineSource } from '../utils/fineScheduleUtils';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 function isAttachedAccessory(acc) {
     const st = String(acc?.status || '').trim().toLowerCase();
@@ -800,6 +801,14 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const handleFileChange = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            setErrors(prev => ({ ...prev, attachment: check.message }));
+            if (e.target) e.target.value = '';
+            return;
+        }
+
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
@@ -1636,7 +1645,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                     handleFileChange(e);
                                     if (errors.attachment) setErrors((prev) => ({ ...prev, attachment: '' }));
                                 }}
-                                accept=".pdf,.jpg,.jpeg,.png"
+                                accept={ERP_ATTACHMENT_ACCEPT}
                             />
                         </div>
                         {errors.attachment ? <p className="text-xs text-red-500 ml-1">{errors.attachment}</p> : null}

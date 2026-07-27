@@ -8,13 +8,17 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import Select from 'react-select';
 import {
     validateVehicleFine,
-    VEHICLE_FINE_ALLOWED_MIME,
-    VEHICLE_FINE_IMAGE_MIME,
     VEHICLE_FINE_LIMITS,
     getVehicleFinePayableTotal,
     toVehicleFinePartyPayableAmount,
     toVehicleFinePartyBaseAmount,
 } from '@/app/HRM/Fine/utils/validateVehicleFine';
+import {
+    ERP_ATTACHMENT_ACCEPT,
+    ERP_JPEG_ACCEPT,
+    filterErpUploadFiles,
+    validateErpUploadFile,
+} from '@/utils/uploadFileTypes';
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 import { validateApprovedFineScheduleEdit } from '../utils/validateFineDeductionVsVisa';
@@ -370,20 +374,12 @@ export default function AddVehicleFineModal({
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!VEHICLE_FINE_ALLOWED_MIME.includes(file.type)) {
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
-                title: 'Invalid file type',
-                description: 'Only PDF, JPG, and PNG files are allowed.',
-            });
-            if (e.target) e.target.value = '';
-            return;
-        }
-        if (file.size > VEHICLE_FINE_LIMITS.maxAttachmentBytes) {
-            toast({
-                variant: 'destructive',
-                title: 'File too large',
-                description: 'Attachment must be 5 MB or less.',
+                title: 'Invalid attachment',
+                description: check.message,
             });
             if (e.target) e.target.value = '';
             return;
@@ -408,7 +404,6 @@ export default function AddVehicleFineModal({
         const files = Array.from(e.target.files || []);
         if (!files.length) return;
 
-        const allowedMime = VEHICLE_FINE_IMAGE_MIME;
         const maxCount = VEHICLE_FINE_LIMITS.maxImageAttachments;
         const currentCount = imageAttachments.length + existingImages.length;
 
@@ -424,19 +419,12 @@ export default function AddVehicleFineModal({
 
         const remainingSlots = maxCount - currentCount;
         const selectedFiles = files.slice(0, remainingSlots);
-        const rejectedTypes = [];
-        const rejectedSizes = [];
+        const { accepted, firstError } = filterErpUploadFiles(selectedFiles, {
+            allowPdf: false,
+            allowJpeg: true,
+        });
 
-        selectedFiles.forEach((file) => {
-            if (!allowedMime.includes(file.type)) {
-                rejectedTypes.push(file.name);
-                return;
-            }
-            if (file.size > VEHICLE_FINE_LIMITS.maxAttachmentBytes) {
-                rejectedSizes.push(file.name);
-                return;
-            }
-
+        accepted.forEach((file) => {
             const reader = new FileReader();
             reader.onloadend = () => {
                 const base64 = reader.result.split(',')[1];
@@ -456,18 +444,11 @@ export default function AddVehicleFineModal({
             reader.readAsDataURL(file);
         });
 
-        if (rejectedTypes.length) {
+        if (firstError) {
             toast({
                 variant: 'destructive',
-                title: 'Invalid file type',
-                description: 'Only JPG and PNG images are allowed.',
-            });
-        }
-        if (rejectedSizes.length) {
-            toast({
-                variant: 'destructive',
-                title: 'File too large',
-                description: 'Each image must be 5 MB or less.',
+                title: 'Invalid image',
+                description: firstError,
             });
         }
 
@@ -1188,11 +1169,11 @@ export default function AddVehicleFineModal({
                                         className="hidden"
                                         multiple
                                         onChange={handleMultipleImageChange}
-                                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                        accept={ERP_JPEG_ACCEPT}
                                     />
                                 </div>
                                 <p className="text-[11px] text-gray-500">
-                                    JPG or PNG — max 5 MB each — up to {VEHICLE_FINE_LIMITS.maxImageAttachments} images. Scroll horizontally to see more.
+                                    JPEG max 2 MB each — up to {VEHICLE_FINE_LIMITS.maxImageAttachments} images. Scroll horizontally to see more.
                                 </p>
                             </>
                         ) : (
@@ -1210,10 +1191,10 @@ export default function AddVehicleFineModal({
                                         type="file"
                                         className="hidden"
                                         onChange={handleFileChange}
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={ERP_ATTACHMENT_ACCEPT}
                                     />
                                 </div>
-                                <p className="text-[11px] text-gray-500">PDF, JPG, or PNG — max 5 MB</p>
+                                <p className="text-[11px] text-gray-500">PDF max 5 MB or JPEG max 2 MB</p>
                             </>
                         )}
                         {errors.attachment ? <p className="text-xs text-red-500 ml-1">{errors.attachment}</p> : null}

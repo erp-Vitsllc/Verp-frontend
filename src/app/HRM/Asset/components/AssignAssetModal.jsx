@@ -5,6 +5,7 @@ import { X, UserPlus, Clock, CheckCircle2, User, Camera } from 'lucide-react';
 import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import {
     isAssetAssignmentAcknowledgmentPending,
     isLeaveActive,
@@ -629,17 +630,22 @@ export default function AssignAssetModal({
                                     <input
                                         type="file"
                                         className="hidden"
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={ERP_JPEG_ACCEPT}
                                         onChange={async (e) => {
-                                            const file = e.target.files[0];
-                                            if (file) {
-                                                const reader = new FileReader();
-                                                reader.onloadend = async () => {
-                                                    const compressed = await compressImageDataUrl(reader.result);
-                                                    setFormData({ ...formData, assetPhoto: compressed });
-                                                };
-                                                reader.readAsDataURL(file);
+                                            const file = e.target.files?.[0];
+                                            if (!file) return;
+                                            const check = validateErpJpegFile(file);
+                                            if (!check.ok) {
+                                                toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                                                if (e.target) e.target.value = '';
+                                                return;
                                             }
+                                            const reader = new FileReader();
+                                            reader.onloadend = async () => {
+                                                const compressed = await compressImageDataUrl(reader.result);
+                                                setFormData({ ...formData, assetPhoto: compressed });
+                                            };
+                                            reader.readAsDataURL(file);
                                         }}
                                     />
                                 </label>

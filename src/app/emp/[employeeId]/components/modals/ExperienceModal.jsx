@@ -3,6 +3,7 @@
 import { useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from "@/components/ui/date-picker";
+import { ERP_ATTACHMENT_ACCEPT } from '@/utils/uploadFileTypes';
 
 export default function ExperienceModal({
     isOpen,
@@ -135,7 +136,7 @@ export default function ExperienceModal({
                                     <input
                                         ref={experienceCertificateFileRef}
                                         type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={ERP_ATTACHMENT_ACCEPT}
                                         onChange={onExperienceFileChange}
                                         className="hidden"
                                         disabled={savingExperience}
@@ -210,7 +211,7 @@ export default function ExperienceModal({
                                         </button>
                                     </div>
                                 )}
-                                <p className="text-xs text-gray-500">Upload PDF, JPEG, or PNG (Max 5MB)</p>
+                                <p className="text-xs text-gray-500">Upload PDF (max 5 MB) or JPEG (max 2 MB)</p>
                             </div>
                         </div>
                     </div>

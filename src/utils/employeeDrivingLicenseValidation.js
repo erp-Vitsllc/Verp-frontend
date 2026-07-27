@@ -1,7 +1,7 @@
 import { validateDate } from '@/utils/validation';
+import { validateErpPdfFile } from './uploadFileTypes';
 
 const LICENSE_NUMBER_REGEX = /^[A-Za-z0-9]{3,50}$/;
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -53,12 +53,8 @@ export function validateDrivingLicenseExpiryDate(expiryDate, issueDate) {
 export function validateDrivingLicenseFile({ file, requireFile = true } = {}) {
     if (!file) return requireFile ? ok('Driving license document is required') : ok();
     if (file.size === 0) return ok('Empty files are not allowed');
-    if (file.size > MAX_FILE_BYTES) return ok('File size must be less than 5MB');
-    const ext = `.${String(file.name || '').split('.').pop().toLowerCase()}`;
-    const mime = String(file.type || '').toLowerCase();
-    if (mime !== 'application/pdf' && ext !== '.pdf') {
-        return ok('Only PDF file format is allowed');
-    }
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return ok(check.message);
     return ok();
 }
 

@@ -1,3 +1,5 @@
+import { validateErpPdfFile } from './uploadFileTypes';
+
 const LABOUR_CARD_NUMBER_REGEX = /^[A-Za-z0-9]{5,20}$/;
 
 export function stripDangerousText(value) {
@@ -45,12 +47,9 @@ export function validateLabourCardExpiryDate(value) {
 
 export function validateLabourCardPdfFile(file) {
     if (!file) return 'Labour Card document is required';
-    const name = String(file.name || '').toLowerCase();
-    if (!name.endsWith('.pdf')) return 'Only PDF files are allowed';
-    const mime = String(file.type || '').toLowerCase();
-    if (mime && mime !== 'application/pdf') return 'Only PDF files are allowed (application/pdf)';
-    if (file.size > 10 * 1024 * 1024) return 'File size must not exceed 10MB';
     if (file.size <= 0) return 'Labour Card document cannot be empty';
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return check.message;
     return '';
 }
 

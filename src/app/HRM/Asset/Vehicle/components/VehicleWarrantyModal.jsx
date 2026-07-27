@@ -5,7 +5,8 @@ import { Plus, Trash2, X, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
-import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
+import { validateErpPdfFile } from '@/utils/uploadFileTypes';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 const CERTIFICATE_LABEL = 'Warranty Certificate';
@@ -105,6 +106,17 @@ export default function VehicleWarrantyModal({
                 : parsed.km != null
                   ? String(parsed.km)
                   : '';
+        // Prefer certificate on the main Warranty document (one record). Fall back to legacy attachment row.
+        const certificateFromMain = existing?.attachment
+            ? {
+                  rowDocId: null,
+                  file: null,
+                  fileBase64: '',
+                  fileName: 'Existing file — click to replace',
+                  fileMime: '',
+                  hasExisting: true,
+              }
+            : null;
         return {
             warrantyBy: parsed.warrantyBy || '',
             warrantyCovered: Array.isArray(parsed.warrantyCovered) ? parsed.warrantyCovered : [],
@@ -112,7 +124,7 @@ export default function VehicleWarrantyModal({
             endDate: existing.expiryDate ? String(existing.expiryDate).substring(0, 10) : '',
             currentKm: fromDoc || resolveVehicleCurrentKm(),
             endKm: parsed.endKm != null ? String(parsed.endKm) : '',
-            certificate: mapCertificate(cert),
+            certificate: certificateFromMain || mapCertificate(cert),
             extraRows: extras.map(mapAttachmentRow),
         };
     };
@@ -191,11 +203,12 @@ export default function VehicleWarrantyModal({
     const handleCertificateFile = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (!isPdfUploadFile(file)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Only PDF files are allowed.',
+                description: check.message,
             });
             e.target.value = '';
             return;
@@ -208,11 +221,12 @@ export default function VehicleWarrantyModal({
     const handleExtraFile = (index, e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (!isPdfUploadFile(file)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Only PDF files are allowed.',
+                description: check.message,
             });
             e.target.value = '';
             return;
@@ -262,7 +276,7 @@ export default function VehicleWarrantyModal({
         return Object.keys(next).length === 0;
     };
 
-    const buildAttachmentStep = (row, description) => {
+    const buildAttachmentStep = (row, description, parentDocumentId = '') => {
         const desc = String(description || '').trim();
         const hasFile = !!row.fileBase64;
         if (!hasFile || !desc) return null;
@@ -272,12 +286,19 @@ export default function VehicleWarrantyModal({
             ? row.fileBase64
             : `data:${mime};base64,${row.fileBase64}`;
 
+        const descriptionValue = parentDocumentId
+            ? JSON.stringify({
+                  text: desc,
+                  parentDocumentId: String(parentDocumentId),
+              })
+            : desc;
+
         const rowPayload = {
             type: 'Warranty Attachment',
             issueAuthority: 'Warranty Provider',
             issueDate: formData.startDate,
             expiryDate: formData.endDate,
-            description: desc,
+            description: descriptionValue,
             document: {
                 name: row.fileName || 'warranty-attachment.pdf',
                 data: dataPayload,
@@ -303,6 +324,14 @@ export default function VehicleWarrantyModal({
                 steps.push({ op: 'delete_document', docId: id });
             }
 
+            // Legacy: certificate was a separate Warranty Attachment — remove it when consolidating onto main.
+            const legacyCertId = String(formData.certificate?.rowDocId || '').trim();
+            if (legacyCertId && (formData.certificate.fileBase64 || !formData.certificate.hasExisting)) {
+                if (!deletedDocIds.includes(legacyCertId)) {
+                    steps.push({ op: 'delete_document', docId: legacyCertId });
+                }
+            }
+
             const descriptionPayload = {
                 warrantyBy: formData.warrantyBy,
                 warrantyCovered: formData.warrantyCovered,
@@ -324,6 +353,22 @@ export default function VehicleWarrantyModal({
                 description: JSON.stringify(descriptionPayload),
             };
 
+            // One Warranty record: certificate file lives on the main document (not a 2nd Warranty row).
+            if (formData.certificate.fileBase64) {
+                const mime = formData.certificate.fileMime || 'application/pdf';
+                const dataPayload = formData.certificate.fileBase64.startsWith('data:')
+                    ? formData.certificate.fileBase64
+                    : `data:${mime};base64,${formData.certificate.fileBase64}`;
+                mainPayload.document = {
+                    name: formData.certificate.fileName || 'warranty-certificate.pdf',
+                    data: dataPayload,
+                    mimeType: mime,
+                };
+            }
+
+            const parentIdForExtras =
+                existingDoc?._id && !isRenew ? String(existingDoc._id) : '';
+
             if (existingDoc?._id && !isRenew) {
                 steps.push({ op: 'put_document', docId: existingDoc._id, body: mainPayload });
             } else {
@@ -333,11 +378,12 @@ export default function VehicleWarrantyModal({
                 steps.push({ op: 'post_document', body: mainPayload });
             }
 
-            const certificateStep = buildAttachmentStep(formData.certificate, CERTIFICATE_LABEL);
-            if (certificateStep) steps.push(certificateStep);
-
             for (const row of formData.extraRows) {
-                const attachmentStep = buildAttachmentStep(row, row.description);
+                const attachmentStep = buildAttachmentStep(
+                    row,
+                    row.description,
+                    parentIdForExtras,
+                );
                 if (attachmentStep) steps.push(attachmentStep);
             }
 

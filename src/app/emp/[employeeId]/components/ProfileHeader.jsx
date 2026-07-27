@@ -12,6 +12,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import DocumentViewerModal from './modals/DocumentViewerModal';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
+import { ERP_JPEG_ACCEPT } from '@/utils/uploadFileTypes';
 import { Camera } from 'lucide-react';
 import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnapshotRows';
 import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
@@ -558,7 +559,7 @@ function ProfileHeader({
                                         onClick={() => {
                                             const input = document.createElement('input');
                                             input.type = 'file';
-                                            input.accept = 'image/*';
+                                            input.accept = ERP_JPEG_ACCEPT;
                                             input.onchange = handleFileSelect;
                                             input.click();
                                         }}

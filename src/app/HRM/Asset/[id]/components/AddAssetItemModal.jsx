@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { X, Loader2, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 
 export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTypeId, initialData = null }) {
     const { toast } = useToast();
@@ -30,15 +31,20 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
     if (!isOpen) return null;
 
     const handlePhotoChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setFormData(prev => ({ ...prev, photo: reader.result }));
-                setPhotoPreview(reader.result);
-            };
-            reader.readAsDataURL(file);
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            if (e.target) e.target.value = '';
+            return;
         }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setFormData(prev => ({ ...prev, photo: reader.result }));
+            setPhotoPreview(reader.result);
+        };
+        reader.readAsDataURL(file);
     };
 
     const handleSubmit = async (e) => {
@@ -128,14 +134,14 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
                                 <Upload size={14} className="text-gray-600" />
                                 <input
                                     type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    accept={ERP_JPEG_ACCEPT}
                                     className="hidden"
                                     onChange={handlePhotoChange}
                                 />
                             </label>
                         </div>
                         <p className="text-sm text-gray-500">
-                            Upload Photo
+                            Upload Photo (JPEG, max 2 MB)
                         </p>
                     </div>
 

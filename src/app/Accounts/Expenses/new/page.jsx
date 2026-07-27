@@ -16,6 +16,7 @@ import {
     mapZohoPaymentAccounts,
 } from '@/utils/zohoVendorPayments';
 import AssociateTagsModal from '../components/AssociateTagsModal';
+import { ERP_ATTACHMENT_ACCEPT, filterErpUploadFiles } from '@/utils/uploadFileTypes';
 
 const selectStyles = {
     control: (base, state) => ({
@@ -80,7 +81,6 @@ const PLACE_OF_SUPPLY_OPTIONS = [
 
 const CURRENCY_OPTIONS = [{ value: 'AED', label: 'AED' }];
 
-const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
 const MAX_NOTES = 500;
 
 function todayKey() {
@@ -417,25 +417,20 @@ export default function NewExpensePage() {
 
     const addReceiptFiles = useCallback(
         (fileList) => {
-            const next = [];
-            const rejected = [];
-            Array.from(fileList || []).forEach((file) => {
-                if (!file) return;
-                if (file.size > MAX_RECEIPT_BYTES) {
-                    rejected.push(file.name);
-                    return;
-                }
-                next.push(file);
-            });
+            const { accepted, rejected, firstError } = filterErpUploadFiles(fileList);
             if (rejected.length) {
                 toast({
-                    title: 'File too large',
-                    description: `${rejected.join(', ')} exceeds the 10MB limit.`,
+                    title: 'Invalid file',
+                    description:
+                        rejected.length === 1
+                            ? `${rejected[0].file.name}: ${rejected[0].message}`
+                            : firstError ||
+                              `${rejected.length} file(s) were rejected. PDF max 5 MB, JPEG max 2 MB.`,
                     variant: 'destructive',
                 });
             }
-            if (next.length) {
-                setReceipts((prev) => [...prev, ...next]);
+            if (accepted.length) {
+                setReceipts((prev) => [...prev, ...accepted]);
             }
         },
         [toast],
@@ -1233,7 +1228,7 @@ export default function NewExpensePage() {
                                                         Drag or Drop your Receipts
                                                     </p>
                                                     <p className="mt-1 text-xs text-slate-500">
-                                                        Maximum file size allowed is 10MB
+                                                        PDF max 5 MB, JPEG max 2 MB
                                                     </p>
                                                     <button
                                                         type="button"
@@ -1247,7 +1242,7 @@ export default function NewExpensePage() {
                                                         ref={fileInputRef}
                                                         type="file"
                                                         multiple
-                                                        accept="image/*,.pdf"
+                                                        accept={ERP_ATTACHMENT_ACCEPT}
                                                         className="hidden"
                                                         onChange={(e) => {
                                                             addReceiptFiles(e.target.files);

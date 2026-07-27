@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Select from 'react-select';
 import { Loader2, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -9,7 +10,29 @@ import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
 import ZohoOrganizationPicker from '@/components/ZohoOrganizationPicker';
 import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
 import { mapZohoVendors } from '@/utils/zohoVendors';
-import { buildFineVendorPaymentPrefill } from '../utils/fineVendorPaymentPrefill';
+
+const searchableSelectStyles = {
+    control: (base, state) => ({
+        ...base,
+        minHeight: 44,
+        borderRadius: '0.75rem',
+        borderColor: state.isFocused ? '#14b8a6' : '#e5e7eb',
+        boxShadow: state.isFocused ? '0 0 0 2px rgba(20, 184, 166, 0.2)' : 'none',
+        backgroundColor: state.isDisabled ? '#f8fafc' : 'rgba(249, 250, 251, 0.5)',
+        cursor: state.isDisabled ? 'not-allowed' : 'pointer',
+        '&:hover': {
+            borderColor: state.isFocused ? '#14b8a6' : '#d1d5db',
+        },
+    }),
+    menuPortal: (base) => ({ ...base, zIndex: 100000 }),
+    option: (base, state) => ({
+        ...base,
+        fontSize: '0.875rem',
+        backgroundColor: state.isSelected ? '#0d9488' : state.isFocused ? '#f0fdfa' : '#fff',
+        color: state.isSelected ? '#fff' : '#334155',
+        cursor: 'pointer',
+    }),
+};
 
 function parseFineMonthStart(startMonth) {
     if (!startMonth) return null;
@@ -84,7 +107,7 @@ function buildVendorPaymentSchedule(fine, totalAmount) {
 
 /**
  * Payment to vendors for an employee fine.
- * Fields: Vendor + Paid Through only → continues to Accounts → Payments Made.
+ * Fields: Vendor + Paid Through → posts straight to Zoho Payments Made (list).
  */
 export default function FineVendorPayModal({
     isOpen,
@@ -98,6 +121,7 @@ export default function FineVendorPayModal({
     const [vendors, setVendors] = useState([]);
     const [accounts, setAccounts] = useState([]);
     const [loadingSupport, setLoadingSupport] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [vendorId, setVendorId] = useState('');
     const [paidThroughAccountId, setPaidThroughAccountId] = useState('');
     const [amount, setAmount] = useState('');
@@ -141,7 +165,7 @@ export default function FineVendorPayModal({
     const vendorOptions = useMemo(
         () =>
             vendors.map((v) => ({
-                id: v.id,
+                value: v.id,
                 label: v.label || v.name || v.id,
             })),
         [vendors],
@@ -150,12 +174,16 @@ export default function FineVendorPayModal({
     const accountOptions = useMemo(
         () =>
             accounts.map((a) => ({
-                id: a.id,
+                value: a.id,
                 label: a.label || a.name || a.id,
                 name: a.name || a.label || '',
             })),
         [accounts],
     );
+
+    const selectedVendorOption = vendorOptions.find((o) => o.value === vendorId) || null;
+    const selectedAccountOption =
+        accountOptions.find((o) => o.value === paidThroughAccountId) || null;
 
     useEffect(() => {
         if (!isOpen || !fine) return;
@@ -167,13 +195,49 @@ export default function FineVendorPayModal({
         setSelectedCardIndex(null);
     }, [isOpen, fine, remainingAmount]);
 
+    /** Local DB first; if empty for this org, pull from Zoho (same as Payments Made). */
+    const loadVendorsForOrg = useCallback(async () => {
+        const orgParams = { organizationId };
+        const readLocal = async () => {
+            const response = await axiosInstance.get('/zoho/vendors', {
+                skipToast: true,
+                timeout: 120000,
+                params: { ...orgParams, sync: 'false' },
+            });
+            return mapZohoVendors(response?.data?.data);
+        };
+
+        let mapped = await readLocal();
+        if (mapped.length) return mapped;
+
+        let zohoPage = 1;
+        for (let guard = 0; guard < 40; guard += 1) {
+            const response = await axiosInstance.get('/zoho/vendors', {
+                skipToast: true,
+                timeout: 120000,
+                params: {
+                    ...orgParams,
+                    sync: 'true',
+                    zohoPage,
+                    chunkLimit: 400,
+                },
+            });
+            const meta = response?.data?.meta || {};
+            if (!meta.hasMore) break;
+            zohoPage = Number(meta.nextZohoPage) || zohoPage + 1;
+        }
+
+        mapped = await readLocal();
+        return mapped;
+    }, [organizationId]);
+
     useEffect(() => {
         if (!isOpen || !organizationId) return undefined;
         let cancelled = false;
         setLoadingSupport(true);
         (async () => {
             try {
-                const [supportRes, vendorRes] = await Promise.all([
+                const [supportRes, mappedVendors] = await Promise.all([
                     axiosInstance.get('/zoho/vendorpayments/support', {
                         params: {
                             organizationId,
@@ -183,21 +247,32 @@ export default function FineVendorPayModal({
                         skipToast: true,
                         timeout: 45000,
                     }),
-                    axiosInstance.get('/zoho/vendors', {
-                        params: { organizationId },
-                        skipToast: true,
-                        timeout: 45000,
-                    }),
+                    loadVendorsForOrg(),
                 ]);
                 if (cancelled) return;
                 const accountRows = supportRes?.data?.data?.accounts || [];
-                const vendorRows = vendorRes?.data?.data;
                 setAccounts(mapZohoPaymentAccounts(accountRows));
-                setVendors(mapZohoVendors(vendorRows));
-            } catch {
+                setVendors(mappedVendors);
+                if (!mappedVendors.length) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'No vendors found',
+                        description:
+                            'Could not load Zoho vendors for this organization. Sync vendors from Accounts → Vendors, or check Zoho connection.',
+                    });
+                }
+            } catch (err) {
                 if (!cancelled) {
                     setAccounts([]);
                     setVendors([]);
+                    toast({
+                        variant: 'destructive',
+                        title: 'Failed to load vendors',
+                        description:
+                            err?.response?.data?.message ||
+                            err?.message ||
+                            'Could not load vendors / Paid Through from Zoho.',
+                    });
                 }
             } finally {
                 if (!cancelled) setLoadingSupport(false);
@@ -206,7 +281,7 @@ export default function FineVendorPayModal({
         return () => {
             cancelled = true;
         };
-    }, [isOpen, organizationId]);
+    }, [isOpen, organizationId, loadVendorsForOrg, toast]);
 
     if (!isOpen || !fine) return null;
 
@@ -221,7 +296,7 @@ export default function FineVendorPayModal({
         setAmount(Number(box.remaining || 0).toFixed(2));
     };
 
-    const handleContinueToPaymentsMade = () => {
+    const handlePayToPaymentsMade = async () => {
         if (!vendorId) {
             toast({
                 variant: 'destructive',
@@ -256,31 +331,86 @@ export default function FineVendorPayModal({
             return;
         }
 
+        const zohoBillId = String(fine?.zohoBillId || '').trim();
+        if (!zohoBillId) {
+            toast({
+                variant: 'destructive',
+                title: 'Zoho bill missing',
+                description:
+                    'This fine has no Zoho vendor bill yet. Sync/open the bill first, then pay.',
+            });
+            return;
+        }
+
         const paidThrough = accountOptions.find((o) => o.id === paidThroughAccountId);
-        const prefill = buildFineVendorPaymentPrefill(fine, {
-            returnTo,
-            vendorId,
-            vendorName: vendorOptions.find((o) => o.id === vendorId)?.label || '',
-            amount: payAmt.toFixed(2),
-            paidThroughAccountId,
-            paidThroughAccountName: paidThrough?.name || paidThrough?.label || '',
-            organizationId,
-        });
+        const fineId = String(fine?.fineId || fine?._id || '').trim();
+        const fineMongoId = String(fine?._id || '').trim();
+        const today = new Date().toISOString().slice(0, 10);
+        const paymentDate = String(fine?.billDate || '').trim() || today;
+
+        setSaving(true);
         try {
-            sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
-        } catch {
-            /* ignore */
+            await axiosInstance.post(
+                '/zoho/vendorpayments',
+                {
+                    vendor_id: vendorId,
+                    date: paymentDate,
+                    amount: payAmt,
+                    paid_through_account_id: paidThroughAccountId,
+                    paid_through_account_name:
+                        paidThrough?.name || paidThrough?.label || '',
+                    payment_mode: 'Cash',
+                    reference_number: fineId.slice(0, 100),
+                    description: `Fine vendor payment · ${fineId} · ${String(fine?.fineType || '').trim()}`.trim(),
+                    bills: [
+                        {
+                            bill_id: zohoBillId,
+                            amount_applied: payAmt,
+                        },
+                    ],
+                    expenses: [],
+                    is_draft: false,
+                    status: 'paid',
+                    organizationId,
+                    mode: 'fine_bills',
+                    ...(fineMongoId ? { fineMongoIds: [fineMongoId], fineMongoId } : {}),
+                },
+                {
+                    params: { organizationId },
+                },
+            );
+
+            toast({
+                title: 'Payment recorded',
+                description: activeZohoOrg?.brand
+                    ? `Listed in Zoho Payments Made (${activeZohoOrg.brand}).`
+                    : 'Listed in Zoho Payments Made.',
+            });
+            onSuccess?.();
+            onClose?.();
+            const listParams = new URLSearchParams();
+            if (organizationId) listParams.set('organizationId', organizationId);
+            if (returnTo) {
+                router.push(returnTo);
+            } else {
+                router.push(
+                    listParams.toString()
+                        ? `/Accounts/PaymentsMade?${listParams.toString()}`
+                        : '/Accounts/PaymentsMade',
+                );
+            }
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Payment failed',
+                description:
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    'Could not record vendor payment in Zoho Payments Made.',
+            });
+        } finally {
+            setSaving(false);
         }
-        const params = new URLSearchParams();
-        params.set('addFinePay', '1');
-        if (prefill.organizationId || organizationId) {
-            params.set('organizationId', prefill.organizationId || organizationId);
-        }
-        if (prefill.companyId) params.set('companyId', prefill.companyId);
-        if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
-        onSuccess?.();
-        onClose?.();
-        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
     };
 
     const inputClass =
@@ -386,7 +516,7 @@ export default function FineVendorPayModal({
                                     Payment to vendors · Zoho Payments Made
                                 </h3>
                                 <p className="text-xs text-gray-500 mt-0.5">
-                                    Vendor + Paid Through → recorded in Zoho Payments Made.
+                                    Saves directly to Zoho Payments Made (no add page).
                                 </p>
                             </div>
                             {(showZohoOrgPicker || activeZohoOrg) && (
@@ -404,44 +534,64 @@ export default function FineVendorPayModal({
                             <label className="block text-sm font-bold text-gray-800 mb-2">
                                 Vendor <span className="text-red-500">*</span>
                             </label>
-                            <select
-                                value={vendorId}
-                                onChange={(e) => setVendorId(e.target.value)}
-                                disabled={loadingSupport}
-                                className={inputClass}
-                            >
-                                <option value="">
-                                    {loadingSupport ? 'Loading vendors…' : 'Select vendor'}
-                                </option>
-                                {vendorOptions.map((opt) => (
-                                    <option key={opt.id} value={opt.id}>
-                                        {opt.label}
-                                    </option>
-                                ))}
-                            </select>
+                            <Select
+                                classNamePrefix="fine-vendor-pay-vendor"
+                                instanceId="fine-vendor-pay-vendor"
+                                value={selectedVendorOption}
+                                onChange={(option) => setVendorId(option?.value || '')}
+                                options={vendorOptions}
+                                isLoading={loadingSupport}
+                                isDisabled={loadingSupport}
+                                isClearable
+                                isSearchable
+                                placeholder={
+                                    loadingSupport ? 'Loading vendors…' : 'Search vendor…'
+                                }
+                                noOptionsMessage={() =>
+                                    loadingSupport ? 'Loading…' : 'No vendors found'
+                                }
+                                styles={searchableSelectStyles}
+                                menuPortalTarget={
+                                    typeof document !== 'undefined' ? document.body : null
+                                }
+                                menuPosition="fixed"
+                                menuPlacement="auto"
+                            />
                         </div>
 
                         <div>
                             <label className="block text-sm font-bold text-gray-800 mb-2">
                                 Paid Through <span className="text-red-500">*</span>
                             </label>
-                            <select
-                                value={paidThroughAccountId}
-                                onChange={(e) => setPaidThroughAccountId(e.target.value)}
-                                disabled={loadingSupport}
-                                className={inputClass}
-                            >
-                                <option value="">
-                                    {loadingSupport
+                            <Select
+                                classNamePrefix="fine-vendor-pay-paid-through"
+                                instanceId="fine-vendor-pay-paid-through"
+                                value={selectedAccountOption}
+                                onChange={(option) =>
+                                    setPaidThroughAccountId(option?.value || '')
+                                }
+                                options={accountOptions}
+                                isLoading={loadingSupport}
+                                isDisabled={loadingSupport}
+                                isClearable
+                                isSearchable
+                                placeholder={
+                                    loadingSupport
                                         ? 'Loading Chart of Accounts…'
-                                        : 'Select Paid Through account'}
-                                </option>
-                                {accountOptions.map((opt) => (
-                                    <option key={opt.id} value={opt.id}>
-                                        {opt.label}
-                                    </option>
-                                ))}
-                            </select>
+                                        : 'Search Paid Through account…'
+                                }
+                                noOptionsMessage={() =>
+                                    loadingSupport
+                                        ? 'Loading…'
+                                        : 'No Paid Through accounts found'
+                                }
+                                styles={searchableSelectStyles}
+                                menuPortalTarget={
+                                    typeof document !== 'undefined' ? document.body : null
+                                }
+                                menuPosition="fixed"
+                                menuPlacement="auto"
+                            />
                         </div>
 
                         <div>
@@ -468,11 +618,12 @@ export default function FineVendorPayModal({
 
                         {hasZohoBill ? (
                             <p className="text-xs text-teal-700 bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
-                                Continues to Zoho Payments Made to settle the vendor bill.
+                                Pay Now records this against the Zoho vendor bill and lists it in
+                                Payments Made.
                             </p>
                         ) : (
                             <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                Continues to Zoho Payments Made to record this vendor payment.
+                                No Zoho bill linked yet. Sync/open the vendor bill before paying.
                             </p>
                         )}
                     </div>
@@ -482,18 +633,21 @@ export default function FineVendorPayModal({
                     <button
                         type="button"
                         onClick={onClose}
-                        className="px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 rounded-xl"
+                        disabled={saving}
+                        className="px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 rounded-xl disabled:opacity-60"
                     >
                         Cancel
                     </button>
                     <button
                         type="button"
-                        disabled={loadingSupport}
-                        onClick={handleContinueToPaymentsMade}
+                        disabled={saving || loadingSupport || !hasZohoBill}
+                        onClick={handlePayToPaymentsMade}
                         className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-sm font-semibold"
                     >
-                        {loadingSupport ? <Loader2 size={16} className="animate-spin" /> : null}
-                        Continue to Payments Made
+                        {saving || loadingSupport ? (
+                            <Loader2 size={16} className="animate-spin" />
+                        ) : null}
+                        {saving ? 'Saving…' : 'Pay Now'}
                     </button>
                 </div>
             </div>

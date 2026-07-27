@@ -17,6 +17,7 @@ import {
     isMonthFullyOccupied,
 } from '../utils/utilityBillStats';
 import { openUtilityAttachment } from '../utils/openUtilityAttachment';
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import UtilityBillTotalsBar, {
     computeRowPayTotals,
     sumLinePartyPayTotals,
@@ -182,8 +183,6 @@ function resolveAutoCompany(row = {}, employeeOptions = [], companyOptions = [])
         payByCompanyName: match?.label || String(emp?.companyName || '').trim(),
     };
 }
-
-const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024;
 
 function currentMonthTitle(date = new Date()) {
     return date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -1288,15 +1287,9 @@ export default function AddBillModal({
     const handleAttachmentFile = async (index, fileList) => {
         const file = fileList?.[0];
         if (!file) return;
-        const isPdf =
-            file.type === 'application/pdf' ||
-            String(file.name || '').toLowerCase().endsWith('.pdf');
-        if (!isPdf) {
-            setError('Only PDF attachments are allowed.');
-            return;
-        }
-        if (file.size > MAX_ATTACHMENT_BYTES) {
-            setError('Attachment must be 1.5 MB or smaller.');
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
+            setError(check.message);
             return;
         }
         try {
@@ -1847,7 +1840,7 @@ export default function AddBillModal({
                                                             fileInputRefs.current[index] = el;
                                                         }}
                                                         type="file"
-                                                        accept=".pdf,application/pdf"
+                                                        accept={ERP_PDF_ACCEPT}
                                                         className="hidden"
                                                         onChange={(e) => {
                                                             handleAttachmentFile(index, e.target.files);

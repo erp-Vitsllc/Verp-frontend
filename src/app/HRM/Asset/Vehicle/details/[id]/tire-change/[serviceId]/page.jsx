@@ -20,6 +20,7 @@ import VehicleTireChangeDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/compone
 import VehicleOilServiceWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceWorkflowPanel';
 import {
     canUserManageTireChange,
+    canUserCreateOrInitiateVehicleService,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
@@ -130,6 +131,14 @@ function VehicleTireChangeDetailPageContent() {
             }),
         [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
     );
+
+    const canCreateOrInitiate = useMemo(
+        () => canUserCreateOrInitiateVehicleService(asset, currentUser),
+        [asset, currentUser],
+    );
+
+    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
+    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageTireChange;
 
     const isFlowchartHr = useMemo(() => {
         const hrRow = pickFlowchartHrRow(flowchartRows);
@@ -250,15 +259,21 @@ function VehicleTireChangeDetailPageContent() {
                         vehicle={asset}
                         service={service}
                         isDraft={assignmentPending}
-                        canEditAssignment={canManageTireChange}
+                        canEditAssignment={canEditAssignment}
                         canRequest={draftUi.canRequest}
                         requesting={draftUi.requesting}
                         onRequested={handleRequested}
                     />
 
-                    {assignmentPending && !canManageTireChange ? (
+                    {assignmentPending && !canCreateOrInitiate ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                            Only the Super User, Admin Officer, or assigned user can complete this tire change request.
+                            Sign in to complete and initiate this tire change request.
+                        </div>
+                    ) : null}
+
+                    {!assignmentPending && !canManageTireChange ? (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            Only the Super User, Admin Officer, or assigned user can submit service details.
                         </div>
                     ) : null}
 
@@ -270,7 +285,7 @@ function VehicleTireChangeDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canEditAssignment={canManageTireChange}
+                                    canEditAssignment={canEditAssignment}
                                     onSaved={() => {
                                         void load();
                                     }}

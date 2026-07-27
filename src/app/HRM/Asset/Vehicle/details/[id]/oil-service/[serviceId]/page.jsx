@@ -18,6 +18,7 @@ import VehicleOilServiceDetailsPanel from '@/app/HRM/Asset/Vehicle/components/Ve
 import VehicleOilServiceCompletedCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceCompletedCard';
 import {
     canUserManageOilService,
+    canUserCreateOrInitiateVehicleService,
     canUserEditOilServiceDates,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
@@ -130,6 +131,14 @@ function VehicleOilServiceDetailPageContent() {
         [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
     );
 
+    const canCreateOrInitiate = useMemo(
+        () => canUserCreateOrInitiateVehicleService(asset, currentUser),
+        [asset, currentUser],
+    );
+
+    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
+    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageOilService;
+
     const canEditServiceDates = useMemo(
         () =>
             canUserEditOilServiceDates(asset, service, {
@@ -221,15 +230,15 @@ function VehicleOilServiceDetailPageContent() {
                         vehicle={asset}
                         service={service}
                         isDraft={assignmentPending}
-                        canEditAssignment={canManageOilService}
+                        canEditAssignment={canEditAssignment}
                         canRequest={draftUi.canRequest}
                         requesting={draftUi.requesting}
                         onRequested={handleRequested}
                     />
 
-                    {assignmentPending && !canManageOilService ? (
+                    {assignmentPending && !canCreateOrInitiate ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                            Only the Super User, Admin Officer, or assigned user can complete this oil service request.
+                            Sign in to complete and initiate this oil service request.
                         </div>
                     ) : null}
 
@@ -249,7 +258,7 @@ function VehicleOilServiceDetailPageContent() {
                                 scheduleRow={scheduleRow}
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
-                                canEditAssignment={canManageOilService}
+                                canEditAssignment={canEditAssignment}
                                 canEditServiceDates={canEditServiceDates}
                                     onSaved={(updatedAsset) => {
                                         if (updatedAsset) {

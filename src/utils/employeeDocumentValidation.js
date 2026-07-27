@@ -1,9 +1,10 @@
 import { stripDangerousText } from '@/utils/employeeAddValidation';
 import { validateDate } from '@/utils/validation';
+import { validateErpPdfFile, ERP_PDF_MAX_BYTES } from './uploadFileTypes';
 
 const TYPE_REGEX = /^[A-Za-z0-9\s.,\-()/'"]+$/;
 const NOTE_REGEX = /^[A-Za-z0-9\s.,\-()/'"]*$/;
-export const EMPLOYEE_DOC_PDF_MAX_BYTES = 10 * 1024 * 1024;
+export const EMPLOYEE_DOC_PDF_MAX_BYTES = ERP_PDF_MAX_BYTES;
 const VALUE_REGEX = /^\d+(\.\d{1,2})?$/;
 
 const ok = (error = '') => ({ isValid: !error, error });
@@ -79,12 +80,8 @@ export function validateEmployeeDocumentPdfFile(file, { requireFile = true, hasE
     }
     if (!file) return ok();
     if (file.size === 0) return ok('Empty files are not allowed');
-    if (file.size > EMPLOYEE_DOC_PDF_MAX_BYTES) return ok('File size must not exceed 10MB');
-    const name = String(file.name || '').toLowerCase();
-    const mime = String(file.type || '').toLowerCase();
-    if (mime !== 'application/pdf' && !name.endsWith('.pdf')) {
-        return ok('Only PDF files are allowed');
-    }
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return ok(check.message);
     return ok();
 }
 

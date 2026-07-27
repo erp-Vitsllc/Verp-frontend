@@ -1,8 +1,7 @@
 import { validateDate } from '@/utils/validation';
+import { validateErpPdfFile } from './uploadFileTypes';
 
 const LABOUR_CARD_NUMBER_REGEX = /^[A-Za-z0-9]{3,50}$/;
-const CARD_COPY_MAX_BYTES = 5 * 1024 * 1024;
-const CONTRACT_MAX_BYTES = 10 * 1024 * 1024;
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -77,26 +76,18 @@ export function validateEmployeeLabourCardNoticePeriod(value) {
     return ok();
 }
 
-function validatePdfFile(file, maxBytes, label) {
+function validatePdfFile(file, label) {
     if (!file) return ok(`${label} is required`);
     if (file.size === 0) return ok('Empty files are not allowed');
-    if (file.size > maxBytes) {
-        const mb = maxBytes / (1024 * 1024);
-        return ok(`File size must not exceed ${mb}MB`);
-    }
-    const ext = `.${String(file.name || '').split('.').pop().toLowerCase()}`;
-    const mime = String(file.type || '').toLowerCase();
-    if (mime !== 'application/pdf' && ext !== '.pdf') {
-        return ok('Only PDF files are allowed');
-    }
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return ok(check.message);
     return ok();
 }
 
 /** Validate a picked file before it is stored in form state (card copy vs contract). */
 export function validateEmployeeLabourCardPdfFile(file, { kind = 'card' } = {}) {
-    const maxBytes = kind === 'contract' ? CONTRACT_MAX_BYTES : CARD_COPY_MAX_BYTES;
     const label = kind === 'contract' ? 'Labour contract attachment' : 'Labour Card document';
-    return validatePdfFile(file, maxBytes, label);
+    return validatePdfFile(file, label);
 }
 
 export function validateEmployeeLabourCardFiles({
@@ -111,13 +102,13 @@ export function validateEmployeeLabourCardFiles({
     if (requireCardFile && !file && !hasExistingCardDoc) {
         errors.file = 'Labour Card copy is required';
     } else if (file) {
-        const check = validatePdfFile(file, CARD_COPY_MAX_BYTES, 'Labour Card copy');
+        const check = validatePdfFile(file, 'Labour Card copy');
         if (!check.isValid) errors.file = check.error;
     }
     if (requireContractFile && !contractFile && !hasExistingContractDoc) {
         errors.contractFile = 'Labour contract attachment is required';
     } else if (contractFile) {
-        const check = validatePdfFile(contractFile, CONTRACT_MAX_BYTES, 'Labour contract attachment');
+        const check = validatePdfFile(contractFile, 'Labour contract attachment');
         if (!check.isValid) errors.contractFile = check.error;
     }
     return errors;

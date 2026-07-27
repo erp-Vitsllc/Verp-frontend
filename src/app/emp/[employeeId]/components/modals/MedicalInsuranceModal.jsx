@@ -11,6 +11,7 @@ import {
     validateMedicalPolicyNumber,
     validateMedicalProvider,
 } from '@/utils/employeeMedicalInsuranceValidation';
+import { ERP_PDF_ACCEPT } from '@/utils/uploadFileTypes';
 
 export default function MedicalInsuranceModal({
     isOpen,
@@ -207,7 +208,7 @@ export default function MedicalInsuranceModal({
                                 <input
                                     ref={medicalInsuranceFileRef}
                                     type="file"
-                                    accept=".pdf,application/pdf"
+                                    accept={ERP_PDF_ACCEPT}
                                     onChange={handleFileChange}
                                     className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={savingMedicalInsurance}

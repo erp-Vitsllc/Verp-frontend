@@ -1,7 +1,8 @@
 import { validateDate } from '@/utils/validation';
+import { validateErpPdfFile, ERP_PDF_MAX_BYTES } from './uploadFileTypes';
 
 export const SALARY_AMOUNT_REGEX = /^\d+(\.\d{1,2})?$/;
-export const SALARY_PDF_MAX_BYTES = 10 * 1024 * 1024;
+export const SALARY_PDF_MAX_BYTES = ERP_PDF_MAX_BYTES;
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -102,12 +103,8 @@ export function validateEmployeeSalaryOfferLetter({
             return ok('Salary letter is required — upload a PDF for this increment');
         }
         if (file.size === 0) return ok('Empty files are not allowed');
-        if (file.size > SALARY_PDF_MAX_BYTES) return ok('File size must not exceed 10MB');
-        const name = String(file.name || '').toLowerCase();
-        const mime = String(file.type || '').toLowerCase();
-        if (mime !== 'application/pdf' && !name.endsWith('.pdf')) {
-            return ok('Only PDF files are allowed');
-        }
+        const check = validateErpPdfFile(file);
+        if (!check.ok) return ok(check.message);
         return ok();
     }
 
@@ -121,12 +118,8 @@ export function validateEmployeeSalaryOfferLetter({
     }
     if (file) {
         if (file.size === 0) return ok('Empty files are not allowed');
-        if (file.size > SALARY_PDF_MAX_BYTES) return ok('File size must not exceed 10MB');
-        const name = String(file.name || '').toLowerCase();
-        const mime = String(file.type || '').toLowerCase();
-        if (mime !== 'application/pdf' && !name.endsWith('.pdf')) {
-            return ok('Only PDF files are allowed');
-        }
+        const check = validateErpPdfFile(file);
+        if (!check.ok) return ok(check.message);
     }
     return ok();
 }

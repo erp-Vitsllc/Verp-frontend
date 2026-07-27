@@ -44,12 +44,12 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import {
+    buildFineVendorPaymentPrefill,
     canAccountsPayFineEmployeeShare,
     canAccountsPayFineVendorBill,
     isAccountsFinanceUser,
 } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
-import FineVendorPayModal from '@/app/HRM/Fine/components/FineVendorPayModal';
-import AddPaymentModal from '@/app/Accounts/Payments/components/AddPaymentModal';
+import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
 import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile, isRewardPaymentEligible } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
 import {
@@ -820,11 +820,10 @@ export default function SalaryTab({
     const [selectedFinesForPayment, setSelectedFinesForPayment] = useState([]);
     const [fineFilterStartMonth, setFineFilterStartMonth] = useState('');
     const [fineFilterEndMonth, setFineFilterEndMonth] = useState('');
-    /** Choice modal: Vendor Payment (Zoho) vs Company Payment (ERP Accounts recovery). */
+    /** Choice: Payment to vendors (Payments Made) vs Payment to company (Expense Refund). */
     const [finePaymentChoice, setFinePaymentChoice] = useState(null);
-    const [fineCompanyPayOpen, setFineCompanyPayOpen] = useState(false);
-    const [fineCompanyPayPrefill, setFineCompanyPayPrefill] = useState(null);
-    const [fineVendorPayFine, setFineVendorPayFine] = useState(null);
+    const [fineCompanyRefundOpen, setFineCompanyRefundOpen] = useState(false);
+    const [fineCompanyRefundFines, setFineCompanyRefundFines] = useState([]);
 
     useEffect(() => {
         const ref = profileBackHandlerRef;
@@ -834,13 +833,9 @@ export default function SalaryTab({
                 setFinePaymentChoice(null);
                 return true;
             }
-            if (fineCompanyPayOpen) {
-                setFineCompanyPayOpen(false);
-                setFineCompanyPayPrefill(null);
-                return true;
-            }
-            if (fineVendorPayFine) {
-                setFineVendorPayFine(null);
+            if (fineCompanyRefundOpen) {
+                setFineCompanyRefundOpen(false);
+                setFineCompanyRefundFines([]);
                 return true;
             }
             if (selectedInvoice) {
@@ -912,8 +907,7 @@ export default function SalaryTab({
     }, [
         profileBackHandlerRef,
         finePaymentChoice,
-        fineCompanyPayOpen,
-        fineVendorPayFine,
+        fineCompanyRefundOpen,
         selectedInvoice,
         showCertificate,
         selectedCertificate,
@@ -1190,11 +1184,66 @@ export default function SalaryTab({
         setFinePaymentChoice({ fines: list });
     };
 
-    const handlePaySelectedFines = () => {
-        openFinePaymentChoice(selectedPayableFines);
+    const openFineVendorPaymentsMade = (finesToPay) => {
+        const list = Array.isArray(finesToPay) ? finesToPay.filter(Boolean) : [];
+        if (list.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No fines selected',
+                description: 'Select a fine with an outstanding balance to pay.',
+            });
+            return;
+        }
+        if (list.length !== 1) {
+            toast({
+                variant: 'destructive',
+                title: 'Select one fine',
+                description: 'Vendor payment can be started for one fine at a time.',
+            });
+            return;
+        }
+        if (!isAccountsUser) {
+            toast({
+                variant: 'destructive',
+                title: 'Accounts only',
+                description: 'Only Accounts can pay fine vendor bills from this profile.',
+            });
+            return;
+        }
+
+        const fine = list[0];
+        const amount = getFineFilteredBalance(fine);
+        const prefill = buildFineVendorPaymentPrefill(fine, {
+            amount: amount > 0 ? amount : undefined,
+            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+        });
+        if (!prefill?.zohoBillIds?.length) {
+            toast({
+                variant: 'destructive',
+                title: 'Bill not ready',
+                description:
+                    fine?.zohoSyncError ||
+                    'No Zoho bill is linked to this fine yet. Approve/sync the fine bill first, then pay from Payments Made.',
+            });
+            return;
+        }
+
+        setFinePaymentChoice(null);
+        try {
+            sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
+        } catch (err) {
+            console.error(err);
+        }
+
+        const params = new URLSearchParams();
+        params.set('addFinePay', '1');
+        if (prefill.organizationId) params.set('organizationId', prefill.organizationId);
+        if (prefill.companyId) params.set('companyId', prefill.companyId);
+        if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
+        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
     };
 
-    const startCompanyFinePayment = (finesToPay) => {
+    const startCompanyFineRefund = (finesToPay) => {
         const list = Array.isArray(finesToPay) ? finesToPay.filter(Boolean) : [];
         if (list.length === 0) return;
 
@@ -1211,66 +1260,18 @@ export default function SalaryTab({
             toast({
                 variant: 'destructive',
                 title: 'Accounts only',
-                description: 'Only Accounts can record company fine payments from this profile.',
+                description: 'Only Accounts can record company Expense Refunds from this profile.',
             });
             return;
         }
 
-        const payload = {
-            employeeId,
-            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
-            paymentSource: 'Salary',
-            organizationId: list[0]?.zohoOrganizationId || '',
-            companyId: String(list[0]?.company?._id || list[0]?.company || '').trim(),
-            fines: list.map((f) => ({
-                _id: f._id,
-                fineId: f.fineId,
-                fineAmount: f.fineAmount,
-                balance: getFineFilteredBalance(f),
-                employeeShare: isFineMonthFilterActive ? getFineFilteredDueAmount(f) : calculateEmployeeFineShare(f),
-                paidAmount: isFineMonthFilterActive ? getFineFilteredPaidAmount(f) : getFinePaidAmount(f),
-                monthStart: f.monthStart,
-                payableDuration: f.payableDuration,
-                assignedEmployees: f.assignedEmployees,
-                fineType: f.fineType,
-                category: f.category,
-                serviceCharge: f.serviceCharge,
-                companyAmount: f.companyAmount,
-                employeeAmount: f.employeeAmount,
-                responsibleFor: f.responsibleFor,
-                zohoOrganizationId: f.zohoOrganizationId,
-                expenseAccountId: f.expenseAccountId,
-                expenseAccountName: f.expenseAccountName,
-            })),
-        };
-
         setFinePaymentChoice(null);
-        setFineCompanyPayPrefill(payload);
-        setFineCompanyPayOpen(true);
+        setFineCompanyRefundFines(list);
+        setFineCompanyRefundOpen(true);
     };
 
-    const startVendorFinePayment = (finesToPay) => {
-        const list = Array.isArray(finesToPay) ? finesToPay.filter(Boolean) : [];
-        if (list.length !== 1) {
-            toast({
-                variant: 'destructive',
-                title: 'Select one fine',
-                description: 'Vendor payment can be started for one fine at a time.',
-            });
-            return;
-        }
-        const fine = list[0];
-        if (!isAccountsUser) {
-            toast({
-                variant: 'destructive',
-                title: 'Accounts only',
-                description: 'Only Accounts can pay fine vendor bills from this profile.',
-            });
-            return;
-        }
-
-        setFinePaymentChoice(null);
-        setFineVendorPayFine(fine);
+    const handlePaySelectedFines = () => {
+        openFinePaymentChoice(selectedPayableFines);
     };
 
     const toggleFinePaymentSelection = (fine, checked) => {
@@ -6106,7 +6107,7 @@ export default function SalaryTab({
                                 <button
                                     type="button"
                                     disabled={!canVendor}
-                                    onClick={() => startVendorFinePayment(choiceFines)}
+                                    onClick={() => openFineVendorPaymentsMade(choiceFines)}
                                     className={`w-full flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors ${
                                         canVendor
                                             ? 'border-teal-200 hover:bg-teal-50 hover:border-teal-300'
@@ -6122,17 +6123,17 @@ export default function SalaryTab({
                                         </div>
                                         <div className="text-xs text-gray-500 mt-0.5">
                                             {canVendor
-                                                ? 'Vendor + Paid Through → Zoho Payments Made'
+                                                ? 'Opens Payments Made add page (Zoho vendor payment)'
                                                 : choiceFines.length > 1
                                                     ? 'Select a single fine to pay the vendor'
-                                                    : 'Accounts only · select an approved fine'}
+                                                    : 'Accounts only · select an approved fine with Zoho bill'}
                                         </div>
                                     </div>
                                 </button>
                                 <button
                                     type="button"
                                     disabled={!canCompany}
-                                    onClick={() => startCompanyFinePayment(choiceFines)}
+                                    onClick={() => startCompanyFineRefund(choiceFines)}
                                     className={`w-full flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors ${
                                         canCompany
                                             ? 'border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300'
@@ -6148,7 +6149,7 @@ export default function SalaryTab({
                                         </div>
                                         <div className="text-xs text-gray-500 mt-0.5">
                                             {canCompany
-                                                ? 'Transaction + Bank + Tax → Zoho Banking (under bank)'
+                                                ? 'Expense Refund form · choose bank · posts Zoho Expense Refund'
                                                 : 'No outstanding company recovery balance'}
                                         </div>
                                     </div>
@@ -6166,16 +6167,19 @@ export default function SalaryTab({
                 );
             })()}
 
-            <AddPaymentModal
-                isOpen={fineCompanyPayOpen}
-                prefill={fineCompanyPayPrefill}
+            <FineCompanyRefundModal
+                isOpen={fineCompanyRefundOpen}
+                employee={employee}
+                employeeId={employeeId}
+                fines={fineCompanyRefundFines}
+                getFineBalance={getFineFilteredBalance}
                 onClose={() => {
-                    setFineCompanyPayOpen(false);
-                    setFineCompanyPayPrefill(null);
+                    setFineCompanyRefundOpen(false);
+                    setFineCompanyRefundFines([]);
                 }}
                 onSuccess={() => {
-                    setFineCompanyPayOpen(false);
-                    setFineCompanyPayPrefill(null);
+                    setFineCompanyRefundOpen(false);
+                    setFineCompanyRefundFines([]);
                     setSelectedFinesForPayment([]);
                     axiosInstance
                         .get('/Payment', { params: { paidBy: employeeId } })
@@ -6184,17 +6188,6 @@ export default function SalaryTab({
                             setAllEmployeePayments(Array.isArray(pays) ? pays : []);
                         })
                         .catch(() => {});
-                }}
-            />
-
-            <FineVendorPayModal
-                isOpen={Boolean(fineVendorPayFine)}
-                fine={fineVendorPayFine}
-                returnTo={`${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`}
-                onClose={() => setFineVendorPayFine(null)}
-                onSuccess={() => {
-                    setFineVendorPayFine(null);
-                    setSelectedFinesForPayment([]);
                 }}
             />
 

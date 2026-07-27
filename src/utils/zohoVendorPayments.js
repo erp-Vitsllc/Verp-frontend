@@ -250,6 +250,42 @@ export function mapZohoPaymentAccounts(accounts) {
     return accounts.map(mapZohoPaymentAccount).filter(Boolean);
 }
 
+/** Map Zoho Banking (`/bankaccounts`) rows for Banking / Paid Through dropdowns. */
+export function mapZohoBankAccount(account) {
+    if (!account || typeof account !== 'object') return null;
+
+    const id = String(account.account_id || account.accountId || account.id || '').trim();
+    if (!id) return null;
+
+    const name = cleanText(account.account_name || account.accountName || account.name, '');
+    const type = cleanText(
+        account.account_type_formatted ||
+            account.account_type ||
+            account.accountType ||
+            '',
+        '',
+    );
+    const number = cleanText(
+        account.account_number || account.accountNumber || '',
+        '',
+    );
+
+    return {
+        id,
+        name,
+        code: cleanText(account.account_code || account.accountCode || '', ''),
+        type,
+        number,
+        label: number ? `${name} (${number})` : name || id,
+        raw: account,
+    };
+}
+
+export function mapZohoBankAccounts(accounts) {
+    if (!Array.isArray(accounts)) return [];
+    return accounts.map(mapZohoBankAccount).filter(Boolean);
+}
+
 export function mapZohoBillOption(bill) {
     if (!bill || typeof bill !== 'object') return null;
 

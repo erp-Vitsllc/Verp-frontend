@@ -11,8 +11,7 @@ import {
     fetchUtilityProviderVendorOptionsApi,
     removeUtilityProviderApi,
 } from '../utils/utilityBillsApi';
-
-const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024;
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 /** Assignment is a row action, not an entry form field. */
 const FORM_SKIP_KEYS = new Set(['assignment']);
@@ -261,19 +260,14 @@ export default function CreateUtilityEntryModal({
 
     const handleAttachmentFile = async (e) => {
         const file = e.target.files?.[0];
-        e.target.value = '';
         if (!file) return;
-        const isPdf =
-            file.type === 'application/pdf' ||
-            file.name.toLowerCase().endsWith('.pdf');
-        if (!isPdf) {
-            setError('Only PDF files are allowed for bill attachment.');
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
+            e.target.value = '';
+            setError(check.message);
             return;
         }
-        if (file.size > MAX_ATTACHMENT_BYTES) {
-            setError('Attachment must be 1.5 MB or smaller.');
-            return;
-        }
+        e.target.value = '';
         try {
             const dataUrl = await readFileAsDataUrl(file);
             setAttachment({
@@ -660,7 +654,7 @@ export default function CreateUtilityEntryModal({
                                 </label>
                                 <input
                                     type="file"
-                                    accept=".pdf,application/pdf"
+                                    accept={ERP_PDF_ACCEPT}
                                     onChange={handleAttachmentFile}
                                     className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-teal-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-teal-600"
                                 />
@@ -681,7 +675,7 @@ export default function CreateUtilityEntryModal({
                                         </button>
                                     </div>
                                 ) : (
-                                    <p className="text-xs text-gray-500">PDF only. Max 1.5 MB.</p>
+                                    <p className="text-xs text-gray-500">PDF only. Max 5 MB.</p>
                                 )}
                             </div>
                         ) : null}

@@ -1,22 +1,29 @@
 import React, { useState } from 'react';
-import { X, Search, Upload, FileText, AlertTriangle } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
+import { X, Upload, FileText, AlertTriangle } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 const EndOfLifeModal = ({ isOpen, onClose, assetName, onConfirm, type = "End of Life" }) => {
+    const { toast } = useToast();
     const [reason, setReason] = useState('');
     const [file, setFile] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState(null);
 
     const handleFileChange = (e) => {
-        const selectedFile = e.target.files[0];
-        if (selectedFile) {
-            const reader = new FileReader();
-            reader.readAsDataURL(selectedFile);
-            reader.onload = () => {
-                setFile(reader.result);
-            };
+        const selectedFile = e.target.files?.[0];
+        if (!selectedFile) return;
+        const check = validateErpUploadFile(selectedFile);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            if (e.target) e.target.value = '';
+            return;
         }
+        const reader = new FileReader();
+        reader.readAsDataURL(selectedFile);
+        reader.onload = () => {
+            setFile(reader.result);
+        };
     };
 
     const handleSubmit = async (e) => {
@@ -92,7 +99,7 @@ const EndOfLifeModal = ({ isOpen, onClose, assetName, onConfirm, type = "End of 
                                     type="file"
                                     onChange={handleFileChange}
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    accept={ERP_ATTACHMENT_ACCEPT}
                                 />
                                 <div className="w-full flex items-center gap-4 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm transition-all group-hover:border-rose-300 group-hover:bg-rose-50/30">
                                     <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 group-hover:text-rose-500 group-hover:border-rose-200 shadow-sm transition-all">
@@ -107,7 +114,7 @@ const EndOfLifeModal = ({ isOpen, onClose, assetName, onConfirm, type = "End of 
                                         ) : (
                                             <div>
                                                 <p className="font-bold text-slate-600 group-hover:text-rose-600 transition-colors">Click or drag file to upload</p>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Support: PDF, JPG, PNG</p>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">PDF (max 5 MB) or JPEG (max 2 MB)</p>
                                             </div>
                                         )}
                                     </div>

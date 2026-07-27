@@ -41,10 +41,16 @@ import {
     tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
 import { applyCarDrivenBySelection } from '../utils/vehicleCarDrivenBySelect';
+import {
+    ERP_JPEG_ACCEPT,
+    ERP_PDF_ACCEPT,
+    filterErpUploadFiles,
+    validateErpJpegFile,
+    validateErpPdfFile,
+} from '@/utils/uploadFileTypes';
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
-const PDF_MIME_TYPES = ['application/pdf'];
-const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg'];
-const MAX_IMAGE_UPLOAD_BYTES = 2 * 1024 * 1024;
+const PDF_ATTACHMENT_KINDS = new Set(['attachment', 'quotation2', 'quotation3']);
+const JPEG_ATTACHMENT_KINDS = new Set(['tireCondition']);
 
 function normalizeControllerEmployeeId(rawId) {
     const id = String(rawId || '').trim();
@@ -311,31 +317,24 @@ export default function VehicleAccidentRepairDetailForm({
             const file = e.target.files?.[0];
             if (!file) return;
 
-            const isPdfField = kind === 'attachment' || kind === 'quotation2' || kind === 'quotation3';
-            if (isPdfField && !PDF_MIME_TYPES.includes(file.type)) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Invalid file type',
-                    description: 'Only PDF files are allowed for attachments.',
-                });
-                if (e.target) e.target.value = '';
-                return;
-            }
-            if (kind === 'tireCondition') {
-                if (!IMAGE_MIME_TYPES.includes(file.type)) {
+            if (PDF_ATTACHMENT_KINDS.has(kind)) {
+                const check = validateErpPdfFile(file);
+                if (!check.ok) {
                     toast({
                         variant: 'destructive',
-                        title: 'Invalid image type',
-                        description: 'Only PNG and JPEG images are allowed.',
+                        title: 'Invalid file',
+                        description: check.message,
                     });
                     if (e.target) e.target.value = '';
                     return;
                 }
-                if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+            } else if (JPEG_ATTACHMENT_KINDS.has(kind)) {
+                const check = validateErpJpegFile(file);
+                if (!check.ok) {
                     toast({
                         variant: 'destructive',
-                        title: 'Image too large',
-                        description: 'Image size must be 2 MB or less.',
+                        title: 'Invalid file',
+                        description: check.message,
                     });
                     if (e.target) e.target.value = '';
                     return;
@@ -387,24 +386,18 @@ export default function VehicleAccidentRepairDetailForm({
 
     const appendAccidentImagesFromFiles = useCallback(
         (fileList) => {
-            const files = Array.from(fileList || []);
-            files.forEach((file) => {
-                if (!IMAGE_MIME_TYPES.includes(file.type)) {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Invalid image type',
-                        description: 'Only PNG and JPEG images are allowed.',
-                    });
-                    return;
-                }
-                if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Image too large',
-                        description: 'Each image must be 2 MB or less.',
-                    });
-                    return;
-                }
+            const { accepted, firstError } = filterErpUploadFiles(fileList, {
+                allowPdf: false,
+                allowJpeg: true,
+            });
+            if (firstError) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid file',
+                    description: firstError,
+                });
+            }
+            accepted.forEach((file) => {
                 const reader = new FileReader();
                 reader.onloadend = () => {
                     const base64 = String(reader.result || '').split(',')[1] || '';
@@ -558,7 +551,7 @@ export default function VehicleAccidentRepairDetailForm({
                     <input
                         type="file"
                         className="sr-only"
-                        accept={kind === 'tireCondition' ? '.jpg,.jpeg,.png,image/jpeg,image/png' : '.pdf,application/pdf'}
+                        accept={kind === 'tireCondition' ? ERP_JPEG_ACCEPT : ERP_PDF_ACCEPT}
                         disabled={fieldsDisabled}
                         onChange={(e) => {
                             handleFileChange(e, kind);
@@ -891,7 +884,7 @@ export default function VehicleAccidentRepairDetailForm({
                                         ref={photoInputRef}
                                         type="file"
                                         multiple
-                                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                        accept={ERP_JPEG_ACCEPT}
                                         className="hidden"
                                         onChange={(e) => {
                                             appendAccidentImagesFromFiles(e.target.files);

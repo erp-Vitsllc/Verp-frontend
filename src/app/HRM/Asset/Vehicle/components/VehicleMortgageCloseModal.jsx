@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
+import { validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 const fileToPayload = (file) =>
     new Promise((resolve) => {
@@ -36,14 +37,17 @@ export default function VehicleMortgageCloseModal({ isOpen, onClose, assetMongoI
 
     const handleClearanceFileChange = (e) => {
         const file = e.target.files?.[0] || null;
-        if (file && !isPdfUploadFile(file)) {
-            toast({
-                variant: 'destructive',
-                title: 'Invalid file',
-                description: 'Only PDF files are allowed.',
-            });
-            e.target.value = '';
-            return;
+        if (file) {
+            const check = validateErpPdfFile(file);
+            if (!check.ok) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid file',
+                    description: check.message,
+                });
+                e.target.value = '';
+                return;
+            }
         }
         setClearanceFile(file);
     };

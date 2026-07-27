@@ -36,9 +36,13 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleTireChangeDetailUi';
+import {
+    ERP_ATTACHMENT_ACCEPT,
+    ERP_JPEG_ACCEPT,
+    filterErpUploadFiles,
+    validateErpUploadFile,
+} from '@/utils/uploadFileTypes';
 
-const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg'];
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const PHOTO_SLOTS = 8;
 
 function directConditionImageSrc(img) {
@@ -78,7 +82,7 @@ function UploadField({ label, fileName, existingUrl, disabled, onFile }) {
                     <input
                         type="file"
                         className="sr-only"
-                        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                        accept={ERP_ATTACHMENT_ACCEPT}
                         disabled={disabled}
                         onChange={(e) => {
                             onFile(e.target.files?.[0]);
@@ -213,6 +217,11 @@ export default function VehicleTireChangeReturnCard({
 
     const handleDocFile = (kind, file) => {
         if (!file) return;
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            return;
+        }
         readUploadFile(file, (f, base64) => {
             if (kind === 'garageReport') {
                 setFormData((prev) => ({
@@ -243,16 +252,14 @@ export default function VehicleTireChangeReturnCard({
     };
 
     const appendPhotos = (files) => {
-        const list = Array.from(files || []);
-        list.forEach((file) => {
-            if (!IMAGE_MIME_TYPES.includes(file.type) && !/\.(jpe?g|png)$/i.test(file.name)) {
-                toast({ variant: 'destructive', title: 'Invalid image', description: 'Use JPG or PNG only.' });
-                return;
-            }
-            if (file.size > MAX_IMAGE_BYTES) {
-                toast({ variant: 'destructive', title: 'File too large', description: 'Max 2 MB per image.' });
-                return;
-            }
+        const { accepted, firstError } = filterErpUploadFiles(files, {
+            allowPdf: false,
+            allowJpeg: true,
+        });
+        if (firstError) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: firstError });
+        }
+        accepted.forEach((file) => {
             readUploadFile(file, (f, base64) => {
                 setFormData((prev) => ({
                     ...prev,
@@ -427,7 +434,7 @@ export default function VehicleTireChangeReturnCard({
                                 type="file"
                                 multiple
                                 className="hidden"
-                                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                accept={ERP_JPEG_ACCEPT}
                                 onChange={(e) => {
                                     appendPhotos(e.target.files);
                                     e.target.value = '';

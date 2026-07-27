@@ -2,6 +2,8 @@
 
 import { useRef } from 'react';
 import { ImageIcon, Loader2, Plus, Upload } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import { HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS } from '../utils/vehicleHandoverReceiverAssessment';
 
 export default function VehicleHandoverBodyConditionPhotoCell({
@@ -107,6 +109,7 @@ export function BodyConditionPhotoPickerOverlay({
     onCancel,
 }) {
     const fileInputRef = useRef(null);
+    const { toast } = useToast();
 
     const previousLabel = previousPhotoLoading
         ? 'Loading previous…'
@@ -158,11 +161,23 @@ export function BodyConditionPhotoPickerOverlay({
             <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept={ERP_JPEG_ACCEPT}
                 className="hidden"
                 onChange={(event) => {
                     const file = event.target.files?.[0];
-                    if (file) onChooseNew?.(file);
+                    if (file) {
+                        const check = validateErpJpegFile(file);
+                        if (!check.ok) {
+                            toast({
+                                variant: 'destructive',
+                                title: 'Invalid file',
+                                description: check.message,
+                            });
+                            event.target.value = '';
+                            return;
+                        }
+                        onChooseNew?.(file);
+                    }
                     event.target.value = '';
                 }}
             />

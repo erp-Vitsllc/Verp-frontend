@@ -11,6 +11,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import {
     Camera,
@@ -62,16 +63,17 @@ export default function UserProfilePage() {
     };
 
     const handleFileSelect = async (event) => {
-        const file = event.target.files[0];
+        const file = event.target.files?.[0];
         if (!file) return;
 
-        // Basic validation
-        if (!file.type.startsWith('image/')) {
+        const check = validateErpJpegFile(file);
+        if (!check.ok) {
             toast({
                 title: "Invalid file",
-                description: "Please select an image file.",
+                description: check.message,
                 variant: "destructive"
             });
+            event.target.value = '';
             return;
         }
 
@@ -271,7 +273,7 @@ export default function UserProfilePage() {
                                             <input
                                                 type="file"
                                                 className="hidden"
-                                                accept=".jpg,.jpeg,.png"
+                                                accept={ERP_JPEG_ACCEPT}
                                                 onChange={handleFileSelect}
                                             />
                                         </label>

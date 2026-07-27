@@ -5,7 +5,8 @@ import { Plus, Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { resolveMortgageLoanAmount } from '../lib/vehicleDispositionFinancialDefaults';
-import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
+import { validateErpPdfFile } from '@/utils/uploadFileTypes';
 import { saveVehicleProfileCardOrQueue } from '../lib/vehicleProfileCardQueueSave';
 
 /** Allow empty string or partial decimal input while typing / backspacing. */
@@ -62,14 +63,17 @@ export default function VehicleMortgageModal({
 
     const handleExtraAttachmentFile = (index, e) => {
         const file = e.target.files?.[0] || null;
-        if (file && !isPdfUploadFile(file)) {
-            toast({
-                variant: 'destructive',
-                title: 'Invalid file',
-                description: 'Only PDF files are allowed.',
-            });
-            e.target.value = '';
-            return;
+        if (file) {
+            const check = validateErpPdfFile(file);
+            if (!check.ok) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid file',
+                    description: check.message,
+                });
+                e.target.value = '';
+                return;
+            }
         }
         setFormData((p) => {
             const next = [...p.extraAttachments];

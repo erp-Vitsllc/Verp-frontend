@@ -1,3 +1,5 @@
+import { validateErpPdfFile } from './uploadFileTypes';
+
 const EJARI_TYPE_REGEX = /^[A-Za-z0-9\s&(),.-]{3,100}$/;
 
 export function normalizeEjariType(value) {
@@ -70,11 +72,8 @@ export function validateEjariExpiryDate(value, issueDate) {
 
 export function validateEjariPdfFile(file) {
     if (!file) return 'Attachment is required';
-    const name = String(file.name || '').toLowerCase();
-    if (!name.endsWith('.pdf')) return 'Only PDF files are allowed';
-    const mime = String(file.type || '').toLowerCase();
-    if (mime && mime !== 'application/pdf') return 'Only PDF files are allowed';
-    if (file.size > 5 * 1024 * 1024) return 'File size must not exceed 5MB';
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return check.message;
     return '';
 }
 

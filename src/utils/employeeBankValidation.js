@@ -5,8 +5,9 @@ import {
     validateSWIFT,
 } from '@/utils/validation';
 import { stripDangerousText } from '@/utils/employeeAddValidation';
+import { validateErpPdfFile, ERP_PDF_MAX_BYTES } from './uploadFileTypes';
 
-export const BANK_PDF_MAX_BYTES = 10 * 1024 * 1024;
+export const BANK_PDF_MAX_BYTES = ERP_PDF_MAX_BYTES;
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -47,12 +48,8 @@ export function validateEmployeeBankAttachment({
     }
     if (file) {
         if (file.size === 0) return ok('Empty files are not allowed');
-        if (file.size > BANK_PDF_MAX_BYTES) return ok('File size must not exceed 10MB');
-        const name = String(file.name || '').toLowerCase();
-        const mime = String(file.type || '').toLowerCase();
-        if (mime !== 'application/pdf' && !name.endsWith('.pdf')) {
-            return ok('Only PDF files are allowed');
-        }
+        const check = validateErpPdfFile(file);
+        if (!check.ok) return ok(check.message);
     }
     return ok();
 }

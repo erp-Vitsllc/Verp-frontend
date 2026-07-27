@@ -13,9 +13,9 @@ import {
 import {
     PDF_FILE_ACCEPT,
     isInvoiceDocumentLabel,
-    isPdfUploadFile,
     insuranceInvoiceAttachmentForDoc,
 } from '../utils/vehicleDocumentCardRows';
+import { validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 const emptyInvoiceRow = () => ({
     rowDocId: null,
@@ -156,11 +156,12 @@ export default function VehicleInsuranceModal({
         e.target.value = '';
         if (!file) return;
         const doc = formData.documents[index];
-        if (!isPdfUploadFile(file)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Only PDF files are allowed.',
+                description: check.message,
             });
             return;
         }
@@ -184,11 +185,12 @@ export default function VehicleInsuranceModal({
             setFormData((prev) => ({ ...prev, invoice: emptyInvoiceRow() }));
             return;
         }
-        if (!isPdfUploadFile(file)) {
+        const check = validateErpPdfFile(file);
+        if (!check.ok) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Invoice must be a PDF file.',
+                description: check.message,
             });
             return;
         }

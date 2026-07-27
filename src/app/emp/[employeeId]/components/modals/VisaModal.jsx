@@ -9,6 +9,7 @@ import {
     validateEmployeeVisaForm,
     visaTypeLabel,
 } from '@/utils/employeeVisaValidation';
+import { ERP_PDF_ACCEPT } from '@/utils/uploadFileTypes';
 
 
 export default function VisaModal({
@@ -347,7 +348,7 @@ export default function VisaModal({
                                     {input.type === 'file' ? (
                                         <input
                                             type="file"
-                                            accept=".pdf,application/pdf"
+                                            accept={ERP_PDF_ACCEPT}
                                             onChange={handleFileChange}
                                             className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                             disabled={saving}
@@ -451,7 +452,7 @@ export default function VisaModal({
                                         <p className="text-xs text-red-500">{localErrors[input.field]}</p>
                                     )}
                                     {input.type === 'file' && (
-                                        <p className="text-xs text-gray-500 mt-1">Upload file in PDF format only (Max 10MB)</p>
+                                        <p className="text-xs text-gray-500 mt-1">Upload file in PDF format only (Max 5MB)</p>
                                     )}
                                     {input.field === 'file' && (localForm.file || localForm.fileName) && (
                                         <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">

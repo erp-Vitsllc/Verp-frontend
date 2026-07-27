@@ -8,6 +8,7 @@ import {
     validateEmployeeEmiratesIdFile,
     validateEmployeeEmiratesIdForm,
 } from '@/utils/employeeEmiratesIdValidation';
+import { ERP_PDF_ACCEPT } from '@/utils/uploadFileTypes';
 
 export default function EmiratesIdModal({
     isOpen,
@@ -258,12 +259,12 @@ export default function EmiratesIdModal({
                             <div className="w-full md:flex-1 flex flex-col gap-2">
                                 <input
                                     type="file"
-                                    accept=".pdf,application/pdf"
+                                    accept={ERP_PDF_ACCEPT}
                                     onChange={handleFileChange}
                                     className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={saving}
                                 />
-                                <p className="text-xs text-gray-500">Upload file in PDF format only (Max 10MB)</p>
+                                <p className="text-xs text-gray-500">Upload file in PDF format only (Max 5MB)</p>
                                 {localErrors.file && (
                                     <p className="text-xs text-red-500">{localErrors.file}</p>
                                 )}

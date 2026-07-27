@@ -11,6 +11,7 @@ import {
 } from '@/utils/employeeSignatureValidation';
 import SignatureModal from '../modals/SignatureModal';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { ERP_JPEG_ACCEPT } from '@/utils/uploadFileTypes';
 import {
     resolveEmployeeCardCanCreate,
     resolveEmployeeCardCanEdit,
@@ -266,7 +267,7 @@ export default function SignatureCard({
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept="image/jpeg,image/jpg,image/png,.jpg,.jpeg,.png"
+                accept={ERP_JPEG_ACCEPT}
                 onChange={handleFileUpload}
             />
 

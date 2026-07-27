@@ -1,7 +1,7 @@
 import { validateDate } from '@/utils/validation';
+import { validateErpPdfFile } from './uploadFileTypes';
 
 const EMIRATES_ID_REGEX = /^[0-9]{15}$/;
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -67,12 +67,8 @@ export function validateEmployeeEmiratesIdFile({ file, fileName, fileBase64, req
     }
     if (file) {
         if (file.size === 0) return ok('Empty files are not allowed');
-        if (file.size > MAX_FILE_BYTES) return ok('File size must not exceed 10MB');
-        const ext = `.${String(file.name || '').split('.').pop().toLowerCase()}`;
-        const mime = String(file.type || '').toLowerCase();
-        if (mime !== 'application/pdf' && ext !== '.pdf') {
-            return ok('Only PDF file format is allowed');
-        }
+        const check = validateErpPdfFile(file);
+        if (!check.ok) return ok(check.message);
     }
     return ok();
 }

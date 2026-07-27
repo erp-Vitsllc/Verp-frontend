@@ -1,9 +1,9 @@
 import { validateDate } from '@/utils/validation';
 import { stripDangerousText } from '@/utils/employeeAddValidation';
+import { validateErpUploadFile, ERP_PDF_MAX_BYTES } from './uploadFileTypes';
 
 const COMPANY_DESIGNATION = /^[A-Za-z0-9\s]+$/;
-export const EXPERIENCE_FILE_MAX_BYTES = 5 * 1024 * 1024;
-const ALLOWED_EXPERIENCE_MIMES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+export const EXPERIENCE_FILE_MAX_BYTES = ERP_PDF_MAX_BYTES;
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -52,14 +52,8 @@ export function validateExperienceCertificateFile(file, { requireFile = true, ha
         return requireFile && !hasExisting ? ok('Certificate is required') : ok();
     }
     if (file.size === 0) return ok('Empty files are not allowed');
-    if (file.size > EXPERIENCE_FILE_MAX_BYTES) return ok('File size must not exceed 5MB');
-    const name = String(file.name || '').toLowerCase();
-    const mime = String(file.type || '').toLowerCase();
-    const ext = name.split('.').pop();
-    const allowedExt = ['pdf', 'jpg', 'jpeg', 'png'];
-    if (!allowedExt.includes(ext) || (mime && !ALLOWED_EXPERIENCE_MIMES.includes(mime))) {
-        return ok('Certificate must be PDF, JPEG, or PNG');
-    }
+    const check = validateErpUploadFile(file, { allowPdf: true, allowJpeg: true });
+    if (!check.ok) return ok(check.message);
     return ok();
 }
 

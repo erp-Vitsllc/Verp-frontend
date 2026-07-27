@@ -2,8 +2,11 @@
 
 import { useState, useRef } from 'react';
 import { X, Upload, CheckCircle, FileText, DollarSign } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 export default function MarkAsLiveModal({ isOpen, onClose, onConfirm, assetName }) {
+    const { toast } = useToast();
     const [serviceReport, setServiceReport] = useState('');
     const [amount, setAmount] = useState('');
     const [attachment, setAttachment] = useState(null);
@@ -27,6 +30,12 @@ export default function MarkAsLiveModal({ isOpen, onClose, onConfirm, assetName 
     const handleFileChange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+            if (e.target) e.target.value = '';
+            return;
+        }
         const parsed = await readFile(file);
         setAttachment(parsed);
     };
@@ -138,7 +147,7 @@ export default function MarkAsLiveModal({ isOpen, onClose, onConfirm, assetName 
                                 {attachment ? attachment.name : 'Click to upload report / invoice (PDF / image)'}
                             </span>
                         </div>
-                        <input ref={fileRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFileChange} />
+                        <input ref={fileRef} type="file" className="hidden" accept={ERP_ATTACHMENT_ACCEPT} onChange={handleFileChange} />
                     </div>
                 </div>
 

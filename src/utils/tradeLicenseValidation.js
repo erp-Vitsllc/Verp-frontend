@@ -6,6 +6,7 @@ import {
     collectOwnerProfileIdsFromCompanies,
     collectOwnerProfileIdsFromOwnerList,
 } from './ownerProfileId';
+import { validateErpPdfFile } from './uploadFileTypes';
 
 export {
     generateOwnerProfileId,
@@ -161,10 +162,8 @@ export function validateTradeLicenseFields(data, { existingOwnerNames = [], requ
 
 export function validateTradeLicensePdfFile(file) {
     if (!file) return 'Attachment is required';
-    if (file.type && file.type !== 'application/pdf') return 'Only PDF files are allowed';
-    const name = String(file.name || '').toLowerCase();
-    if (!name.endsWith('.pdf')) return 'Only PDF files are allowed';
-    if (file.size > 10 * 1024 * 1024) return 'File size must not exceed 10MB';
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return check.message;
     return '';
 }
 

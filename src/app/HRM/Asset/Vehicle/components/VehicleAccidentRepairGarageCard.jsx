@@ -31,8 +31,7 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
-
-const PDF_MIME_TYPES = ['application/pdf'];
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 export default function VehicleAccidentRepairGarageCard({
     asset,
@@ -78,11 +77,12 @@ export default function VehicleAccidentRepairGarageCard({
         (e) => {
             const file = e.target.files?.[0];
             if (!file) return;
-            if (!PDF_MIME_TYPES.includes(file.type)) {
+            const check = validateErpPdfFile(file);
+            if (!check.ok) {
                 toast({
                     variant: 'destructive',
-                    title: 'Invalid file type',
-                    description: 'Claim acknowledge must be a PDF.',
+                    title: 'Invalid file',
+                    description: check.message,
                 });
                 if (e.target) e.target.value = '';
                 return;
@@ -216,7 +216,7 @@ export default function VehicleAccidentRepairGarageCard({
                                         <input
                                             type="file"
                                             className="sr-only"
-                                            accept=".pdf,application/pdf"
+                                            accept={ERP_PDF_ACCEPT}
                                             disabled={fieldsDisabled}
                                             onChange={(e) => {
                                                 handleClaimUpload(e);

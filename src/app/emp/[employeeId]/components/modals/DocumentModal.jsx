@@ -2,6 +2,7 @@
 
 import { Upload, FileText, X } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
+import { ERP_PDF_ACCEPT } from '@/utils/uploadFileTypes';
 
 function FieldRow({ label, children, error }) {
     return (
@@ -393,12 +394,12 @@ export default function DocumentModal({
                             >
                                 <Upload className="text-gray-300 transition-all group-hover:text-blue-500" />
                                 <span className="text-sm font-semibold text-gray-400 transition-all group-hover:text-blue-600">
-                                    Upload PDF (max 10MB)
+                                    Upload PDF (max 5MB)
                                 </span>
                                 <input
                                     ref={documentFileRef}
                                     type="file"
-                                    accept=".pdf,application/pdf"
+                                    accept={ERP_PDF_ACCEPT}
                                     onChange={onDocumentFileChange}
                                     className="hidden"
                                     disabled={savingDocument}

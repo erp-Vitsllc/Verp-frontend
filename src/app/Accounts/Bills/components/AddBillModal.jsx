@@ -13,6 +13,7 @@ import {
 } from '@/utils/zohoVendorPayments';
 import VendorSidePanel from './VendorSidePanel';
 import BillActivityPanel from './BillActivityPanel';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 const selectStyles = {
     control: (base, state) => ({
@@ -181,6 +182,23 @@ export default function AddBillModal({
 
     const setField = useCallback((key, value) => {
         setForm((prev) => ({ ...prev, [key]: value }));
+    }, []);
+
+    const handleAttachmentChange = useCallback((event) => {
+        const file = event.target.files?.[0];
+        if (!file) {
+            setAttachmentName('');
+            return;
+        }
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            event.target.value = '';
+            setAttachmentName('');
+            setError(check.message);
+            return;
+        }
+        setAttachmentName(file.name);
+        setError('');
     }, []);
 
     const loadVendorDetails = useCallback(async (vendorId, { openPanel = true } = {}) => {
@@ -944,11 +962,8 @@ export default function AddBillModal({
                                                 <input
                                                     type="file"
                                                     className="hidden"
-                                                    onChange={(event) =>
-                                                        setAttachmentName(
-                                                            event.target.files?.[0]?.name || '',
-                                                        )
-                                                    }
+                                                    accept={ERP_ATTACHMENT_ACCEPT}
+                                                    onChange={handleAttachmentChange}
                                                 />
                                             </label>
                                             {attachmentName ? (
@@ -957,8 +972,9 @@ export default function AddBillModal({
                                                 </span>
                                             ) : null}
                                             <p className="text-[11px] text-slate-400">
-                                                You can select a file here for reference. Zoho bill
-                                                attachments are not uploaded by this form yet.
+                                                PDF max 5 MB, JPEG max 2 MB. You can select a file
+                                                here for reference. Zoho bill attachments are not
+                                                uploaded by this form yet.
                                             </p>
                                         </div>
 

@@ -105,14 +105,8 @@ export function canDeleteVehicleAsset() {
 }
 
 export function canAccessCreateService() {
-    return (
-        isAdmin() ||
-        hasModuleFlag('hrm_asset_vehicle_create_service', 'isView') ||
-        hasPermission('hrm_asset_vehicle_create_service', 'isCreate') ||
-        hasPermission('hrm_asset_vehicle_create_service', 'isEdit') ||
-        hasPermission('hrm_asset_vehicle_create_service', 'isDelete') ||
-        hasPermission('hrm_asset_vehicle_create_service', 'isDownload')
-    );
+    // Create + Initiate are open to anyone who can open Vehicle.
+    return canAccessVehicleListPage() || canAccessVehicleDetailsPage();
 }
 
 export function canAccessAddToolsAsset() {

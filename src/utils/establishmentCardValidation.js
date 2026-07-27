@@ -1,3 +1,5 @@
+import { validateErpPdfFile } from './uploadFileTypes';
+
 const CARD_NUMBER_REGEX = /^[A-Z0-9-]{4,30}$/;
 
 
@@ -70,12 +72,9 @@ export function validateEstablishmentCardExpiryDate(value) {
 
 export function validateEstablishmentCardAttachmentFile(file) {
     if (!file) return 'Attachment is required';
-    const name = String(file.name || '').toLowerCase();
-    if (!name.endsWith('.pdf')) return 'Only PDF files are allowed';
-    const mime = String(file.type || '').toLowerCase();
-    if (mime && mime !== 'application/pdf') return 'Only PDF files are allowed';
-    if (file.size > 5 * 1024 * 1024) return 'File size must not exceed 5MB';
     if (file.size <= 0) return 'Attachment cannot be empty';
+    const check = validateErpPdfFile(file);
+    if (!check.ok) return check.message;
     return '';
 }
 

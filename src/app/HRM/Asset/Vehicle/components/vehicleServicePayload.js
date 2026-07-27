@@ -215,12 +215,12 @@ function flags(formData) {
     const isCarWash = formData.serviceType === 'Car Wash';
     const requiresKmSchedule = isTireChange || isCarWash;
     const requiresCurrentKmOnly = isMechanicalWork || isBodyWork;
-    /** Tire/Mechanical/Body Work use 3; Oil uses 3 only in Amount mode. */
+    /** Oil may upload quotes optionally; only Tire/Mechanical/Body require quotation 1. */
+    const allowsOptionalOilQuotations = isOilService && formData.amountMode === 'amount';
     const requiresThreeQuotations =
         isTireChange ||
         isMechanicalWork ||
-        isBodyWork ||
-        (isOilService && formData.amountMode === 'amount');
+        isBodyWork;
     /** Taxi, Other: one mandatory combined attachment. */
     const usesSingleMandatoryAttachment =
         formData.serviceType === 'Taxi Charge' ||
@@ -234,6 +234,7 @@ function flags(formData) {
         isCarWash,
         requiresKmSchedule,
         requiresCurrentKmOnly,
+        allowsOptionalOilQuotations,
         requiresThreeQuotations,
         usesSingleMandatoryAttachment,
     };
@@ -299,18 +300,6 @@ export function validateVehicleServiceForm(formData, options = {}) {
     if (requiresThreeQuotations && formData.amountMode === 'amount') {
         const q1Amount = Number(formData.quotation1Amount);
         if (!Number.isFinite(q1Amount) || q1Amount <= 0) e.quotation1Amount = 'Quotation 1 amount is required';
-
-        const hasQ2 = !!(formData.quotation2Base64 && formData.quotation2Name) || !!formData.existingQuotation2Url;
-        const hasQ3 = !!(formData.quotation3Base64 && formData.quotation3Name) || !!formData.existingQuotation3Url;
-
-        if (hasQ2) {
-            const q2Amount = Number(formData.quotation2Amount);
-            if (!Number.isFinite(q2Amount) || q2Amount <= 0) e.quotation2Amount = 'Quotation 2 amount is required';
-        }
-        if (hasQ3) {
-            const q3Amount = Number(formData.quotation3Amount);
-            if (!Number.isFinite(q3Amount) || q3Amount <= 0) e.quotation3Amount = 'Quotation 3 amount is required';
-        }
     }
     if (requiresCurrentKmOnly && !formData.currentKm) e.currentKm = 'Current KM is required';
     if (isBodyWork && formData.liableOn === 'person' && !formData.liablePersonId) {
@@ -486,7 +475,7 @@ export function buildAddServiceBody(formData, options = {}) {
     const remarkObj = extraMeta || mechanicalMeta || bodyWorkMeta || accidentMeta || {};
     const selectedVehicleOwner = String(formData.vehicleOwnerEmployeeId || '').trim();
     remarkObj.vehicleOwnerEmployeeId = selectedVehicleOwner === ASSET_CONTROLLER_VALUE ? '' : selectedVehicleOwner;
-    if (requiresThreeQuotations && !isAccidentRepair) {
+    if ((requiresThreeQuotations || isOilService) && !isAccidentRepair) {
         remarkObj.quotationAmounts = {
             q1: formData.quotation1Amount !== '' ? Number(formData.quotation1Amount) : undefined,
             q2: formData.quotation2Amount !== '' ? Number(formData.quotation2Amount) : undefined,
@@ -543,7 +532,7 @@ export function buildAddServiceBody(formData, options = {}) {
                   }
                 : null,
         quotation2:
-            (requiresThreeQuotations || isAccidentRepair) &&
+            (requiresThreeQuotations || isAccidentRepair || isOilService) &&
             formData.quotation2Base64 &&
             formData.quotation2Name
                 ? {
@@ -553,7 +542,7 @@ export function buildAddServiceBody(formData, options = {}) {
                 }
                 : null,
         quotation3:
-            (requiresThreeQuotations || isAccidentRepair) &&
+            (requiresThreeQuotations || isAccidentRepair || isOilService) &&
             formData.quotation3Base64 &&
             formData.quotation3Name
                 ? {

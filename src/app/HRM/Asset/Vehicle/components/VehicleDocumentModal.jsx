@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { X, Save, FileText, Calendar } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, assetId, docType, existingDoc, isRenew }) {
     const { toast } = useToast();
@@ -57,6 +58,24 @@ export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, asset
     const handleFileChange = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            setErrors((prev) => ({ ...prev, file: check.message }));
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: check.message,
+            });
+            if (e.target) e.target.value = '';
+            return;
+        }
+
+        setErrors((prev) => {
+            const next = { ...prev };
+            delete next.file;
+            return next;
+        });
 
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -248,7 +267,7 @@ export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, asset
                                 type="file"
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                 onChange={handleFileChange}
-                                accept=".pdf,.jpg,.jpeg,.png"
+                                accept={ERP_ATTACHMENT_ACCEPT}
                             />
                             <div className="text-center">
                                 {formData.fileName ? (
@@ -263,7 +282,7 @@ export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, asset
                                             <FileText size={20} />
                                         </div>
                                         <p className="text-xs font-medium text-gray-600">Click to upload document</p>
-                                        <p className="text-[10px] text-gray-400">PDF, JPG or PNG (Max 5MB)</p>
+                                        <p className="text-[10px] text-gray-400">PDF (max 5 MB) or JPEG (max 2 MB)</p>
                                     </div>
                                 )}
                             </div>

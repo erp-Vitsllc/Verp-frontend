@@ -1,11 +1,15 @@
 /** Shared strict validation for Violation → Vehicle Fine forms */
 
 import {
+    ERP_JPEG_MAX_BYTES,
+    ERP_PDF_MAX_BYTES,
+} from '@/utils/uploadFileTypes';
+import {
     shouldValidateFineDeductionSchedule,
     validateFineDeductionVsVisa,
 } from './validateFineDeductionVsVisa';
 
-export const VEHICLE_FINE_IMAGE_MIME = ['image/jpeg', 'image/jpg', 'image/png'];
+export const VEHICLE_FINE_IMAGE_MIME = ['image/jpeg', 'image/jpg'];
 
 export const VEHICLE_FINE_LIMITS = {
     maxFineAmount: 999999.99,
@@ -15,7 +19,10 @@ export const VEHICLE_FINE_LIMITS = {
     maxDescriptionLength: 2000,
     minCompanyDescriptionLength: 10,
     maxCompanyDescriptionLength: 1000,
-    maxAttachmentBytes: 5 * 1024 * 1024,
+    maxImageBytes: ERP_JPEG_MAX_BYTES,
+    maxPdfBytes: ERP_PDF_MAX_BYTES,
+    /** @deprecated Prefer maxImageBytes / maxPdfBytes — kept for image slot checks */
+    maxAttachmentBytes: ERP_JPEG_MAX_BYTES,
     maxImageAttachments: 10,
     payableDurationMin: 1,
     payableDurationMax: 6,
@@ -25,7 +32,6 @@ export const VEHICLE_FINE_ALLOWED_MIME = [
     'application/pdf',
     'image/jpeg',
     'image/jpg',
-    'image/png',
 ];
 
 export function getVehicleFinePayableTotal(fineAmount, serviceCharge) {
@@ -261,10 +267,10 @@ export function validateVehicleFine(input, options = {}) {
             : 0;
         const totalImages = imageCount + existingImageCount;
         if (totalImages < 1) {
-            errors.attachment = 'At least one damage image is required (JPG or PNG)';
+            errors.attachment = 'At least one damage image is required (JPEG)';
         }
     } else if (!hasExistingAttachment && !input.attachmentBase64) {
-        errors.attachment = 'Supporting document is required (PDF, JPG, or PNG)';
+        errors.attachment = 'Supporting document is required (PDF or JPEG)';
     }
 
     return {

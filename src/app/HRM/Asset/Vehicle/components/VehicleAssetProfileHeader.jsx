@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useCallback } from 'react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import { Camera, CheckCircle2, User, UserX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
 import { computeVehicleProfileCompletionPercent, getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
@@ -80,12 +81,14 @@ export default function VehicleAssetProfileHeader({
     const handleFileSelect = (e) => {
         const file = e.target.files?.[0];
         if (file) {
-            if (!file.type.startsWith('image/')) {
+            const check = validateErpJpegFile(file);
+            if (!check.ok) {
                 toast({
                     variant: "destructive",
                     title: "Invalid file",
-                    description: "Please select a valid image file"
+                    description: check.message
                 });
+                if (e.target) e.target.value = '';
                 return;
             }
             const reader = new FileReader();
@@ -111,7 +114,7 @@ export default function VehicleAssetProfileHeader({
             }
 
             const canvas = avatarEditorRef.current.getImageScaledToCanvas();
-            const croppedImage = canvas.toDataURL('image/png', 1.0);
+            const croppedImage = canvas.toDataURL('image/jpeg', 0.92);
 
             const assetId = asset?._id || asset?.id;
             if (!assetId) throw new Error('Asset ID not found');
@@ -306,7 +309,7 @@ export default function VehicleAssetProfileHeader({
                 <div className="relative group cursor-pointer" onClick={() => {
                     const input = document.createElement('input');
                     input.type = 'file';
-                    input.accept = 'image/*';
+                    input.accept = ERP_JPEG_ACCEPT;
                     input.onchange = handleFileSelect;
                     input.click();
                 }}>

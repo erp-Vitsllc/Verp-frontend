@@ -8,6 +8,7 @@ import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServi
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import { resolveCarDrivenByLabel } from '@/app/HRM/Asset/Vehicle/utils/vehicleCarDrivenBySelect';
+import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 const fieldInput =
     'w-full min-h-[36px] px-2.5 py-1.5 bg-white border border-black rounded text-sm text-slate-900 outline-none focus:ring-1 focus:ring-slate-400';
@@ -763,15 +764,23 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         };
     };
 
-    const handleServiceReportUpload = (file) => {
+    const readWorkflowUploadFile = (file, onLoaded, onFail) => {
         if (!file) {
-            setAccidentStatusForm((prev) => ({ ...prev, serviceReport: { name: '', data: '', mime: '' } }));
+            onLoaded?.(null);
             return;
         }
-        setServiceReportFileReading(true);
+        const check = validateErpUploadFile(file);
+        if (!check.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: check.message,
+            });
+            onFail?.();
+            return;
+        }
         const reader = new FileReader();
         reader.onloadend = () => {
-            setServiceReportFileReading(false);
             const raw = String(reader.result || '').trim();
             if (!raw) {
                 toast({
@@ -779,26 +788,43 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                     title: 'Read failed',
                     description: 'Could not read the selected file. Try again or use a smaller PDF/image.',
                 });
+                onFail?.();
                 return;
             }
-            setAccidentStatusForm((prev) => ({
-                ...prev,
-                serviceReport: {
-                    name: file.name,
-                    data: raw,
-                    mime: file.type || 'application/pdf',
-                },
-            }));
+            onLoaded?.({
+                name: file.name,
+                data: raw,
+                mime: file.type || 'application/pdf',
+            });
         };
         reader.onerror = () => {
-            setServiceReportFileReading(false);
             toast({
                 variant: 'destructive',
                 title: 'Read failed',
                 description: 'The browser could not read this file.',
             });
+            onFail?.();
         };
         reader.readAsDataURL(file);
+    };
+
+    const handleServiceReportUpload = (file) => {
+        if (!file) {
+            setAccidentStatusForm((prev) => ({ ...prev, serviceReport: { name: '', data: '', mime: '' } }));
+            return;
+        }
+        setServiceReportFileReading(true);
+        readWorkflowUploadFile(
+            file,
+            (payload) => {
+                setServiceReportFileReading(false);
+                setAccidentStatusForm((prev) => ({
+                    ...prev,
+                    serviceReport: payload,
+                }));
+            },
+            () => setServiceReportFileReading(false),
+        );
     };
 
     const handleReturnShopInvoiceUpload = (file) => {
@@ -807,36 +833,17 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
             return;
         }
         setShopInvoiceFileReading(true);
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setShopInvoiceFileReading(false);
-            const raw = String(reader.result || '').trim();
-            if (!raw) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Read failed',
-                    description: 'Could not read the selected file. Try again or use a smaller PDF/image.',
-                });
-                return;
-            }
-            setAccidentStatusForm((prev) => ({
-                ...prev,
-                returnShopInvoice: {
-                    name: file.name,
-                    data: raw,
-                    mime: file.type || 'application/pdf',
-                },
-            }));
-        };
-        reader.onerror = () => {
-            setShopInvoiceFileReading(false);
-            toast({
-                variant: 'destructive',
-                title: 'Read failed',
-                description: 'The browser could not read this file.',
-            });
-        };
-        reader.readAsDataURL(file);
+        readWorkflowUploadFile(
+            file,
+            (payload) => {
+                setShopInvoiceFileReading(false);
+                setAccidentStatusForm((prev) => ({
+                    ...prev,
+                    returnShopInvoice: payload,
+                }));
+            },
+            () => setShopInvoiceFileReading(false),
+        );
     };
 
     useEffect(() => {
@@ -2010,7 +2017,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                     <input
                                                         type="file"
                                                         className="sr-only"
-                                                        accept=".pdf,.png,.jpg,.jpeg"
+                                                        accept={ERP_ATTACHMENT_ACCEPT}
                                                         onChange={(e) => handleServiceReportUpload(e.target.files?.[0])}
                                                     />
                                                 </label>
@@ -2040,7 +2047,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                     <input
                                                         type="file"
                                                         className="sr-only"
-                                                        accept=".pdf,.png,.jpg,.jpeg"
+                                                        accept={ERP_ATTACHMENT_ACCEPT}
                                                         onChange={(e) => handleReturnShopInvoiceUpload(e.target.files?.[0])}
                                                     />
                                                 </label>
@@ -2831,7 +2838,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     </label>
                                     <input
                                         type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={ERP_ATTACHMENT_ACCEPT}
                                         onChange={(e) => handleServiceReportUpload(e.target.files?.[0])}
                                         disabled={statusFormFieldsLocked || serviceReportFileReading}
                                         className="mt-1.5 w-full text-sm disabled:opacity-50"
@@ -2857,7 +2864,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     </label>
                                     <input
                                         type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={ERP_ATTACHMENT_ACCEPT}
                                         onChange={(e) => handleReturnShopInvoiceUpload(e.target.files?.[0])}
                                         disabled={statusFormFieldsLocked || shopInvoiceFileReading}
                                         className="mt-1.5 w-full text-sm disabled:opacity-50"
@@ -3198,7 +3205,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                 >
                                                     <input
                                                         type="file"
-                                                        accept=".pdf,.jpg,.jpeg,.png"
+                                                        accept={ERP_ATTACHMENT_ACCEPT}
                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                         onChange={(e) => {
                                                             const file = e.target.files?.[0];
@@ -3206,16 +3213,13 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                                 setLiveInvoice({ name: '', data: '', mime: '' });
                                                                 return;
                                                             }
-                                                            const reader = new FileReader();
-                                                            reader.onloadend = () => {
-                                                                const raw = String(reader.result || '').trim();
-                                                                setLiveInvoice({
-                                                                    name: file.name,
-                                                                    data: raw,
-                                                                    mime: file.type || 'application/pdf',
-                                                                });
-                                                            };
-                                                            reader.readAsDataURL(file);
+                                                            readWorkflowUploadFile(
+                                                                file,
+                                                                (payload) => setLiveInvoice(payload),
+                                                                () => {
+                                                                    if (e.target) e.target.value = '';
+                                                                },
+                                                            );
                                                         }}
                                                     />
                                                     <div className="text-center pointer-events-none px-2">
@@ -3227,7 +3231,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                         ) : (
                                                             <>
                                                                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Upload completion report</p>
-                                                                <p className="text-[10px] text-slate-400 mt-1">PDF, JPG, PNG</p>
+                                                                <p className="text-[10px] text-slate-400 mt-1">PDF (max 5 MB) or JPEG (max 2 MB)</p>
                                                             </>
                                                         )}
                                                     </div>
@@ -3242,7 +3246,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                 >
                                                     <input
                                                         type="file"
-                                                        accept=".pdf,.jpg,.jpeg,.png"
+                                                        accept={ERP_ATTACHMENT_ACCEPT}
                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                         onChange={(e) => {
                                                             const file = e.target.files?.[0];
@@ -3250,16 +3254,13 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                                 setLiveShopInvoice({ name: '', data: '', mime: '' });
                                                                 return;
                                                             }
-                                                            const reader = new FileReader();
-                                                            reader.onloadend = () => {
-                                                                const raw = String(reader.result || '').trim();
-                                                                setLiveShopInvoice({
-                                                                    name: file.name,
-                                                                    data: raw,
-                                                                    mime: file.type || 'application/pdf',
-                                                                });
-                                                            };
-                                                            reader.readAsDataURL(file);
+                                                            readWorkflowUploadFile(
+                                                                file,
+                                                                (payload) => setLiveShopInvoice(payload),
+                                                                () => {
+                                                                    if (e.target) e.target.value = '';
+                                                                },
+                                                            );
                                                         }}
                                                     />
                                                     <div className="text-center pointer-events-none px-2">
@@ -3271,7 +3272,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                         ) : (
                                                             <>
                                                                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Upload shop invoice</p>
-                                                                <p className="text-[10px] text-slate-400 mt-1">PDF, JPG, PNG</p>
+                                                                <p className="text-[10px] text-slate-400 mt-1">PDF (max 5 MB) or JPEG (max 2 MB)</p>
                                                             </>
                                                         )}
                                                     </div>

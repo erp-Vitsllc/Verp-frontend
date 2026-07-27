@@ -5,6 +5,7 @@ import Select from 'react-select';
 import { X, UserPlus, CheckCircle2, Trash2, Plus, Table, User, Package, Camera, Image as ImageIcon, Building2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import { isPoolAssignableAssetStatus } from '@/utils/assetStatusHelpers';
 
 function typeIdStr(a) {
@@ -808,14 +809,19 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                                 <input
                                                     type="file"
                                                     className="hidden"
-                                                    accept=".pdf,.jpg,.jpeg,.png"
+                                                    accept={ERP_JPEG_ACCEPT}
                                                     onChange={(e) => {
-                                                        const file = e.target.files[0];
-                                                        if (file) {
-                                                            const reader = new FileReader();
-                                                            reader.onloadend = () => setFormState({ ...formState, assetPhoto: reader.result });
-                                                            reader.readAsDataURL(file);
+                                                        const file = e.target.files?.[0];
+                                                        if (!file) return;
+                                                        const check = validateErpJpegFile(file);
+                                                        if (!check.ok) {
+                                                            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                                                            if (e.target) e.target.value = '';
+                                                            return;
                                                         }
+                                                        const reader = new FileReader();
+                                                        reader.onloadend = () => setFormState({ ...formState, assetPhoto: reader.result });
+                                                        reader.readAsDataURL(file);
                                                     }}
                                                 />
                                             </label>

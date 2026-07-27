@@ -7,7 +7,8 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { EMIRATES, EMIRATE_PLATE_IMAGE, parsePlateParts } from '../lib/vehiclePlateConfig';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
-import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
+import { PDF_FILE_ACCEPT } from '../utils/vehicleDocumentCardRows';
+import { validateErpPdfFile } from '@/utils/uploadFileTypes';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 import {
     buildBasicProposedRows,
@@ -497,11 +498,12 @@ export default function AddVehicleModal({
                                             const file = e.target.files?.[0];
                                             e.target.value = '';
                                             if (!file) return;
-                                            if (!isPdfUploadFile(file)) {
+                                            const check = validateErpPdfFile(file);
+                                            if (!check.ok) {
                                                 toast({
                                                     variant: 'destructive',
                                                     title: 'Invalid file',
-                                                    description: 'Invoice must be a PDF file.',
+                                                    description: check.message,
                                                 });
                                                 return;
                                             }

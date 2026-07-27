@@ -20,6 +20,7 @@ import VehicleMechanicalWorkDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/com
 import VehicleMechanicalWorkWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleMechanicalWorkWorkflowPanel';
 import {
     canUserManageOilService,
+    canUserCreateOrInitiateVehicleService,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
@@ -130,6 +131,14 @@ function VehicleMechanicalWorkDetailPageContent() {
             }),
         [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
     );
+
+    const canCreateOrInitiate = useMemo(
+        () => canUserCreateOrInitiateVehicleService(asset, currentUser),
+        [asset, currentUser],
+    );
+
+    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
+    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageMechanicalWork;
 
     const isFlowchartHr = useMemo(() => {
         const hrRow = pickFlowchartHrRow(flowchartRows);
@@ -250,15 +259,21 @@ function VehicleMechanicalWorkDetailPageContent() {
                         vehicle={asset}
                         service={service}
                         isDraft={assignmentPending}
-                        canEditAssignment={canManageMechanicalWork}
+                        canEditAssignment={canEditAssignment}
                         canRequest={draftUi.canRequest}
                         requesting={draftUi.requesting}
                         onRequested={handleRequested}
                     />
 
-                    {assignmentPending && !canManageMechanicalWork ? (
+                    {assignmentPending && !canCreateOrInitiate ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                            Only the Super User, Admin Officer, or assigned user can complete this mechanical work request.
+                            Sign in to complete and initiate this mechanical work request.
+                        </div>
+                    ) : null}
+
+                    {!assignmentPending && !canManageMechanicalWork ? (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            Only the Super User, Admin Officer, or assigned user can submit service details.
                         </div>
                     ) : null}
 
@@ -270,7 +285,7 @@ function VehicleMechanicalWorkDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canEditAssignment={canManageMechanicalWork}
+                                    canEditAssignment={canEditAssignment}
                                     onSaved={() => {
                                         void load();
                                     }}

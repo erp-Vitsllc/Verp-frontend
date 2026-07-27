@@ -1,4 +1,5 @@
 import axiosInstance from '@/utils/axios';
+import { validateErpJpegFile } from '@/utils/uploadFileTypes';
 import {
     normalizeHandoverPhotoIdentity,
     resolveAssessmentMediaUrl,
@@ -37,8 +38,9 @@ export async function compressHandoverImageFile(
     file,
     { maxWidth = 960, maxHeight = 960, quality = 0.78 } = {},
 ) {
-    if (!file?.type?.startsWith('image/')) {
-        return readFileAsDataUrl(file);
+    const check = validateErpJpegFile(file);
+    if (!check.ok) {
+        throw new Error(check.message);
     }
 
     const objectUrl = URL.createObjectURL(file);
@@ -51,7 +53,7 @@ export async function compressHandoverImageFile(
                 img.src = objectUrl;
             }),
             IMAGE_COMPRESS_TIMEOUT_MS,
-            'Image processing timed out. Try a JPG or PNG photo.',
+            'Image processing timed out. Try a JPG photo (max 2 MB).',
         );
 
         const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
@@ -64,11 +66,12 @@ export async function compressHandoverImageFile(
         if (!context) return readFileAsDataUrl(file);
         context.drawImage(image, 0, 0, width, height);
 
-        const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-        return canvas.toDataURL(outputType, quality);
-    } catch {
-        // Fall back to raw data URL so HEIC/odd formats still upload when canvas fails.
-        return readFileAsDataUrl(file);
+        return canvas.toDataURL('image/jpeg', quality);
+    } catch (error) {
+        if (error instanceof Error && error.message.includes('timed out')) {
+            throw error;
+        }
+        throw new Error('Could not process image. Use a JPEG (.jpg / .jpeg, max 2 MB).');
     } finally {
         URL.revokeObjectURL(objectUrl);
     }
