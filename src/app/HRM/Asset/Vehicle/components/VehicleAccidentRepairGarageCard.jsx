@@ -32,6 +32,7 @@ import {
     tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
+import VehicleGarageBillingFields from './VehicleGarageBillingFields';
 
 export default function VehicleAccidentRepairGarageCard({
     asset,
@@ -59,6 +60,7 @@ export default function VehicleAccidentRepairGarageCard({
     const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending;
 
     const { fieldMinHeightPx, gapClass } = ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT;
+    const accent = () => 'border-gray-200 bg-white';
 
     useEffect(() => {
         setFormData(buildAccidentRepairGarageFormState(service, asset));
@@ -148,7 +150,10 @@ export default function VehicleAccidentRepairGarageCard({
             });
             toast({
                 title: 'Approved',
-                description: data?.message || 'Admin Officer was notified to complete return details.',
+                description:
+                    data?.message ||
+                    data?.zohoBillMessage ||
+                    'Admin Officer was notified. Zoho bill stored when billing fields are complete.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
@@ -166,16 +171,14 @@ export default function VehicleAccidentRepairGarageCard({
         stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR
             ? 'Garage details — completed by Admin Officer after assignment is submitted'
             : stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER
-              ? 'Admin Officer — complete garage vendor and service window, then click Done'
+              ? 'Admin Officer — complete garage vendor, pay account, amount, attachment and service window, then click Done'
               : stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS
-              ? canEditGarage
-                  ? 'Admin Officer — complete garage details below, then click Done'
-                  : canApproveAccounts
-                    ? 'Accounts — review garage details below, then click Approve'
+                ? canApproveAccounts
+                    ? 'Accounts — review garage billing details below, then click Approve (creates Zoho bill)'
                     : 'Garage details submitted — awaiting Accounts approval'
-              : isComplete
-                ? 'Garage details approved and locked'
-                : 'Garage vendor, location, and scheduled service window';
+                : isComplete
+                  ? 'Garage details approved and locked'
+                  : 'Garage vendor, pay account, amount, attachment, and scheduled service window';
 
     return (
         <div className={`w-full ${className}`.trim()}>
@@ -262,14 +265,20 @@ export default function VehicleAccidentRepairGarageCard({
 
                     <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass}`}>
                         <VehicleAccidentRepairFormFieldCell
-                            label="Garage Name"
+                            label="Garage Name (Vendor)"
                             accentClass="border-gray-200 bg-white"
                             minHeightPx={fieldMinHeightPx}
                         >
                             <ZohoVendorSelect
                                 className="w-full"
                                 value={formData.garageName || ''}
-                                onChange={(nextValue) => set('garageName', nextValue)}
+                                onChange={(nextValue, vendor) => {
+                                    set('garageName', nextValue);
+                                    set(
+                                        'zohoVendorId',
+                                        String(vendor?.id || vendor?.zohoContactId || vendor?.value || '').trim(),
+                                    );
+                                }}
                                 disabled={fieldsDisabled}
                                 placeholder="Select vendor"
                                 extraOptions={garageOptions}
@@ -301,6 +310,14 @@ export default function VehicleAccidentRepairGarageCard({
                                 disabled={fieldsDisabled}
                             />
                         </VehicleAccidentRepairFormFieldCell>
+                        <VehicleGarageBillingFields
+                            formData={formData}
+                            setField={set}
+                            fieldsDisabled={fieldsDisabled}
+                            accent={accent}
+                            fieldMinHeightPx={fieldMinHeightPx}
+                            fieldClassName={tireFieldSelect}
+                        />
                     </div>
 
                 {canEditGarage ? (

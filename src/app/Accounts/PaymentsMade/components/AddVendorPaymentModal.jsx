@@ -1323,6 +1323,7 @@ export default function AddVendorPaymentModal({
                   .filter((row) => row.recordType === 'bill' && selectedPayableIds.has(row.id))
                   .map((bill) => ({
                       bill_id: bill.id,
+                      bill_number: String(bill.billNumber || bill.bill_number || '').trim(),
                       amount_applied: amountValue(billAmounts[bill.id]),
                   }))
                   .filter((bill) => bill.amount_applied > 0);

@@ -47,6 +47,12 @@ function PurchasesBillsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const initialQuery = String(searchParams.get('q') || '').trim();
+    const focusBillIds = String(searchParams.get('billIds') || '')
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+    const focusBillIdSet = new Set(focusBillIds);
+    const fromUtilityBatch = Boolean(String(searchParams.get('utilityBatchId') || '').trim());
     const [mounted, setMounted] = useState(false);
     const [search, setSearch] = useState(initialQuery);
     const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
@@ -186,6 +192,15 @@ function PurchasesBillsPageContent() {
                             </div>
                         ) : null}
 
+                        {fromUtilityBatch || focusBillIds.length ? (
+                            <div className="mb-3 sm:mb-4 rounded-xl border border-teal-200 bg-teal-50 px-3 sm:px-4 py-2.5 text-xs sm:text-sm text-teal-900">
+                                Utility Zoho bill
+                                {focusBillIds.length > 1 ? 's' : ''} ready
+                                {initialQuery ? ` · matching “${initialQuery}”` : ''}.
+                                Already created in Zoho — no need to use New / Add Bill.
+                            </div>
+                        ) : null}
+
                         <div className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 border-b border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 bg-[#f8fafc]">
                                 <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -286,13 +301,20 @@ function PurchasesBillsPageContent() {
                                         ) : null}
 
                                         {!loading
-                                            ? rows.map((row) => (
+                                            ? rows.map((row) => {
+                                                  const rowId = String(row?.id || '').trim();
+                                                  const isFocused =
+                                                      focusBillIdSet.size > 0 &&
+                                                      focusBillIdSet.has(rowId);
+                                                  return (
                                                   <tr
                                                       key={row.id}
                                                       className={`border-b border-slate-100 hover:bg-slate-50/80 ${
-                                                          row.isUtilityChild
-                                                              ? 'bg-slate-50/60'
-                                                              : ''
+                                                          isFocused
+                                                              ? 'bg-teal-50/80 ring-1 ring-inset ring-teal-200'
+                                                              : row.isUtilityChild
+                                                                ? 'bg-slate-50/60'
+                                                                : ''
                                                       }`}
                                                   >
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3">
@@ -377,7 +399,8 @@ function PurchasesBillsPageContent() {
                                                           </button>
                                                       </td>
                                                   </tr>
-                                              ))
+                                                  );
+                                              })
                                             : null}
                                     </tbody>
                                 </table>

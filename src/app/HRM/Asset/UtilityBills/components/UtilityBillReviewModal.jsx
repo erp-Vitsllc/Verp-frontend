@@ -28,6 +28,20 @@ import { usePayByPartyOptions } from './PayByPartySelects';
 import AttachmentSourceModal from './AttachmentSourceModal';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
+function collectRowZohoBillIds(row = {}) {
+    const ids = [];
+    const push = (id) => {
+        const v = String(id || '').trim();
+        if (v && !ids.includes(v)) ids.push(v);
+    };
+    push(row.zohoBillId);
+    (Array.isArray(row.zohoBillIds) ? row.zohoBillIds : []).forEach(push);
+    (Array.isArray(row.zohoLineItems) ? row.zohoLineItems : []).forEach((line) =>
+        push(line?.zohoBillId),
+    );
+    return ids;
+}
+
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
 const PAY_BY_BOTH = 'employee_and_company';
@@ -1021,47 +1035,126 @@ export default function UtilityBillReviewModal({
         }
     };
 
-    /** Open Accounts → Bills list for the selected Zoho-synced utility bills. */
-    const openZohoBills = () => {
+    /**
+     * Accounts Pay → ensure Zoho bill exists, then open Accounts → Bills list.
+     * Does NOT go to Payments Made and does NOT open Bills → New / Add Bill.
+     */
+    const openZohoBills = async () => {
         const payable = rows.filter(
             (r) => r.inBatch && r.billId && String(r.status) === 'Approved',
         );
         if (!payable.length) {
-            setError('No bills available to open.');
-            return;
-        }
-        const missingZoho = payable.filter((r) => !rowHasZohoBill(r));
-        if (missingZoho.length) {
-            const detail =
-                missingZoho
-                    .map((r) => r.zohoSyncError)
-                    .find(Boolean) ||
-                'Approved bills are not in Zoho yet. Use Retry Zoho sync first.';
-            setError(detail);
-            toast({
-                variant: 'destructive',
-                title: 'Zoho bill missing',
-                description: detail,
-            });
+            setError('No bills available.');
             return;
         }
         const anySelected = payable.some((r) => r.selected);
         const selected = anySelected ? payable.filter((r) => r.selected) : payable;
         if (!selected.length) {
-            setError('Select at least one bill to open.');
+            setError('Select at least one bill.');
             return;
         }
-        setError('');
-        onClose?.();
 
-        const billNumber = selected
-            .map((r) => String(r.billNumber || '').trim())
-            .find(Boolean);
-        const params = new URLSearchParams();
-        if (billNumber) params.set('q', billNumber);
-        router.push(
-            params.toString() ? `/Accounts/Bills?${params.toString()}` : '/Accounts/Bills',
-        );
+        const id = String(batchId || '').trim();
+        if (!id) {
+            setError('Batch id is missing.');
+            return;
+        }
+
+        setActing(true);
+        setError('');
+        try {
+            let workingRows = selected;
+            const missingZoho = selected.filter((r) => !rowHasZohoBill(r));
+            if (missingZoho.length || needsZohoOpen) {
+                const res = await axiosInstance.post(`/UtilityBill/batch/${id}/sync-zoho`);
+                const created = Number(res.data?.createdCount || 0);
+                const opened = Number(res.data?.openedCount || 0);
+                const failed = Array.isArray(res.data?.failed) ? res.data.failed : [];
+                if (failed.length) {
+                    const first =
+                        failed.map((f) => f?.message || f?.error).find(Boolean) ||
+                        'Could not create Zoho bill(s).';
+                    toast({
+                        variant: 'destructive',
+                        title: 'Zoho bill failed',
+                        description: first,
+                    });
+                    setError(first);
+                    onChanged?.();
+                    setReloadKey((k) => k + 1);
+                    return;
+                }
+                toast({
+                    title: 'Zoho bill ready',
+                    description:
+                        res.data?.message ||
+                        (created > 0
+                            ? `${created} bill(s) created in Zoho Books.`
+                            : opened > 0
+                              ? `${opened} bill(s) opened in Zoho Books.`
+                              : 'Bills linked in Zoho Books.'),
+                });
+                onChanged?.();
+                // Refresh batch so we navigate with fresh Zoho ids
+                const fresh = await axiosInstance.get(`/UtilityBill/batch/${id}`);
+                const freshBills = Array.isArray(fresh.data?.bills) ? fresh.data.bills : [];
+                const selectedIds = new Set(
+                    selected.map((r) => String(r.billId || '').trim()).filter(Boolean),
+                );
+                workingRows = freshBills
+                    .filter((b) => selectedIds.has(String(b._id || b.billId || '').trim()))
+                    .map((b) => ({
+                        billId: String(b._id || b.billId || '').trim(),
+                        billNumber: String(b.billNumber || '').trim(),
+                        zohoBillId: String(b.zohoBillId || '').trim(),
+                        zohoBillIds: Array.isArray(b.zohoBillIds)
+                            ? b.zohoBillIds.map((x) => String(x || '').trim()).filter(Boolean)
+                            : [],
+                    }));
+                if (!workingRows.length) workingRows = selected;
+            }
+
+            const zohoBillIds = [];
+            const billNumbers = [];
+            workingRows.forEach((r) => {
+                collectRowZohoBillIds(r).forEach((zid) => {
+                    if (!zohoBillIds.includes(zid)) zohoBillIds.push(zid);
+                });
+                const bn = String(r.billNumber || '').trim();
+                if (bn && !billNumbers.includes(bn)) billNumbers.push(bn);
+            });
+
+            if (!zohoBillIds.length && !billNumbers.length) {
+                setError('Zoho bill was not created. Check vendor, expense account, and Zoho permissions.');
+                toast({
+                    variant: 'destructive',
+                    title: 'Zoho bill missing',
+                    description: 'Sync finished but no Zoho bill id was returned.',
+                });
+                setReloadKey((k) => k + 1);
+                return;
+            }
+
+            const params = new URLSearchParams();
+            if (zohoBillIds.length) params.set('billIds', zohoBillIds.join(','));
+            if (billNumbers[0]) params.set('q', billNumbers[0]);
+            if (batch?.zohoOrganizationId) {
+                params.set('organizationId', String(batch.zohoOrganizationId));
+            }
+            params.set('utilityBatchId', id);
+
+            onClose?.();
+            router.push(`/Accounts/Bills?${params.toString()}`);
+        } catch (err) {
+            setError(readApiError(err, 'Could not create Zoho bill.'));
+            toast({
+                variant: 'destructive',
+                title: 'Zoho bill failed',
+                description: readApiError(err, 'Could not create Zoho bill.'),
+            });
+        } finally {
+            setActing(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -1120,7 +1213,7 @@ export default function UtilityBillReviewModal({
                                           : canEdit
                                             ? 'Same as Add Bills — full bill fields, edit Actual / Contract Paid By / Upload before Approve.'
                                             : canPay
-                                              ? 'Select bills to pay.'
+                                              ? 'Select bills, then Pay — creates/opens Zoho bill and opens Accounts → Bills (not Payments Made).'
                                               : isViewerOnly
                                                 ? `View only — pending ${batch?.pendingWithName || 'approver'} (${batch?.statusLabel || batch?.status || ''}).`
                                                 : ''}
@@ -1863,11 +1956,11 @@ export default function UtilityBillReviewModal({
                                             acting ||
                                             !rows.some((r) => r.selected && r.billId)
                                         }
-                                        onClick={openZohoBills}
-                                        title="Open selected bills in Accounts → Bills"
+                                        onClick={() => void openZohoBills()}
+                                        title="Create/open Zoho bill, then open Accounts → Bills (does not record Payment Made)"
                                         className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
                                     >
-                                        Pay
+                                        {acting ? 'Working…' : 'Pay'}
                                     </button>
                                 ) : null}
                             </div>

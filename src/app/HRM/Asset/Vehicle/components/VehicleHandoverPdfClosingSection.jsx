@@ -172,7 +172,7 @@ export function VehicleHandoverPdfReceiverClosingSection({
             </p>
 
             <p className={`${dense ? 'mb-2' : 'mb-3'} ${PDF_CLOSING_COLUMN_TITLE_CLASS}`} style={{ color: PDF_INK }}>
-                Received the Vehicle bellow Condition
+                Hand Over To — Received the Vehicle below Condition
             </p>
 
             <div className={`${sectionGap} max-w-lg`}>

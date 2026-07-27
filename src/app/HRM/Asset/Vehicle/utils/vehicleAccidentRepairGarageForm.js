@@ -1,6 +1,12 @@
 ﻿import { mapServiceRecordToFormData } from '../components/vehicleServicePayload';
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import { OIL_SERVICE_GARAGE_VENDOR_OPTIONS } from './vehicleOilServiceDetailForm';
+import {
+    garageBillingAttachmentBody,
+    garageBillingFieldsFromRemark,
+    garageBillingRemarkPatch,
+    validateGarageBillingFields,
+} from './vehicleGarageBillingFields';
 
 export { OIL_SERVICE_GARAGE_VENDOR_OPTIONS as ACCIDENT_REPAIR_GARAGE_VENDOR_OPTIONS };
 
@@ -22,6 +28,7 @@ export function buildAccidentRepairGarageFormState(service, asset) {
         quotation2Base64: '',
         quotation2Mime: '',
         existingQuotation2Url: service?.quotation2 ? String(service.quotation2) : '',
+        ...garageBillingFieldsFromRemark(service, remark),
     };
 }
 
@@ -42,6 +49,7 @@ export function validateAccidentRepairGarageForm(formData) {
     if (!String(formData.serviceEndDate || '').trim()) {
         errors.serviceEndDate = 'Service end date is required';
     }
+    Object.assign(errors, validateGarageBillingFields(formData));
     return errors;
 }
 
@@ -55,6 +63,7 @@ export function buildAccidentRepairGarageUpdateBody(formData) {
     const garageContact = String(formData.garageContact || '').trim();
     const serviceStartDate = String(formData.serviceStartDate || '').trim();
     const serviceEndDate = String(formData.serviceEndDate || '').trim();
+    const billing = garageBillingRemarkPatch(formData);
 
     const body = {
         serviceType: 'Accident Repair',
@@ -69,7 +78,9 @@ export function buildAccidentRepairGarageUpdateBody(formData) {
             scheduledServiceDate: serviceStartDate || undefined,
             quotation2Name: String(formData.quotation2Name || '').trim() || undefined,
             claimReportName: String(formData.quotation2Name || '').trim() || undefined,
+            ...billing,
         }),
+        ...garageBillingAttachmentBody(formData),
     };
 
     if (formData.quotation2Base64 && formData.quotation2Name) {

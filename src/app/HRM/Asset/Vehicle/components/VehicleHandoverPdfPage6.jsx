@@ -104,7 +104,7 @@ export default function VehicleHandoverPdfPage6({ receiver, officeUse, className
                 responsibility for any additional damage that is not recorded in this handover report.
             </p>
 
-            <p className="mb-6 text-[11pt] italic">Received the Vehicle bellow Condition</p>
+            <p className="mb-6 text-[11pt] italic">Hand Over To — Received the Vehicle below Condition</p>
 
             <div className="mb-10 max-w-lg">
                 <ReceiverField label="Name :" value={receiver.name} />

@@ -30,6 +30,7 @@ import {
     tireDatePickerClass,
     tireFieldSelect,
 } from '../utils/vehicleMechanicalWorkDetailUi';
+import VehicleGarageBillingFields from './VehicleGarageBillingFields';
 
 export default function VehicleMechanicalWorkGarageCard({
     asset,
@@ -116,7 +117,10 @@ export default function VehicleMechanicalWorkGarageCard({
             });
             toast({
                 title: 'Approved',
-                description: data?.message || 'Admin Officer was notified to complete return details.',
+                description:
+                    data?.message ||
+                    data?.zohoBillMessage ||
+                    'Admin Officer was notified. Zoho bill stored when billing fields are complete.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
@@ -132,16 +136,14 @@ export default function VehicleMechanicalWorkGarageCard({
 
     const subtitle =
         stage === MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_OFFICER
-            ? 'Admin Officer — update garage vendor and service window, then click Update Garage'
+            ? 'Admin Officer — update garage vendor, pay account, amount, attachment and service window, then click Update Garage'
             : stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS
-              ? canEditGarage
-                  ? 'Admin Officer — complete garage details below, then click Update Garage'
-                  : canApproveAccounts
-                    ? 'Accounts — review garage details below, then click Approve'
-                    : 'Garage details submitted — awaiting Accounts approval'
+              ? canApproveAccounts
+                  ? 'Accounts — review garage billing details below, then click Approve (creates Zoho bill)'
+                  : 'Garage details submitted — awaiting Accounts approval'
               : isComplete
                 ? 'Garage details approved and locked'
-                : 'Garage vendor, location, and scheduled service window';
+                : 'Garage vendor, pay account, amount, attachment, and scheduled service window';
 
     return (
         <div className={`w-full ${className}`.trim()}>
@@ -155,14 +157,20 @@ export default function VehicleMechanicalWorkGarageCard({
             >
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                     <VehicleMechanicalWorkFormFieldCell
-                        label="Garage Name"
+                        label="Garage Name (Vendor)"
                         accentClass={accent(0)}
                         minHeightPx={fieldMinHeightPx}
                     >
                         <ZohoVendorSelect
                             className="w-full"
                             value={formData.garageName || ''}
-                            onChange={(nextValue) => set('garageName', nextValue)}
+                            onChange={(nextValue, vendor) => {
+                                set('garageName', nextValue);
+                                set(
+                                    'zohoVendorId',
+                                    String(vendor?.id || vendor?.zohoContactId || vendor?.value || '').trim(),
+                                );
+                            }}
                             disabled={fieldsDisabled}
                             placeholder="Select vendor"
                             extraOptions={garageOptions}
@@ -220,6 +228,14 @@ export default function VehicleMechanicalWorkGarageCard({
                             disabled={fieldsDisabled}
                         />
                     </VehicleMechanicalWorkFormFieldCell>
+                    <VehicleGarageBillingFields
+                        formData={formData}
+                        setField={set}
+                        fieldsDisabled={fieldsDisabled}
+                        accent={accent}
+                        fieldMinHeightPx={fieldMinHeightPx}
+                        fieldClassName={tireFieldSelect}
+                    />
                 </div>
 
                 {canEditGarage ? (

@@ -1,6 +1,12 @@
 ﻿import { mapServiceRecordToFormData } from '../components/vehicleServicePayload';
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import { OIL_SERVICE_GARAGE_VENDOR_OPTIONS } from './vehicleOilServiceDetailForm';
+import {
+    garageBillingAttachmentBody,
+    garageBillingFieldsFromRemark,
+    garageBillingRemarkPatch,
+    validateGarageBillingFields,
+} from './vehicleGarageBillingFields';
 
 export { OIL_SERVICE_GARAGE_VENDOR_OPTIONS as BODY_WORK_GARAGE_VENDOR_OPTIONS };
 
@@ -18,6 +24,7 @@ export function buildBodyWorkGarageFormState(service, asset) {
             base.serviceStartDate ||
             (service?.date ? new Date(service.date).toISOString().slice(0, 10) : ''),
         serviceEndDate: remark.serviceEndDate || remark.serviceWindowEndDate || base.serviceEndDate || '',
+        ...garageBillingFieldsFromRemark(service, remark),
     };
 }
 
@@ -38,6 +45,7 @@ export function validateBodyWorkGarageForm(formData) {
     if (!String(formData.serviceEndDate || '').trim()) {
         errors.serviceEndDate = 'Service end date is required';
     }
+    Object.assign(errors, validateGarageBillingFields(formData));
     return errors;
 }
 
@@ -51,6 +59,7 @@ export function buildBodyWorkGarageUpdateBody(formData) {
     const garageContact = String(formData.garageContact || '').trim();
     const serviceStartDate = String(formData.serviceStartDate || '').trim();
     const serviceEndDate = String(formData.serviceEndDate || '').trim();
+    const billing = garageBillingRemarkPatch(formData);
 
     return {
         serviceType: 'Body Work',
@@ -63,6 +72,8 @@ export function buildBodyWorkGarageUpdateBody(formData) {
             serviceStartDate,
             serviceEndDate,
             scheduledServiceDate: serviceStartDate || undefined,
+            ...billing,
         }),
+        ...garageBillingAttachmentBody(formData),
     };
 }

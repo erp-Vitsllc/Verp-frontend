@@ -365,9 +365,15 @@ export default function FineVendorPayModal({
                     bills: [
                         {
                             bill_id: zohoBillId,
+                            bill_number: String(
+                                fine?.billNumber || fine?.zohoBillNumber || fineId || '',
+                            ).trim(),
                             amount_applied: payAmt,
                         },
                     ],
+                    vendor_name: String(
+                        fine?.zohoVendorName || fine?.fineSource || '',
+                    ).trim(),
                     expenses: [],
                     is_draft: false,
                     status: 'paid',
