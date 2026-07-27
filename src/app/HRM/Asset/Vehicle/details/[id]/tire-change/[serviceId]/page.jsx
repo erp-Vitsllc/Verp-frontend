@@ -124,8 +124,11 @@ function VehicleTireChangeDetailPageContent() {
     );
 
     const canManageTireChange = useMemo(
-        () => canUserManageTireChange(asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer),
-        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer],
+        () =>
+            canUserManageTireChange(asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, {
+                flowchartRows,
+            }),
+        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
     );
 
     const isFlowchartHr = useMemo(() => {

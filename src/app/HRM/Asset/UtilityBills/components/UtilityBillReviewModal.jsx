@@ -13,6 +13,7 @@ import { fetchUtilityConfigs, fetchUtilityEntries } from '../utils/utilityBillsA
 import { openUtilityAttachment } from '../utils/openUtilityAttachment';
 import UtilityBillTotalsBar, {
     computeRowPayTotals,
+    sumLinePartyPayTotals,
     summarizeSelectedBillRows,
 } from './UtilityBillTotalsBar';
 import PayByChoiceModal, {
@@ -28,6 +29,7 @@ import AttachmentSourceModal from './AttachmentSourceModal';
 
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
+const PAY_BY_BOTH = 'employee_and_company';
 const MAX_ATTACHMENT_BYTES = 1.5 * 1024 * 1024;
 
 function formatMoney(n) {
@@ -70,6 +72,11 @@ function resolvePayShares(payBy, difference) {
     }
     if (payBy === PAY_BY_EMPLOYEE) {
         return { companyAmount: 0, employeeAmount: diff };
+    }
+    if (payBy === PAY_BY_BOTH) {
+        const signed = Number(difference) || 0;
+        if (signed < 0) return { companyAmount: 0, employeeAmount: diff };
+        return { companyAmount: diff, employeeAmount: 0 };
     }
     return { companyAmount: 0, employeeAmount: 0 };
 }
@@ -814,19 +821,35 @@ export default function UtilityBillReviewModal({
                     const actualAmt = Number(r.actualAmount);
                     const contractAmt = Number(r.contractAmount || 0);
                     const difference = contractAmt - actualAmt;
-                    const rawPayBy =
-                        actualAmt < contractAmt ? PAY_BY_COMPANY : r.payBy;
-                    const payBy =
-                        rawPayBy === PAY_BY_COMPANY || rawPayBy === PAY_BY_EMPLOYEE
-                            ? rawPayBy
-                            : '';
+                    const lineTotals = sumLinePartyPayTotals(
+                        Array.isArray(r.lineItems)
+                            ? r.lineItems
+                            : Array.isArray(r.zohoLineItems)
+                              ? r.zohoLineItems
+                              : [],
+                    );
+                    let payBy = '';
+                    if (lineTotals.hasParty) {
+                        payBy = lineTotals.payBy || '';
+                    } else if (actualAmt < contractAmt) {
+                        payBy = PAY_BY_COMPANY;
+                    } else if (
+                        r.payBy === PAY_BY_COMPANY ||
+                        r.payBy === PAY_BY_EMPLOYEE ||
+                        r.payBy === PAY_BY_BOTH
+                    ) {
+                        payBy = r.payBy;
+                    }
                     const shares = resolvePayShares(payBy, difference);
                     const payTotals = computeRowPayTotals({
                         ...r,
                         payBy,
                         companyDiffAmount: shares.companyAmount,
                         employeeDiffAmount: shares.employeeAmount,
+                        lineItems: r.lineItems || r.zohoLineItems,
                     });
+                    const includeEmployee =
+                        payBy === PAY_BY_EMPLOYEE || payBy === PAY_BY_BOTH;
                     return {
                         billId: r.billId || undefined,
                         entryId: r.entryId,
@@ -841,12 +864,16 @@ export default function UtilityBillReviewModal({
                         // Totals as shown in TOTAL bar — stored in DB
                         companyPayAmount: payTotals.companyPayAmount,
                         employeePayAmount: payTotals.employeePayAmount,
-                        payByCompanyId: r.payByCompanyId || '',
-                        payByCompanyName: r.payByCompanyName || '',
-                        payByEmployeeId:
-                            payBy === PAY_BY_EMPLOYEE ? r.payByEmployeeId || '' : '',
-                        payByEmployeeName:
-                            payBy === PAY_BY_EMPLOYEE ? r.payByEmployeeName || '' : '',
+                        payByCompanyId:
+                            lineTotals.payByCompanyId || r.payByCompanyId || '',
+                        payByCompanyName:
+                            lineTotals.payByCompanyName || r.payByCompanyName || '',
+                        payByEmployeeId: includeEmployee
+                            ? lineTotals.payByEmployeeId || r.payByEmployeeId || ''
+                            : '',
+                        payByEmployeeName: includeEmployee
+                            ? lineTotals.payByEmployeeName || r.payByEmployeeName || ''
+                            : '',
                         expenseAccountId: r.expenseAccountId || '',
                         expenseAccountName: r.expenseAccountName || '',
                         partyAccountId: r.partyAccountId || '',
@@ -859,6 +886,7 @@ export default function UtilityBillReviewModal({
             };
             const res = await axiosInstance.put(`/UtilityBill/batch/${id}/respond`, body);
             const label = String(res.data?.statusLabel || res.data?.status || '');
+            const returnedTo = String(res.data?.returnedTo || '').toLowerCase();
             const zohoSync = Array.isArray(res.data?.zohoSync) ? res.data.zohoSync : [];
             const zohoFailed = zohoSync.filter((r) => r && r.ok === false && !r.skipped);
             const zohoCreated = zohoSync.filter((r) => r && r.ok && !r.skipped);
@@ -900,6 +928,19 @@ export default function UtilityBillReviewModal({
                 return;
             }
 
+            const rejectTitle =
+                returnedTo === 'accounts'
+                    ? 'Returned to Accounts'
+                    : returnedTo === 'creator'
+                      ? 'Returned to creator'
+                      : 'Rejected';
+            const rejectDescription =
+                returnedTo === 'accounts'
+                    ? 'HR rejected — batch sent back to Accounts for re-review.'
+                    : returnedTo === 'creator'
+                      ? 'Accounts rejected — batch returned to the creator for correction.'
+                      : label;
+
             toast({
                 title:
                     decision === 'draft'
@@ -908,7 +949,7 @@ export default function UtilityBillReviewModal({
                           ? label.toLowerCase() === 'not paid'
                               ? 'Not paid'
                               : 'Approved'
-                          : 'Rejected',
+                          : rejectTitle,
                 description:
                     decision === 'draft'
                         ? zohoCreated.length > 0
@@ -922,7 +963,9 @@ export default function UtilityBillReviewModal({
                               : zohoSync.length > 0
                                 ? 'Awaiting Accounts payment. Zoho bills Open / linked.'
                                 : 'Awaiting Accounts payment.'
-                          : label,
+                          : decision === 'reject'
+                            ? rejectDescription
+                            : label,
             });
             onChanged?.();
             onClose?.();

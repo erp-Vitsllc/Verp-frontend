@@ -1,4 +1,8 @@
 ﻿import { normalizeMongoId, parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
+import {
+    resolveShopServiceFlowchartActors,
+    resolveShopServiceStepActor,
+} from './vehicleShopServiceWorkflowActors';
 
 export const ACCIDENT_REPAIR_WORKFLOW_STEPS = [
     { id: 1, label: 'Service Created' },
@@ -230,12 +234,13 @@ function formatDetailDate(value) {
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export function buildAccidentRepairDetailWorkflowEvents(asset, service) {
+export function buildAccidentRepairDetailWorkflowEvents(asset, service, flowchartRows = []) {
     const activities = getTireActivityLog(service, asset);
     const { stage } = resolveWorkflowForService(asset, service);
     const currentActiveStepId = resolveActiveStepId(activities, stage);
     const remark = parseVehicleServiceRemark(service) || {};
     const updateCount = activities.filter((a) => a.type === 'service_updated').length;
+    const flowchartActors = resolveShopServiceFlowchartActors(flowchartRows);
 
     const events = ACCIDENT_REPAIR_WORKFLOW_STEPS.map((step) => {
         const activityType = ACTIVITY_BY_STEP[step.id];
@@ -272,6 +277,13 @@ export function buildAccidentRepairDetailWorkflowEvents(asset, service) {
             date = date || remark.vehicleServiceCompletedAt;
             actor = actor || remark.serviceCompletedByName || '';
         }
+
+        // Accident skips HR quotation — Admin Officer is next after submit.
+        actor = resolveShopServiceStepActor(step.id, {
+            actor,
+            flowchartActors,
+            skipHrQuotation: true,
+        });
 
         return buildStepEvent(step, {
             currentActiveStepId,

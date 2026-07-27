@@ -33,6 +33,7 @@ export const VEHICLE_MODULE_TYPES = new Set([
 export const UTILITY_BILL_MODULE_TYPES = new Set([
     'Utility Bill Payment',
     'Utility Bill Payment Reminder',
+    'Utility Contract Expiry',
     'Utility Entry Status Change',
 ]);
 
@@ -216,6 +217,7 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Payment Approval') return 'Payment Approval';
     if (type === 'Utility Bill Payment') return 'Utility Bill Payment';
     if (type === 'Utility Bill Payment Reminder') return 'Utility Payment Day Reminder';
+    if (type === 'Utility Contract Expiry') return 'Utility Contract Expiry';
     if (type === 'Utility Entry Status Change') return 'Utility Activate / Deactivate';
     if (type === 'Loan' || type === 'Loan/Advance') return 'Loan';
     if (type === 'Advance') return 'Advance';

@@ -57,12 +57,22 @@ function utilityBillBelongsToCompany(bill, company) {
     const companyOid = company?._id ? String(company._id) : '';
     const companyBusinessId = String(company?.companyId || '').trim();
     const companyName = String(company?.name || '').trim().toLowerCase();
+    const ids = new Set([companyOid, companyBusinessId].filter(Boolean));
     const billCompanyId = String(bill.payByCompanyId || '').trim();
     const billCompanyName = String(bill.payByCompanyName || '').trim().toLowerCase();
-    if (companyOid && billCompanyId === companyOid) return true;
-    if (companyBusinessId && billCompanyId === companyBusinessId) return true;
+    if (billCompanyId && ids.has(billCompanyId)) return true;
     if (companyName && billCompanyName && billCompanyName === companyName) return true;
-    return false;
+    const lines = Array.isArray(bill.zohoLineItems) ? bill.zohoLineItems : [];
+    return lines.some((line) => {
+        const payBy = String(line?.payBy || '').toLowerCase();
+        const empId = String(line?.payByEmployeeId || '').trim();
+        if (payBy === 'employee' || (empId && payBy !== 'company')) return false;
+        const coId = String(line?.payByCompanyId || '').trim();
+        const coName = String(line?.payByCompanyName || '').trim().toLowerCase();
+        if (coId && ids.has(coId)) return true;
+        if (companyName && coName && coName === companyName) return true;
+        return false;
+    });
 }
 
 /**
@@ -928,7 +938,11 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                         <td className="px-4 py-3 font-bold text-slate-700">
                                             {row.accountNo || '—'}
                                         </td>
-                                        <td className="px-4 py-3 text-slate-600">Utility deduction</td>
+                                        <td className="px-4 py-3 text-slate-600">
+                                            {row.kind === 'utility_share'
+                                                ? 'Utility payable share'
+                                                : 'Utility deduction'}
+                                        </td>
                                         <td className="px-4 py-3 text-slate-600 font-mono text-xs">
                                             {row.utilityType || row.utilityBillId || '—'}
                                         </td>
@@ -950,7 +964,19 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            {row.status === 'Paid' ? (
+                                            {row.kind === 'utility_share' ? (
+                                                row.billLink ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => router.push(row.billLink)}
+                                                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                                                    >
+                                                        Open bill
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-xs font-semibold text-slate-400">—</span>
+                                                )
+                                            ) : row.status === 'Paid' ? (
                                                 <span className="text-xs font-semibold text-emerald-700">Paid</span>
                                             ) : (
                                                 <button

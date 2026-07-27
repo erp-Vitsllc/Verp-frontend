@@ -1,6 +1,6 @@
 import { isPortalSuperUser } from '@/utils/permissions';
 import { isCurrentUserVehicleAssignee } from './evaluateVehicleFleetHeaderActions';
-import { pickFlowchartAdminRow } from './vehicleHandoverAssignWorkflow';
+import { pickFlowchartAdminRow, pickFlowchartHrRow } from './vehicleHandoverAssignWorkflow';
 import { normalizeMongoId, parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import {
     isShopWorkServiceLive,
@@ -195,7 +195,12 @@ export function isCurrentUserFlowchartAdminOfficer(currentUser, flowchartRows = 
     if (!currentUser) return false;
     const adminRow = pickFlowchartAdminRow(flowchartRows);
     if (!adminRow) return false;
-    const empRef = adminRow.empObjectId;
+    return flowchartRowMatchesUser(adminRow, currentUser);
+}
+
+function flowchartRowMatchesUser(row, currentUser) {
+    if (!row || !currentUser) return false;
+    const empRef = row.empObjectId;
     const rowMongo =
         typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
     const myEmpObj = currentUser.employeeObjectId;
@@ -206,27 +211,97 @@ export function isCurrentUserFlowchartAdminOfficer(currentUser, flowchartRows = 
         if (myDocId && rowId === String(myDocId)) return true;
     }
     const rowCode = normEmpId(
-        adminRow.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '',
+        row.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '',
     );
     const myCode = normEmpId(currentUser.employeeId || '');
     return !!(rowCode && myCode && rowCode === myCode);
+}
+
+function pickFlowchartAssetControllerRow(flowchartRows = []) {
+    if (!Array.isArray(flowchartRows)) return null;
+    return (
+        flowchartRows.find((row) => {
+            const cat = String(row?.category || '')
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, '');
+            const status = String(row?.status || '')
+                .trim()
+                .toLowerCase();
+            return cat === 'assetcontroller' && status === 'active';
+        }) ||
+        flowchartRows.find((row) => {
+            const cat = String(row?.category || '')
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, '');
+            return cat === 'assetcontroller';
+        }) ||
+        null
+    );
+}
+
+export function isCurrentUserFlowchartAssetController(currentUser, flowchartRows = []) {
+    return flowchartRowMatchesUser(pickFlowchartAssetControllerRow(flowchartRows), currentUser);
+}
+
+export function isCurrentUserFlowchartHr(currentUser, flowchartRows = []) {
+    return flowchartRowMatchesUser(pickFlowchartHrRow(flowchartRows), currentUser);
+}
+
+function isCurrentUserAssigneeHod(asset, currentUserEmployeeId, currentUser = null) {
+    const assignee = asset?.assignedTo;
+    if (!assignee || typeof assignee !== 'object') return false;
+    const hod = assignee.primaryReportee;
+    if (!hod) return false;
+
+    const hodMongoId = typeof hod === 'object' ? hod._id || hod.id : hod;
+    const viewerIdCandidates = new Set(
+        [currentUserEmployeeId, currentUser?.employeeObjectId, currentUser?._id, currentUser?.id]
+            .filter((v) => v != null && v !== '')
+            .map((v) => String(v)),
+    );
+    if (hodMongoId && viewerIdCandidates.has(String(hodMongoId))) return true;
+
+    const hodCode =
+        typeof hod === 'object' && hod.employeeId ? normEmpId(hod.employeeId) : '';
+    const viewerCode = normEmpId(currentUser?.employeeId || '');
+    return !!(hodCode && viewerCode && hodCode === viewerCode);
 }
 
 function isSessionSystemSuperUser(currentUser) {
     return isPortalSuperUser(currentUser);
 }
 
-/** Super User, Admin Officer (flowchart), or vehicle assignee. */
+/**
+ * Who may create/manage vehicle service requests:
+ * Super User, Admin Officer/Controller, Asset Controller, HR,
+ * assigned employee, or assignee HOD (primaryReportee).
+ */
 export function canUserManageOilService(
     asset,
     currentUserEmployeeId,
     currentUser = null,
     isFlowchartAdminOfficer = false,
+    {
+        isAssetController = false,
+        isFlowchartHr = false,
+        flowchartRows = null,
+    } = {},
 ) {
     if (!asset) return false;
     if (isSessionSystemSuperUser(currentUser)) return true;
     if (isFlowchartAdminOfficer) return true;
-    return isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser);
+    if (isAssetController) return true;
+    if (isFlowchartHr) return true;
+    if (Array.isArray(flowchartRows) && flowchartRows.length) {
+        if (isCurrentUserFlowchartAdminOfficer(currentUser, flowchartRows)) return true;
+        if (isCurrentUserFlowchartAssetController(currentUser, flowchartRows)) return true;
+        const hrRow = pickFlowchartHrRow(flowchartRows);
+        if (flowchartRowMatchesUser(hrRow, currentUser)) return true;
+    }
+    if (isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser)) return true;
+    return isCurrentUserAssigneeHod(asset, currentUserEmployeeId, currentUser);
 }
 
 /** Tire change requests are manual only — same roles as oil service manager. */
@@ -235,7 +310,14 @@ export const canUserManageTireChange = canUserManageOilService;
 export function canUserEditOilServiceDates(
     asset,
     service,
-    { isFlowchartAdminOfficer = false, currentUser = null, currentUserEmployeeId = null } = {},
+    {
+        isFlowchartAdminOfficer = false,
+        currentUser = null,
+        currentUserEmployeeId = null,
+        isAssetController = false,
+        isFlowchartHr = false,
+        flowchartRows = null,
+    } = {},
 ) {
     if (!asset || !service) return false;
     const remark = parseVehicleServiceRemark(service) || {};
@@ -243,10 +325,26 @@ export function canUserEditOilServiceDates(
     const wf = asset.activeServiceWorkflow || {};
     if (String(wf.stage || '').toLowerCase() !== 'scheduled_service') return false;
 
-    if (isSessionSystemSuperUser(currentUser) || isFlowchartAdminOfficer) return true;
+    if (
+        isSessionSystemSuperUser(currentUser) ||
+        isFlowchartAdminOfficer ||
+        isAssetController ||
+        isFlowchartHr
+    ) {
+        return true;
+    }
+    if (Array.isArray(flowchartRows) && flowchartRows.length) {
+        if (isCurrentUserFlowchartAdminOfficer(currentUser, flowchartRows)) return true;
+        if (isCurrentUserFlowchartAssetController(currentUser, flowchartRows)) return true;
+        const hrRow = pickFlowchartHrRow(flowchartRows);
+        if (flowchartRowMatchesUser(hrRow, currentUser)) return true;
+    }
 
     if (isOilServiceScheduledWaiting(service, asset)) {
-        return isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser);
+        return (
+            isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser) ||
+            isCurrentUserAssigneeHod(asset, currentUserEmployeeId, currentUser)
+        );
     }
 
     return false;

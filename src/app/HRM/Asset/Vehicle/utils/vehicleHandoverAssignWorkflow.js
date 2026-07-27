@@ -13,14 +13,20 @@ export function normalizeCategory(c) {
 
 export function pickFlowchartAdminRow(flowchartRows = []) {
     if (!Array.isArray(flowchartRows)) return null;
-    return flowchartRows.find(row => {
-        const cat = normalizeCategory(row?.category);
-        const status = normalizeCategory(row?.status);
-        return cat === 'admincontroller' && status === 'active';
-    }) || flowchartRows.find(row => {
-        const cat = normalizeCategory(row?.category);
-        return cat === 'admincontroller';
-    }) || null;
+    const isAdminCat = (cat) =>
+        cat === 'admincontroller' ||
+        cat === 'admin' ||
+        cat === 'administrator' ||
+        (cat.includes('admin') && cat.includes('controller'));
+    return (
+        flowchartRows.find((row) => {
+            const cat = normalizeCategory(row?.category);
+            const status = normalizeCategory(row?.status);
+            return isAdminCat(cat) && status === 'active';
+        }) ||
+        flowchartRows.find((row) => isAdminCat(normalizeCategory(row?.category))) ||
+        null
+    );
 }
 
 export function pickFlowchartHrRow(flowchartRows = []) {

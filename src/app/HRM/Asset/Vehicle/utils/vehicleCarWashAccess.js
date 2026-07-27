@@ -1,6 +1,6 @@
 import { isPortalSuperUser } from '@/utils/permissions';
-import { isCurrentUserVehicleAssignee } from './evaluateVehicleFleetHeaderActions';
 import { normalizeMongoId, parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
+import { canUserManageOilService } from './vehicleOilServiceAccess';
 
 export function resolveCarWashWorkflowStage(service, asset) {
     const remark = parseVehicleServiceRemark(service) || {};
@@ -40,11 +40,20 @@ export function resolveCarWashTableStatusLabel(service, asset) {
     return { label: 'Pending', tone: 'pending' };
 }
 
-export function canUserManageCarWash(asset, currentUserEmployeeId, currentUser = null, isFlowchartAdminOfficer = false) {
-    if (!asset) return false;
-    if (isPortalSuperUser(currentUser)) return true;
-    if (isFlowchartAdminOfficer) return true;
-    return isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser);
+export function canUserManageCarWash(
+    asset,
+    currentUserEmployeeId,
+    currentUser = null,
+    isFlowchartAdminOfficer = false,
+    extras = {},
+) {
+    return canUserManageOilService(
+        asset,
+        currentUserEmployeeId,
+        currentUser,
+        isFlowchartAdminOfficer,
+        extras,
+    );
 }
 
 export function canUserValidateCarWashAccounts(service, asset, isFlowchartAccounts = false, currentUser = null) {

@@ -186,6 +186,7 @@ function FineDetailsPageContent() {
     const [currentUser, setCurrentUser] = useState(null);
     const [isHr, setIsHr] = useState(false);
     const [isAssetController, setIsAssetController] = useState(false);
+    const [flowchartRows, setFlowchartRows] = useState([]);
     const [checkingPermissions, setCheckingPermissions] = useState(true);
     const [showEditModal, setShowEditModal] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
@@ -777,6 +778,7 @@ function FineDetailsPageContent() {
             try {
                 const flowRes = await axiosInstance.get('/Flowchart');
                 const flowchartRows = flowRes?.data || [];
+                setFlowchartRows(Array.isArray(flowchartRows) ? flowchartRows : []);
                 const actualId = currentUser._id || currentUser.id || currentUser.employeeObjectId;
 
                 if (!ac) {
@@ -1460,8 +1462,8 @@ function FineDetailsPageContent() {
     };
 
     const canPayVendorFineBill = useMemo(() => {
-        return canAccountsPayFineVendorBill(fine, currentUser);
-    }, [fine, currentUser]);
+        return canAccountsPayFineVendorBill(fine, currentUser, flowchartRows);
+    }, [fine, currentUser, flowchartRows]);
 
     const approvedScheduleOnlyEdit = useMemo(
         () => isHr && isApprovedFineStatus(fine?.fineStatus),
@@ -2275,6 +2277,7 @@ function FineDetailsPageContent() {
                                         0,
                                         computeFinePayableTotal(fine) - (Number(fine?.paidAmount) || 0),
                                     ),
+                                    flowchartRows,
                                 )}
                                 onPaymentSuccess={async () => {
                                     try {

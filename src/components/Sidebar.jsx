@@ -31,6 +31,7 @@ import {
     ChevronRight,
     Search,
     Receipt,
+    Wallet,
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import {
@@ -106,8 +107,14 @@ const menuItems = [
         submenu: [
             { label: 'Company', icon: Building2, permissionModule: 'hrm_company' },
             { label: 'Employees', icon: User, permissionModule: 'hrm_employees_list' },
-            { label: 'Attendance', icon: CalendarClock, permissionModule: 'hrm_attendance' },
-            { label: 'Leave', icon: CalendarX2, permissionModule: 'hrm_leave' },
+            {
+                label: 'Payroll',
+                icon: Wallet,
+                children: [
+                    { label: 'Attendance', icon: CalendarClock, permissionModule: 'hrm_attendance' },
+                    { label: 'Leave', icon: CalendarX2, permissionModule: 'hrm_leave' },
+                ],
+            },
             { label: 'NCR', icon: ClipboardList, permissionModule: 'hrm_ncr' },
             { label: 'Fine', icon: FileWarning, permissionModule: 'hrm_fine' },
             { label: 'Loan and Advance', icon: HandCoins, permissionModule: 'hrm_loan' },
@@ -196,6 +203,8 @@ function getSidebarSubmenuHref(parentId, subItem) {
     const label = subItem.label;
     if (parentId === 'HRM') {
         if (label === 'Employees') return '/emp';
+        if (label === 'Attendance') return '/HRM/Attendance';
+        if (label === 'Leave') return '/HRM/Leave';
         if (label === 'Reward') return '/HRM/Reward';
         if (label === 'Fine') return '/HRM/Fine';
         if (label === 'Loan and Advance' || label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
@@ -522,6 +531,11 @@ export default function Sidebar() {
             // Sub-module detection for HRM
             if (pathname.includes('/Asset')) {
                 setOpenSubmenu('HRM-Asset');
+            } else if (
+                pathname.startsWith('/HRM/Attendance') ||
+                pathname.startsWith('/HRM/Leave')
+            ) {
+                setOpenSubmenu('HRM-Payroll');
             }
         }
         // CRM Detection
@@ -607,6 +621,10 @@ export default function Sidebar() {
 
         if (parentId === 'HRM' && subItem.label === 'Employees') {
             router.push('/emp');
+        } else if (parentId === 'HRM' && subItem.label === 'Attendance') {
+            router.push('/HRM/Attendance');
+        } else if (parentId === 'HRM' && subItem.label === 'Leave') {
+            router.push('/HRM/Leave');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             router.push('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -653,6 +671,10 @@ export default function Sidebar() {
         }
         if (parentId === 'HRM' && subItem.label === 'Employees') {
             return pathname?.startsWith('/emp');
+        } else if (parentId === 'HRM' && subItem.label === 'Attendance') {
+            return pathname?.startsWith('/HRM/Attendance');
+        } else if (parentId === 'HRM' && subItem.label === 'Leave') {
+            return pathname?.startsWith('/HRM/Leave');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             return pathname?.startsWith('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -776,9 +798,9 @@ export default function Sidebar() {
             return isAdmin() || canRestoreRecovery;
         }
 
-        // Asset parent: show only when at least one sub-item (Vehicle / Tools) is allowed.
+        // Nested parents (Asset, Payroll): show only when at least one child is allowed.
         // Parent View alone must not reveal unchecked children.
-        if (subItem.children && subItem.permissionModule === 'hrm_asset') {
+        if (subItem.children && (subItem.permissionModule === 'hrm_asset' || subItem.label === 'Payroll')) {
             return subItem.children.some((child) => isSubmenuItemVisible(child));
         }
 

@@ -4,7 +4,19 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
-import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, ChevronDown, Plus, Calendar, CreditCard, TrendingUp, TrendingDown, Trash2 } from 'lucide-react';
+import {
+    ArrowLeft,
+    ChevronDown,
+    Plus,
+    Calendar,
+    CreditCard,
+    TrendingUp,
+    TrendingDown,
+    Trash2,
+    Check,
+    X,
+    LockKeyhole,
+} from 'lucide-react';
 import {
     DETAIL_PAIR_COLUMN,
     DETAIL_PAIR_GRID,
@@ -30,23 +42,36 @@ import {
 } from '../../utils/utilityBillsApi';
 import FieldViewModal from '../../components/FieldViewModal';
 import AddBillModal from '../../components/AddBillModal';
-import ViewBillModal from '../../components/ViewBillModal';
 import UtilityBillReviewModal from '../../components/UtilityBillReviewModal';
 import ActivateDeactivateUtilityModal from '../../components/ActivateDeactivateUtilityModal';
 import UtilityBillStatsCards from '../../components/UtilityBillStatsCards';
 import { billDisplayStatus, formatBillMoney } from '../../utils/utilityBillStats';
+import { getBillAllocationParties } from '../../components/UtilityBillTotalsBar';
 import { openUtilityAttachment } from '../../utils/openUtilityAttachment';
-import { loadUtilityBillPaymentInvoice } from '../../utils/utilityBillPaymentInvoice';
-import PaymentInvoiceViewerModal from '@/app/Accounts/Payments/components/PaymentInvoiceViewerModal';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 
 const MAX_INLINE_LEN = 48;
 
-function paymentByLabel(mode) {
-    if (mode === 'employee_balance' || mode === 'employee') return 'Pay by employee';
-    if (mode === 'company') return 'Pay by company';
-    if (mode === 'employee_and_company') return 'Pay by company / employee';
+function paymentByLabel(billOrMode) {
+    const bill =
+        billOrMode && typeof billOrMode === 'object' ? billOrMode : null;
+    const mode = bill ? bill.paymentBy : billOrMode;
+    const companyName = String(bill?.payByCompanyName || '').trim();
+    const employeeName = String(bill?.payByEmployeeName || '').trim();
+
+    if (mode === 'employee_balance' || mode === 'employee') {
+        return employeeName ? `Pay by ${employeeName}` : 'Pay by employee';
+    }
+    if (mode === 'company') {
+        return companyName ? `Pay by ${companyName}` : 'Pay by company';
+    }
+    if (mode === 'employee_and_company') {
+        if (companyName && employeeName) return `Pay by ${companyName} / ${employeeName}`;
+        if (companyName) return `Pay by ${companyName} / employee`;
+        if (employeeName) return `Pay by company / ${employeeName}`;
+        return 'Pay by company / employee';
+    }
     return 'Awaiting workflow';
 }
 
@@ -93,6 +118,17 @@ function monthLabelFromKey(ym, { shortOnly = false } = {}) {
     const [y, m] = String(ym).split('-').map(Number);
     const name = MONTH_SHORT[m - 1] || String(m);
     return shortOnly ? name : `${name} ${y}`;
+}
+
+/** Current calendar month + previous N−1 months (newest first). */
+function getRecentMonthKeys(count = 6) {
+    const keys = [];
+    const now = new Date();
+    for (let i = 0; i < count; i += 1) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return keys;
 }
 
 function entryStatusBadgeClass(status) {
@@ -253,7 +289,6 @@ function UtilityBillDetailsPageContent() {
     const [viewFields, setViewFields] = useState([]);
     const [addBillOpen, setAddBillOpen] = useState(false);
     const [viewBill, setViewBill] = useState(null);
-    const [paymentInvoice, setPaymentInvoice] = useState(null);
     const [savingBill, setSavingBill] = useState(false);
     const [reviewBatchId, setReviewBatchId] = useState('');
     const [statusChangeOpen, setStatusChangeOpen] = useState(false);
@@ -262,13 +297,8 @@ function UtilityBillDetailsPageContent() {
     /** Bill card that should flash light green (2 on/off pulses). */
     const [pulseBillId, setPulseBillId] = useState('');
     const [pulseBillOn, setPulseBillOn] = useState(false);
-    /** Bills tab accordion: open year keeps other years visible; open month keeps other months visible */
-    const [billsBrowseYear, setBillsBrowseYear] = useState(null);
+    /** Bills tab / Latest Bills: open month expands bill cards below (height grows, no scroll). */
     const [billsBrowseMonth, setBillsBrowseMonth] = useState(null);
-    /** Year list: 'desc' = newest first, 'asc' = oldest first */
-    const [yearSort, setYearSort] = useState('desc');
-    /** Month list within a year: 'asc' = Jan→Dec, 'desc' = Dec→Jan */
-    const [monthSort, setMonthSort] = useState('asc');
 
     const focusBillId = searchParams?.get('billId') || '';
 
@@ -296,50 +326,70 @@ function UtilityBillDetailsPageContent() {
         return () => window.clearInterval(timer);
     }, [pulseBillId]);
 
-    const overviewBills = useMemo(
-        () =>
-            (bills || [])
+    const recentMonthKeys = useMemo(() => getRecentMonthKeys(6), []);
+
+    /** Last 12 months ending this month (e.g. Jul → Aug prior year … Jul). */
+    const twelveMonthBillSeries = useMemo(() => {
+        const keys = getRecentMonthKeys(12);
+        const byMonth = new Map();
+        (bills || []).forEach((b) => {
+            const ym = billMonthKey(b);
+            if (!ym) return;
+            if (!byMonth.has(ym)) byMonth.set(ym, []);
+            byMonth.get(ym).push(b);
+        });
+        return keys.map((ym) => {
+            const list = byMonth.get(ym) || [];
+            const amount = list.reduce((sum, bill) => sum + (Number(bill?.amount) || 0), 0);
+            return {
+                ym,
+                label: monthLabelFromKey(ym, { shortOnly: true }),
+                year: String(ym).slice(0, 4),
+                amount,
+                billCount: list.length,
+            };
+        });
+    }, [bills]);
+
+    /** Months where any bill has contract − actual !== 0 (deduction months). */
+    const deductionMonths = useMemo(() => {
+        const byMonth = new Map();
+        (bills || []).forEach((bill) => {
+            const ym = billMonthKey(bill);
+            if (!ym) return;
+            const contract = Number(bill?.monthlyRental) || 0;
+            const actual = Number(bill?.amount) || 0;
+            const difference = contract - actual;
+            if (Math.abs(difference) < 0.01) return;
+            const prev = byMonth.get(ym) || { ym, difference: 0, billCount: 0 };
+            prev.difference += difference;
+            prev.billCount += 1;
+            byMonth.set(ym, prev);
+        });
+        return Array.from(byMonth.values())
+            .sort((a, b) => String(b.ym).localeCompare(String(a.ym)))
+            .map((row) => ({
+                ...row,
+                label: monthLabelFromKey(row.ym),
+            }));
+    }, [bills]);
+
+    /** Bills grouped for current month + 5 previous months (always 6 slots). */
+    const recentMonthBillGroups = useMemo(() => {
+        const byMonth = new Map();
+        (bills || []).forEach((b) => {
+            const ym = billMonthKey(b);
+            if (!ym) return;
+            if (!byMonth.has(ym)) byMonth.set(ym, []);
+            byMonth.get(ym).push(b);
+        });
+        return recentMonthKeys.map((ym) => {
+            const list = (byMonth.get(ym) || [])
                 .slice()
-                .sort((a, b) => billSortTime(b) - billSortTime(a))
-                .slice(0, 5),
-        [bills],
-    );
-
-    const billsByYear = useMemo(() => {
-        const map = new Map();
-        (bills || []).forEach((b) => {
-            const ym = billMonthKey(b);
-            if (!ym) return;
-            const year = Number(ym.slice(0, 4));
-            if (!map.has(year)) map.set(year, []);
-            map.get(year).push(b);
+                .sort((a, b) => billSortTime(b) - billSortTime(a));
+            return { ym, bills: list, summary: summarizeBillGroup(list) };
         });
-        return [...map.entries()].sort((a, b) =>
-            yearSort === 'asc' ? a[0] - b[0] : b[0] - a[0],
-        );
-    }, [bills, yearSort]);
-
-    /** year → [[YYYY-MM, bills[]], ...] sorted by monthSort */
-    const monthsByYear = useMemo(() => {
-        const byYear = new Map();
-        (bills || []).forEach((b) => {
-            const ym = billMonthKey(b);
-            if (!ym) return;
-            const year = Number(ym.slice(0, 4));
-            if (!byYear.has(year)) byYear.set(year, new Map());
-            const monthMap = byYear.get(year);
-            if (!monthMap.has(ym)) monthMap.set(ym, []);
-            monthMap.get(ym).push(b);
-        });
-        const result = new Map();
-        byYear.forEach((monthMap, year) => {
-            const entries = [...monthMap.entries()].sort((a, b) =>
-                monthSort === 'asc' ? a[0].localeCompare(b[0]) : b[0].localeCompare(a[0]),
-            );
-            result.set(year, entries);
-        });
-        return result;
-    }, [bills, monthSort]);
+    }, [bills, recentMonthKeys]);
 
     const billsForBrowseMonth = useMemo(() => {
         if (!billsBrowseMonth) return [];
@@ -348,9 +398,39 @@ function UtilityBillDetailsPageContent() {
             .sort((a, b) => billSortTime(b) - billSortTime(a));
     }, [bills, billsBrowseMonth]);
 
+    const latestApprovalRequest = useMemo(() => {
+        const sortedBills = (bills || [])
+            .slice()
+            .sort((a, b) => billSortTime(b) - billSortTime(a));
+        return (
+            sortedBills.find((bill) =>
+                ['Pending Accounts', 'Pending HR'].includes(String(bill.status)),
+            ) ||
+            sortedBills.find((bill) =>
+                ['Approved', 'Paid', 'Rejected'].includes(String(bill.status)),
+            ) ||
+            null
+        );
+    }, [bills]);
+
+    const approvalIsPending = ['Pending Accounts', 'Pending HR'].includes(
+        String(latestApprovalRequest?.status || ''),
+    );
+    const approvalCanAct = Boolean(
+        approvalIsPending && latestApprovalRequest?.canApproveReject,
+    );
+    const approvalRequesterName =
+        String(latestApprovalRequest?.requestedByName || '').trim() || '—';
+    const approvalEmployeeName = approvalIsPending
+        ? String(latestApprovalRequest?.pendingWithName || '').trim() || '—'
+        : String(
+              latestApprovalRequest?.approvedByName ||
+                  latestApprovalRequest?.actionedByName ||
+                  '',
+          ).trim() || '—';
+
     useEffect(() => {
-        if (activeTab !== 'bills') {
-            setBillsBrowseYear(null);
+        if (activeTab !== 'bills' && activeTab !== 'overview') {
             setBillsBrowseMonth(null);
         }
     }, [activeTab]);
@@ -455,12 +535,11 @@ function UtilityBillDetailsPageContent() {
         const bill = bills.find((b) => String(b._id) === String(focusBillId));
         if (!bill) return;
         const ym = billMonthKey(bill);
-        const inLatestFive = overviewBills.some((b) => String(b._id) === String(focusBillId));
-        if (inLatestFive) {
+        if (ym && recentMonthKeys.includes(ym)) {
             setActiveTab('overview');
+            setBillsBrowseMonth(ym);
         } else if (ym) {
             setActiveTab('bills');
-            setBillsBrowseYear(Number(ym.slice(0, 4)));
             setBillsBrowseMonth(ym);
         } else {
             setActiveTab('overview');
@@ -472,7 +551,7 @@ function UtilityBillDetailsPageContent() {
             triggerBillPulse(focusBillId);
         }, 80);
         return () => window.clearTimeout(t);
-    }, [focusBillId, bills, overviewBills, triggerBillPulse]);
+    }, [focusBillId, bills, recentMonthKeys, triggerBillPulse]);
 
     const detailRows = useMemo(
         () => (entry ? buildDetailFieldRows(entry, utilityConfig) : []),
@@ -782,7 +861,7 @@ function UtilityBillDetailsPageContent() {
     );
 
     const renderBillsList = (list, emptyMessage) => (
-        <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
+        <div className="flex flex-col">
             {loadingBills ? (
                 <p className="text-xs sm:text-sm text-gray-500 py-6 text-center">Loading bills…</p>
             ) : list.length === 0 ? (
@@ -790,7 +869,7 @@ function UtilityBillDetailsPageContent() {
                     {emptyMessage || 'No bills yet. Click Add Bills to create one.'}
                 </div>
             ) : (
-                <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1 py-1">
+                <div className="space-y-4 py-1">
                     {list.map((bill) => {
                         const contract = Number(bill.monthlyRental) || 0;
                         const actual = Number(bill.amount) || 0;
@@ -801,12 +880,14 @@ function UtilityBillDetailsPageContent() {
                             String(bill._id) === String(pulseBillId) && pulseBillOn;
                         const isNotPaid = bill.status === 'Approved';
                         const isPaid = bill.status === 'Paid';
-                        const canPay = Boolean(bill.canPay);
                         const canApproveReject = Boolean(bill.canApproveReject);
                         const actionBatchId = bill.batchId || bill._id;
                         const showApprove = Boolean(canApproveReject && actionBatchId);
-                        const showPay = Boolean(canPay && actionBatchId);
-                        const statusText = billDisplayStatus(bill);
+                        const statusText = isPaid
+                            ? 'Vendor Payment: Paid'
+                            : isNotPaid
+                              ? 'Vendor Payment: Not Paid'
+                              : billDisplayStatus(bill);
                         const openBatchReview = () => openBillReview(bill);
 
                         // Subtle side border indicator class and glowing status dot
@@ -878,7 +959,7 @@ function UtilityBillDetailsPageContent() {
                                     </div>
                                     <div className="px-3 py-2 bg-gray-50/50 rounded-lg border border-gray-100/80">
                                         <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">
-                                            Actual
+                                            Actual Bill
                                         </p>
                                         <p
                                             className={`text-xs sm:text-sm font-semibold tabular-nums ${
@@ -896,7 +977,7 @@ function UtilityBillDetailsPageContent() {
                                               : 'bg-gray-50/50 border-gray-100 text-gray-500'
                                     }`}>
                                         <p className="text-[9px] font-bold uppercase tracking-wider mb-0.5 opacity-80">
-                                            Difference
+                                            Difference to Pay Employee
                                         </p>
                                         <div className="flex items-center gap-1">
                                             {difference < 0 ? (
@@ -911,36 +992,43 @@ function UtilityBillDetailsPageContent() {
                                     </div>
                                 </div>
 
-                                {(isNotPaid || isPaid) &&
-                                (bill.paymentBy === 'employee_balance' ||
-                                    bill.paymentBy === 'employee_and_company' ||
-                                    bill.paymentBy === 'employee' ||
-                                    bill.paymentBy === 'company') ? (
+                                {(() => {
+                                    const parties = getBillAllocationParties(bill);
+                                    if (!parties.length) return null;
+                                    return (
                                     <div className="mt-3 pt-2.5 border-t border-dashed border-gray-100 flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-1.5 text-xs text-gray-400 font-medium">
                                             <CreditCard size={12} />
                                             <span>Allocation Details</span>
                                         </div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100">
-                                                Company: {formatBillMoney(bill.companyPayAmount)}
-                                            </span>
-                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-purple-50 text-purple-700 rounded border border-purple-100">
-                                                Employee: {formatBillMoney(bill.employeePayAmount)}
-                                            </span>
+                                        <div className="flex flex-wrap items-center gap-2 justify-end">
+                                            {parties.map((party) => (
+                                                <span
+                                                    key={party.key}
+                                                    title={`${party.fullName || party.name}: ${formatBillMoney(party.amount)}`}
+                                                    className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border max-w-[14rem] truncate ${
+                                                        party.type === 'employee'
+                                                            ? 'bg-purple-50 text-purple-700 border-purple-100'
+                                                            : 'bg-blue-50 text-blue-700 border-blue-100'
+                                                    }`}
+                                                >
+                                                    {party.name}: {formatBillMoney(party.amount)}
+                                                </span>
+                                            ))}
                                         </div>
                                     </div>
-                                ) : null}
+                                    );
+                                })()}
 
                                 <div className="flex items-center justify-between gap-3 mt-3.5 pt-2.5 border-t border-gray-50">
                                     <span className="text-[11px] text-gray-400 font-medium flex items-center gap-1">
                                         {isNotPaid || isPaid
-                                            ? paymentByLabel(bill.paymentBy)
+                                            ? paymentByLabel(bill)
                                             : bill.status === 'Pending HR'
                                               ? 'Awaiting HR Approval'
                                               : bill.status === 'Pending Accounts'
                                                 ? 'Awaiting Accounts Review'
-                                                : paymentByLabel(bill.paymentBy)}
+                                                : paymentByLabel(bill)}
                                         {bill.createdAt ? (
                                             <>
                                                 <span className="text-gray-300 px-0.5">·</span>
@@ -981,30 +1069,6 @@ function UtilityBillDetailsPageContent() {
                                                 Invoice
                                             </button>
                                         ) : null}
-                                        {(isNotPaid || isPaid) ? (
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    const { payment, error } =
-                                                        await loadUtilityBillPaymentInvoice(bill);
-                                                    if (!payment) {
-                                                        toast({
-                                                            variant: 'destructive',
-                                                            title: 'Payment receipt',
-                                                            description:
-                                                                error ||
-                                                                'Could not open payment receipt.',
-                                                        });
-                                                        return;
-                                                    }
-                                                    setPaymentInvoice(payment);
-                                                }}
-                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-                                                title="Open payment receipt from Accounts → Payments"
-                                            >
-                                                Receipt
-                                            </button>
-                                        ) : null}
                                         {showApprove ? (
                                             <button
                                                 type="button"
@@ -1012,15 +1076,6 @@ function UtilityBillDetailsPageContent() {
                                                 className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold shadow-sm shadow-sky-100/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
                                             >
                                                 Approve
-                                            </button>
-                                        ) : null}
-                                        {showPay ? (
-                                            <button
-                                                type="button"
-                                                onClick={openBatchReview}
-                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm shadow-amber-100/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                                            >
-                                                Pay
                                             </button>
                                         ) : null}
                                         {canAdminDelete ? (
@@ -1044,45 +1099,6 @@ function UtilityBillDetailsPageContent() {
         </div>
     );
 
-    const renderSortToggle = (value, onChange, ascLabel, descLabel) => (
-        <div className="inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5 shrink-0">
-            <button
-                type="button"
-                onClick={() => onChange('asc')}
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                    value === 'asc'
-                        ? 'bg-teal-50 text-teal-700'
-                        : 'text-gray-400 hover:text-gray-600'
-                }`}
-            >
-                <ArrowUpAZ size={12} />
-                {ascLabel}
-            </button>
-            <button
-                type="button"
-                onClick={() => onChange('desc')}
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                    value === 'desc'
-                        ? 'bg-teal-50 text-teal-700'
-                        : 'text-gray-400 hover:text-gray-600'
-                }`}
-            >
-                <ArrowDownAZ size={12} />
-                {descLabel}
-            </button>
-        </div>
-    );
-
-    const toggleBrowseYear = (year) => {
-        if (Number(billsBrowseYear) === Number(year)) {
-            setBillsBrowseYear(null);
-            setBillsBrowseMonth(null);
-            return;
-        }
-        setBillsBrowseYear(year);
-        setBillsBrowseMonth(null);
-    };
-
     const toggleBrowseMonth = (ym) => {
         if (billsBrowseMonth === ym) {
             setBillsBrowseMonth(null);
@@ -1091,205 +1107,78 @@ function UtilityBillDetailsPageContent() {
         setBillsBrowseMonth(ym);
     };
 
-    const renderBillsBrowse = () => {
+    /** Current month + 5 previous — click a month to expand its bills (height grows, no scrollbar). */
+    const renderRecentMonthsBrowse = () => {
         if (loadingBills) {
             return <p className="text-xs sm:text-sm text-gray-500 py-6 text-center">Loading bills…</p>;
         }
 
-        if (bills.length === 0) {
-            return (
-                <div className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
-                    No bills yet. Click Add Bills to create one.
-                </div>
-            );
-        }
-
         return (
-            <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5 shrink-0">
-                    <p className="text-xs sm:text-sm font-medium text-slate-500">
-                        Years · expand to browse months
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                        {renderSortToggle(yearSort, setYearSort, 'ASC', 'DESC')}
-                        {billsBrowseYear != null
-                            ? renderSortToggle(monthSort, setMonthSort, 'Jan–Dec', 'Dec–Jan')
-                            : null}
-                    </div>
-                </div>
-                {billsByYear.length === 0 ? (
-                    <div className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
-                        No bill months found.
-                    </div>
-                ) : (
-                    <div className="space-y-2.5 overflow-y-auto flex-1 min-h-0 pr-1 overscroll-contain">
-                        {billsByYear.map(([year, yearBills]) => {
-                            const yearOpen = Number(billsBrowseYear) === Number(year);
-                            const monthEntries = monthsByYear.get(year) || [];
-                            const yearSummary = summarizeBillGroup(yearBills);
-                            return (
-                                <div
-                                    key={year}
-                                    className={`group/year rounded-2xl border bg-white overflow-hidden transition-[border-color,box-shadow,background-color] duration-300 ease-out ${
-                                        yearOpen
-                                            ? 'border-teal-300/80 shadow-[0_8px_24px_-12px_rgba(13,148,136,0.35)]'
-                                            : 'border-slate-200/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-slate-300 hover:shadow-[0_6px_18px_-12px_rgba(15,23,42,0.18)]'
+            <div className="space-y-2.5">
+                <p className="text-xs sm:text-sm font-medium text-slate-500 px-0.5">
+                    This month and 5 previous · click a month to open bills
+                </p>
+                {recentMonthBillGroups.map(({ ym, bills: monthBills, summary }) => {
+                    const monthOpen = billsBrowseMonth === ym;
+                    const monthBillList = monthOpen ? billsForBrowseMonth : monthBills;
+                    const isCurrent = ym === recentMonthKeys[0];
+                    return (
+                        <div
+                            key={ym}
+                            className={`rounded-xl border bg-white overflow-hidden transition-[border-color,box-shadow] duration-200 ${
+                                monthOpen
+                                    ? 'border-teal-200 shadow-sm'
+                                    : 'border-slate-200/80 hover:border-slate-300'
+                            }`}
+                        >
+                            <button
+                                type="button"
+                                onClick={() => toggleBrowseMonth(ym)}
+                                className={`w-full flex items-center gap-3 sm:gap-4 px-3.5 sm:px-4 py-2.5 sm:py-3 text-left transition-colors ${
+                                    monthOpen ? 'bg-teal-50/40' : 'hover:bg-slate-50/90'
+                                }`}
+                            >
+                                <div className="min-w-0 shrink-0 w-[5.5rem] sm:w-[7rem]">
+                                    <p className="text-sm sm:text-base font-semibold text-slate-900">
+                                        {monthLabelFromKey(ym)}
+                                        {isCurrent ? (
+                                            <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-teal-600">
+                                                Now
+                                            </span>
+                                        ) : null}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
+                                        {summary.billCount}{' '}
+                                        {summary.billCount === 1 ? 'bill' : 'bills'}
+                                    </p>
+                                </div>
+                                <BillGroupSummaryStats summary={summary} compact />
+                                <span
+                                    className={`shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
+                                        monthOpen
+                                            ? 'bg-teal-100 text-teal-700'
+                                            : 'bg-slate-100 text-slate-400'
                                     }`}
                                 >
-                                    <button
-                                        type="button"
-                                        onClick={() => toggleBrowseYear(year)}
-                                        className={`relative w-full flex items-center gap-3 sm:gap-5 px-4 sm:px-5 py-3.5 sm:py-4 text-left transition-colors duration-200 ${
-                                            yearOpen
-                                                ? 'bg-gradient-to-r from-teal-50/90 via-white to-white'
-                                                : 'hover:bg-slate-50/80'
+                                    <ChevronDown
+                                        size={14}
+                                        className={`transition-transform duration-200 ${
+                                            monthOpen ? 'rotate-0' : '-rotate-90'
                                         }`}
-                                    >
-                                        <span
-                                            className={`absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full transition-colors duration-300 ${
-                                                yearOpen
-                                                    ? 'bg-teal-500'
-                                                    : 'bg-transparent group-hover/year:bg-slate-300'
-                                            }`}
-                                            aria-hidden
-                                        />
-                                        <div className="min-w-0 shrink-0 w-[6rem] sm:w-[8rem]">
-                                            <p className="text-lg sm:text-xl font-semibold tracking-tight text-slate-900">
-                                                {year}
-                                            </p>
-                                            <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5 tabular-nums">
-                                                {yearSummary.billCount}{' '}
-                                                {yearSummary.billCount === 1 ? 'bill' : 'bills'}
-                                                {yearSummary.monthCount
-                                                    ? ` · ${yearSummary.monthCount} mo`
-                                                    : ''}
-                                            </p>
-                                        </div>
-                                        <BillGroupSummaryStats summary={yearSummary} />
-                                        <span
-                                            className={`shrink-0 inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200 ${
-                                                yearOpen
-                                                    ? 'bg-teal-100 text-teal-700'
-                                                    : 'bg-slate-100 text-slate-400 group-hover/year:bg-slate-200/80 group-hover/year:text-slate-600'
-                                            }`}
-                                        >
-                                            <ChevronDown
-                                                size={16}
-                                                className={`transition-transform duration-300 ease-out ${
-                                                    yearOpen ? 'rotate-0' : '-rotate-90'
-                                                }`}
-                                            />
-                                        </span>
-                                    </button>
-
-                                    <div
-                                        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
-                                            yearOpen
-                                                ? 'grid-rows-[1fr] opacity-100'
-                                                : 'grid-rows-[0fr] opacity-0'
-                                        }`}
-                                    >
-                                        <div className="min-h-0 overflow-hidden">
-                                            <div className="border-t border-slate-100/90 bg-slate-50/70 px-2.5 sm:px-3 py-2.5 space-y-2">
-                                                {monthEntries.length === 0 ? (
-                                                    <p className="text-xs sm:text-sm text-gray-500 px-2 py-3 text-center">
-                                                        No months for this year.
-                                                    </p>
-                                                ) : (
-                                                    monthEntries.map(([ym, monthBills]) => {
-                                                        const monthOpen = billsBrowseMonth === ym;
-                                                        const monthSummary =
-                                                            summarizeBillGroup(monthBills);
-                                                        const monthBillList = monthOpen
-                                                            ? billsForBrowseMonth
-                                                            : [...monthBills].sort(
-                                                                  (a, b) =>
-                                                                      billSortTime(b) -
-                                                                      billSortTime(a),
-                                                              );
-                                                        return (
-                                                            <div
-                                                                key={ym}
-                                                                className={`group/month rounded-xl border bg-white overflow-hidden transition-[border-color,box-shadow] duration-300 ease-out ${
-                                                                    monthOpen
-                                                                        ? 'border-teal-200 shadow-sm'
-                                                                        : 'border-slate-200/80 hover:border-slate-300'
-                                                                }`}
-                                                            >
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        toggleBrowseMonth(ym)
-                                                                    }
-                                                                    className={`w-full flex items-center gap-3 sm:gap-4 px-3.5 sm:px-4 py-2.5 sm:py-3 text-left transition-colors duration-200 ${
-                                                                        monthOpen
-                                                                            ? 'bg-teal-50/40'
-                                                                            : 'hover:bg-slate-50/90'
-                                                                    }`}
-                                                                >
-                                                                    <div className="min-w-0 shrink-0 w-[4.75rem] sm:w-[6rem]">
-                                                                        <p className="text-sm font-semibold text-slate-900">
-                                                                            {monthLabelFromKey(ym, {
-                                                                                shortOnly: true,
-                                                                            })}
-                                                                        </p>
-                                                                        <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
-                                                                            {monthSummary.billCount}{' '}
-                                                                            {monthSummary.billCount ===
-                                                                            1
-                                                                                ? 'bill'
-                                                                                : 'bills'}
-                                                                        </p>
-                                                                    </div>
-                                                                    <BillGroupSummaryStats
-                                                                        summary={monthSummary}
-                                                                        compact
-                                                                    />
-                                                                    <span
-                                                                        className={`shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors duration-200 ${
-                                                                            monthOpen
-                                                                                ? 'bg-teal-100 text-teal-700'
-                                                                                : 'bg-slate-100 text-slate-400 group-hover/month:text-slate-600'
-                                                                        }`}
-                                                                    >
-                                                                        <ChevronDown
-                                                                            size={14}
-                                                                            className={`transition-transform duration-300 ease-out ${
-                                                                                monthOpen
-                                                                                    ? 'rotate-0'
-                                                                                    : '-rotate-90'
-                                                                            }`}
-                                                                        />
-                                                                    </span>
-                                                                </button>
-                                                                <div
-                                                                    className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
-                                                                        monthOpen
-                                                                            ? 'grid-rows-[1fr] opacity-100'
-                                                                            : 'grid-rows-[0fr] opacity-0'
-                                                                    }`}
-                                                                >
-                                                                    <div className="min-h-0 overflow-hidden">
-                                                                        <div className="border-t border-slate-100 px-2 py-2 max-h-[320px] overflow-y-auto">
-                                                                            {renderBillsList(
-                                                                                monthBillList,
-                                                                                'No bills for this month.',
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
+                                    />
+                                </span>
+                            </button>
+                            {monthOpen ? (
+                                <div className="border-t border-slate-100 px-2 py-2">
+                                    {renderBillsList(
+                                        monthBillList,
+                                        'No bills for this month.',
+                                    )}
                                 </div>
-                            );
-                        })}
-                    </div>
-                )}
+                            ) : null}
+                        </div>
+                    );
+                })}
             </div>
         );
     };
@@ -1388,15 +1277,199 @@ function UtilityBillDetailsPageContent() {
                     </div>
 
                     <div className={HEADER_PAIR_GRID}>
+                        {/* Card 1 — this month + previous 12 months bill amounts */}
                         <div
-                            className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
+                            className={`bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                         >
-                           
+                            <div className="h-full flex flex-col min-h-0">
+                                <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4 shrink-0">
+                                    <p className="text-[10px] sm:text-[11px] font-bold text-gray-400 uppercase tracking-[0.18em]">
+                                        Bill Amounts
+                                    </p>
+                                    <p className="text-[10px] text-gray-400 font-medium">
+                                        Last 12 months
+                                    </p>
+                                </div>
+                                <div className="flex-1 min-h-0 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-2.5 auto-rows-fr content-stretch overflow-hidden">
+                                    {twelveMonthBillSeries.map((m, idx) => (
+                                        <div
+                                            key={m.ym}
+                                            title={`${monthLabelFromKey(m.ym)} · ${m.billCount} bill(s)`}
+                                            className={`rounded-xl border px-2 py-3 sm:px-3 sm:py-4 flex flex-col items-center justify-center min-w-0 min-h-[72px] sm:min-h-[88px] ${
+                                                idx === 0
+                                                    ? 'bg-teal-50 border-teal-200'
+                                                    : 'bg-gray-50/80 border-gray-100'
+                                            }`}
+                                        >
+                                            <span
+                                                className={`text-[10px] sm:text-xs font-bold uppercase tracking-wide truncate w-full text-center ${
+                                                    idx === 0 ? 'text-teal-700' : 'text-gray-400'
+                                                }`}
+                                            >
+                                                {m.label}
+                                            </span>
+                                            <span
+                                                className={`mt-1.5 text-sm sm:text-base font-bold tabular-nums truncate w-full text-center ${
+                                                    m.amount > 0 ? 'text-gray-800' : 'text-gray-300'
+                                                }`}
+                                            >
+                                                {formatBillMoney(m.amount)}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
+
+                        {/* Card 2 — 1/2 deduction months | 1/2 approval */}
                         <div
-                            className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
+                            className={`bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                         >
-                           
+                            <div className="h-full grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 min-h-0">
+                                <div className="min-w-0 flex flex-col min-h-0 border-b sm:border-b-0 sm:border-r border-gray-100 pb-3 sm:pb-0 sm:pr-3">
+                                    <p className="text-[10px] sm:text-[11px] font-bold text-gray-400 uppercase tracking-[0.18em] mb-3 shrink-0">
+                                        Deduction Months
+                                    </p>
+                                    <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
+                                        {deductionMonths.length ? (
+                                            deductionMonths.map((m) => (
+                                                <div
+                                                    key={m.ym}
+                                                    className="rounded-xl border border-red-100 bg-red-50/60 px-3 py-3 sm:px-3.5 sm:py-3.5 flex items-center justify-between gap-2 min-h-[64px]"
+                                                >
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-bold text-gray-800 truncate">
+                                                            {m.label}
+                                                        </p>
+                                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                                            {m.billCount} bill
+                                                            {m.billCount === 1 ? '' : 's'}
+                                                        </p>
+                                                    </div>
+                                                    <span
+                                                        className={`text-sm sm:text-base font-bold tabular-nums shrink-0 ${
+                                                            m.difference < 0
+                                                                ? 'text-red-600'
+                                                                : 'text-emerald-600'
+                                                        }`}
+                                                    >
+                                                        {formatBillMoney(m.difference)}
+                                                    </span>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="flex flex-1 items-center justify-center text-xs text-gray-400 py-6">
+                                                No deduction months
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="min-w-0 flex flex-col justify-between gap-2 sm:pl-1">
+                                    {latestApprovalRequest ? (
+                                        <>
+                                            <div className="grid grid-cols-1 gap-2 flex-1 content-center">
+                                                <div className="bg-blue-50 p-2 sm:p-2.5 rounded-lg border border-blue-100 min-w-0">
+                                                    <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide">
+                                                        Requested by
+                                                    </span>
+                                                    <p
+                                                        title={approvalRequesterName}
+                                                        className="mt-0.5 text-xs sm:text-sm font-bold text-blue-800 truncate"
+                                                    >
+                                                        {approvalRequesterName}
+                                                    </p>
+                                                </div>
+                                                <div
+                                                    className={`p-2 sm:p-2.5 rounded-lg border min-w-0 ${
+                                                        latestApprovalRequest.status === 'Rejected'
+                                                            ? 'bg-red-50 border-red-100'
+                                                            : approvalIsPending
+                                                              ? 'bg-amber-50 border-amber-100'
+                                                              : 'bg-emerald-50 border-emerald-100'
+                                                    }`}
+                                                >
+                                                    <span
+                                                        className={`text-[10px] font-medium uppercase tracking-wide ${
+                                                            latestApprovalRequest.status === 'Rejected'
+                                                                ? 'text-red-600'
+                                                                : approvalIsPending
+                                                                  ? 'text-amber-600'
+                                                                  : 'text-emerald-600'
+                                                        }`}
+                                                    >
+                                                        {approvalIsPending
+                                                            ? 'Approves by'
+                                                            : latestApprovalRequest.status ===
+                                                                'Rejected'
+                                                              ? 'Rejected by'
+                                                              : 'Approved by'}
+                                                    </span>
+                                                    <p
+                                                        title={approvalEmployeeName}
+                                                        className={`mt-0.5 text-xs sm:text-sm font-bold truncate ${
+                                                            latestApprovalRequest.status === 'Rejected'
+                                                                ? 'text-red-800'
+                                                                : approvalIsPending
+                                                                  ? 'text-amber-800'
+                                                                  : 'text-emerald-800'
+                                                        }`}
+                                                    >
+                                                        {approvalEmployeeName}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-1.5 sm:gap-2 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    disabled={!approvalCanAct}
+                                                    onClick={() =>
+                                                        openBillReview(latestApprovalRequest)
+                                                    }
+                                                    title={
+                                                        approvalCanAct
+                                                            ? 'Open this request to approve it'
+                                                            : 'Only the assigned approver can approve this request'
+                                                    }
+                                                    className="inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-teal-500 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-white hover:bg-teal-600 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+                                                >
+                                                    {approvalCanAct ? (
+                                                        <Check size={13} />
+                                                    ) : (
+                                                        <LockKeyhole size={12} />
+                                                    )}
+                                                    Approve
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={!approvalCanAct}
+                                                    onClick={() =>
+                                                        openBillReview(latestApprovalRequest)
+                                                    }
+                                                    title={
+                                                        approvalCanAct
+                                                            ? 'Open this request to reject it'
+                                                            : 'Only the assigned approver can reject this request'
+                                                    }
+                                                    className="inline-flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+                                                >
+                                                    {approvalCanAct ? (
+                                                        <X size={13} />
+                                                    ) : (
+                                                        <LockKeyhole size={12} />
+                                                    )}
+                                                    Reject
+                                                </button>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="flex flex-1 items-center justify-center text-xs text-gray-400">
+                                            No bill approval request
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -1421,12 +1494,12 @@ function UtilityBillDetailsPageContent() {
                     </div>
 
                     {activeTab === 'overview' ? (
-                        <div className={DETAIL_PAIR_GRID}>
+                        <div className={`${DETAIL_PAIR_GRID} !items-start`}>
                             <div className={DETAIL_PAIR_COLUMN}>
-                                <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden h-full">
+                                <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
                                     <div className="px-4 sm:px-5 py-3 sm:py-4 flex items-center justify-between gap-3 border-b border-gray-100">
                                         <div className="flex items-center gap-2 min-w-0">
-                                            <h3 className="text-[10px] sm:text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em] truncate">
+                                            <h3 className="text-lg sm:text-xl font-bold text-gray-800 truncate">
                                                 {entry.type} Details
                                             </h3>
                                             <span
@@ -1455,21 +1528,18 @@ function UtilityBillDetailsPageContent() {
                                     {renderDetailFields()}
                                 </div>
                             </div>
-                            {/* Absolute fill so bills match left card height and scroll instead of growing the page */}
-                            <div className={`${DETAIL_PAIR_COLUMN} relative min-h-[320px] lg:min-h-0`}>
-                                <div className="flex flex-col min-h-0 max-h-[420px] lg:max-h-none lg:absolute lg:inset-0">
+                            {/* Latest Bills — this month + 5 previous; expands without inner scrollbar */}
+                            <div className={DETAIL_PAIR_COLUMN}>
+                                <div className="flex flex-col">
                                     {renderBillsHeader('Latest Bills')}
-                                    {renderBillsList(
-                                        overviewBills,
-                                        'No bills yet. Click Add Bills to create one.',
-                                    )}
+                                    {renderRecentMonthsBrowse()}
                                 </div>
                             </div>
                         </div>
                     ) : (
-                        <div className="flex flex-col min-h-0 max-h-[min(70vh,640px)]">
+                        <div className="flex flex-col">
                             {renderBillsHeader('All Bills')}
-                            {renderBillsBrowse()}
+                            {renderRecentMonthsBrowse()}
                         </div>
                     )}
                 </div>
@@ -1483,21 +1553,10 @@ function UtilityBillDetailsPageContent() {
             />
 
             <AddBillModal
-                isOpen={addBillOpen}
-                onClose={() => setAddBillOpen(false)}
-                entries={entry && entryIsActive ? [entry] : []}
-                existingBills={bills}
-                utilityType={entry?.type || ''}
-                utilityAttachment={utilityConfig?.attachment || null}
-                monthlyRental={monthlyRental}
-                onSubmit={handleAddBill}
-                saving={savingBill}
-            />
-
-            <ViewBillModal
-                isOpen={Boolean(viewBill)}
+                isOpen={addBillOpen || Boolean(viewBill)}
                 onClose={() => {
                     const id = viewBill?._id;
+                    setAddBillOpen(false);
                     setViewBill(null);
                     if (id) {
                         window.setTimeout(() => {
@@ -1508,13 +1567,22 @@ function UtilityBillDetailsPageContent() {
                         }, 50);
                     }
                 }}
-                bill={viewBill}
-                onEdit={(bill) => openBillReview(bill)}
-            />
-
-            <PaymentInvoiceViewerModal
-                payment={paymentInvoice}
-                onClose={() => setPaymentInvoice(null)}
+                entries={
+                    viewBill
+                        ? entry
+                            ? [entry]
+                            : []
+                        : entry && entryIsActive
+                          ? [entry]
+                          : []
+                }
+                existingBills={bills}
+                utilityType={entry?.type || ''}
+                utilityAttachment={utilityConfig?.attachment || null}
+                monthlyRental={monthlyRental}
+                onSubmit={handleAddBill}
+                saving={savingBill}
+                viewBill={viewBill}
             />
 
             <UtilityBillReviewModal

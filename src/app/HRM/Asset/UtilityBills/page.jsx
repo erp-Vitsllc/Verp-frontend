@@ -6,8 +6,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { Bell, Pencil, Plus, Trash2, UserPlus } from 'lucide-react';
-import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
-import { AnimatedCounter } from '@/app/HRM/Asset/components/ListPageSummaryCards';
+import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_CARD_DASHBOARD_FILTER, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import AddUtilityModal, { UTILITY_TOGGLE_FIELDS } from './components/AddUtilityModal';
 import CreateUtilityEntryModal from './components/CreateUtilityEntryModal';
 import AssignUtilityEntryModal from './components/AssignUtilityEntryModal';
@@ -15,6 +14,8 @@ import AddBillModal from './components/AddBillModal';
 import UtilityBillReviewModal from './components/UtilityBillReviewModal';
 import UtilityStatusChangeReviewModal from './components/UtilityStatusChangeReviewModal';
 import UtilityBillStatsCards from './components/UtilityBillStatsCards';
+import UtilityTypeOverviewCard from './components/UtilityTypeOverviewCard';
+import UtilityContractExpiryCard from './components/UtilityContractExpiryCard';
 import FieldViewModal from './components/FieldViewModal';
 import PendingAssetRequestsModal from '../components/PendingAssetRequestsModal';
 import axiosInstance from '@/utils/axios';
@@ -51,6 +52,12 @@ import {
     removeUtilityTypeNameApi,
 } from './utils/utilityBillsApi';
 import { openUtilityAttachment } from './utils/openUtilityAttachment';
+import {
+    buildContractExpiryRows,
+    buildTypeOverviewCards,
+    currentPeriod,
+    utilityBillYears,
+} from './utils/utilityOverviewStats';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 
 const CELL_MAX_LEN = 42;
@@ -236,6 +243,7 @@ function countUtilityBillPending(items = []) {
         return (
             t === 'Utility Bill Payment' ||
             t === 'Utility Bill Payment Reminder' ||
+            t === 'Utility Contract Expiry' ||
             t === 'Utility Entry Status Change'
         );
     }).length;
@@ -264,6 +272,10 @@ function UtilityBillsPageContent() {
     /** Sub-tabs under type tabs: Active | Deactivated */
     const [listStatusTab, setListStatusTab] = useState('active');
     const [typeBills, setTypeBills] = useState([]);
+    /** Bills across every utility type — powers the overview amounts. */
+    const [allTypeBills, setAllTypeBills] = useState([]);
+    const [overviewMonth, setOverviewMonth] = useState(() => currentPeriod().month);
+    const [overviewYear, setOverviewYear] = useState(() => currentPeriod().year);
 
     useEffect(() => {
         const batchId = String(searchParams?.get('batchId') || '').trim();
@@ -298,6 +310,24 @@ function UtilityBillsPageContent() {
     useEffect(() => {
         loadTypeBills(activeTypeTab);
     }, [activeTypeTab, loadTypeBills]);
+
+    /** The list endpoint is per type, so fan out over every created type. */
+    const loadAllTypeBills = useCallback(async (typeNames) => {
+        const names = (typeNames || []).map((n) => String(n || '').trim()).filter(Boolean);
+        if (!names.length) {
+            setAllTypeBills([]);
+            return;
+        }
+        const results = await Promise.all(
+            names.map((utilityType) =>
+                axiosInstance
+                    .get('/UtilityBill', { params: { utilityType }, skipToast: true })
+                    .then((res) => (Array.isArray(res.data?.bills) ? res.data.bills : []))
+                    .catch(() => []),
+            ),
+        );
+        setAllTypeBills(results.flat());
+    }, []);
 
     const reloadUtilitiesAndEntries = useCallback(async () => {
         try {
@@ -414,22 +444,54 @@ function UtilityBillsPageContent() {
 
     const showAssignColumn = activeUtility?.fields?.assignment === 'yes';
 
+    const typeNamesKey = useMemo(
+        () => typeTabs.map((tab) => String(tab.type || '')).join('|'),
+        [typeTabs],
+    );
+
+    useEffect(() => {
+        loadAllTypeBills(typeNamesKey ? typeNamesKey.split('|') : []);
+    }, [typeNamesKey, loadAllTypeBills]);
+
     /** Overview boxes: only types that are in use (count > 0). Zero-count types stay hidden. */
-    const typeOverviewCards = useMemo(() => {
-        return typeTabs
-            .map((tab) => {
-                const typeName = String(tab.type || '');
-                const count = entries.filter(
-                    (e) => String(e.type || '').toLowerCase() === typeName.toLowerCase(),
-                ).length;
-                return {
-                    label: typeName,
-                    value: count,
-                    type: typeName,
-                };
-            })
-            .filter((item) => Number(item.value) > 0);
-    }, [typeTabs, entries]);
+    const typeOverviewCards = useMemo(
+        () =>
+            buildTypeOverviewCards({
+                typeTabs,
+                entries,
+                bills: allTypeBills,
+                year: overviewYear,
+                month: overviewMonth,
+            }),
+        [typeTabs, entries, allTypeBills, overviewYear, overviewMonth],
+    );
+
+    const overviewYearOptions = useMemo(() => utilityBillYears(allTypeBills), [allTypeBills]);
+
+    /** Sum of |contract − actual| across all types for the selected period. */
+    const deductionTotal = useMemo(
+        () => typeOverviewCards.reduce((sum, card) => sum + (Number(card.difference) || 0), 0),
+        [typeOverviewCards],
+    );
+
+    const contractExpiryRows = useMemo(() => buildContractExpiryRows(entries), [entries]);
+
+    /** Pie slices = one per utility type, sized by period deduction amount. */
+    const typeDistribution = useMemo(() => {
+        const slices = typeOverviewCards.map((card) => {
+            const deduction = Number(card.difference) || 0;
+            return {
+                name: String(card.label || card.type || ''),
+                deduction,
+                // Keep a positive pie weight so types with 0 deduction still appear.
+                value: deduction > 0 ? deduction : 0,
+            };
+        });
+        const hasDeduction = slices.some((s) => s.value > 0);
+        if (hasDeduction) return slices.filter((s) => s.value > 0);
+        // No deductions yet: equal slices for every known type.
+        return slices.map((s) => ({ ...s, value: 1 }));
+    }, [typeOverviewCards]);
 
     const openAddUtility = () => {
         setEditingUtility(null);
@@ -766,35 +828,6 @@ function UtilityBillsPageContent() {
         }
     };
 
-    const renderTypeStatCard = (item) => {
-        const isActive =
-            String(activeTypeTab || '').toLowerCase() === String(item.type || '').toLowerCase();
-
-        return (
-            <button
-                key={item.type}
-                type="button"
-                onClick={() => setActiveTypeTab(item.type)}
-                className={`p-2 sm:p-3 rounded-xl flex flex-col items-center justify-center text-center transition-all border min-h-[72px] sm:min-h-[88px] ${
-                    isActive
-                        ? 'bg-blue-50 border-blue-300 shadow-sm ring-1 ring-blue-200'
-                        : 'bg-gray-50 border-transparent hover:bg-white hover:shadow-md hover:border-gray-200'
-                }`}
-                title={`${item.label}: ${item.value} record${item.value === 1 ? '' : 's'}`}
-            >
-                <span className="text-[8px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 sm:mb-1.5 break-words text-center leading-tight line-clamp-2 px-0.5">
-                    {item.label}
-                </span>
-                <span
-                    className="text-lg sm:text-xl lg:text-2xl font-black tabular-nums"
-                    style={{ color: '#dc2626' }}
-                >
-                    <AnimatedCounter value={item.value} />
-                </span>
-            </button>
-        );
-    };
-
     return (
         <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
@@ -838,28 +871,28 @@ function UtilityBillsPageContent() {
 
                     <div className={HEADER_PAIR_GRID}>
                         <div
-                            className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
+                            className={`bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD_FILTER}`}
                         >
-                            <h3 className="text-[10px] sm:text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-2 sm:mb-3 shrink-0">
-                                Utility Overview
-                            </h3>
-                            {typeOverviewCards.length === 0 ? (
-                                <div className="flex-1 flex items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-3 min-h-0">
-                                    <p className="text-xs sm:text-sm text-gray-500 text-center">
-                                        Type boxes appear here once a type has records (count &gt; 0).
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 flex-1 content-start overflow-y-auto min-h-0 pr-0.5">
-                                    {typeOverviewCards.map((item) => renderTypeStatCard(item))}
-                                </div>
-                            )}
+                            <UtilityTypeOverviewCard
+                                cards={typeOverviewCards}
+                                activeType={activeTypeTab}
+                                onSelectType={setActiveTypeTab}
+                                month={overviewMonth}
+                                year={overviewYear}
+                                yearOptions={overviewYearOptions}
+                                onMonthChange={setOverviewMonth}
+                                onYearChange={setOverviewYear}
+                            />
                         </div>
 
                         <div
-                            className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
+                            className={`bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                         >
-                            
+                            <UtilityContractExpiryCard
+                                expiryRows={contractExpiryRows}
+                                typeDistribution={typeDistribution}
+                                deductionTotal={deductionTotal}
+                            />
                         </div>
                     </div>
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Download, Eye, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { billDisplayStatus, formatBillMoney } from '../utils/utilityBillStats';
+import { getBillAllocationParties } from './UtilityBillTotalsBar';
 import {
     downloadUtilityAttachment,
     openUtilityAttachment,
@@ -284,15 +285,20 @@ export default function ViewBillModal({
                                     <td className="px-3 py-3.5 text-center text-xs text-gray-700">
                                         <div className="space-y-1">
                                             <p className="font-semibold">{payByDisplay(bill)}</p>
-                                            {(bill.companyPayAmount != null ||
-                                                bill.employeePayAmount != null) &&
-                                            (Number(bill.companyPayAmount) > 0 ||
-                                                Number(bill.employeePayAmount) > 0) ? (
-                                                <p className="text-[10px] text-gray-500">
-                                                    Co {formatBillMoney(bill.companyPayAmount)} · Emp{' '}
-                                                    {formatBillMoney(bill.employeePayAmount)}
-                                                </p>
-                                            ) : null}
+                                            {(() => {
+                                                const parties = getBillAllocationParties(bill);
+                                                if (!parties.length) return null;
+                                                return (
+                                                    <p className="text-[10px] text-gray-500">
+                                                        {parties
+                                                            .map(
+                                                                (p) =>
+                                                                    `${p.name} ${formatBillMoney(p.amount)}`,
+                                                            )
+                                                            .join(' · ')}
+                                                    </p>
+                                                );
+                                            })()}
                                         </div>
                                     </td>
                                     <td className="px-3 py-3.5 text-center align-middle">

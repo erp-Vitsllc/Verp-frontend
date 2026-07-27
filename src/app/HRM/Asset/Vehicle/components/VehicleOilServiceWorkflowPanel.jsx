@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import axiosInstance from '@/utils/axios';
 import WorkflowHistoryTimeline from '@/app/HRM/shared/workflowHistory/WorkflowHistoryTimeline';
 import { buildOilServiceDetailWorkflowEvents } from '../utils/vehicleOilServiceDetailWorkflow';
 import { buildTireChangeDetailWorkflowEvents } from '../utils/vehicleTireChangeDetailWorkflow';
@@ -17,13 +18,29 @@ const OIL_SUBTITLE =
 
 export default function VehicleOilServiceWorkflowPanel({ asset, service, className = '' }) {
     const isTireChange = vehicleServiceTypeKey(service) === 'Tire Change';
+    const [flowchartRows, setFlowchartRows] = useState([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        axiosInstance
+            .get('/Flowchart', { skipToast: true })
+            .then(({ data }) => {
+                if (!cancelled) setFlowchartRows(Array.isArray(data) ? data : []);
+            })
+            .catch(() => {
+                if (!cancelled) setFlowchartRows([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const events = useMemo(() => {
         if (isTireChange) {
-            return buildTireChangeDetailWorkflowEvents(asset, service);
+            return buildTireChangeDetailWorkflowEvents(asset, service, flowchartRows);
         }
-        return buildOilServiceDetailWorkflowEvents(asset, service);
-    }, [asset, service, isTireChange]);
+        return buildOilServiceDetailWorkflowEvents(asset, service, flowchartRows);
+    }, [asset, service, isTireChange, flowchartRows]);
 
     const cardHeightClass = className.includes('flex-1') || className.includes('h-full')
         ? 'h-full min-h-0 flex-1'

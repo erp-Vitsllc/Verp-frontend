@@ -7,11 +7,175 @@ function formatMoney(n) {
 }
 
 /**
+ * Sum Payable-to amounts from Add more / zoho line items (supports mixed company + employee).
+ */
+export function sumLinePartyPayTotals(lineItems = []) {
+    const lines = Array.isArray(lineItems) ? lineItems : [];
+    let companyPayAmount = 0;
+    let employeePayAmount = 0;
+    let payByCompanyId = '';
+    let payByCompanyName = '';
+    let payByEmployeeId = '';
+    let payByEmployeeName = '';
+
+    lines.forEach((line) => {
+        const amt = Number(line?.amount);
+        if (!Number.isFinite(amt) || amt <= 0) return;
+        const empId = String(line?.payByEmployeeId || '').trim();
+        const empName = String(line?.payByEmployeeName || '').trim();
+        const coId = String(line?.payByCompanyId || '').trim();
+        const coName = String(line?.payByCompanyName || '').trim();
+        const payBy = String(line?.payBy || '').trim();
+        const isEmployee =
+            payBy === 'employee' || (empId && !(payBy === 'company' && coId && !empId));
+        const isCompany = payBy === 'company' || (coId && !isEmployee);
+
+        if (isEmployee && (empId || empName)) {
+            employeePayAmount += amt;
+            if (!payByEmployeeId && empId) payByEmployeeId = empId;
+            if (!payByEmployeeName && empName) payByEmployeeName = empName;
+            if (!payByCompanyId && coId) payByCompanyId = coId;
+            if (!payByCompanyName && coName) payByCompanyName = coName;
+            return;
+        }
+        if (isCompany || coId || coName) {
+            companyPayAmount += amt;
+            if (!payByCompanyId && coId) payByCompanyId = coId;
+            if (!payByCompanyName && coName) payByCompanyName = coName;
+        }
+    });
+
+    const hasCompany = companyPayAmount > 0.009 || Boolean(payByCompanyId);
+    const hasEmployee = employeePayAmount > 0.009 || Boolean(payByEmployeeId);
+    let payBy = '';
+    if (hasCompany && hasEmployee) payBy = 'employee_and_company';
+    else if (hasEmployee) payBy = 'employee';
+    else if (hasCompany) payBy = 'company';
+
+    return {
+        hasParty: hasCompany || hasEmployee,
+        companyPayAmount: Math.max(0, companyPayAmount),
+        employeePayAmount: Math.max(0, employeePayAmount),
+        payByCompanyId,
+        payByCompanyName,
+        payByEmployeeId,
+        payByEmployeeName,
+        payBy,
+    };
+}
+
+/**
+ * Allocation badge label: company nick (no id), employee first name only.
+ * Handles stored labels like "VEGADIGITAL (EST-001)" / "Raseell Muhmmad (VEGA-HR-00001)".
+ */
+export function shortAllocationPartyName(name, type = 'company') {
+    let s = String(name || '')
+        .trim()
+        .replace(/\s*\([^)]*\)\s*$/g, '')
+        .trim();
+    if (!s) return type === 'employee' ? 'Employee' : 'Company';
+    if (type === 'employee') {
+        return s.split(/\s+/)[0] || s;
+    }
+    return s;
+}
+
+/**
+ * Allocation badges for a saved bill — prefer zoho line Payable-to rows.
+ */
+export function getBillAllocationParties(bill = {}) {
+    const lines = Array.isArray(bill?.zohoLineItems) ? bill.zohoLineItems : [];
+    const map = new Map();
+
+    const add = (key, name, amount, type) => {
+        const id = String(key || name || '').trim();
+        if (!id && !name) return;
+        const mapKey = `${type}:${id || name}`;
+        const fullName = String(name || '').trim();
+        const displayName =
+            shortAllocationPartyName(fullName || name, type) ||
+            (type === 'employee' ? 'Employee' : 'Company');
+        const prev = map.get(mapKey) || {
+            key: mapKey,
+            name: displayName,
+            fullName: fullName || displayName,
+            amount: 0,
+            type,
+        };
+        prev.amount += Number(amount) || 0;
+        if (fullName) {
+            prev.fullName = fullName;
+            prev.name = shortAllocationPartyName(fullName, type);
+        }
+        map.set(mapKey, prev);
+    };
+
+    if (lines.length) {
+        lines.forEach((line) => {
+            const amt = Number(line?.amount) || 0;
+            const empId = String(line?.payByEmployeeId || '').trim();
+            const empName = String(line?.payByEmployeeName || '').trim();
+            const coId = String(line?.payByCompanyId || '').trim();
+            const coName = String(line?.payByCompanyName || '').trim();
+            const payBy = String(line?.payBy || '').trim();
+            if (payBy === 'employee' || empId || empName) {
+                if (empId || empName) add(empId || empName, empName, amt, 'employee');
+                return;
+            }
+            if (payBy === 'company' || coId || coName) {
+                if (coId || coName) add(coId || coName, coName, amt, 'company');
+            }
+        });
+    }
+
+    if (!map.size) {
+        const coName = String(bill?.payByCompanyName || '').trim();
+        const empName = String(bill?.payByEmployeeName || '').trim();
+        const coAmt = Number(bill?.companyPayAmount) || 0;
+        const empAmt = Number(bill?.employeePayAmount) || 0;
+        if (coName && coAmt > 0.009) add(bill.payByCompanyId || coName, coName, coAmt, 'company');
+        if (empName && empAmt > 0.009) add(bill.payByEmployeeId || empName, empName, empAmt, 'employee');
+    }
+
+    return [...map.values()].filter((p) => p.amount > 0.009 || p.name);
+}
+
+/**
  * Per-row company / employee amounts to store in DB (matches TOTAL cards).
- * Green (actual < contract): Company TOTAL = Contract − Company difference; Pay by Company.
- * Red/over: Company = Actual + company under − employee overage; Employee = under + overage.
+ * When Add more lines have Payable to, totals follow those line amounts.
  */
 export function computeRowPayTotals(row = {}) {
+    const lineItems = Array.isArray(row.lineItems)
+        ? row.lineItems
+        : Array.isArray(row.zohoLineItems)
+          ? row.zohoLineItems
+          : null;
+    if (lineItems?.length) {
+        const fromLines = sumLinePartyPayTotals(lineItems);
+        if (fromLines.hasParty) {
+            const contract = Number(row.contractAmount) || 0;
+            const actual = Number(row.actualAmount);
+            const overage =
+                Number.isFinite(actual) && actual > contract ? actual - contract : 0;
+            return {
+                companyPayAmount: fromLines.companyPayAmount,
+                employeePayAmount: fromLines.employeePayAmount,
+                companyDiffShare: Math.max(
+                    0,
+                    fromLines.companyPayAmount > 0 && overage <= 0
+                        ? Math.max(0, contract - (Number.isFinite(actual) ? actual : 0))
+                        : 0,
+                ),
+                employeeDiffShare: Math.min(fromLines.employeePayAmount, Math.max(0, overage)),
+                payBy: fromLines.payBy,
+                payByCompanyId: fromLines.payByCompanyId,
+                payByCompanyName: fromLines.payByCompanyName,
+                payByEmployeeId: fromLines.payByEmployeeId,
+                payByEmployeeName: fromLines.payByEmployeeName,
+            };
+        }
+    }
+
     const contract = Number(row.contractAmount) || 0;
     const actual = Number(row.actualAmount);
     if (!Number.isFinite(actual) || actual < 0 || row.actualAmount === '') {
@@ -21,7 +185,6 @@ export function computeRowPayTotals(row = {}) {
     const underDiff = Math.max(0, contract - actual);
     const overage = Math.max(0, actual - contract);
 
-    // Green (actual < contract): Pay by Company — TOTAL = Contract − Company difference
     if (actual < contract) {
         const companyDiffShare = underDiff;
         const employeeDiffShare = 0;
@@ -47,6 +210,10 @@ export function computeRowPayTotals(row = {}) {
         employeeUnderShare = underDiff;
         if (overage > 0) employeeOverageShare = overage;
         employeeDiffShare = underDiff + overage;
+    } else if (payBy === 'employee_and_company') {
+        companyDiffShare = Number(row.companyDiffAmount) || 0;
+        employeeDiffShare = Number(row.employeeDiffAmount) || overage;
+        employeeOverageShare = employeeDiffShare;
     }
 
     return {
@@ -92,7 +259,6 @@ export function summarizeSelectedBillRows(rows = []) {
         contractTotal,
         actualTotal,
         differenceTotal: contractTotal - actualTotal,
-        /** Sum of Pay by difference shares (matches Company + Employee lines). */
         payByDiffTotal,
         companyDiffShare,
         employeeDiffShare,

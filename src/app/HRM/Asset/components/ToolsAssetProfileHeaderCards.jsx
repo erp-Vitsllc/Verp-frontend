@@ -1,7 +1,7 @@
 'use client';
 
 import { User } from 'lucide-react';
-import { HEADER_PAIR_CARD, HEADER_PAIR_CARD_BODY, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
+import { HEADER_PAIR_CARD, HEADER_PAIR_CARD_BODY, HEADER_PAIR_CARD_PADDING, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import { resolveAssetPrimaryPhoto } from '../utils/resolveAssetPrimaryPhoto';
 
 const ACTION_BTN_BASE =
@@ -41,7 +41,7 @@ export default function ToolsAssetProfileHeaderCards({
         <div className={`${HEADER_PAIR_GRID}`}>
             {/* Left — asset summary (reference card) */}
             <div className={`bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-200 ${HEADER_PAIR_CARD}`}>
-                <div className={`p-3 sm:p-4 lg:p-5 flex flex-col ${HEADER_PAIR_CARD_BODY}`}>
+                <div className={`${HEADER_PAIR_CARD_PADDING} flex flex-col ${HEADER_PAIR_CARD_BODY}`}>
                     <div className="flex flex-row gap-3 sm:gap-4 lg:gap-5 flex-1 min-h-0">
                         <div className="flex flex-col items-center shrink-0 w-[112px] sm:w-[140px] lg:w-[156px]">
                             <div className="w-full aspect-square max-w-[112px] sm:max-w-[140px] lg:max-w-[156px] rounded-xl sm:rounded-2xl bg-sky-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-sm">
@@ -94,9 +94,11 @@ export default function ToolsAssetProfileHeaderCards({
                             <p className="text-[13px] font-black text-slate-800 uppercase tracking-wide">
                                 {asset?.categoryId?.name || 'Generic category'}
                             </p>
-                            <p className="text-[12px] font-semibold text-slate-500 mt-1 leading-relaxed break-words">
-                                {asset?.description || 'No description provided'}
-                            </p>
+                            {asset?.description ? (
+                                <p className="text-[12px] font-semibold text-slate-500 mt-1 leading-relaxed break-words">
+                                    {asset.description}
+                                </p>
+                            ) : null}
                             <p className="text-[14px] font-black text-emerald-700 mt-3">
                                 {new Intl.NumberFormat().format(totalValue)} AED
                             </p>
@@ -189,7 +191,7 @@ export default function ToolsAssetProfileHeaderCards({
                 className={`rounded-2xl overflow-hidden shadow-md text-white border-2 border-white/30 ${HEADER_PAIR_CARD}`}
                 style={{ backgroundColor: '#29b6f6' }}
             >
-                <div className={`flex flex-col sm:flex-row p-3 sm:p-4 lg:p-5 gap-3 sm:gap-4 lg:gap-5 ${HEADER_PAIR_CARD_BODY}`}>
+                <div className={`flex flex-col sm:flex-row ${HEADER_PAIR_CARD_PADDING} gap-3 sm:gap-4 lg:gap-5 ${HEADER_PAIR_CARD_BODY}`}>
                     <div className="flex flex-col justify-evenly gap-3 sm:gap-4 lg:gap-6 shrink-0 sm:w-[40%] min-w-0 sm:min-w-[110px] lg:min-w-[130px] py-1 sm:py-2">
                         <h3 className="text-xl sm:text-2xl lg:text-[34px] font-black text-white leading-none tracking-tight">
                             Asset History

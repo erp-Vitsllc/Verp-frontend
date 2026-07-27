@@ -123,8 +123,11 @@ function VehicleOilServiceDetailPageContent() {
     );
 
     const canManageOilService = useMemo(
-        () => canUserManageOilService(asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer),
-        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer],
+        () =>
+            canUserManageOilService(asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, {
+                flowchartRows,
+            }),
+        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
     );
 
     const canEditServiceDates = useMemo(
@@ -133,8 +136,9 @@ function VehicleOilServiceDetailPageContent() {
                 isFlowchartAdminOfficer,
                 currentUser,
                 currentUserEmployeeId,
+                flowchartRows,
             }),
-        [asset, service, isFlowchartAdminOfficer, currentUser, currentUserEmployeeId],
+        [asset, service, isFlowchartAdminOfficer, currentUser, currentUserEmployeeId, flowchartRows],
     );
 
     const oilWorkflowStage = useMemo(

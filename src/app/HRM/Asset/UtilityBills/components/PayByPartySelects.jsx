@@ -20,9 +20,26 @@ export function employeeOptionLabel(emp) {
     return emp.employeeId ? `${name} (${emp.employeeId})` : name;
 }
 
+/** Short label for allocation badges / compact UI. */
+export function employeeShortLabel(emp) {
+    return String(emp?.firstName || '').trim() || employeeOptionLabel(emp).split(/\s+/)[0] || 'Employee';
+}
+
 export function companyOptionLabel(comp) {
-    const name = comp.name || 'Company';
+    const nick = String(comp?.nickName || '').trim();
+    const name = nick || comp.name || 'Company';
     return comp.companyId ? `${name} (${comp.companyId})` : name;
+}
+
+export function companyShortLabel(comp) {
+    return (
+        String(comp?.nickName || '').trim() ||
+        String(comp?.name || '')
+            .trim()
+            .replace(/\s*\([^)]*\)\s*$/g, '')
+            .trim() ||
+        'Company'
+    );
 }
 
 const selectStyles = {
@@ -92,11 +109,14 @@ export function usePayByPartyOptions(enabled = true) {
                     value: String(emp._id),
                     label: employeeOptionLabel(emp),
                     employeeId: emp.employeeId || '',
+                    firstName: String(emp.firstName || '').trim(),
+                    shortLabel: employeeShortLabel(emp),
                     companyMongoId,
                     companyName: String(
-                        emp.companyName ||
+                        emp.companyNickName ||
+                            companyRef?.nickName ||
+                            emp.companyName ||
                             companyRef?.name ||
-                            emp.companyNickName ||
                             '',
                     ).trim(),
                 };
@@ -110,6 +130,8 @@ export function usePayByPartyOptions(enabled = true) {
                 value: String(comp._id),
                 label: companyOptionLabel(comp),
                 companyId: comp.companyId || '',
+                nickName: String(comp.nickName || '').trim(),
+                shortLabel: companyShortLabel(comp),
             })),
         [companies],
     );
@@ -151,7 +173,7 @@ export default function PayByPartySelects({
                         onChange={(opt) => {
                             onChange?.({
                                 payByCompanyId: opt?.value || '',
-                                payByCompanyName: opt?.label || '',
+                                payByCompanyName: opt?.shortLabel || opt?.nickName || opt?.label || '',
                             });
                         }}
                         options={companyOptions}
@@ -177,7 +199,7 @@ export default function PayByPartySelects({
                         onChange={(opt) => {
                             onChange?.({
                                 payByEmployeeId: opt?.value || '',
-                                payByEmployeeName: opt?.label || '',
+                                payByEmployeeName: opt?.shortLabel || opt?.firstName || opt?.label || '',
                             });
                         }}
                         options={employeeOptions}

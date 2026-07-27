@@ -70,6 +70,7 @@ export function isToolsAssetInboxRow(row = {}) {
     if (
         type === 'Utility Bill Payment' ||
         type === 'Utility Bill Payment Reminder' ||
+        type === 'Utility Contract Expiry' ||
         type === 'Utility Entry Status Change'
     ) {
         return false;
@@ -86,6 +87,7 @@ export function isUtilityBillInboxRow(row = {}) {
     return (
         type === 'Utility Bill Payment' ||
         type === 'Utility Bill Payment Reminder' ||
+        type === 'Utility Contract Expiry' ||
         type === 'Utility Entry Status Change'
     );
 }

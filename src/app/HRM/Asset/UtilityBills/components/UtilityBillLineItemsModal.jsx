@@ -178,6 +178,64 @@ function payableValueFromLine(line = {}) {
     return '';
 }
 
+/** Keep saved labels visible even when option lists have not loaded yet. */
+function resolveSelectedAccount(line = {}, flatAccountOptions = []) {
+    const accountId = String(line.accountId || '').trim();
+    const accountName = String(line.accountName || '').trim();
+    if (accountId) {
+        const match = (flatAccountOptions || []).find(
+            (option) => String(option.value) === accountId,
+        );
+        if (match) return match;
+    }
+    if (accountId || accountName) {
+        return {
+            value: accountId || accountName,
+            label: accountName || accountId,
+            name: accountName || accountId,
+        };
+    }
+    return null;
+}
+
+function resolveSelectedPayable(line = {}, flatPayableOptions = []) {
+    const payableValue = payableValueFromLine(line);
+    if (payableValue) {
+        const match = (flatPayableOptions || []).find(
+            (option) => String(option.value) === payableValue,
+        );
+        if (match) return match;
+    }
+
+    const payBy = String(line.payBy || '').trim();
+    const employeeName = String(line.payByEmployeeName || '').trim();
+    const companyName = String(line.payByCompanyName || '').trim();
+    const employeeId = String(line.payByEmployeeId || '').trim();
+    const companyId = String(line.payByCompanyId || '').trim();
+
+    if (payBy === 'employee' || employeeId || employeeName) {
+        if (!employeeId && !employeeName) return null;
+        return {
+            value: employeePayableValue(employeeId || employeeName),
+            label: employeeName || employeeId,
+            partyType: 'employee',
+            partyId: employeeId || employeeName,
+        };
+    }
+
+    if (payBy === 'company' || companyId || companyName) {
+        if (!companyId && !companyName) return null;
+        return {
+            value: companyPayableValue(companyId || companyName),
+            label: companyName || companyId,
+            partyType: 'company',
+            partyId: companyId || companyName,
+        };
+    }
+
+    return null;
+}
+
 function partyPatchFromPayableOption(option) {
     if (!option?.value) {
         return {
@@ -194,7 +252,9 @@ function partyPatchFromPayableOption(option) {
             payByCompanyId: String(
                 option.partyId || String(option.value).replace(/^company:/, ''),
             ),
-            payByCompanyName: String(option.label || ''),
+            payByCompanyName: String(
+                option.shortLabel || option.nickName || option.label || '',
+            ),
             payByEmployeeId: '',
             payByEmployeeName: '',
         };
@@ -204,7 +264,9 @@ function partyPatchFromPayableOption(option) {
         payByEmployeeId: String(
             option.partyId || String(option.value).replace(/^employee:/, ''),
         ),
-        payByEmployeeName: String(option.label || ''),
+        payByEmployeeName: String(
+            option.shortLabel || option.firstName || option.label || '',
+        ),
         payByCompanyId: String(option.companyMongoId || ''),
         payByCompanyName: String(option.companyName || ''),
     };
@@ -224,6 +286,7 @@ export default function UtilityBillLineItemsModal({
     isOpen,
     onClose,
     onSave,
+    readOnly = false,
     accountNo = '',
     provider = '',
     contractAmount = 0,
@@ -253,12 +316,16 @@ export default function UtilityBillLineItemsModal({
         const companies = (companyOptions || []).map((opt) => ({
             value: companyPayableValue(opt.value),
             label: String(opt.label || ''),
+            shortLabel: String(opt.shortLabel || opt.nickName || '').trim(),
+            nickName: String(opt.nickName || '').trim(),
             partyType: 'company',
             partyId: String(opt.value || ''),
         }));
         const employees = (employeeOptions || []).map((opt) => ({
             value: employeePayableValue(opt.value),
             label: String(opt.label || ''),
+            shortLabel: String(opt.shortLabel || opt.firstName || '').trim(),
+            firstName: String(opt.firstName || '').trim(),
             partyType: 'employee',
             partyId: String(opt.value || ''),
             companyMongoId: opt.companyMongoId || '',
@@ -469,7 +536,9 @@ export default function UtilityBillLineItemsModal({
             <div className="bg-white rounded-xl shadow-lg w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col border border-gray-200">
                 <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
                     <div>
-                        <h3 className="text-base font-bold text-slate-800">Item Table</h3>
+                        <h3 className="text-base font-bold text-slate-800">
+                            {readOnly ? 'Item Table (View)' : 'Item Table'}
+                        </h3>
                         <p className="text-xs text-slate-500 mt-0.5">
                             {accountNo ? `Account ${accountNo}` : 'Bill row'}
                             {provider ? ` · ${provider}` : ''}
@@ -510,15 +579,14 @@ export default function UtilityBillLineItemsModal({
                                 </thead>
                                 <tbody>
                                     {lines.map((line, index) => {
-                                        const selectedAccount =
-                                            flatAccountOptions.find(
-                                                (option) => option.value === line.accountId,
-                                            ) || null;
-                                        const selectedPayable =
-                                            flatPayableOptions.find(
-                                                (option) =>
-                                                    option.value === payableValueFromLine(line),
-                                            ) || null;
+                                        const selectedAccount = resolveSelectedAccount(
+                                            line,
+                                            flatAccountOptions,
+                                        );
+                                        const selectedPayable = resolveSelectedPayable(
+                                            line,
+                                            flatPayableOptions,
+                                        );
                                         return (
                                             <tr
                                                 key={line.key}
@@ -528,15 +596,16 @@ export default function UtilityBillLineItemsModal({
                                                     <input
                                                         type="text"
                                                         value={line.item}
+                                                        disabled={readOnly}
                                                         onChange={(e) =>
                                                             updateLine(line.key, {
                                                                 item: e.target.value,
                                                             })
                                                         }
                                                         placeholder="Type item details"
-                                                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-slate-50 disabled:text-slate-700"
                                                     />
-                                                    {index === 0 ? (
+                                                    {index === 0 && !readOnly ? (
                                                         <p className="mt-1 text-[10px] text-slate-400">
                                                             1st row amount defaults to contract
                                                         </p>
@@ -549,6 +618,7 @@ export default function UtilityBillLineItemsModal({
                                                         styles={selectStyles}
                                                         options={accountOptions}
                                                         value={selectedAccount}
+                                                        isDisabled={readOnly}
                                                         onChange={(option) =>
                                                             updateLine(line.key, {
                                                                 accountId: option?.value || '',
@@ -573,12 +643,13 @@ export default function UtilityBillLineItemsModal({
                                                         min="0"
                                                         step="any"
                                                         value={line.quantity}
+                                                        disabled={readOnly}
                                                         onChange={(e) =>
                                                             updateLine(line.key, {
                                                                 quantity: e.target.value,
                                                             })
                                                         }
-                                                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-slate-50"
                                                     />
                                                 </td>
                                                 <td className="px-3 py-2">
@@ -587,12 +658,13 @@ export default function UtilityBillLineItemsModal({
                                                         min="0"
                                                         step="0.01"
                                                         value={line.amount}
+                                                        disabled={readOnly}
                                                         onChange={(e) =>
                                                             updateLine(line.key, {
                                                                 amount: e.target.value,
                                                             })
                                                         }
-                                                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-slate-50"
                                                         placeholder="0.00"
                                                     />
                                                 </td>
@@ -603,6 +675,7 @@ export default function UtilityBillLineItemsModal({
                                                         styles={selectStyles}
                                                         options={payableOptions}
                                                         value={selectedPayable}
+                                                        isDisabled={readOnly}
                                                         onChange={(option) =>
                                                             updateLine(
                                                                 line.key,
@@ -613,7 +686,7 @@ export default function UtilityBillLineItemsModal({
                                                         }
                                                         placeholder="Select company or employee"
                                                         isSearchable
-                                                        isClearable
+                                                        isClearable={!readOnly}
                                                         menuPortalTarget={
                                                             typeof document !== 'undefined'
                                                                 ? document.body
@@ -626,15 +699,17 @@ export default function UtilityBillLineItemsModal({
                                                     />
                                                 </td>
                                                 <td className="px-3 py-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeLine(line.key)}
-                                                        disabled={lines.length <= 1}
-                                                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
-                                                        aria-label="Remove line"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
+                                                    {!readOnly ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeLine(line.key)}
+                                                            disabled={lines.length <= 1}
+                                                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                                                            aria-label="Remove line"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    ) : null}
                                                 </td>
                                             </tr>
                                         );
@@ -644,22 +719,26 @@ export default function UtilityBillLineItemsModal({
                         </div>
 
                         <div className="border-t border-slate-200 bg-white px-3 sm:px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-                            <button
-                                type="button"
-                                onClick={addLine}
-                                disabled={!canAddRow}
-                                title={
-                                    totalsMatch
-                                        ? 'Total already equals Actual — new row cannot be added'
-                                        : !actual
-                                          ? 'Enter Actual Amount first'
-                                          : 'Add another item row'
-                                }
-                                className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
-                            >
-                                <Plus size={14} />
-                                Add New Row
-                            </button>
+                            {!readOnly ? (
+                                <button
+                                    type="button"
+                                    onClick={addLine}
+                                    disabled={!canAddRow}
+                                    title={
+                                        totalsMatch
+                                            ? 'Total already equals Actual — new row cannot be added'
+                                            : !actual
+                                              ? 'Enter Actual Amount first'
+                                              : 'Add another item row'
+                                    }
+                                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+                                >
+                                    <Plus size={14} />
+                                    Add New Row
+                                </button>
+                            ) : (
+                                <span />
+                            )}
                             <div className="text-right text-sm tabular-nums">
                                 <div className="text-slate-500">
                                     Sub Total{' '}
@@ -691,15 +770,17 @@ export default function UtilityBillLineItemsModal({
                         onClick={onClose}
                         className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
                     >
-                        Cancel
+                        {readOnly ? 'Close' : 'Cancel'}
                     </button>
-                    <button
-                        type="button"
-                        onClick={handleSave}
-                        className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold"
-                    >
-                        Save lines
-                    </button>
+                    {!readOnly ? (
+                        <button
+                            type="button"
+                            onClick={handleSave}
+                            className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold"
+                        >
+                            Save lines
+                        </button>
+                    ) : null}
                 </div>
             </div>
         </div>

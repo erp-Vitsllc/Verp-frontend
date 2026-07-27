@@ -198,7 +198,11 @@ export function buildAssetNotificationPath(rawItem) {
     const meta = parseAssetNotificationMeta(item.extra3);
     const assetId = item.id ? String(item.id) : '';
 
-    if (type.includes('utility bill payment') || type.includes('utility entry status')) {
+    if (
+        type.includes('utility bill') ||
+        type.includes('utility entry status') ||
+        type.includes('utility contract')
+    ) {
         if (meta?.reviewPath) return normalizeNotificationDestinationPath(meta.reviewPath);
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
         if (meta?.statusChangeId) {
@@ -206,7 +210,7 @@ export function buildAssetNotificationPath(rawItem) {
         }
         // requestId on DashboardAction is the batchId for Utility Bill Payment
         const batchId = String(meta?.batchId || item.id || '').trim();
-        if (batchId && type.includes('utility bill payment')) {
+        if (batchId && type.includes('utility bill payment') && !type.includes('reminder') && !type.includes('contract')) {
             const q = new URLSearchParams({ batchId, review: '1' });
             if (meta?.utilityType) q.set('type', String(meta.utilityType));
             if (meta?.billMonth) q.set('billMonth', String(meta.billMonth));

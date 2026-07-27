@@ -124,8 +124,11 @@ function VehicleMechanicalWorkDetailPageContent() {
     );
 
     const canManageMechanicalWork = useMemo(
-        () => canUserManageOilService(asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer),
-        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer],
+        () =>
+            canUserManageOilService(asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, {
+                flowchartRows,
+            }),
+        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
     );
 
     const isFlowchartHr = useMemo(() => {

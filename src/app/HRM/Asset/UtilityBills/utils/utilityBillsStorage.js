@@ -243,13 +243,11 @@ export function buildDetailFieldRows(entry, utilityConfig) {
         });
     }
 
-    if (entry?.assignedTo) {
-        rows.push({
-            key: 'assignedTo',
-            label: entry.assignedToType === 'Company' ? 'Assigned Company' : 'Assigned Employee',
-            value: entry.assignedTo,
-        });
-    }
+    rows.push({
+        key: 'assignedTo',
+        label: 'Assigned',
+        value: String(entry?.assignedTo || '').trim() || 'Not Assigned',
+    });
 
     return rows;
 }

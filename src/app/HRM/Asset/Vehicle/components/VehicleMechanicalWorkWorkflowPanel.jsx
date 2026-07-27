@@ -1,6 +1,7 @@
 ﻿'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import axiosInstance from '@/utils/axios';
 import WorkflowHistoryTimeline from '@/app/HRM/shared/workflowHistory/WorkflowHistoryTimeline';
 import { buildMechanicalWorkDetailWorkflowEvents } from '../utils/vehicleMechanicalWorkDetailWorkflow';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../utils/vehicleHandoverAssignWorkflowTrackerConfig';
@@ -12,9 +13,26 @@ const MECHANICAL_WORK_SUBTITLE =
     'Service created, updated, submitted, quotation review, garage, accounts, and completion';
 
 export default function VehicleMechanicalWorkWorkflowPanel({ asset, service, className = '' }) {
+    const [flowchartRows, setFlowchartRows] = useState([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        axiosInstance
+            .get('/Flowchart', { skipToast: true })
+            .then(({ data }) => {
+                if (!cancelled) setFlowchartRows(Array.isArray(data) ? data : []);
+            })
+            .catch(() => {
+                if (!cancelled) setFlowchartRows([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const events = useMemo(
-        () => buildMechanicalWorkDetailWorkflowEvents(asset, service),
-        [asset, service],
+        () => buildMechanicalWorkDetailWorkflowEvents(asset, service, flowchartRows),
+        [asset, service, flowchartRows],
     );
 
     const cardHeightClass = className.includes('flex-1') || className.includes('h-full')

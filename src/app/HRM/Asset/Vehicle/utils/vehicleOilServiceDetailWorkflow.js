@@ -3,6 +3,12 @@ import {
     isOilServiceLive,
     isOilServiceScheduledWaiting,
 } from './vehicleOilServiceAccess';
+import {
+    formatEmployeeName,
+    nameFromFlowchartRow,
+    pickFlowchartAdminRow,
+} from './vehicleHandoverAssignWorkflow';
+import { resolveShopServiceFlowchartActors } from './vehicleShopServiceWorkflowActors';
 
 export const OIL_SERVICE_WORKFLOW_STEPS = [
     { id: 1, label: 'Service Created', role: 'Creator' },
@@ -11,6 +17,38 @@ export const OIL_SERVICE_WORKFLOW_STEPS = [
     { id: 4, label: 'On Service', role: 'Service' },
     { id: 5, label: 'End Service', role: 'Complete' },
 ];
+
+function isPlaceholderActor(name) {
+    const n = String(name || '').trim().toLowerCase();
+    return !n || n === 'user' || n === 'system' || n === 'admin' || n === '—';
+}
+
+function resolveOilAssigneeName(asset) {
+    return formatEmployeeName(asset?.assignedTo) || '';
+}
+
+function resolveOilRequesterName(remark = {}, asset = null) {
+    const fromRemark = String(remark.requestedByName || '').trim();
+    if (fromRemark && !isPlaceholderActor(fromRemark)) return fromRemark;
+    return resolveOilAssigneeName(asset);
+}
+
+function resolveOilActorName(raw, { remark, asset, flowchartActors, preferSystem = false } = {}) {
+    if (!isPlaceholderActor(raw)) return String(raw).trim();
+    if (preferSystem && String(raw || '').trim().toLowerCase() === 'system') {
+        // Auto start-date transition — still show who owns the service.
+        return (
+            flowchartActors?.adminOfficer ||
+            resolveOilRequesterName(remark, asset) ||
+            'System'
+        );
+    }
+    return (
+        resolveOilRequesterName(remark, asset) ||
+        flowchartActors?.adminOfficer ||
+        ''
+    );
+}
 
 function formatOilDate(value) {
     if (!value) return '—';
@@ -75,12 +113,13 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage }) {
     const legacy = [];
     const live = isOilServiceLive(service, asset);
     const waiting = isOilServiceScheduledWaiting(service, asset);
+    const requester = resolveOilRequesterName(remark, asset);
 
     if (service?.createdAt) {
         legacy.push({
             type: 'service_created',
             at: service.createdAt,
-            byName: remark.requestedByName || 'User',
+            byName: requester,
         });
     }
 
@@ -89,7 +128,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage }) {
         legacy.push({
             type: 'service_updated',
             at: h.at,
-            byName: h.byName || 'User',
+            byName: resolveOilActorName(h.byName, { remark, asset }),
         });
     });
 
@@ -102,7 +141,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage }) {
         legacy.push({
             type: 'service_updated',
             at: remark.assignmentSubmittedAt || service?.updatedAt || service?.createdAt,
-            byName: remark.requestedByName || 'User',
+            byName: requester,
         });
     }
 
@@ -111,7 +150,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage }) {
         (remark.oilServiceScheduledAt || remark.assignmentSubmittedAt
             ? {
                   at: remark.oilServiceScheduledAt || remark.assignmentSubmittedAt,
-                  byName: remark.requestedByName || 'User',
+                  byName: requester,
               }
             : null);
 
@@ -119,7 +158,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage }) {
         legacy.push({
             type: 'service_scheduled',
             at: scheduledEntry?.at || remark.oilServiceScheduledAt || remark.assignmentSubmittedAt || service?.updatedAt,
-            byName: scheduledEntry?.byName || remark.requestedByName || 'User',
+            byName: resolveOilActorName(scheduledEntry?.byName, { remark, asset }) || requester,
         });
     }
 
@@ -144,7 +183,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage }) {
             legacy.push({
                 type: 'date_change',
                 at: h.at,
-                byName: h.byName || 'User',
+                byName: resolveOilActorName(h.byName, { remark, asset }),
                 note: h.note || 'Service date updated',
                 field: h.field,
                 from: h.from,
@@ -155,13 +194,20 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage }) {
     const completed =
         history.find((h) => h.action === 'completed' || (h.action === 'approve' && h.stage === 'complete')) ||
         (remark.vehicleServiceCompletedAt
-            ? { at: remark.vehicleServiceCompletedAt, byName: remark.requestedByName }
+            ? {
+                  at: remark.vehicleServiceCompletedAt,
+                  byName: remark.serviceCompletedByName || requester,
+              }
             : null);
     if (completed || stage === 'complete' || remark.vehicleServiceCompleted === 'live') {
         legacy.push({
             type: 'service_completed',
             at: completed?.at || remark.vehicleServiceCompletedAt || service?.updatedAt,
-            byName: completed?.byName || 'User',
+            byName:
+                resolveOilActorName(completed?.byName || remark.serviceCompletedByName, {
+                    remark,
+                    asset,
+                }) || requester,
         });
     }
 
@@ -324,7 +370,7 @@ function resolveOilScheduleDates(asset, service, remark = {}) {
     return { start, end };
 }
 
-export function buildOilServiceDetailWorkflowEvents(asset, service) {
+export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRows = []) {
     const activities = getOilActivityLog(service, asset);
     const { stage } = resolveWorkflowForService(asset, service);
     const currentActiveStepId = resolveActiveStepId(activities, stage, service, asset);
@@ -336,14 +382,40 @@ export function buildOilServiceDetailWorkflowEvents(asset, service) {
     const completed = latestActivity(activities, 'service_completed');
 
     const remark = parseVehicleServiceRemark(service) || {};
+    const flowchartActors = resolveShopServiceFlowchartActors(flowchartRows);
+    const adminOfficer =
+        flowchartActors.adminOfficer ||
+        nameFromFlowchartRow(pickFlowchartAdminRow(flowchartRows)) ||
+        'Admin Officer';
+    const requester = resolveOilRequesterName(remark, asset);
     const { start: serviceStartDate, end: serviceEndDate } = resolveOilScheduleDates(asset, service, remark);
 
     const stepActors = {
-        1: created?.byName || remark.requestedByName || 'User',
-        2: updated?.byName || created?.byName || remark.requestedByName || 'User',
-        3: scheduled?.byName || remark.requestedByName || 'User',
-        4: onService?.byName || 'System',
-        5: completed?.byName || 'User',
+        1: resolveOilActorName(created?.byName, { remark, asset, flowchartActors }) || requester || adminOfficer,
+        2:
+            resolveOilActorName(updated?.byName, { remark, asset, flowchartActors }) ||
+            resolveOilActorName(created?.byName, { remark, asset, flowchartActors }) ||
+            requester ||
+            adminOfficer,
+        3:
+            resolveOilActorName(scheduled?.byName, { remark, asset, flowchartActors }) ||
+            requester ||
+            adminOfficer,
+        4:
+            resolveOilActorName(onService?.byName, {
+                remark,
+                asset,
+                flowchartActors,
+                preferSystem: true,
+            }) || adminOfficer,
+        5:
+            resolveOilActorName(completed?.byName || remark.serviceCompletedByName, {
+                remark,
+                asset,
+                flowchartActors,
+            }) ||
+            adminOfficer ||
+            requester,
     };
 
     const stepDates = {
@@ -402,12 +474,19 @@ export function buildOilServiceDetailWorkflowEvents(asset, service) {
         endServiceStep.connectorGreen = currentActiveStepId > 5;
     }
 
+    // Date-change actors: replace placeholder names with Admin Officer / requester.
+    const decorateDateEvents = (rows) =>
+        rows.map((row) => ({
+            ...row,
+            actor: resolveOilActorName(row.actor, { remark, asset, flowchartActors }) || adminOfficer,
+        }));
+
     return [
         ...steps12,
         scheduledStep,
-        ...dateEventsBeforeOnService,
+        ...decorateDateEvents(dateEventsBeforeOnService),
         onServiceStep,
-        ...dateEventsAfterOnService,
+        ...decorateDateEvents(dateEventsAfterOnService),
         endServiceStep,
     ].filter(Boolean);
 }

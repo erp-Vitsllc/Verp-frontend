@@ -42,20 +42,47 @@ export function buildFineVendorPaymentPrefill(fine, { returnTo = '' } = {}) {
     };
 }
 
-export function canAccountsPayFineVendorBill(fine, user) {
+export function canAccountsPayFineVendorBill(fine, user, flowchartRows = []) {
     if (!fine || !user) return false;
     const status = String(fine.fineStatus || '');
     if (status !== 'Approved' && status !== 'Active') return false;
     if (String(fine.vendorBillStatus || '').toLowerCase() === 'paid') return false;
     if (!String(fine.zohoBillId || '').trim()) return false;
 
-    return isAccountsFinanceUser(user) || matchesAccountsHod(fine, user);
+    return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
 }
 
-/** Accounts may collect employee/company fine share while status stays Approved (Zoho Bill ≠ Paid). */
-export function isAccountsFinanceUser(user) {
+/** True when the viewer holds the Active Accounts row in Settings > FlowChart. */
+export function isActiveFlowchartAccountsUser(user, flowchartRows = []) {
+    if (!user || !Array.isArray(flowchartRows) || flowchartRows.length === 0) return false;
+
+    const actualId = user._id || user.id || user.employeeObjectId;
+    const empCode = user.employeeId != null ? String(user.employeeId) : '';
+    const empObjectId = user.employeeObjectId != null ? String(user.employeeObjectId) : '';
+
+    return flowchartRows.some((row) => {
+        const category = String(row?.category || '').toLowerCase().replace(/\s+/g, '');
+        const status = String(row?.status || '').toLowerCase();
+        if (status !== 'active') return false;
+        if (category !== 'accounts' && category !== 'finance') return false;
+
+        const rowObjectId = row?.empObjectId?._id ?? row?.empObjectId;
+        return (
+            (actualId && String(rowObjectId) === String(actualId)) ||
+            (empCode && String(row?.employeeId) === empCode) ||
+            (empObjectId && String(row?.employeeId) === empObjectId)
+        );
+    });
+}
+
+/**
+ * Accounts may collect employee/company fine share while status stays Approved (Zoho Bill ≠ Paid).
+ * The session user carries no department/designation, so the flowchart Accounts row is the reliable signal.
+ */
+export function isAccountsFinanceUser(user, flowchartRows = []) {
     if (!user) return false;
     if (user.isAdmin || user.role === 'admin' || user.isSystemSuperUser) return true;
+    if (isActiveFlowchartAccountsUser(user, flowchartRows)) return true;
     const dept = String(user.department || '').toLowerCase();
     const designation = String(user.designation || '').toLowerCase();
     if (dept.includes('finance') || dept.includes('account') || dept.includes('payroll')) return true;
@@ -71,7 +98,7 @@ function matchesAccountsHod(fine, user) {
     return Boolean(accountsEmpId && userEmpId && accountsEmpId === userEmpId);
 }
 
-export function canAccountsPayFineEmployeeShare(fine, user, balance = null) {
+export function canAccountsPayFineEmployeeShare(fine, user, balance = null, flowchartRows = []) {
     if (!fine || !user) return false;
     const status = String(fine.fineStatus || '');
     if (status !== 'Approved' && status !== 'Active') return false;
@@ -84,5 +111,5 @@ export function canAccountsPayFineEmployeeShare(fine, user, balance = null) {
               )
             : Number(balance) || 0;
     if (bal <= 0.01) return false;
-    return isAccountsFinanceUser(user) || matchesAccountsHod(fine, user);
+    return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
 }

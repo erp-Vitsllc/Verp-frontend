@@ -1532,8 +1532,12 @@ function VehicleDetailsPageContent() {
         [asset],
     );
     const canManageOilService = useMemo(
-        () => canUserManageOilService(asset, currentUserEmployeeId, currentUser, isFlowchartAdminController),
-        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminController],
+        () =>
+            canUserManageOilService(asset, currentUserEmployeeId, currentUser, isFlowchartAdminController, {
+                isAssetController,
+                isFlowchartHr,
+            }),
+        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminController, isAssetController, isFlowchartHr],
     );
     const carWashRequestRows = useMemo(() => buildCarWashRequestRowsFromAsset(asset), [asset]);
     const vehicleServiceTabRequestRows = useMemo(
@@ -1544,8 +1548,12 @@ function VehicleDetailsPageContent() {
         [asset, serviceInnerTab],
     );
     const canManageCarWash = useMemo(
-        () => canUserManageCarWash(asset, currentUserEmployeeId, currentUser, isFlowchartAdminController),
-        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminController],
+        () =>
+            canUserManageCarWash(asset, currentUserEmployeeId, currentUser, isFlowchartAdminController, {
+                isAssetController,
+                isFlowchartHr,
+            }),
+        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminController, isAssetController, isFlowchartHr],
     );
 
     const closeCarWashModal = useCallback(() => {

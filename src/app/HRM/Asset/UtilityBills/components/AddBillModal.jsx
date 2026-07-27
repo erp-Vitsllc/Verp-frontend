@@ -17,7 +17,10 @@ import {
     isMonthFullyOccupied,
 } from '../utils/utilityBillStats';
 import { openUtilityAttachment } from '../utils/openUtilityAttachment';
-import UtilityBillTotalsBar, { computeRowPayTotals } from './UtilityBillTotalsBar';
+import UtilityBillTotalsBar, {
+    computeRowPayTotals,
+    sumLinePartyPayTotals,
+} from './UtilityBillTotalsBar';
 import {
     assignedPartyDefaults,
     payByFieldsFromAssignment,
@@ -46,6 +49,7 @@ const MONTH_SHORT = [
 
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
+const PAY_BY_BOTH = 'employee_and_company';
 
 function pickDefaultExpenseAccount(accounts = [], preferredId = '') {
     const preferred = String(preferredId || '').trim();
@@ -122,6 +126,12 @@ function resolvePayShares(payBy, difference) {
     }
     if (payBy === PAY_BY_EMPLOYEE) {
         return { companyAmount: 0, employeeAmount: diff };
+    }
+    if (payBy === PAY_BY_BOTH) {
+        // Mixed lines: overage (actual > contract) → employee; under → company.
+        const signed = Number(difference) || 0;
+        if (signed < 0) return { companyAmount: 0, employeeAmount: diff };
+        return { companyAmount: diff, employeeAmount: 0 };
     }
     return { companyAmount: 0, employeeAmount: 0 };
 }
@@ -390,6 +400,121 @@ function buildRowsFromEntries(entries, draftRows = []) {
     });
 }
 
+function normalizeViewPayBy(paymentBy) {
+    const mode = String(paymentBy || '').trim();
+    if (mode === 'employee_balance' || mode === 'employee') return PAY_BY_EMPLOYEE;
+    if (mode === 'company') return PAY_BY_COMPANY;
+    if (mode === 'employee_and_company') return PAY_BY_COMPANY;
+    return mode;
+}
+
+function lineItemsFromViewBill(bill = {}) {
+    const lines = Array.isArray(bill.zohoLineItems) ? bill.zohoLineItems : [];
+    if (!lines.length) return null;
+
+    const billPayByEmployeeId = String(bill.payByEmployeeId || '').trim();
+    const billPayByCompanyId = String(bill.payByCompanyId || '').trim();
+    const billPayByEmployeeName = String(bill.payByEmployeeName || '').trim();
+    const billPayByCompanyName = String(bill.payByCompanyName || '').trim();
+    const billPayBy = normalizeViewPayBy(bill.paymentBy);
+    const billAccountId = String(bill.expenseAccountId || '').trim();
+    const billAccountName = String(bill.expenseAccountName || '').trim();
+
+    return lines.map((line, index) => {
+        const payByEmployeeId =
+            String(line.payByEmployeeId || '').trim() || billPayByEmployeeId;
+        const payByCompanyId =
+            String(line.payByCompanyId || '').trim() || billPayByCompanyId;
+        const payByEmployeeName =
+            String(line.payByEmployeeName || '').trim() || billPayByEmployeeName;
+        const payByCompanyName =
+            String(line.payByCompanyName || '').trim() || billPayByCompanyName;
+        const payBy =
+            String(line.payBy || '').trim() ||
+            (payByEmployeeId || payByEmployeeName ? PAY_BY_EMPLOYEE : '') ||
+            (payByCompanyId || payByCompanyName ? PAY_BY_COMPANY : '') ||
+            billPayBy;
+        return {
+            key: line.key || `view-line-${index}`,
+            item: String(line.item || line.description || '').trim(),
+            description: String(line.description || line.item || '').trim(),
+            accountId: String(line.accountId || '').trim() || billAccountId,
+            accountName: String(line.accountName || '').trim() || billAccountName,
+            quantity:
+                line.quantity != null && line.quantity !== ''
+                    ? String(line.quantity)
+                    : '1',
+            amount:
+                line.amount != null && line.amount !== ''
+                    ? String(line.amount)
+                    : '',
+            payBy,
+            payByEmployeeId,
+            payByEmployeeName,
+            payByCompanyId,
+            payByCompanyName,
+        };
+    });
+}
+
+function buildRowFromViewBill(bill, entries = [], monthlyRental = 0) {
+    if (!bill) return null;
+    const entry =
+        (entries || []).find((e) => String(e?.id) === String(bill.entryId)) || null;
+    const assigned = entry
+        ? assignedPartyDefaults(entry)
+        : { assignedToType: '', assignedToId: '', assignedToName: '' };
+    const payBy = normalizeViewPayBy(bill.paymentBy);
+    const attachment = bill.attachment?.name ? bill.attachment : null;
+    return {
+        entryId: String(bill.entryId || entry?.id || ''),
+        selected: true,
+        accountNo: String(bill.accountNo || entryAccountNo(entry) || '—'),
+        provider: String(bill.provider || entryProvider(entry) || '—'),
+        paymentDay: entry ? entryPaymentDay(entry) : null,
+        billDate: String(bill.billDate || ''),
+        expenseAccountId: String(bill.expenseAccountId || ''),
+        expenseAccountName: String(bill.expenseAccountName || ''),
+        partyAccountId: String(bill.partyAccountId || ''),
+        partyAccountName: String(bill.partyAccountName || ''),
+        partyAccountCode: String(bill.partyAccountCode || ''),
+        assignedToType: assigned.assignedToType,
+        assignedToId: assigned.assignedToId,
+        assignedToName: assigned.assignedToName,
+        contractAmount:
+            Number(bill.monthlyRental) ||
+            (entry ? entryContractAmount(entry) : Number(monthlyRental) || 0),
+        billNumber: String(bill.billNumber || ''),
+        actualAmount:
+            bill.amount != null && bill.amount !== '' ? String(bill.amount) : '',
+        payBy,
+        companyDiffAmount: bill.companyDiffAmount ?? '',
+        employeeDiffAmount: bill.employeeDiffAmount ?? '',
+        payByCompanyId: String(bill.payByCompanyId || ''),
+        payByCompanyName: String(bill.payByCompanyName || ''),
+        payByEmployeeId: String(bill.payByEmployeeId || ''),
+        payByEmployeeName: String(bill.payByEmployeeName || ''),
+        attachmentMode: attachment ? 'new' : null,
+        attachment,
+        lineItems:
+            lineItemsFromViewBill(bill) ||
+            createDefaultLineItems({
+                contractAmount:
+                    Number(bill.monthlyRental) ||
+                    (entry ? entryContractAmount(entry) : Number(monthlyRental) || 0),
+                actualAmount: Number(bill.amount) || 0,
+                accountId: String(bill.expenseAccountId || ''),
+                accountName: String(bill.expenseAccountName || ''),
+                itemLabel: String(bill.provider || entryProvider(entry) || 'Utility charge'),
+                payBy,
+                payByEmployeeId: String(bill.payByEmployeeId || ''),
+                payByEmployeeName: String(bill.payByEmployeeName || ''),
+                payByCompanyId: String(bill.payByCompanyId || ''),
+                payByCompanyName: String(bill.payByCompanyName || ''),
+            }),
+    };
+}
+
 /** Clear edits when a row is unchecked — excluded from totals/submit. */
 function resetUncheckedRow(row) {
     return {
@@ -532,55 +657,51 @@ function collectPayloadRows(
             assignedPay.payByEmployeeName ||
             '';
 
-        const lineWithParty = Array.isArray(row.lineItems)
-            ? row.lineItems.find(
-                  (line) =>
-                      String(line?.payByEmployeeId || '').trim() ||
-                      String(line?.payByCompanyId || '').trim(),
-              )
-            : null;
+        const linePartyTotals = sumLinePartyPayTotals(
+            Array.isArray(row.lineItems) ? row.lineItems : [],
+        );
 
-        // Prefer Payable to from Add more lines (Company or Employee).
+        // Prefer Payable to from Add more lines — supports mixed company + employee.
         let payBy = '';
-        if (lineWithParty) {
-            const lineIsCompany =
-                lineWithParty.payBy === PAY_BY_COMPANY ||
-                (String(lineWithParty.payByCompanyId || '').trim() &&
-                    !String(lineWithParty.payByEmployeeId || '').trim());
-            if (lineIsCompany) {
-                payBy = PAY_BY_COMPANY;
-                payByCompanyId =
-                    String(lineWithParty.payByCompanyId || '').trim() || payByCompanyId;
-                payByCompanyName =
-                    String(lineWithParty.payByCompanyName || '').trim() ||
-                    payByCompanyName;
-            } else {
-                payBy = PAY_BY_EMPLOYEE;
-                payByEmployeeId = String(lineWithParty.payByEmployeeId || '').trim();
-                payByEmployeeName = String(lineWithParty.payByEmployeeName || '').trim();
-                payByCompanyId =
-                    String(lineWithParty.payByCompanyId || '').trim() || payByCompanyId;
-                payByCompanyName =
-                    String(lineWithParty.payByCompanyName || '').trim() ||
-                    payByCompanyName;
-                if (!payByCompanyId && payByEmployeeId) {
-                    const fromEmp = resolveAutoCompany(
-                        {
-                            payByEmployeeId,
-                            assignedToType: 'Employee',
-                            assignedToId: payByEmployeeId,
-                        },
-                        employeeOptions,
-                        companyOptions,
-                    );
-                    payByCompanyId = fromEmp.payByCompanyId || '';
-                    payByCompanyName = fromEmp.payByCompanyName || '';
-                }
+        if (linePartyTotals.hasParty) {
+            payBy = linePartyTotals.payBy || '';
+            if (linePartyTotals.payByCompanyId) {
+                payByCompanyId = linePartyTotals.payByCompanyId;
+            }
+            if (linePartyTotals.payByCompanyName) {
+                payByCompanyName = linePartyTotals.payByCompanyName;
+            }
+            if (linePartyTotals.payByEmployeeId) {
+                payByEmployeeId = linePartyTotals.payByEmployeeId;
+            }
+            if (linePartyTotals.payByEmployeeName) {
+                payByEmployeeName = linePartyTotals.payByEmployeeName;
+            }
+            if (
+                (payBy === PAY_BY_EMPLOYEE || payBy === PAY_BY_BOTH) &&
+                !payByCompanyId &&
+                payByEmployeeId
+            ) {
+                const fromEmp = resolveAutoCompany(
+                    {
+                        payByEmployeeId,
+                        assignedToType: 'Employee',
+                        assignedToId: payByEmployeeId,
+                    },
+                    employeeOptions,
+                    companyOptions,
+                );
+                payByCompanyId = fromEmp.payByCompanyId || '';
+                payByCompanyName = fromEmp.payByCompanyName || '';
             }
         } else if (actual < contract) {
             // Under contract → company pay-by when no Add more party set
             payBy = PAY_BY_COMPANY;
-        } else if (row.payBy === PAY_BY_COMPANY || row.payBy === PAY_BY_EMPLOYEE) {
+        } else if (
+            row.payBy === PAY_BY_COMPANY ||
+            row.payBy === PAY_BY_EMPLOYEE ||
+            row.payBy === PAY_BY_BOTH
+        ) {
             payBy = row.payBy;
         } else if (assignedPay.payBy) {
             payBy = assignedPay.payBy;
@@ -614,7 +735,7 @@ function collectPayloadRows(
             !payBy &&
             Array.isArray(row.lineItems) &&
             row.lineItems.length > 0 &&
-            !lineWithParty
+            !linePartyTotals.hasParty
         ) {
             return {
                 error: `Account ${row.accountNo} (${row.provider || 'provider'}): Add more lines are saved, but Payable to is empty. Open Lines, pick Company or Employee on every line, Save lines, then Submit.`,
@@ -628,19 +749,28 @@ function collectPayloadRows(
                 payloadRows: null,
             };
         }
-        if (payBy === PAY_BY_COMPANY && !payByCompanyId) {
+        if (
+            (payBy === PAY_BY_COMPANY || payBy === PAY_BY_BOTH) &&
+            !payByCompanyId
+        ) {
             if (companyOptions.length === 1) {
                 payByCompanyId = String(companyOptions[0].value || '');
                 payByCompanyName = String(companyOptions[0].label || '');
             }
         }
-        if (payBy === PAY_BY_COMPANY && !payByCompanyId) {
+        if (
+            (payBy === PAY_BY_COMPANY || payBy === PAY_BY_BOTH) &&
+            !payByCompanyId
+        ) {
             return {
                 error: `Account ${row.accountNo}: pick a Company in Add more → Payable to, then Save lines.`,
                 payloadRows: null,
             };
         }
-        if (payBy === PAY_BY_EMPLOYEE && !payByEmployeeId) {
+        if (
+            (payBy === PAY_BY_EMPLOYEE || payBy === PAY_BY_BOTH) &&
+            !payByEmployeeId
+        ) {
             return {
                 error: `Account ${row.accountNo}: pick an Employee in Add more → Payable to, then Save lines.`,
                 payloadRows: null,
@@ -649,7 +779,7 @@ function collectPayloadRows(
 
         const party = pickPartyAccountFromList(expenseAccounts, {
             ...row,
-            payBy,
+            payBy: payBy === PAY_BY_BOTH ? PAY_BY_EMPLOYEE : payBy,
             payByCompanyId,
             payByEmployeeId,
         });
@@ -717,7 +847,12 @@ function collectPayloadRows(
             actualAmount: actual,
             companyDiffAmount: shares.companyAmount,
             employeeDiffAmount: shares.employeeAmount,
+            lineItems,
         });
+        const includeEmployee =
+            payBy === PAY_BY_EMPLOYEE || payBy === PAY_BY_BOTH;
+        const includeCompany =
+            payBy === PAY_BY_COMPANY || payBy === PAY_BY_BOTH;
         payloadRows.push({
             entryId: row.entryId,
             accountNo: row.accountNo,
@@ -733,10 +868,10 @@ function collectPayloadRows(
             employeeDiffAmount: shares.employeeAmount,
             companyPayAmount: payTotals.companyPayAmount,
             employeePayAmount: payTotals.employeePayAmount,
-            payByCompanyId,
-            payByCompanyName,
-            payByEmployeeId: payBy === PAY_BY_EMPLOYEE ? payByEmployeeId : '',
-            payByEmployeeName: payBy === PAY_BY_EMPLOYEE ? payByEmployeeName : '',
+            payByCompanyId: includeCompany || includeEmployee ? payByCompanyId : '',
+            payByCompanyName: includeCompany || includeEmployee ? payByCompanyName : '',
+            payByEmployeeId: includeEmployee ? payByEmployeeId : '',
+            payByEmployeeName: includeEmployee ? payByEmployeeName : '',
             expenseAccountId: resolvedExpenseId,
             expenseAccountName: resolvedExpenseName,
             partyAccountId: absDifference > 0.009 ? party.partyAccountId : '',
@@ -763,7 +898,9 @@ export default function AddBillModal({
     monthlyRental = 0,
     onSubmit,
     saving = false,
+    viewBill = null,
 }) {
+    const isViewMode = Boolean(viewBill);
     const [rows, setRows] = useState([]);
     const [error, setError] = useState('');
     const [info, setInfo] = useState('');
@@ -821,7 +958,7 @@ export default function AddBillModal({
 
     // Auto-fill Company from assignment / employee's company when empty.
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen || isViewMode) return;
         if (!companySelectOptions.length && !employeeOptions.length) return;
         setRows((prev) => {
             let changed = false;
@@ -839,7 +976,7 @@ export default function AddBillModal({
             });
             return changed ? next : prev;
         });
-    }, [isOpen, companySelectOptions, employeeOptions, rows.length]);
+    }, [isOpen, isViewMode, companySelectOptions, employeeOptions, rows.length]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -992,6 +1129,25 @@ export default function AddBillModal({
             return;
         }
 
+        setSessionBilled([]);
+        setMonthPickerOpen(false);
+        setError('');
+        setAttachMenuIndex(null);
+        setLineItemsRowIndex(null);
+
+        if (viewBill) {
+            const ym =
+                String(viewBill.billMonth || '').trim() || currentBillMonthValue();
+            const viewRow = buildRowFromViewBill(viewBill, listEntries, monthlyRental);
+            setBillMonth(ym);
+            setPickerYear(yearFromBillMonth(ym));
+            setExpenseAccountId(String(viewBill.expenseAccountId || ''));
+            setRows(viewRow ? [viewRow] : []);
+            setDraftLoaded(false);
+            setInfo('Viewing submitted bill details (read only).');
+            return;
+        }
+
         const userKey = getLoggedInUtilityUserKey();
         const draft = userKey ? loadUtilityBillDraft(utilityType) : null;
         const draftRows = Array.isArray(draft?.rows) ? draft.rows : [];
@@ -999,9 +1155,6 @@ export default function AddBillModal({
         if (draft?.expenseAccountId) {
             setExpenseAccountId(String(draft.expenseAccountId));
         }
-
-        setSessionBilled([]);
-        setMonthPickerOpen(false);
 
         if (listEntries.length) {
             const { billMonth: workingMonth, unbilledEntries } = resolveWorkingMonth(
@@ -1090,13 +1243,9 @@ export default function AddBillModal({
                 setInfo('');
             }
         }
-
-        setError('');
-        setAttachMenuIndex(null);
-        setLineItemsRowIndex(null);
         // intentionally only re-init when modal opens / entry list type changes
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, listEntries, monthlyRental, utilityType]);
+    }, [isOpen, listEntries, monthlyRental, utilityType, viewBill]);
 
     const allSelected = rows.length > 0 && rows.every((r) => r.selected);
     const someSelected = rows.some((r) => r.selected);
@@ -1244,6 +1393,7 @@ export default function AddBillModal({
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (isViewMode) return;
         if (!rows.some((r) => r.selected)) {
             setError('Select at least one account.');
             return;
@@ -1297,6 +1447,24 @@ export default function AddBillModal({
             <div className="bg-white rounded-xl shadow-lg w-full max-w-[72rem] max-h-[95vh] overflow-hidden flex flex-col border border-gray-200">
                 <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
                     <div className="min-w-0 relative" ref={monthPickerRef}>
+                        {isViewMode ? (
+                            <div className="text-left -ml-1 px-1 py-0.5">
+                                <h2 className="text-lg sm:text-xl font-bold text-gray-800">
+                                    {monthTitle} Bill
+                                </h2>
+                                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                    {utilityType ? (
+                                        <p className="text-xs font-medium text-teal-700">
+                                            {utilityType}
+                                        </p>
+                                    ) : null}
+                                    <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                        View
+                                    </span>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
                         <button
                             type="button"
                             onClick={() => {
@@ -1330,6 +1498,8 @@ export default function AddBillModal({
                                 </span>
                             ) : null}
                         </div>
+                            </>
+                        )}
 
                         {monthPickerOpen ? (
                             <div className="absolute left-0 top-full mt-2 z-30 w-[min(100vw-2rem,18.5rem)] rounded-xl border border-gray-200 bg-white shadow-xl p-3">
@@ -1442,11 +1612,12 @@ export default function AddBillModal({
                                             <input
                                                 type="checkbox"
                                                 checked={allSelected}
+                                                disabled={isViewMode}
                                                 ref={(el) => {
                                                     if (el) el.indeterminate = someSelected && !allSelected;
                                                 }}
                                                 onChange={(e) => toggleAll(e.target.checked)}
-                                                className="accent-teal-600 w-4 h-4"
+                                                className="accent-teal-600 w-4 h-4 disabled:opacity-50"
                                                 title="Select all"
                                                 aria-label="Select all"
                                             />
@@ -1495,10 +1666,11 @@ export default function AddBillModal({
                                                     <input
                                                         type="checkbox"
                                                         checked={row.selected}
+                                                        disabled={isViewMode}
                                                         onChange={(e) =>
                                                             setRowSelected(index, e.target.checked)
                                                         }
-                                                        className="accent-teal-600 w-4 h-4"
+                                                        className="accent-teal-600 w-4 h-4 disabled:opacity-50"
                                                     />
                                                 </td>
                                                 <td className="px-3 py-3.5 text-center align-middle font-semibold text-gray-800 tabular-nums">
@@ -1514,7 +1686,7 @@ export default function AddBillModal({
                                                     <input
                                                         type="text"
                                                         value={row.billNumber || ''}
-                                                        disabled={!row.selected}
+                                                        disabled={!row.selected || isViewMode}
                                                         onChange={(e) =>
                                                             setRows((prev) =>
                                                                 prev.map((r, i) =>
@@ -1548,7 +1720,7 @@ export default function AddBillModal({
                                                         }
                                                         min={billMonthBounds.min}
                                                         max={billMonthBounds.max}
-                                                        disabled={!row.selected}
+                                                        disabled={!row.selected || isViewMode}
                                                         onChange={(e) => {
                                                             const next = e.target.value;
                                                             if (
@@ -1575,7 +1747,7 @@ export default function AddBillModal({
                                                         min="0"
                                                         step="0.01"
                                                         value={row.actualAmount}
-                                                        disabled={!row.selected}
+                                                        disabled={!row.selected || isViewMode}
                                                         onChange={(e) => {
                                                             const nextActual = e.target.value;
                                                             const actualN = Number(nextActual);
@@ -1686,7 +1858,7 @@ export default function AddBillModal({
                                                     <div className="inline-flex flex-col items-center gap-1.5 min-w-[7.5rem]">
                                                         <button
                                                             type="button"
-                                                            disabled={!row.selected}
+                                                            disabled={!row.selected || isViewMode}
                                                             onClick={(e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
@@ -1831,23 +2003,27 @@ export default function AddBillModal({
                             onClick={onClose}
                             className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
                         >
-                            Cancel
+                            {isViewMode ? 'Close' : 'Cancel'}
                         </button>
-                        <button
-                            type="button"
-                            onClick={handleDraft}
-                            disabled={saving || !rows.length}
-                            className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-sm font-semibold disabled:opacity-50"
-                        >
-                            Draft
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={saving || !rows.length}
-                            className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
-                        >
-                            {saving ? 'Submitting…' : 'Submit'}
-                        </button>
+                        {!isViewMode ? (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={handleDraft}
+                                    disabled={saving || !rows.length}
+                                    className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-sm font-semibold disabled:opacity-50"
+                                >
+                                    Draft
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={saving || !rows.length}
+                                    className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
+                                >
+                                    {saving ? 'Submitting…' : 'Submit'}
+                                </button>
+                            </>
+                        ) : null}
                     </div>
                 </form>
             </div>
@@ -1855,6 +2031,7 @@ export default function AddBillModal({
             <UtilityBillLineItemsModal
                 isOpen={lineItemsRowIndex != null}
                 onClose={() => setLineItemsRowIndex(null)}
+                readOnly={isViewMode}
                 accountNo={
                     lineItemsRowIndex != null
                         ? rows[lineItemsRowIndex]?.accountNo || ''

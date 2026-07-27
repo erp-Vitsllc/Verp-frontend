@@ -59,6 +59,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         prefill?.organizationId ||
             prefill?.reward?.zohoOrganizationId ||
             prefill?.loan?.zohoOrganizationId ||
+            prefill?.fines?.[0]?.zohoOrganizationId ||
             '',
     ).trim();
     const preferredRewardCompanyId = String(
@@ -72,7 +73,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     const isUtilityEmployeeBalance =
         paymentType === 'UtilityBill' &&
         String(prefill?.mode || '').toLowerCase() === 'employee_balance';
-    const isZohoStaffPayout = isRewardPayment || isLoanPayment || isUtilityEmployeeBalance;
+    const isFineCompanyPayment =
+        paymentType === 'Fine' || Boolean(prefill?.fines?.length);
+    const isZohoStaffPayout =
+        isRewardPayment || isLoanPayment || isUtilityEmployeeBalance || isFineCompanyPayment;
 
     const {
         options: zohoOrgOptions,
@@ -733,7 +737,13 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             return;
         }
 
-        if (paymentType === 'Reward' || paymentType === 'Loan' || paymentType === 'Advance' || isUtilityEmployeeBalance) {
+        if (
+            paymentType === 'Reward' ||
+            paymentType === 'Loan' ||
+            paymentType === 'Advance' ||
+            isUtilityEmployeeBalance ||
+            isFineCompanyPayment
+        ) {
             if (!zohoOrganizationId) {
                 toast({
                     title: 'Validation Error',
@@ -745,8 +755,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             if (!expenseAccountId || !paidThroughAccountId) {
                 toast({
                     title: 'Validation Error',
-                    description:
-                        'Select Expense account and Paid Through from Zoho Chart of Accounts.',
+                    description: isFineCompanyPayment
+                        ? 'Select Banking and From Account from Zoho Chart of Accounts (VEGA).'
+                        : 'Select Expense account and Paid Through from Zoho Chart of Accounts.',
                     variant: 'destructive',
                 });
                 return;
@@ -754,7 +765,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             if (expenseAccountId === paidThroughAccountId) {
                 toast({
                     title: 'Validation Error',
-                    description: 'Expense account and Paid Through must be different.',
+                    description: isFineCompanyPayment
+                        ? 'Banking and From Account must be different.'
+                        : 'Expense account and Paid Through must be different.',
                     variant: 'destructive',
                 });
                 return;
@@ -841,6 +854,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     ...(type === 'Reward' ||
                     type === 'Loan' ||
                     type === 'Advance' ||
+                    type === 'Fine' ||
                     (type === 'UtilityBill' && isUtilityEmployeeBalance)
                         ? {
                               zohoOrganizationId,
@@ -848,6 +862,12 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                               expenseAccountName: selectedExpenseAccount?.name || '',
                               paidThroughAccountId,
                               paidThroughAccountName: selectedPaidThrough?.name || '',
+                              ...(type === 'Fine'
+                                  ? {
+                                        description: `Refund · Fine ${entityRef}`,
+                                        remarks: 'Transaction expense: Refund · Tax exclusive',
+                                    }
+                                  : {}),
                           }
                         : {}),
                 };
@@ -1446,17 +1466,22 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                             {paymentType === 'Reward' ||
                             paymentType === 'Loan' ||
                             paymentType === 'Advance' ||
-                            isUtilityEmployeeBalance ? (
+                            isUtilityEmployeeBalance ||
+                            isFineCompanyPayment ? (
                                 <div className="mb-8 p-6 bg-white border border-indigo-100 shadow-sm rounded-2xl space-y-4">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div>
                                             <h3 className="text-sm font-bold text-gray-800">
-                                                Zoho Books · Chart of Accounts
+                                                {isFineCompanyPayment
+                                                    ? 'Payment to company · Chart of Accounts'
+                                                    : 'Zoho Books · Chart of Accounts'}
                                             </h3>
                                             <p className="text-xs text-gray-500 mt-0.5">
-                                                {isUtilityEmployeeBalance
-                                                    ? 'Pay employee utility balance. Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'
-                                                    : 'Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'}
+                                                {isFineCompanyPayment
+                                                    ? 'Banking posts to the selected bank. From Account and Refund reflect on Chart of Accounts (VEGA). Tax is always exclusive.'
+                                                    : isUtilityEmployeeBalance
+                                                      ? 'Pay employee utility balance. Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'
+                                                      : 'Org follows employee company (VEGA / NNIT). Paid Through is posted as credit.'}
                                             </p>
                                         </div>
                                         {(showZohoOrgPicker || activeZohoOrg) && (
@@ -1469,10 +1494,46 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                             />
                                         )}
                                     </div>
+                                    {isFineCompanyPayment && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-bold text-gray-800 mb-2">
+                                                    Transaction expense
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value="Refund"
+                                                    readOnly
+                                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-gray-100 text-gray-700 cursor-not-allowed"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-bold text-gray-800 mb-2">
+                                                    Tax
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value="Exclusive"
+                                                    readOnly
+                                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-gray-100 text-gray-700 cursor-not-allowed"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-bold text-gray-800 mb-2">
-                                                Expense account <span className="text-red-500">*</span>
+                                                {isFineCompanyPayment ? (
+                                                    <>
+                                                        From Account{' '}
+                                                        <span className="text-red-500">*</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        Expense account{' '}
+                                                        <span className="text-red-500">*</span>
+                                                    </>
+                                                )}
                                             </label>
                                             <select
                                                 value={expenseAccountId}
@@ -1483,7 +1544,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                 <option value="">
                                                     {zohoAccountsLoading
                                                         ? 'Loading Chart of Accounts…'
-                                                        : 'Select expense account'}
+                                                        : isFineCompanyPayment
+                                                          ? 'Select from account (Chart of Accounts)'
+                                                          : 'Select expense account'}
                                                 </option>
                                                 {expenseAccountOptions.map((opt) => (
                                                     <option key={opt.id} value={opt.id}>
@@ -1494,7 +1557,17 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         </div>
                                         <div>
                                             <label className="block text-sm font-bold text-gray-800 mb-2">
-                                                Paid Through (credit) <span className="text-red-500">*</span>
+                                                {isFineCompanyPayment ? (
+                                                    <>
+                                                        Banking{' '}
+                                                        <span className="text-red-500">*</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        Paid Through (credit){' '}
+                                                        <span className="text-red-500">*</span>
+                                                    </>
+                                                )}
                                             </label>
                                             <select
                                                 value={paidThroughAccountId}
@@ -1505,7 +1578,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                 <option value="">
                                                     {zohoAccountsLoading
                                                         ? 'Loading Chart of Accounts…'
-                                                        : 'Select Paid Through account'}
+                                                        : isFineCompanyPayment
+                                                          ? 'Select banking account (Chart of Accounts Vega)'
+                                                          : 'Select Paid Through account'}
                                                 </option>
                                                 {expenseAccountOptions.map((opt) => (
                                                     <option key={`pt-${opt.id}`} value={opt.id}>
@@ -1594,21 +1669,36 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
                                     Payment Amount (AED) <span className="text-red-500">*</span>
                                 </label>
-                                <div className="relative">
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">AED</span>
-                                    <input
-                                        type="number"
-                                        value={paymentAmount}
-                                        onChange={(e) => {
-                                            setPaymentAmount(e.target.value);
-                                            setSelectedCardIndex(null);
-                                        }}
-                                        min="0"
-                                        step="0.01"
-                                        max={activeRemainingAmount}
-                                        className="w-full pl-14 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 text-lg font-bold text-gray-900 bg-white placeholder-gray-300 shadow-sm transition-all"
-                                        placeholder="0.00"
-                                    />
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <div className="relative flex-1">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">AED</span>
+                                        <input
+                                            type="number"
+                                            value={paymentAmount}
+                                            onChange={(e) => {
+                                                setPaymentAmount(e.target.value);
+                                                setSelectedCardIndex(null);
+                                            }}
+                                            min="0"
+                                            step="0.01"
+                                            max={activeRemainingAmount}
+                                            className="w-full pl-14 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 text-lg font-bold text-gray-900 bg-white placeholder-gray-300 shadow-sm transition-all"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    {isFineCompanyPayment && activeRemainingAmount > 0.01 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPaymentAmount(activeRemainingAmount.toFixed(2));
+                                                setSelectedCardIndex(null);
+                                            }}
+                                            className="shrink-0 px-4 py-3 rounded-xl border border-teal-200 bg-white hover:bg-teal-50 text-teal-700 text-sm font-bold transition-colors"
+                                            title="Fill remaining fine balance"
+                                        >
+                                            Complete
+                                        </button>
+                                    )}
                                 </div>
                                 <p className={`text-xs font-medium mt-2 flex items-center gap-1 ${parseFloat(paymentAmount) > (activeRemainingAmount + 0.01) ? 'text-red-500' : 'text-gray-500'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>

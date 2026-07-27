@@ -331,8 +331,8 @@ export default function AddAssetTypeModal({
                 type: formData.type,
                 category: formData.category,
                 purchaseDate: formData.purchaseDate,
-                quantity: formData.quantity,
-                warrantyYears: formData.warrantyYears,
+                quantity: Math.max(1, Number(formData.quantity) || 1),
+                warrantyYears: formData.hasWarranty === 'yes' ? (Number(formData.warrantyYears) || 0) : 0,
                 invoiceNumber: formData.invoiceNumber,
                 mode
             };
@@ -527,7 +527,7 @@ export default function AddAssetTypeModal({
                                 {isAssetMode || mode === 'category' ? (
                                     <select
                                         value={formData.type || ''}
-                                        onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                                        onChange={(e) => setFormData({ ...formData, type: e.target.value, category: '' })}
                                         className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-white"
                                     >
                                         <option value="">Select Type</option>
@@ -669,7 +669,12 @@ export default function AddAssetTypeModal({
                                                 name="hasWarranty"
                                                 value="no"
                                                 checked={formData.hasWarranty === 'no'}
-                                                onChange={(e) => setFormData({ ...formData, hasWarranty: e.target.value })}
+                                                onChange={(e) => setFormData({
+                                                    ...formData,
+                                                    hasWarranty: e.target.value,
+                                                    warrantyYears: '',
+                                                    warranty: ''
+                                                })}
                                                 className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                                             />
                                             <span className="text-sm text-gray-700 group-hover:text-gray-900 transition-colors">No</span>

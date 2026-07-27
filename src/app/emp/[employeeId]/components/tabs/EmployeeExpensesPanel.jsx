@@ -170,9 +170,10 @@ export default function EmployeeExpensesPanel({ employee }) {
             <div className="flex items-start gap-2 text-slate-600">
                 <Wallet size={18} className="text-blue-600 mt-0.5 shrink-0" />
                 <p className="text-sm">
-                    Utility balances, fines, and loan/advance schedules appear here. Utility
-                    difference: <strong>Pay difference</strong> opens Accounts → Payments Made
-                    (Paid Through defaults to the employee salary payable account).
+                    Utility payable shares, balances, fines, and loan/advance schedules appear
+                    here. Utility difference: <strong>Pay difference</strong> opens Accounts →
+                    Payments Made (Paid Through defaults to the employee salary payable
+                    account).
                 </p>
             </div>
 
@@ -241,7 +242,11 @@ export default function EmployeeExpensesPanel({ employee }) {
                                                         : row.billMonth || '—'}
                                                 </div>
                                                 <div className="text-xs text-slate-400">
-                                                    {row.utilityType || row.description || 'Expense'}
+                                                    {row.kind === 'utility_share'
+                                                        ? 'Utility payable share'
+                                                        : row.utilityType ||
+                                                          row.description ||
+                                                          'Expense'}
                                                     {monthlyHint}
                                                 </div>
                                             </td>
@@ -316,6 +321,10 @@ export default function EmployeeExpensesPanel({ employee }) {
                                                         {row.duration
                                                             ? `${row.duration} parts`
                                                             : '—'}
+                                                    </span>
+                                                ) : row.kind === 'utility_share' ? (
+                                                    <span className="text-xs font-semibold text-slate-500">
+                                                        View bill
                                                     </span>
                                                 ) : row.canPay || row.status === 'Not Paid' ? (
                                                     <button

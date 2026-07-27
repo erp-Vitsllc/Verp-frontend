@@ -12,7 +12,7 @@ import {
     formatCellValue,
     getMonthlyRentalAmount,
 } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsStorage';
-import { fetchUtilityEntries } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsApi';
+import { fetchUtilityEntries, fetchUtilityEntry } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsApi';
 import { billDisplayStatus, formatBillMoney } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillStats';
 import ViewBillModal from '@/app/HRM/Asset/UtilityBills/components/ViewBillModal';
 
@@ -79,10 +79,54 @@ function employeeIdCandidates(employee) {
 }
 
 function billPayableToEmployee(bill, employee) {
-    const payBy = String(bill?.paymentBy || '').toLowerCase();
-    if (payBy !== 'employee' && payBy !== 'employee_balance') return false;
     const ids = employeeIdCandidates(employee);
-    return [bill?.payByEmployeeId].filter(Boolean).some((id) => ids.has(String(id)));
+    if (!ids.size) return false;
+    if ([bill?.payByEmployeeId].filter(Boolean).some((id) => ids.has(String(id)))) {
+        return true;
+    }
+    const lines = Array.isArray(bill?.zohoLineItems) ? bill.zohoLineItems : [];
+    return lines.some((line) => {
+        const empId = String(line?.payByEmployeeId || '').trim();
+        return empId && ids.has(empId);
+    });
+}
+
+/** This employee's Payable-to share on the bill (line amounts). */
+function employeePayableShareAmount(bill, employee) {
+    const ids = employeeIdCandidates(employee);
+    if (!ids.size) return 0;
+    const lines = Array.isArray(bill?.zohoLineItems) ? bill.zohoLineItems : [];
+    let sum = 0;
+    let matched = false;
+    lines.forEach((line) => {
+        const empId = String(line?.payByEmployeeId || '').trim();
+        if (!empId || !ids.has(empId)) return;
+        matched = true;
+        sum += Number(line?.amount) || 0;
+    });
+    if (matched) return sum;
+    if (ids.has(String(bill?.payByEmployeeId || '').trim())) {
+        return Number(bill?.employeePayAmount) || 0;
+    }
+    return 0;
+}
+
+function entryFromPayableBill(bill) {
+    const entryId = String(bill?.entryId || '').trim();
+    if (!entryId) return null;
+    return {
+        id: entryId,
+        type: String(bill?.utilityType || 'Utility').trim() || 'Utility',
+        values: {
+            accountNumber: String(bill?.accountNo || '').trim(),
+            provider: String(bill?.provider || bill?.utilityType || 'Utility').trim(),
+            monthlyRental: Number(bill?.monthlyRental) || 0,
+        },
+        assignedTo: '',
+        assignedToType: '',
+        assignedToId: '',
+        fromPayable: true,
+    };
 }
 
 function billAbsDifference(bill) {
@@ -178,9 +222,10 @@ export default function EmployeeSalaryVehicleUtilityPanel({
         }
     }, [employee]);
 
-    const loadBillsForEntries = useCallback(async (entries) => {
+    const loadBillsForEntries = useCallback(async (entries, payableBills = []) => {
         const list = Array.isArray(entries) ? entries : [];
-        if (!list.length) {
+        const payable = Array.isArray(payableBills) ? payableBills : [];
+        if (!list.length && !payable.length) {
             setBillsByEntry({});
             setDifferencePayByBillId({});
             return;
@@ -203,6 +248,15 @@ export default function EmployeeSalaryVehicleUtilityPanel({
             const map = {};
             results.forEach(([id, bills]) => {
                 map[id] = bills;
+            });
+            // Merge Payable-to bills (employee may not own the utility assignment).
+            payable.forEach((bill) => {
+                const entryId = String(bill?.entryId || '').trim();
+                if (!entryId) return;
+                const existing = Array.isArray(map[entryId]) ? map[entryId] : [];
+                const billId = String(bill._id || '');
+                if (billId && existing.some((b) => String(b._id) === billId)) return;
+                map[entryId] = [...existing, bill];
             });
             setBillsByEntry(map);
 
@@ -248,28 +302,77 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     }, [employee?.employeeId]);
 
     const loadUtilities = useCallback(async () => {
-        const empId = String(employee?._id || '');
-        if (!empId) {
+        const empOid = String(employee?._id || '').trim();
+        const empBusinessId = String(employee?.employeeId || '').trim();
+        if (!empOid && !empBusinessId) {
             setUtilityEntries([]);
             setBillsByEntry({});
             return;
         }
         setLoadingUtilities(true);
         try {
-            const entries = await fetchUtilityEntries({
-                assignedToId: empId,
-                assignedToType: 'Employee',
+            const [assignedEntries, payableRes] = await Promise.all([
+                empOid
+                    ? fetchUtilityEntries({
+                          assignedToId: empOid,
+                          assignedToType: 'Employee',
+                      }).catch(() => [])
+                    : Promise.resolve([]),
+                axiosInstance
+                    .get('/UtilityBill', {
+                        params: {
+                            payByEmployeeId: empBusinessId || empOid,
+                        },
+                        skipToast: true,
+                    })
+                    .catch(() => ({ data: { bills: [] } })),
+            ]);
+
+            const assigned = Array.isArray(assignedEntries) ? assignedEntries : [];
+            const payableBills = Array.isArray(payableRes.data?.bills)
+                ? payableRes.data.bills.filter((b) => billPayableToEmployee(b, employee))
+                : [];
+
+            const byId = new Map();
+            assigned.forEach((e) => {
+                if (e?.id) byId.set(String(e.id), e);
             });
-            const list = Array.isArray(entries) ? entries : [];
+
+            // Resolve entry shells for payable bills not already assigned to this employee.
+            const missingEntryIds = [
+                ...new Set(
+                    payableBills
+                        .map((b) => String(b.entryId || '').trim())
+                        .filter((id) => id && !byId.has(id)),
+                ),
+            ];
+            await Promise.all(
+                missingEntryIds.map(async (id) => {
+                    try {
+                        const { entry } = await fetchUtilityEntry(id);
+                        if (entry?.id) {
+                            byId.set(String(entry.id), { ...entry, fromPayable: true });
+                            return;
+                        }
+                    } catch {
+                        /* fall through to bill-derived shell */
+                    }
+                    const bill = payableBills.find((b) => String(b.entryId) === id);
+                    const shell = entryFromPayableBill(bill);
+                    if (shell) byId.set(id, shell);
+                }),
+            );
+
+            const list = [...byId.values()];
             setUtilityEntries(list);
-            loadBillsForEntries(list);
+            await loadBillsForEntries(list, payableBills);
         } catch {
             setUtilityEntries([]);
             setBillsByEntry({});
         } finally {
             setLoadingUtilities(false);
         }
-    }, [employee?._id, loadBillsForEntries]);
+    }, [employee, loadBillsForEntries]);
 
     useEffect(() => {
         if (mode === 'Vehicle') loadFleet();
@@ -462,11 +565,16 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     );
 
     const billsForEntry = useCallback(
-        (entryId) =>
-            (billsByEntry[entryId] || [])
-                .filter(billMatchesFilter)
-                .sort((a, b) => billSortTime(b) - billSortTime(a)),
-        [billsByEntry, billMatchesFilter],
+        (entryId) => {
+            const entry = (utilityEntries || []).find((e) => String(e.id) === String(entryId));
+            let list = (billsByEntry[entryId] || []).filter(billMatchesFilter);
+            // Payable-only utilities: show only this employee's Payable-to bills.
+            if (entry?.fromPayable) {
+                list = list.filter((b) => billPayableToEmployee(b, employee));
+            }
+            return list.sort((a, b) => billSortTime(b) - billSortTime(a));
+        },
+        [billsByEntry, billMatchesFilter, utilityEntries, employee],
     );
 
     const toggleEntry = useCallback((entryId) => {
@@ -592,7 +700,8 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 <div className="flex items-center gap-2 text-slate-600">
                     <Receipt size={18} className="text-teal-600" />
                     <p className="text-sm font-medium">
-                        Utility bills assigned to this employee — expand a utility to see its bills
+                        Utility bills assigned to this employee, or where they are Payable to —
+                        expand a utility to see its bills
                     </p>
                 </div>
             </div>
@@ -670,7 +779,9 @@ export default function EmployeeSalaryVehicleUtilityPanel({
             {loadingUtilities ? (
                 <p className="py-12 text-center text-sm text-gray-400">Loading utilities…</p>
             ) : utilitiesByType.length === 0 ? (
-                <p className="py-12 text-center text-sm text-gray-400">No utility bills assigned</p>
+                <p className="py-12 text-center text-sm text-gray-400">
+                    No utility bills assigned or payable to this employee
+                </p>
             ) : (
                 utilitiesByType.map(({ type, rows }) => (
                     <div
@@ -773,6 +884,10 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                                                             const actual = Number(bill.amount) || 0;
                                                             const difference = contract - actual;
                                                             const absDiff = billAbsDifference(bill);
+                                                            const myShare = employeePayableShareAmount(
+                                                                bill,
+                                                                employee,
+                                                            );
                                                             const canDifferencePay =
                                                                 absDiff > 0.009 &&
                                                                 billPayableToEmployee(
@@ -810,6 +925,12 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                                                                     >
                                                                         {billDisplayStatus(bill)}
                                                                     </span>
+                                                                    {myShare > 0.009 ? (
+                                                                        <span className="inline-flex items-center rounded-md border border-purple-100 bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700 tabular-nums">
+                                                                            Your share{' '}
+                                                                            {formatBillMoney(myShare)}
+                                                                        </span>
+                                                                    ) : null}
                                                                     <div className="flex items-center gap-4 text-xs tabular-nums ml-auto">
                                                                         <span className="text-slate-500">
                                                                             <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mr-1">

@@ -164,6 +164,7 @@ export function resolveNotificationIconVariant(typeOrItem) {
             return 'asset-settings-unattach';
         case 'Utility Bill Payment':
         case 'Utility Bill Payment Reminder':
+        case 'Utility Contract Expiry':
         case 'Utility Entry Status Change':
             return 'asset-settings-service';
         case 'Vehicle Service Request':

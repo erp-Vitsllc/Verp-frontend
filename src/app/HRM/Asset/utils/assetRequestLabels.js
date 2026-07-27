@@ -2,6 +2,9 @@
 export function formatAssetDashboardRequestType(requestType, row = null) {
     const t = String(requestType || '').trim();
     if (t === 'Utility Entry Status Change') return 'Utility Activate / Deactivate';
+    if (t === 'Utility Bill Payment Reminder') return 'Utility Payment Day Reminder';
+    if (t === 'Utility Contract Expiry') return 'Utility Contract Expiry';
+    if (t === 'Utility Bill Payment') return 'Utility Bill Payment';
     if (t === 'Asset Overdue') return 'Asset Service overdue';
     if (t === 'Asset Leave') {
         try {
@@ -39,6 +42,7 @@ export function isPendingInboxRowVisible(row) {
     if (
         requestType === 'Utility Bill Payment' ||
         requestType === 'Utility Bill Payment Reminder' ||
+        requestType === 'Utility Contract Expiry' ||
         requestType === 'Utility Entry Status Change'
     ) {
         return true;
