@@ -161,6 +161,7 @@ function attachmentForApi(attachment, { includeData = true } = {}) {
 
 /**
  * Pay to company — Zoho Banking Expense Refund (Money In), not Payment Refund.
+ * Supports Fine recovery and Utility Bill difference recovery.
  */
 export default function FineCompanyRefundModal({
     isOpen,
@@ -169,7 +170,17 @@ export default function FineCompanyRefundModal({
     employee = null,
     employeeId = '',
     fines = [],
+    utilityBills = [],
     getFineBalance = (f) => Number(f?.balance || f?.fineAmount || 0),
+    getUtilityBalance = (b) => {
+        const fromField = Number(b?.differenceAmount);
+        if (Number.isFinite(fromField) && Math.abs(fromField) > 0.009) {
+            return Math.abs(fromField);
+        }
+        const contract = Number(b?.monthlyRental) || 0;
+        const actual = Number(b?.amount) || 0;
+        return Math.abs(contract - actual);
+    },
 }) {
     const { toast } = useToast();
     const fileInputRef = useRef(null);
@@ -201,8 +212,12 @@ export default function FineCompanyRefundModal({
     const [reconnectLoading, setReconnectLoading] = useState(false);
     const [saving, setSaving] = useState(false);
 
-    const preferredOrgId = String(fines[0]?.zohoOrganizationId || '').trim();
-    const preferredCompanyId = String(fines[0]?.company?._id || fines[0]?.company || '').trim();
+    const isUtilityMode = Array.isArray(utilityBills) && utilityBills.length > 0;
+    const sourceList = isUtilityMode ? utilityBills : fines;
+    const preferredOrgId = String(sourceList[0]?.zohoOrganizationId || '').trim();
+    const preferredCompanyId = String(
+        sourceList[0]?.company?._id || sourceList[0]?.company || '',
+    ).trim();
 
     const {
         options: zohoOrgOptions,
@@ -217,21 +232,38 @@ export default function FineCompanyRefundModal({
         preferredCompanyId,
     });
 
-    const fineRows = useMemo(
-        () =>
-            (Array.isArray(fines) ? fines : []).map((f) => {
-                const key = String(f.fineId || f._id);
-                const balance = Math.max(0, Number(getFineBalance(f)) || 0);
+    const fineRows = useMemo(() => {
+        if (isUtilityMode) {
+            return (Array.isArray(utilityBills) ? utilityBills : []).map((b) => {
+                const key = String(b._id || b.billNumber || b.accountNo || '');
+                const balance = Math.max(0, Number(getUtilityBalance(b)) || 0);
+                const paymentNo =
+                    String(b.billNumber || '').trim() ||
+                    String(b.accountNo || '').trim() ||
+                    key;
                 return {
                     key,
-                    fine: f,
-                    paymentNo: f.fineId || key,
-                    amount: Number(f.fineAmount || f.employeeShare || balance) || 0,
+                    fine: null,
+                    utilityBill: b,
+                    paymentNo,
+                    amount: balance,
                     balance,
                 };
-            }),
-        [fines, getFineBalance],
-    );
+            });
+        }
+        return (Array.isArray(fines) ? fines : []).map((f) => {
+            const key = String(f.fineId || f._id);
+            const balance = Math.max(0, Number(getFineBalance(f)) || 0);
+            return {
+                key,
+                fine: f,
+                utilityBill: null,
+                paymentNo: f.fineId || key,
+                amount: Number(f.fineAmount || f.employeeShare || balance) || 0,
+                balance,
+            };
+        });
+    }, [fines, utilityBills, isUtilityMode, getFineBalance, getUtilityBalance]);
 
     const selectedRow = fineRows.find((r) => r.key === selectedFineKey) || null;
 
@@ -303,7 +335,10 @@ export default function FineCompanyRefundModal({
         setDescription('');
         setBankAccountId('');
         setExpenseAccountId('');
-        setVendorId('');
+        const firstVendor = String(
+            fineRows[0]?.utilityBill?.zohoVendorId || fineRows[0]?.fine?.zohoVendorId || '',
+        ).trim();
+        setVendorId(firstVendor);
         setTaxTreatment('vat_registered');
         setPlaceOfSupply('DU');
         setTaxId('');
@@ -566,11 +601,14 @@ export default function FineCompanyRefundModal({
     };
 
     const handleSave = async () => {
-        if (!selectedRow?.fine) {
+        const entity = isUtilityMode ? selectedRow?.utilityBill : selectedRow?.fine;
+        if (!entity) {
             toast({
                 variant: 'destructive',
                 title: 'Select a payment',
-                description: 'Choose a fine payment row to record as Expense Refund.',
+                description: isUtilityMode
+                    ? 'Choose a utility bill row to record as Expense Refund.'
+                    : 'Choose a fine payment row to record as Expense Refund.',
             });
             return;
         }
@@ -642,7 +680,6 @@ export default function FineCompanyRefundModal({
 
         setSaving(true);
         try {
-            const fine = selectedRow.fine;
             const paymentSourceMap = {
                 Cash: 'Cash',
                 Cheque: 'Cash',
@@ -659,20 +696,26 @@ export default function FineCompanyRefundModal({
                 ? attachmentForApi(attachments[0], { includeData: true })
                 : null;
 
+            const defaultDescription = isUtilityMode
+                ? `Expense Refund · Utility ${
+                      entity.utilityType || ''
+                  } ${entity.billMonth || ''} · Acc ${entity.accountNo || selectedRow.paymentNo}`.trim()
+                : `Expense Refund · Fine ${entity.fineId || selectedRow.paymentNo}`;
+
             const res = await axiosInstance.post('/Payment', {
-                paymentType: 'Fine',
+                paymentType: isUtilityMode ? 'UtilityBill' : 'Fine',
                 paidBy: employeeId,
                 amount: payAmt,
                 status: 'Completed',
-                description:
-                    description ||
-                    `Expense Refund · Fine ${fine.fineId || selectedRow.paymentNo}`,
+                description: description || defaultDescription,
                 remarks: `Expense Refund · Received Via: ${receivedVia}${
                     reference ? ` · Ref: ${reference}` : ''
                 }${selectedVendor ? ` · Vendor: ${selectedVendor.label}` : ''}`,
-                referenceId: fine.fineId,
-                relatedEntityType: 'Fine',
-                relatedEntityId: fine._id,
+                referenceId: isUtilityMode
+                    ? String(entity._id || selectedRow.paymentNo)
+                    : entity.fineId,
+                relatedEntityType: isUtilityMode ? 'UtilityBill' : 'Fine',
+                relatedEntityId: entity._id,
                 paymentSource: paymentSourceMap[receivedVia] || 'Cash',
                 paymentDate: date,
                 zohoOrganizationId: organizationId,

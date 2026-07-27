@@ -1,5 +1,11 @@
 import { validateVehicleServiceForm, mapServiceRecordToFormData, buildAddServiceBody } from '../components/vehicleServicePayload';
 import { formatWarrantyExpiryFromAsset, resolveDefaultPaymentMode } from './vehicleOilServiceWarranty';
+import {
+    garageBillingAttachmentBody,
+    garageBillingFieldsFromRemark,
+    garageBillingRemarkPatch,
+    validateGarageBillingFields,
+} from './vehicleGarageBillingFields';
 
 export const DEFAULT_OIL_SERVICE_TYPE = 'Engine Oil';
 
@@ -73,6 +79,14 @@ export function buildOilServiceDetailFormState(service, asset, scheduleRow) {
             base.quotation1Amount ||
             (base.value != null && base.value !== '' ? String(base.value) : ''),
         value: base.value != null && base.value !== '' ? String(base.value) : '',
+        ...garageBillingFieldsFromRemark(service, {
+            ...remark,
+            // Prefer oil amount fields for the pay amount display.
+            garageBillAmount:
+                remark.garageBillAmount ||
+                remark.totalServiceCharge ||
+                (base.value != null && base.value !== '' ? base.value : ''),
+        }),
     };
 }
 
@@ -135,6 +149,8 @@ export function validateOilServiceDetailCreateForm(formData) {
         if (!Number.isFinite(amount) || amount <= 0) {
             errors.value = 'Amount must be greater than 0';
         }
+        // Paid oil jobs need Zoho bill fields (same as shop garage services).
+        Object.assign(errors, validateGarageBillingFields(formData));
     }
 
     return errors;
@@ -159,6 +175,9 @@ const OIL_SERVICE_FIELD_LABELS = {
     attachment: 'Quote 1',
     quotation1Amount: 'Amount',
     date: 'Service date',
+    payAccountId: 'Pay Account',
+    garageBillAmount: 'Amount (AED)',
+    garageAttachment: 'Attachment',
 };
 
 export function getOilServiceDetailFormMissingFields(formData) {
@@ -180,6 +199,10 @@ export function buildOilServiceDetailSubmitBody(formData) {
         serviceType: 'Oil Service',
         quotation1Amount: formData.amountMode === 'amount' ? amount : formData.quotation1Amount,
         value: formData.amountMode === 'amount' ? amount : formData.value,
+        garageBillAmount:
+            formData.amountMode === 'amount'
+                ? amount || formData.garageBillAmount
+                : formData.garageBillAmount,
     };
     const body = buildAddServiceBody(payload);
     const remark = (() => {
@@ -200,6 +223,12 @@ export function buildOilServiceDetailSubmitBody(formData) {
         remark.nextChangeMonth = formData.nextChangeMonth;
         remark.serviceEndDate = `${String(formData.nextChangeMonth).slice(0, 7)}-01`;
     }
+    Object.assign(remark, garageBillingRemarkPatch(payload));
+    if (String(formData.garageName || '').trim()) {
+        remark.garageName = String(formData.garageName).trim();
+        remark.vendorName = remark.garageName;
+    }
     body.remark = JSON.stringify(remark);
+    Object.assign(body, garageBillingAttachmentBody(formData));
     return body;
 }

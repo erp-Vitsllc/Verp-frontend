@@ -11,6 +11,8 @@ import {
     isHandoverReportsLocked,
     isHandoverReportsCompleteForEntry,
     isHandoverHistoryAwaitingHrApproval,
+    isHandoverHistoryRejected,
+    isHandoverHrStage as resolveIsHandoverHrStage,
     userMatchesEmployeeRef,
 } from '../utils/vehicleHandoverAssignActions';
 import { isVehicleInspectionHandoverEntry } from '../utils/vehicleHandoverHistory';
@@ -186,8 +188,17 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         canEditReports,
         canApprove,
         isHandoverHrStage: useMemo(() => {
+            if (isHandoverHistoryRejected(historyEntry)) return false;
+            // Prefer shared stage resolver (history-linked flow only).
+            if (resolveIsHandoverHrStage(vehicle, historyEntry)) return true;
             const stage = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage;
-            if (stage === 'hr' || stage === 'management' || stage === 'hod') return true;
+            if (
+                (stage === 'hr' || stage === 'management' || stage === 'hod') &&
+                !isHandoverHistoryRejected(historyEntry)
+            ) {
+                // Keep legacy vehicle-flow signal only when this history is still open.
+                if (isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle)) return true;
+            }
             return isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle);
         }, [vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage, historyEntry, vehicle]),
         canReviewInspection,

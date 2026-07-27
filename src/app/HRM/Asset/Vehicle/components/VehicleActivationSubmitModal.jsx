@@ -177,6 +177,7 @@ export default function VehicleActivationSubmitModal({
     asset,
     assetMongoId,
     onSuccess,
+    activationApproverTier = 'employee',
 }) {
     const { toast } = useToast();
     const groups = sectionGroups();
@@ -190,23 +191,61 @@ export default function VehicleActivationSubmitModal({
 
     if (!isOpen || !asset) return null;
 
+    const tierCopy =
+        activationApproverTier === 'hr'
+            ? {
+                  title: 'Approve — activate profile',
+                  blurb: 'As flowchart HR, approving now sets this vehicle profile to Active. Admin Officer and Asset Controller will be emailed.',
+                  noteLabel: 'Note (optional)',
+                  notePlaceholder: 'Add any context…',
+                  button: 'Approve & activate',
+                  successTitle: 'Profile activated',
+                  successDesc: 'Vehicle profile is now Active. Admin Officer and Asset Controller have been notified.',
+              }
+            : activationApproverTier === 'admin_or_super'
+              ? {
+                    title: 'Approve — send to HR',
+                    blurb: 'As Admin Officer / Asset Controller / superuser, approving sends this profile to flowchart HR (email + dashboard task + notification).',
+                    noteLabel: 'Note for HR (optional)',
+                    notePlaceholder: 'Add any context for HR…',
+                    button: 'Approve & send to HR',
+                    successTitle: 'Sent to HR',
+                    successDesc: 'HR has been emailed and will see this request on their dashboard.',
+                }
+              : {
+                    title: 'Approve — send for review',
+                    blurb: 'Approving sends this profile to Admin Officer / Asset Controller (or superuser). After they approve, HR completes activation.',
+                    noteLabel: 'Note for reviewers (optional)',
+                    notePlaceholder: 'Add any context…',
+                    button: 'Approve',
+                    successTitle: 'Sent for approval',
+                    successDesc:
+                        'Admin Officer / Asset Controller have been emailed and will see this request on their dashboard.',
+                };
+
     const submit = async () => {
         setSending(true);
         try {
-            await axiosInstance.post(`/AssetItem/${assetMongoId}/submit-vehicle-profile-activation`, {
+            const res = await axiosInstance.post(`/AssetItem/${assetMongoId}/submit-vehicle-profile-activation`, {
                 description: description.trim(),
                 includedSections: [...VEHICLE_PROFILE_ACTIVATION_SECTION_IDS],
             });
+            const routedTo = res?.data?.routedTo;
             toast({
-                title: 'Submitted for activation',
-                description: 'HR has been emailed and will see this request in their vehicle notifications.',
+                title:
+                    routedTo === 'active'
+                        ? 'Profile activated'
+                        : routedTo === 'hr'
+                          ? 'Sent to HR'
+                          : tierCopy.successTitle,
+                description: res?.data?.message || tierCopy.successDesc,
             });
             onClose();
             if (onSuccess) onSuccess();
         } catch (err) {
             toast({
                 variant: 'destructive',
-                title: 'Submit failed',
+                title: 'Approve failed',
                 description: err.response?.data?.message || 'Could not submit for activation.',
             });
         } finally {
@@ -218,10 +257,8 @@ export default function VehicleActivationSubmitModal({
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
                 <div className="px-6 py-4 border-b border-gray-100">
-                    <h3 className="text-xl font-bold text-gray-800">Submit for activation</h3>
-                    <p className="text-sm text-gray-500 mt-1">
-                        This sends the vehicle profile to the flowchart <strong>HR</strong> assignee for approval.
-                    </p>
+                    <h3 className="text-xl font-bold text-gray-800">{tierCopy.title}</h3>
+                    <p className="text-sm text-gray-500 mt-1">{tierCopy.blurb}</p>
                 </div>
                 <div className="p-6 space-y-4">
                     <p className="text-xs text-gray-600 leading-snug">
@@ -236,13 +273,13 @@ export default function VehicleActivationSubmitModal({
                         ))}
                     </ul>
                     <div>
-                        <label className="block text-xs font-semibold text-gray-700 mb-1">Note for HR (optional)</label>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">{tierCopy.noteLabel}</label>
                         <textarea
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
                             rows={3}
                             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/30 outline-none"
-                            placeholder="Add any context for HR…"
+                            placeholder={tierCopy.notePlaceholder}
                         />
                     </div>
                 </div>
@@ -262,7 +299,7 @@ export default function VehicleActivationSubmitModal({
                         disabled={sending}
                         className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {sending ? 'Submitting…' : 'Submit for activation'}
+                        {sending ? 'Working…' : tierCopy.button}
                     </button>
                 </div>
             </div>

@@ -31,6 +31,8 @@ import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
+import VehicleGarageBillingFields from './VehicleGarageBillingFields';
+import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 
 const fieldInput =
     'w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed';
@@ -585,6 +587,13 @@ export default function VehicleOilServiceDetailForm({
                 iconColor="text-blue-600"
                 className="w-full"
             >
+                <VehicleGarageZohoBillRetry
+                    vehicleId={vehicleId}
+                    serviceId={serviceId}
+                    service={service}
+                    serviceTypeLabel="Oil Service"
+                    onUpdated={onSaved}
+                />
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                     <FormFieldCell label="Payment Type" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                         <PaymentToggle
@@ -696,7 +705,10 @@ export default function VehicleOilServiceDetailForm({
                                     type="number"
                                     min="0"
                                     value={formData.value || ''}
-                                    onChange={(e) => set('value', e.target.value)}
+                                    onChange={(e) => {
+                                        set('value', e.target.value);
+                                        set('garageBillAmount', e.target.value);
+                                    }}
                                     disabled={fieldsDisabled}
                                     placeholder="0"
                                 />
@@ -733,11 +745,17 @@ export default function VehicleOilServiceDetailForm({
                         </>
                     ) : null}
 
-                    <FormFieldCell label="Garage Name" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                    <FormFieldCell label="Garage Name (Vendor)" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                         <ZohoVendorSelect
                             className="w-full"
                             value={formData.garageName || ''}
-                            onChange={(nextValue) => set('garageName', nextValue)}
+                            onChange={(nextValue, vendor) => {
+                                set('garageName', nextValue);
+                                set(
+                                    'zohoVendorId',
+                                    String(vendor?.id || vendor?.zohoContactId || vendor?.value || '').trim(),
+                                );
+                            }}
                             disabled={fieldsDisabled}
                             placeholder="Select vendor"
                             extraOptions={garageHistoryOptions}
@@ -761,6 +779,23 @@ export default function VehicleOilServiceDetailForm({
                             disabled={fieldsDisabled}
                         />
                     </FormFieldCell>
+
+                    {cashPaymentMode ? (
+                        <VehicleGarageBillingFields
+                            formData={{
+                                ...formData,
+                                garageBillAmount: formData.garageBillAmount || formData.value || '',
+                            }}
+                            setField={(key, value) => {
+                                set(key, value);
+                                if (key === 'garageBillAmount') set('value', value);
+                            }}
+                            fieldsDisabled={fieldsDisabled}
+                            accent={accent}
+                            fieldMinHeightPx={fieldMinHeightPx}
+                            fieldClassName={fieldInput}
+                        />
+                    ) : null}
 
                     <FormFieldCell label="Service Req No" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                         <input className={fieldInput} type="text" readOnly value={serviceReqNo} disabled />

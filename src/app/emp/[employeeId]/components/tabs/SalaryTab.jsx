@@ -19,7 +19,7 @@ import BankAccountCard from '../cards/BankAccountCard';
 import {
     Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus,
     Monitor, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight, FileText, ClipboardList, PenTool, Lock,
-    PackageX, Plus, AlertTriangle, ExternalLink, Wallet, Building2
+    PackageX, Plus, AlertTriangle, ExternalLink, Wallet
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import {
@@ -44,9 +44,9 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import {
-    buildFineVendorPaymentPrefill,
     canAccountsPayFineEmployeeShare,
-    canAccountsPayFineVendorBill,
+    formatFineProfilePaymentLabel,
+    formatFineProfileStatus,
     isAccountsFinanceUser,
 } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
@@ -86,8 +86,6 @@ import {
 } from '@/utils/paymentStatusDisplay';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import EmployeeSalaryVehicleUtilityPanel from './EmployeeSalaryVehicleUtilityPanel';
-import EmployeeExpensesPanel from './EmployeeExpensesPanel';
-
 
 /** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
 const SALARY_ACTION_TO_MODULE = {
@@ -101,7 +99,6 @@ const SALARY_ACTION_TO_MODULE = {
     Vehicle: 'hrm_asset',
     'Utility Bills': 'hrm_asset',
     CTC: 'hrm_employees_view_salary',
-    Expenses: 'hrm_employees_view_salary',
 };
 
 const SALARY_ACTION_ORDER = [
@@ -115,7 +112,6 @@ const SALARY_ACTION_ORDER = [
     'Vehicle',
     'Utility Bills',
     'CTC',
-    'Expenses',
 ];
 
 /** Vehicle / fleet rows belong under Salary → Vehicle only — never Tools Asset. */
@@ -820,8 +816,6 @@ export default function SalaryTab({
     const [selectedFinesForPayment, setSelectedFinesForPayment] = useState([]);
     const [fineFilterStartMonth, setFineFilterStartMonth] = useState('');
     const [fineFilterEndMonth, setFineFilterEndMonth] = useState('');
-    /** Choice: Payment to vendors (Payments Made) vs Payment to company (Expense Refund). */
-    const [finePaymentChoice, setFinePaymentChoice] = useState(null);
     const [fineCompanyRefundOpen, setFineCompanyRefundOpen] = useState(false);
     const [fineCompanyRefundFines, setFineCompanyRefundFines] = useState([]);
 
@@ -829,10 +823,6 @@ export default function SalaryTab({
         const ref = profileBackHandlerRef;
         if (!ref) return undefined;
         ref.current = () => {
-            if (finePaymentChoice) {
-                setFinePaymentChoice(null);
-                return true;
-            }
             if (fineCompanyRefundOpen) {
                 setFineCompanyRefundOpen(false);
                 setFineCompanyRefundFines([]);
@@ -906,7 +896,6 @@ export default function SalaryTab({
         };
     }, [
         profileBackHandlerRef,
-        finePaymentChoice,
         fineCompanyRefundOpen,
         selectedInvoice,
         showCertificate,
@@ -1163,7 +1152,7 @@ export default function SalaryTab({
         [selectedPayableFines, allEmployeePayments, employeeId, fineFilterStartMonth, fineFilterEndMonth]
     );
 
-    const openFinePaymentChoice = (finesToPay) => {
+    const startCompanyFineRefund = (finesToPay) => {
         const list = Array.isArray(finesToPay) ? finesToPay.filter(Boolean) : [];
         if (list.length === 0) {
             toast({
@@ -1173,79 +1162,6 @@ export default function SalaryTab({
             });
             return;
         }
-        if (!isAccountsUser) {
-            toast({
-                variant: 'destructive',
-                title: 'Accounts only',
-                description: 'Only Accounts can pay fines from the employee salary profile.',
-            });
-            return;
-        }
-        setFinePaymentChoice({ fines: list });
-    };
-
-    const openFineVendorPaymentsMade = (finesToPay) => {
-        const list = Array.isArray(finesToPay) ? finesToPay.filter(Boolean) : [];
-        if (list.length === 0) {
-            toast({
-                variant: 'destructive',
-                title: 'No fines selected',
-                description: 'Select a fine with an outstanding balance to pay.',
-            });
-            return;
-        }
-        if (list.length !== 1) {
-            toast({
-                variant: 'destructive',
-                title: 'Select one fine',
-                description: 'Vendor payment can be started for one fine at a time.',
-            });
-            return;
-        }
-        if (!isAccountsUser) {
-            toast({
-                variant: 'destructive',
-                title: 'Accounts only',
-                description: 'Only Accounts can pay fine vendor bills from this profile.',
-            });
-            return;
-        }
-
-        const fine = list[0];
-        const amount = getFineFilteredBalance(fine);
-        const prefill = buildFineVendorPaymentPrefill(fine, {
-            amount: amount > 0 ? amount : undefined,
-            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
-        });
-        if (!prefill?.zohoBillIds?.length) {
-            toast({
-                variant: 'destructive',
-                title: 'Bill not ready',
-                description:
-                    fine?.zohoSyncError ||
-                    'No Zoho bill is linked to this fine yet. Approve/sync the fine bill first, then pay from Payments Made.',
-            });
-            return;
-        }
-
-        setFinePaymentChoice(null);
-        try {
-            sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
-        } catch (err) {
-            console.error(err);
-        }
-
-        const params = new URLSearchParams();
-        params.set('addFinePay', '1');
-        if (prefill.organizationId) params.set('organizationId', prefill.organizationId);
-        if (prefill.companyId) params.set('companyId', prefill.companyId);
-        if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
-        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
-    };
-
-    const startCompanyFineRefund = (finesToPay) => {
-        const list = Array.isArray(finesToPay) ? finesToPay.filter(Boolean) : [];
-        if (list.length === 0) return;
 
         if (
             !list.every((f) =>
@@ -1265,13 +1181,12 @@ export default function SalaryTab({
             return;
         }
 
-        setFinePaymentChoice(null);
         setFineCompanyRefundFines(list);
         setFineCompanyRefundOpen(true);
     };
 
     const handlePaySelectedFines = () => {
-        openFinePaymentChoice(selectedPayableFines);
+        startCompanyFineRefund(selectedPayableFines);
     };
 
     const toggleFinePaymentSelection = (fine, checked) => {
@@ -2294,7 +2209,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Tools Asset', 'Vehicle', 'Utility Bills', 'CTC', 'Expenses'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Tools Asset', 'Vehicle', 'Utility Bills', 'CTC'].map((action) => {
                     if (!canSeeSalaryActionButton(action)) {
                         return null;
                     }
@@ -2854,9 +2769,12 @@ export default function SalaryTab({
                         employee={employee}
                         assets={yourAssetsAllRows}
                         formatDate={formatDate}
+                        currentUser={currentUser}
+                        accountsFlowchartRows={accountsFlowchartRows}
+                        onUtilityRefundSuccess={() => {
+                            if (fetchEmployee) fetchEmployee();
+                        }}
                     />
-                ) : selectedSalaryAction === 'Expenses' ? (
-                    <EmployeeExpensesPanel employee={employee} />
                 ) : (
                 <div className="overflow-x-auto w-full max-w-full">
                     <table className="w-full min-w-0 table-auto">
@@ -2917,6 +2835,8 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Individual Amount</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Paid Amount</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
@@ -3386,6 +3306,14 @@ export default function SalaryTab({
                                         ).length > 1;
                                         const canSelectForPay = balance > 0.01;
                                         const isSelectedForPay = selectedFinesForPayment.includes(fineKey);
+                                        const statusLabel = formatFineProfileStatus(fine);
+                                        const paymentLabel = formatFineProfilePaymentLabel(fine, balance);
+                                        const canPayCompany = canAccountsPayFineEmployeeShare(
+                                            fine,
+                                            currentUser,
+                                            balance,
+                                            accountsFlowchartRows,
+                                        );
 
                                         return (
                                             <React.Fragment key={fine._id || index}>
@@ -3442,6 +3370,22 @@ export default function SalaryTab({
                                                     </td>
                                                     <td className="py-3 px-4 text-sm font-black text-rose-600">
                                                         AED {balance.toFixed(2)}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm font-medium text-gray-700">
+                                                        {statusLabel}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm">
+                                                        <span
+                                                            className={
+                                                                paymentLabel === 'Paid'
+                                                                    ? 'font-medium text-green-700'
+                                                                    : paymentLabel === 'Not Paid'
+                                                                      ? 'font-medium text-amber-700'
+                                                                      : 'text-gray-500'
+                                                            }
+                                                        >
+                                                            {paymentLabel}
+                                                        </span>
                                                     </td>
                                                     <td className="py-3 px-4 text-sm text-gray-500">
                                                         <div className="flex flex-wrap gap-1">
@@ -3519,15 +3463,12 @@ export default function SalaryTab({
                                                         </div>
                                                     </td>
                                                     <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
-                                                        {['Approved', 'Active'].includes(fine.fineStatus) &&
-                                                        (canSelectForPay ||
-                                                            canAccountsPayFineVendorBill(fine, currentUser, accountsFlowchartRows) ||
-                                                            String(fine.zohoVendorId || '').trim()) ? (
+                                                        {paymentLabel === 'Not Paid' && canPayCompany ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => openFinePaymentChoice([fine])}
+                                                                onClick={() => startCompanyFineRefund([fine])}
                                                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-sm active:scale-95 transition-all"
-                                                                title="Pay fine"
+                                                                title="Pay fine — Expense Refund (Zoho Banking)"
                                                             >
                                                                 <Wallet size={14} />
                                                                 Pay
@@ -3554,7 +3495,7 @@ export default function SalaryTab({
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr>
-                                                        <td colSpan={10} className="bg-gray-50/50 p-4">
+                                                        <td colSpan={12} className="bg-gray-50/50 p-4">
                                                             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                                                                 <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
                                                                     <div className="flex items-center gap-2">
@@ -3650,7 +3591,7 @@ export default function SalaryTab({
                                     })
                                 ) : (
                                     <tr>
-                                        <td colSpan={10} className="py-16 text-center text-gray-400 text-sm">
+                                        <td colSpan={12} className="py-16 text-center text-gray-400 text-sm">
                                             {isFineMonthFilterActive
                                                 ? (fineMonthFilterInvalid ? 'Invalid month range' : 'No fines in selected month range')
                                                 : 'No Fines to display'}
@@ -6055,118 +5996,6 @@ export default function SalaryTab({
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Fine payment type choice: Payment to vendors vs Payment to company */}
-            {finePaymentChoice?.fines?.length > 0 && (() => {
-                const choiceFines = finePaymentChoice.fines;
-                const canVendor =
-                    choiceFines.length === 1 &&
-                    isAccountsUser &&
-                    ['Approved', 'Active'].includes(String(choiceFines[0]?.fineStatus || '')) &&
-                    (canAccountsPayFineVendorBill(choiceFines[0], currentUser, accountsFlowchartRows) ||
-                        Boolean(String(choiceFines[0]?.zohoVendorId || '').trim()) ||
-                        getFineFilteredBalance(choiceFines[0]) > 0.01);
-                const canCompany = choiceFines.every((f) =>
-                    canAccountsPayFineEmployeeShare(
-                        f,
-                        currentUser,
-                        getFineFilteredBalance(f),
-                        accountsFlowchartRows,
-                    ),
-                );
-                const fineLabels = choiceFines
-                    .map((f) => f.fineId || f._id)
-                    .filter(Boolean)
-                    .join(', ');
-                return (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-                        <div
-                            className="absolute inset-0"
-                            onClick={() => setFinePaymentChoice(null)}
-                            aria-hidden
-                        />
-                        <div className="relative w-full max-w-md rounded-2xl bg-white shadow-xl border border-gray-100 p-6">
-                            <div className="flex items-start justify-between gap-3 mb-1">
-                                <h3 className="text-lg font-semibold text-gray-800">
-                                    Choose payment type
-                                </h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setFinePaymentChoice(null)}
-                                    className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                    title="Close"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-                            <p className="text-sm text-gray-500 mb-5">
-                                {choiceFines.length === 1
-                                    ? `Pay fine ${fineLabels}`
-                                    : `Pay ${choiceFines.length} selected fines`}
-                            </p>
-                            <div className="space-y-3">
-                                <button
-                                    type="button"
-                                    disabled={!canVendor}
-                                    onClick={() => openFineVendorPaymentsMade(choiceFines)}
-                                    className={`w-full flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors ${
-                                        canVendor
-                                            ? 'border-teal-200 hover:bg-teal-50 hover:border-teal-300'
-                                            : 'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed'
-                                    }`}
-                                >
-                                    <div className={`mt-0.5 p-2 rounded-lg ${canVendor ? 'bg-teal-100 text-teal-700' : 'bg-gray-200 text-gray-500'}`}>
-                                        <Wallet size={18} />
-                                    </div>
-                                    <div>
-                                        <div className="text-sm font-semibold text-gray-800">
-                                            Payment to vendors
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-0.5">
-                                            {canVendor
-                                                ? 'Opens Payments Made add page (Zoho vendor payment)'
-                                                : choiceFines.length > 1
-                                                    ? 'Select a single fine to pay the vendor'
-                                                    : 'Accounts only · select an approved fine with Zoho bill'}
-                                        </div>
-                                    </div>
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={!canCompany}
-                                    onClick={() => startCompanyFineRefund(choiceFines)}
-                                    className={`w-full flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors ${
-                                        canCompany
-                                            ? 'border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300'
-                                            : 'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed'
-                                    }`}
-                                >
-                                    <div className={`mt-0.5 p-2 rounded-lg ${canCompany ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
-                                        <Building2 size={18} />
-                                    </div>
-                                    <div>
-                                        <div className="text-sm font-semibold text-gray-800">
-                                            Payment to company
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-0.5">
-                                            {canCompany
-                                                ? 'Expense Refund form · choose bank · posts Zoho Expense Refund'
-                                                : 'No outstanding company recovery balance'}
-                                        </div>
-                                    </div>
-                                </button>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setFinePaymentChoice(null)}
-                                className="mt-5 w-full text-center text-sm font-semibold text-red-500 hover:text-red-600"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                );
-            })()}
-
             <FineCompanyRefundModal
                 isOpen={fineCompanyRefundOpen}
                 employee={employee}
@@ -6188,6 +6017,7 @@ export default function SalaryTab({
                             setAllEmployeePayments(Array.isArray(pays) ? pays : []);
                         })
                         .catch(() => {});
+                    if (fetchEmployee) fetchEmployee();
                 }}
             />
 

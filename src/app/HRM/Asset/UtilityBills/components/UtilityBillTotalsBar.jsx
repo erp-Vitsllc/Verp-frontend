@@ -81,7 +81,23 @@ export function shortAllocationPartyName(name, type = 'company') {
 }
 
 /**
- * Allocation badges for a saved bill — prefer zoho line Payable-to rows.
+ * Best bill total for display — prefer pay-split / line sums when they exceed stored amount
+ * (e.g. company + employee shares were saved correctly but amount lagged).
+ */
+export function getBillTotalAmount(bill = {}) {
+    const amount = Number(bill?.amount) || 0;
+    const company = Number(bill?.companyPayAmount) || 0;
+    const employee = Number(bill?.employeePayAmount) || 0;
+    const paySum = company + employee;
+    const lines = Array.isArray(bill?.zohoLineItems) ? bill.zohoLineItems : [];
+    const linesSum = lines.reduce((sum, line) => sum + (Number(line?.amount) || 0), 0);
+    return Math.max(amount, paySum, linesSum);
+}
+
+/**
+ * Allocation badges for a saved bill.
+ * Prefer zoho line Payable-to rows, but always surface bill-level company + employee
+ * shares so split bills show both parties (not only one line payee).
  */
 export function getBillAllocationParties(bill = {}) {
     const lines = Array.isArray(bill?.zohoLineItems) ? bill.zohoLineItems : [];
@@ -110,31 +126,106 @@ export function getBillAllocationParties(bill = {}) {
         map.set(mapKey, prev);
     };
 
+    const coName = String(bill?.payByCompanyName || '').trim();
+    const empName = String(bill?.payByEmployeeName || '').trim();
+    const coAmt = Number(bill?.companyPayAmount) || 0;
+    const empAmt = Number(bill?.employeePayAmount) || 0;
+    const paymentBy = String(bill?.paymentBy || '').trim();
+
+    // TOTAL bar shares are the source of truth when both sides were saved.
+    if (coAmt > 0.009 && empAmt > 0.009) {
+        if (coName) add(bill.payByCompanyId || coName, coName, coAmt, 'company');
+        if (empName) add(bill.payByEmployeeId || empName, empName, empAmt, 'employee');
+        // Extra payees from lines (e.g. second employee) beyond the primary pair.
+        lines.forEach((line) => {
+            const amt = Number(line?.amount) || 0;
+            if (!(amt > 0.009)) return;
+            const payBy = String(line?.payBy || '').trim();
+            const lineEmpId = String(line?.payByEmployeeId || '').trim();
+            const lineEmpName = String(line?.payByEmployeeName || '').trim();
+            const primaryEmpId = String(bill?.payByEmployeeId || '').trim();
+            if (payBy === 'employee' || (!payBy && (lineEmpId || lineEmpName))) {
+                if (!lineEmpId && !lineEmpName) return;
+                if (primaryEmpId && lineEmpId && lineEmpId === primaryEmpId) return;
+                if (
+                    empName &&
+                    lineEmpName &&
+                    shortAllocationPartyName(lineEmpName, 'employee') ===
+                        shortAllocationPartyName(empName, 'employee') &&
+                    !lineEmpId
+                ) {
+                    return;
+                }
+                add(lineEmpId || lineEmpName, lineEmpName, amt, 'employee');
+            }
+        });
+        return [...map.values()].filter((p) => p.amount > 0.009 || p.name);
+    }
+
     if (lines.length) {
         lines.forEach((line) => {
             const amt = Number(line?.amount) || 0;
+            if (!(amt > 0.009)) return;
             const empId = String(line?.payByEmployeeId || '').trim();
-            const empName = String(line?.payByEmployeeName || '').trim();
+            const lineEmpName = String(line?.payByEmployeeName || '').trim();
             const coId = String(line?.payByCompanyId || '').trim();
-            const coName = String(line?.payByCompanyName || '').trim();
+            const lineCoName = String(line?.payByCompanyName || '').trim();
             const payBy = String(line?.payBy || '').trim();
-            if (payBy === 'employee' || empId || empName) {
-                if (empId || empName) add(empId || empName, empName, amt, 'employee');
+            // Explicit payBy wins — employee rows often also carry companyMongoId for Zoho.
+            if (payBy === 'employee') {
+                if (empId || lineEmpName) add(empId || lineEmpName, lineEmpName, amt, 'employee');
                 return;
             }
-            if (payBy === 'company' || coId || coName) {
-                if (coId || coName) add(coId || coName, coName, amt, 'company');
+            if (payBy === 'company') {
+                if (coId || lineCoName) add(coId || lineCoName, lineCoName, amt, 'company');
+                return;
+            }
+            if (empId || lineEmpName) {
+                add(empId || lineEmpName, lineEmpName, amt, 'employee');
+                return;
+            }
+            if (coId || lineCoName) {
+                add(coId || lineCoName, lineCoName, amt, 'company');
             }
         });
     }
 
     if (!map.size) {
-        const coName = String(bill?.payByCompanyName || '').trim();
-        const empName = String(bill?.payByEmployeeName || '').trim();
-        const coAmt = Number(bill?.companyPayAmount) || 0;
-        const empAmt = Number(bill?.employeePayAmount) || 0;
         if (coName && coAmt > 0.009) add(bill.payByCompanyId || coName, coName, coAmt, 'company');
         if (empName && empAmt > 0.009) add(bill.payByEmployeeId || empName, empName, empAmt, 'employee');
+    } else {
+        const hasCompanyInMap = [...map.values()].some((p) => p.type === 'company');
+        const hasEmployeeInMap = [...map.values()].some((p) => p.type === 'employee');
+        if (!hasCompanyInMap && coName && coAmt > 0.009) {
+            add(bill.payByCompanyId || coName, coName, coAmt, 'company');
+        }
+        if (!hasEmployeeInMap && empName && empAmt > 0.009) {
+            add(bill.payByEmployeeId || empName, empName, empAmt, 'employee');
+        }
+    }
+
+    // Split mode with overage: rebuild company (up to contract) + employee (rest)
+    // when line attribution collapsed onto a single payee.
+    if (paymentBy === 'employee_and_company' && coName && empName) {
+        const total = getBillTotalAmount(bill);
+        const contract = Number(bill?.monthlyRental) || 0;
+        const hasCompanyParty = [...map.values()].some(
+            (p) => p.type === 'company' && p.amount > 0.009,
+        );
+        const hasEmployeeParty = [...map.values()].some(
+            (p) => p.type === 'employee' && p.amount > 0.009,
+        );
+        if (total > contract + 0.009 && !(hasCompanyParty && hasEmployeeParty)) {
+            map.clear();
+            const companyShare = Math.min(total, contract > 0 ? contract : total);
+            const employeeShare = Math.max(0, total - companyShare);
+            if (companyShare > 0.009) {
+                add(bill.payByCompanyId || coName, coName, companyShare, 'company');
+            }
+            if (employeeShare > 0.009) {
+                add(bill.payByEmployeeId || empName, empName, employeeShare, 'employee');
+            }
+        }
     }
 
     return [...map.values()].filter((p) => p.amount > 0.009 || p.name);
@@ -153,26 +244,35 @@ export function computeRowPayTotals(row = {}) {
     if (lineItems?.length) {
         const fromLines = sumLinePartyPayTotals(lineItems);
         if (fromLines.hasParty) {
-            const contract = Number(row.contractAmount) || 0;
-            const actual = Number(row.actualAmount);
-            const overage =
-                Number.isFinite(actual) && actual > contract ? actual - contract : 0;
-            return {
-                companyPayAmount: fromLines.companyPayAmount,
-                employeePayAmount: fromLines.employeePayAmount,
-                companyDiffShare: Math.max(
-                    0,
-                    fromLines.companyPayAmount > 0 && overage <= 0
-                        ? Math.max(0, contract - (Number.isFinite(actual) ? actual : 0))
-                        : 0,
-                ),
-                employeeDiffShare: Math.min(fromLines.employeePayAmount, Math.max(0, overage)),
-                payBy: fromLines.payBy,
-                payByCompanyId: fromLines.payByCompanyId,
-                payByCompanyName: fromLines.payByCompanyName,
-                payByEmployeeId: fromLines.payByEmployeeId,
-                payByEmployeeName: fromLines.payByEmployeeName,
-            };
+            const payByMode = String(row.payBy || '').trim();
+            const hasBothLineParties =
+                fromLines.companyPayAmount > 0.009 && fromLines.employeePayAmount > 0.009;
+            // For company+employee mode, incomplete line attribution (one payee only)
+            // must not wipe the other party's share — fall through to split math.
+            if (payByMode !== 'employee_and_company' || hasBothLineParties) {
+                const contractAmt = Number(row.contractAmount) || 0;
+                const actualAmt = Number(row.actualAmount);
+                const overage =
+                    Number.isFinite(actualAmt) && actualAmt > contractAmt
+                        ? actualAmt - contractAmt
+                        : 0;
+                return {
+                    companyPayAmount: fromLines.companyPayAmount,
+                    employeePayAmount: fromLines.employeePayAmount,
+                    companyDiffShare: Math.max(
+                        0,
+                        fromLines.companyPayAmount > 0 && overage <= 0
+                            ? Math.max(0, contractAmt - (Number.isFinite(actualAmt) ? actualAmt : 0))
+                            : 0,
+                    ),
+                    employeeDiffShare: Math.min(fromLines.employeePayAmount, Math.max(0, overage)),
+                    payBy: fromLines.payBy,
+                    payByCompanyId: fromLines.payByCompanyId,
+                    payByCompanyName: fromLines.payByCompanyName,
+                    payByEmployeeId: fromLines.payByEmployeeId,
+                    payByEmployeeName: fromLines.payByEmployeeName,
+                };
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Wrench } from 'lucide-react';
@@ -31,6 +31,7 @@ import {
     tireFieldSelect,
 } from '../utils/vehicleMechanicalWorkDetailUi';
 import VehicleGarageBillingFields from './VehicleGarageBillingFields';
+import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 
 export default function VehicleMechanicalWorkGarageCard({
     asset,
@@ -155,6 +156,13 @@ export default function VehicleMechanicalWorkGarageCard({
                 iconColor="text-violet-600"
                 className={`w-full ${fieldsDisabled && !canApproveAccounts ? 'opacity-[0.97]' : ''}`}
             >
+                <VehicleGarageZohoBillRetry
+                    vehicleId={vehicleId}
+                    serviceId={serviceId}
+                    service={service}
+                    serviceTypeLabel="Mechanical Work"
+                    onUpdated={onUpdated}
+                />
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                     <VehicleMechanicalWorkFormFieldCell
                         label="Garage Name (Vendor)"

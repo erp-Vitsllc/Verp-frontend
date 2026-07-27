@@ -794,32 +794,81 @@ function collectPayloadRows(
 
         let lineItems = Array.isArray(row.lineItems) ? row.lineItems : null;
         if (!lineItems?.length) {
-            // Auto one line: amount = actual (Zoho bill needs COA lines)
-            lineItems = createDefaultLineItems({
-                contractAmount: actual,
-                actualAmount: actual,
-                accountId,
-                accountName,
-                payByEmployeeId:
-                    payBy === PAY_BY_EMPLOYEE ? payByEmployeeId : '',
-                payByEmployeeName:
-                    payBy === PAY_BY_EMPLOYEE ? payByEmployeeName : '',
-                itemLabel: [row.provider, row.accountNo ? `Acc ${row.accountNo}` : '']
-                    .filter(Boolean)
-                    .join(' · '),
-            }).map((line) => ({
-                ...line,
-                quantity: 1,
-                amount: actual,
-                rate: actual,
-                description: line.item,
-                payByEmployeeId:
-                    payBy === PAY_BY_EMPLOYEE ? payByEmployeeId : '',
-                payByEmployeeName:
-                    payBy === PAY_BY_EMPLOYEE ? payByEmployeeName : '',
-                payByCompanyId,
-                payByCompanyName,
-            }));
+            const itemLabel = [row.provider, row.accountNo ? `Acc ${row.accountNo}` : '']
+                .filter(Boolean)
+                .join(' · ');
+            // Company + employee: split lines so both parties (and full actual) are stored.
+            if (payBy === PAY_BY_BOTH && actual > contract + 0.009 && contract > 0.009) {
+                const overage = Number((actual - contract).toFixed(2));
+                lineItems = [
+                    {
+                        key: `auto-co-${row.entryId || 'row'}`,
+                        item: itemLabel || 'Utility charge',
+                        description: itemLabel || 'Utility charge',
+                        accountId,
+                        accountName,
+                        quantity: 1,
+                        amount: contract,
+                        rate: contract,
+                        payBy: 'company',
+                        payByCompanyId,
+                        payByCompanyName,
+                        payByEmployeeId: '',
+                        payByEmployeeName: '',
+                    },
+                    {
+                        key: `auto-emp-${row.entryId || 'row'}`,
+                        item: itemLabel || 'Utility overage',
+                        description: itemLabel || 'Utility overage',
+                        accountId,
+                        accountName,
+                        quantity: 1,
+                        amount: overage,
+                        rate: overage,
+                        payBy: 'employee',
+                        payByEmployeeId,
+                        payByEmployeeName,
+                        payByCompanyId,
+                        payByCompanyName,
+                    },
+                ];
+            } else {
+                const linePayBy =
+                    payBy === PAY_BY_COMPANY
+                        ? 'company'
+                        : payBy === PAY_BY_EMPLOYEE || payBy === PAY_BY_BOTH
+                          ? payBy === PAY_BY_BOTH && payByCompanyId
+                              ? 'company'
+                              : 'employee'
+                          : '';
+                lineItems = createDefaultLineItems({
+                    contractAmount: actual,
+                    actualAmount: actual,
+                    accountId,
+                    accountName,
+                    payBy: linePayBy,
+                    payByEmployeeId:
+                        linePayBy === 'employee' ? payByEmployeeId : '',
+                    payByEmployeeName:
+                        linePayBy === 'employee' ? payByEmployeeName : '',
+                    payByCompanyId,
+                    payByCompanyName,
+                    itemLabel,
+                }).map((line) => ({
+                    ...line,
+                    quantity: 1,
+                    amount: actual,
+                    rate: actual,
+                    description: line.item,
+                    payBy: linePayBy || line.payBy || '',
+                    payByEmployeeId:
+                        linePayBy === 'employee' ? payByEmployeeId : '',
+                    payByEmployeeName:
+                        linePayBy === 'employee' ? payByEmployeeName : '',
+                    payByCompanyId,
+                    payByCompanyName,
+                }));
+            }
         } else if (!lineItemsMatchActual(lineItems, actual)) {
             return {
                 error: `Item amounts for account ${row.accountNo} must total Actual (${actual.toFixed(2)}). Open Add more to fix.`,

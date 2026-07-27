@@ -8,7 +8,7 @@ import {
     pickFlowchartAdminRow,
     pickFlowchartHrRow,
 } from '../utils/vehicleHandoverAssignWorkflow';
-import { isHandoverHistoryFullyApproved } from '../utils/vehicleHandoverAssignActions';
+import { isHandoverHistoryFullyApproved, isHandoverHistoryRejected } from '../utils/vehicleHandoverAssignActions';
 import {
     buildInspectionHandoverWorkflowEvents,
     isInspectionHandoverDetailEntry,
@@ -77,6 +77,7 @@ export default function VehicleHandoverAssignWorkflowPanel({
 
     const isInspection = isInspectionHandoverDetailEntry(historyEntry, vehicle);
     const handoverFullyApproved = isHandoverHistoryFullyApproved(historyEntry);
+    const handoverRejected = isHandoverHistoryRejected(historyEntry);
 
     const events = useMemo(() => {
         if (isInspection) {
@@ -93,8 +94,9 @@ export default function VehicleHandoverAssignWorkflowPanel({
             flowchartAdminRow: pickFlowchartAdminRow(resolvedFlowchartRows),
             flowchartHrRow: pickFlowchartHrRow(resolvedFlowchartRows),
             hrActiveHolder: resolvedHrActiveHolder,
+            assetHistory,
         });
-    }, [vehicle, historyEntry, resolvedFlowchartRows, resolvedHrActiveHolder, isInspection]);
+    }, [vehicle, historyEntry, assetHistory, resolvedFlowchartRows, resolvedHrActiveHolder, isInspection]);
 
     const useVerticalSpread = accessoriesSidePanel
         ? timeline.accessoriesSideVerticalSpread ?? timeline.verticalSpread
@@ -129,7 +131,11 @@ export default function VehicleHandoverAssignWorkflowPanel({
                 }}
                 events={events}
             />
-            {!isInspection && canApprove && isHrStage && !handoverFullyApproved ? (
+            {!isInspection &&
+            canApprove &&
+            isHrStage &&
+            !handoverFullyApproved &&
+            !handoverRejected ? (
                 <div className="mt-4 border-t border-slate-100 pt-4">
                     <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                         HR approval

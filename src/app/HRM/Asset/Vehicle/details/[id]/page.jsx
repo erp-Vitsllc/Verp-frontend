@@ -1471,14 +1471,27 @@ function VehicleDetailsPageContent() {
             ? 'active'
             : vehicleActStatus === 'rejected'
                 ? 'rejected'
-                : vehicleActStatus === 'submitted'
+                : vehicleActStatus === 'pending_admin'
                     ? heldSections.length > 0
                         ? 'on_hold'
-                        : 'pending_review'
-                    : 'inactive';
+                        : 'pending_admin'
+                    : vehicleActStatus === 'submitted'
+                        ? heldSections.length > 0
+                            ? 'on_hold'
+                            : 'pending_review'
+                        : 'inactive';
+
+    const isVehicleActivationAdminTier =
+        isFlowchartAdminController || isAssetController || (permissionsMounted && checkIsAdmin());
+    const vehicleActivationApproverTier = isFlowchartHr
+        ? 'hr'
+        : isVehicleActivationAdminTier
+            ? 'admin_or_super'
+            : 'employee';
 
     const isVehicleProfileActive = vehicleActPhase === 'active';
     const canAdminDeleteVehicleRecords = permissionsMounted && checkIsAdmin();
+    // Inactive: all users may delete cards/records. Active: portal Super User only.
     const canDeleteVehicleServiceRecords = canAdminDeleteActivatedVehicleRecord({
         isAdminUser: canAdminDeleteVehicleRecords,
         profileActive: isVehicleProfileActive,
@@ -1489,21 +1502,25 @@ function VehicleDetailsPageContent() {
     const vehicleDeletePendingHr =
         String(asset?.vehicleDeleteStatus || '').toLowerCase() === 'pending_hr';
     const showVehicleCardRenewActions = isVehicleProfileActive;
-    const showVehicleCardDelete = !isVehicleProfileActive || canAdminDeleteVehicleRecords;
+    const showVehicleCardDelete =
+        permissionsMounted &&
+        canAdminDeleteActivatedVehicleRecord({
+            isAdminUser: canAdminDeleteVehicleRecords,
+            profileActive: isVehicleProfileActive,
+        });
 
     const vehicleCardActionFlags = useCallback(
         (cardKey) => {
             const access = vehicleCardCrud(cardKey);
             return {
                 showEdit: access.edit,
-                showDelete:
-                    ((!isVehicleProfileActive || canAdminDeleteVehicleRecords) && access.delete),
+                showDelete: showVehicleCardDelete,
                 showRenew: showVehicleCardRenewActions && access.edit,
                 showNotRenew: showVehicleCardRenewActions && access.edit,
                 showDownload: access.download,
             };
         },
-        [isVehicleProfileActive, canAdminDeleteVehicleRecords, showVehicleCardRenewActions],
+        [showVehicleCardDelete, showVehicleCardRenewActions],
     );
 
     const visibleVehicleDetailTabs = useMemo(
@@ -2325,13 +2342,17 @@ function VehicleDetailsPageContent() {
     const canSubmitVehicleProfileActivation =
         profilePct === 100 &&
         !isDisposedFleetProfile &&
-        !isFlowchartHr &&
         (vehicleActPhase === 'inactive' ||
             vehicleActPhase === 'rejected' ||
             (vehicleActPhase === 'on_hold' && isVehicleProfileActivationSubmitter));
 
-    const showVehicleProfileReviewBanner = profilePct === 100 && vehicleActPhase === 'pending_review';
+    const showVehicleProfileAdminReviewBanner =
+        profilePct === 100 && vehicleActPhase === 'pending_admin';
+    const showVehicleProfileReviewBanner =
+        profilePct === 100 && vehicleActPhase === 'pending_review';
 
+    const canReviewVehicleProfileActivationAdmin =
+        !!asset && showVehicleProfileAdminReviewBanner && isVehicleActivationAdminTier;
     const canReviewVehicleProfileActivation =
         !!asset && showVehicleProfileReviewBanner && isFlowchartHr;
 
@@ -2849,19 +2870,34 @@ function VehicleDetailsPageContent() {
             });
             return;
         }
-        const assigneeLabel = vehicleProfileActivationHrName || 'HR';
+        const isAdminStage = vehicleActPhase === 'pending_admin';
+        const assigneeLabel = isAdminStage
+            ? 'Admin Officer / Asset Controller'
+            : vehicleProfileActivationHrName || 'HR';
         setConfirmDialog({
             isOpen: true,
-            title: 'Accept all sections?',
-            description: `This approves every section in the request and completes profile activation. Only ${assigneeLabel} had the pending dashboard task; it will be cleared after approval.`,
+            title: isAdminStage ? 'Approve and send to HR?' : 'Accept all sections?',
+            description: isAdminStage
+                ? `This approves the profile at the Admin Officer / Asset Controller stage and forwards it to ${vehicleProfileActivationHrName || 'HR'} (email + dashboard task).`
+                : `This approves every section in the request and sets the vehicle profile to Active. Only ${assigneeLabel} had the pending dashboard task; it will be cleared after approval.`,
             onConfirm: async () => {
                 setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
                 try {
-                    await axiosInstance.post(`/AssetItem/${assetId}/approve-vehicle-profile-activation`, {
-                        selectionProvided: true,
-                        approvedSections: vehicleActivationApprovedSectionsPayload,
+                    const res = await axiosInstance.post(
+                        `/AssetItem/${assetId}/approve-vehicle-profile-activation`,
+                        {
+                            selectionProvided: true,
+                            approvedSections: vehicleActivationApprovedSectionsPayload,
+                        },
+                    );
+                    const routedTo = res?.data?.routedTo;
+                    toast({
+                        title: 'Approved',
+                        description:
+                            routedTo === 'hr'
+                                ? 'Sent to HR for final activation.'
+                                : res?.data?.message || 'Vehicle profile activation approved.',
                     });
-                    toast({ title: 'Approved', description: 'Vehicle profile activation approved.' });
                     fetchAssetDetails();
                 } catch (err) {
                     toast({
@@ -3154,6 +3190,63 @@ function VehicleDetailsPageContent() {
                                 </div>
                             );
                         })()}
+                        {asset && showVehicleProfileAdminReviewBanner && (
+                            <div id="asset-focus-pendingApproval-admin" className="flex flex-wrap items-center gap-4 px-6 py-3 bg-sky-50 border border-sky-200 rounded-2xl shadow-sm">
+                                <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center text-sky-700 shrink-0">
+                                    <ShieldCheck size={20} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-black text-sky-600 uppercase tracking-widest leading-none mb-1">
+                                        Vehicle profile — Admin review
+                                    </p>
+                                    <p className="text-[13px] font-bold text-sky-950 leading-snug">
+                                        Profile awaiting <strong>Admin Officer / Asset Controller</strong> approval.
+                                        {vehicleProfileActivationFlowchartAdminName ? (
+                                            <>
+                                                {' '}
+                                                <strong>{vehicleProfileActivationFlowchartAdminName}</strong> (or Asset Controller / superuser) can approve and send it to HR.
+                                            </>
+                                        ) : (
+                                            <> Approve to forward to HR (email + dashboard task).</>
+                                        )}
+                                        {canReviewVehicleProfileActivationAdmin ? (
+                                            <span className="block mt-1.5 text-[12px] font-semibold text-sky-900">
+                                                Use <strong>Approve</strong> to send to HR, or <strong>Reject</strong> with a reason.
+                                            </span>
+                                        ) : null}
+                                    </p>
+                                </div>
+                                {canReviewVehicleProfileActivationAdmin ? (
+                                    <div className="flex flex-col sm:flex-row flex-wrap gap-2 shrink-0 w-full sm:w-auto">
+                                        <button
+                                            type="button"
+                                            onClick={openQuickApproveVehicleProfileActivation}
+                                            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowVehicleActivationReviewModal(true)}
+                                            className="px-5 py-2.5 border-2 border-red-600 bg-white text-red-700 hover:bg-red-50 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm"
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        disabled
+                                        title="Waiting for Admin Officer, Asset Controller, or superuser."
+                                        className="px-5 py-2.5 rounded-xl border border-sky-200 bg-white text-sky-900 text-[10px] font-black uppercase tracking-widest shrink-0 cursor-default opacity-90 max-w-[220px] sm:max-w-none text-center leading-tight"
+                                    >
+                                        {vehicleProfileActivationFlowchartAdminName
+                                            ? `Awaiting ${vehicleProfileActivationFlowchartAdminName}`
+                                            : 'Awaiting Admin review'}
+                                    </button>
+                                )}
+                            </div>
+                        )}
                         {asset && showVehicleProfileReviewBanner && (
                             <div id="asset-focus-pendingApproval" className="flex flex-wrap items-center gap-4 px-6 py-3 bg-emerald-50 border border-emerald-200 rounded-2xl shadow-sm">
                                 <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
@@ -3544,9 +3637,14 @@ function VehicleDetailsPageContent() {
                                     onSuccess={fetchAssetDetails}
                                     vehicleActPhase={vehicleActPhase}
                                     holdNote={holdNote}
-                                    vehicleActivationFlowchartAdminName={vehicleProfileActivationHrName}
+                                    vehicleActivationFlowchartAdminName={
+                                        vehicleActPhase === 'pending_admin'
+                                            ? vehicleProfileActivationFlowchartAdminName
+                                            : vehicleProfileActivationHrName
+                                    }
                                     canRequestActivationAfterHold={isVehicleProfileActivationSubmitter}
                                     canSubmitForActivation={canSubmitVehicleProfileActivation}
+                                    activationApproverTier={vehicleActivationApproverTier}
                                     canSubmitProfileEdit={
                                         canSubmitVehicleProfileEdit && !showVehicleProfileEditDraftBanner
                                     }
@@ -4406,7 +4504,7 @@ function VehicleDetailsPageContent() {
                                                                     <PencilLine size={18} />
                                                                 </button>
                                                             )}
-                                                            {showVehicleCardDelete && permitTabAccess.delete && (
+                                                            {showVehicleCardDelete && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => { setDocToDelete(doc); }}
@@ -4988,7 +5086,7 @@ function VehicleDetailsPageContent() {
                                                 documentTabDocAccess.edit &&
                                                 isLiveDocumentTab;
                                             const showDocTabDelete = isLiveDocumentTab
-                                                ? showVehicleCardDelete && documentTabDocAccess.delete
+                                                ? showVehicleCardDelete
                                                 : documentTabDocAccess.delete || canAdminDeleteVehicleRecords;
 
                                             const attachmentBtn = (url, label) =>
@@ -5825,6 +5923,7 @@ function VehicleDetailsPageContent() {
                 asset={asset}
                 assetMongoId={assetId}
                 onSuccess={refreshData}
+                activationApproverTier={vehicleActivationApproverTier}
             />
 
             <VehicleProfileEditSubmitModal

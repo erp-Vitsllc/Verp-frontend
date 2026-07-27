@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Upload, Wrench } from 'lucide-react';
@@ -33,6 +33,7 @@ import {
 } from '../utils/vehicleAccidentRepairDetailUi';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import VehicleGarageBillingFields from './VehicleGarageBillingFields';
+import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 
 export default function VehicleAccidentRepairGarageCard({
     asset,
@@ -190,6 +191,13 @@ export default function VehicleAccidentRepairGarageCard({
                 iconColor="text-emerald-600"
                 className={`w-full ${fieldsDisabled && !canApproveAccounts ? 'opacity-[0.97]' : ''}`}
             >
+                <VehicleGarageZohoBillRetry
+                    vehicleId={vehicleId}
+                    serviceId={serviceId}
+                    service={service}
+                    serviceTypeLabel="Accident Repair"
+                    onUpdated={onUpdated}
+                />
                 <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mb-2.5`}>
                         <VehicleAccidentRepairFormFieldCell
                             label="Claim Acknowledge"

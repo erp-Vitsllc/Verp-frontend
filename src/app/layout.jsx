@@ -12,6 +12,13 @@ const inter = Inter({
     display: 'swap'
 });
 
+export const metadata = {
+    icons: {
+        icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+        shortcut: '/favicon.svg',
+    },
+};
+
 export default function RootLayout({ children }) {
     return (
         <html lang="en" className="overflow-x-hidden max-w-full">

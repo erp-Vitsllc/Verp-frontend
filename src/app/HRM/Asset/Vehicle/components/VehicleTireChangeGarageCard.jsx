@@ -31,6 +31,7 @@ import {
     tireFieldSelect,
 } from '../utils/vehicleTireChangeDetailUi';
 import VehicleGarageBillingFields from './VehicleGarageBillingFields';
+import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 
 export default function VehicleTireChangeGarageCard({
     asset,
@@ -155,6 +156,13 @@ export default function VehicleTireChangeGarageCard({
                 iconColor="text-violet-600"
                 className={`w-full ${fieldsDisabled && !canApproveAccounts ? 'opacity-[0.97]' : ''}`}
             >
+                <VehicleGarageZohoBillRetry
+                    vehicleId={vehicleId}
+                    serviceId={serviceId}
+                    service={service}
+                    serviceTypeLabel="Tire Change"
+                    onUpdated={onUpdated}
+                />
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                     <VehicleTireChangeFormFieldCell
                         label="Garage Name (Vendor)"

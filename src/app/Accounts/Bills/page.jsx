@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
     ArrowUpDown,
@@ -17,9 +17,12 @@ import PermissionGuard from '@/components/PermissionGuard';
 import ErpPageHeader from '@/components/ErpPageHeader';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import ErpListPagination from '@/components/ErpListPagination';
+import ZohoOrganizationPicker from '@/components/ZohoOrganizationPicker';
 import { useZohoVendors } from '@/hooks/useZohoVendors';
 import { useZohoChunkedList } from '@/hooks/useZohoChunkedList';
+import { useZohoOrganizations } from '@/hooks/useZohoOrganizations';
 import { mapZohoBillListRows } from '@/utils/zohoVendorPayments';
+import axiosInstance from '@/utils/axios';
 
 const COLUMNS = [
     { key: 'date', label: 'DATE' },
@@ -53,6 +56,19 @@ function PurchasesBillsPageContent() {
         .filter(Boolean);
     const focusBillIdSet = new Set(focusBillIds);
     const fromUtilityBatch = Boolean(String(searchParams.get('utilityBatchId') || '').trim());
+    const organizationIdFromUrl = String(searchParams.get('organizationId') || '').trim();
+    const focusBillIdsParam = focusBillIds.join(',');
+
+    const {
+        options: zohoOrgOptions,
+        organizationId,
+        setOrganizationId,
+        active: activeZohoOrg,
+        loading: loadingOrgs,
+    } = useZohoOrganizations({
+        preferredOrganizationId: organizationIdFromUrl,
+    });
+
     const [mounted, setMounted] = useState(false);
     const [search, setSearch] = useState(initialQuery);
     const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
@@ -60,7 +76,11 @@ function PurchasesBillsPageContent() {
     const [sortDirection, setSortDirection] = useState('desc');
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
-    const { connectZoho } = useZohoVendors({ enabled: false });
+    const ensureTriedRef = useRef('');
+    const { connectZoho } = useZohoVendors({
+        enabled: false,
+        organizationId,
+    });
     const {
         rows,
         totalCount,
@@ -74,7 +94,14 @@ function PurchasesBillsPageContent() {
         endpoint: '/zoho/bills',
         mapRows: mapZohoBillListRows,
         getRowId: (row) => String(row?.id || ''),
+        organizationId,
+        billIds: focusBillIdsParam,
     });
+
+    useEffect(() => {
+        if (!organizationIdFromUrl || organizationIdFromUrl === organizationId) return;
+        setOrganizationId(organizationIdFromUrl);
+    }, [organizationId, organizationIdFromUrl, setOrganizationId]);
 
     useEffect(() => {
         setMounted(true);
@@ -105,10 +132,10 @@ function PurchasesBillsPageContent() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [debouncedSearch, sortKey, sortDirection, pageSize]);
+    }, [debouncedSearch, sortKey, sortDirection, pageSize, organizationId, focusBillIdsParam]);
 
     useEffect(() => {
-        if (!mounted) return;
+        if (!mounted || !organizationId) return;
         void loadBills({
             page: currentPage,
             pageSize,
@@ -116,7 +143,72 @@ function PurchasesBillsPageContent() {
             sortBy: sortKey,
             sortDir: sortDirection,
         });
-    }, [mounted, currentPage, pageSize, debouncedSearch, sortKey, sortDirection, loadBills]);
+    }, [
+        mounted,
+        organizationId,
+        currentPage,
+        pageSize,
+        debouncedSearch,
+        sortKey,
+        sortDirection,
+        loadBills,
+        focusBillIdsParam,
+    ]);
+
+    // Utility redirect: if bill ids are in the URL but local cache is empty, fetch from Zoho then reload.
+    useEffect(() => {
+        if (!mounted || !organizationId || loading || loadingMore) return;
+        if (!focusBillIds.length || totalCount > 0) return;
+        const ensureKey = `${organizationId}:${focusBillIdsParam}`;
+        if (ensureTriedRef.current === ensureKey) return;
+        ensureTriedRef.current = ensureKey;
+
+        let cancelled = false;
+        (async () => {
+            try {
+                await Promise.all(
+                    focusBillIds.map((billId) =>
+                        axiosInstance.get(`/zoho/bills/${encodeURIComponent(billId)}`, {
+                            skipToast: true,
+                            timeout: 60000,
+                            params: { organizationId },
+                        }),
+                    ),
+                );
+                if (cancelled) return;
+                await loadBills({
+                    page: 1,
+                    pageSize,
+                    search: debouncedSearch,
+                    sortBy: sortKey,
+                    sortDir: sortDirection,
+                });
+            } catch (err) {
+                if (cancelled) return;
+                console.warn(
+                    '[Bills] Could not hydrate utility Zoho bill(s):',
+                    err?.response?.data?.message || err?.message || err,
+                );
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        mounted,
+        organizationId,
+        loading,
+        loadingMore,
+        totalCount,
+        focusBillIds,
+        focusBillIdsParam,
+        loadBills,
+        pageSize,
+        debouncedSearch,
+        sortKey,
+        sortDirection,
+    ]);
 
     const handleSort = (key) => {
         if (sortKey === key) {
@@ -136,11 +228,32 @@ function PurchasesBillsPageContent() {
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
                     <main className="flex-1 p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden overflow-y-auto">
-                        <ErpPageHeader title="Bills" subtitle="Matches Zoho after Refresh — add/update/delete in Zoho, then Refresh (batches of 400)">
-                            <div className="flex items-center gap-2">
+                        <ErpPageHeader
+                            title="Bills"
+                            subtitle={
+                                activeZohoOrg?.brand
+                                    ? `${activeZohoOrg.brand} Zoho — Refresh makes ERP match Zoho (batches of 400)`
+                                    : 'Matches Zoho after Refresh — add/update/delete in Zoho, then Refresh (batches of 400)'
+                            }
+                        >
+                            <div className="flex flex-wrap items-center gap-2">
+                                {zohoOrgOptions.length > 1 ? (
+                                    <ZohoOrganizationPicker
+                                        options={zohoOrgOptions}
+                                        value={organizationId}
+                                        onChange={setOrganizationId}
+                                        loading={loadingOrgs}
+                                        size="sm"
+                                    />
+                                ) : null}
                                 <button
                                     type="button"
-                                    onClick={() => router.push('/Accounts/Bills/new')}
+                                    onClick={() => {
+                                        const qs = organizationId
+                                            ? `?organizationId=${encodeURIComponent(organizationId)}`
+                                            : '';
+                                        router.push(`/Accounts/Bills/new${qs}`);
+                                    }}
                                     className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl bg-blue-600 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-white hover:bg-blue-700 whitespace-nowrap"
                                 >
                                     <Plus size={16} />
@@ -158,7 +271,7 @@ function PurchasesBillsPageContent() {
                                             sortDir: sortDirection,
                                         })
                                     }
-                                    disabled={loading || loadingMore}
+                                    disabled={loading || loadingMore || !organizationId}
                                     className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl border border-slate-200 bg-white px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 whitespace-nowrap"
                                 >
                                     <RefreshCw size={16} className={loading || loadingMore ? 'animate-spin' : ''} />
@@ -196,8 +309,11 @@ function PurchasesBillsPageContent() {
                             <div className="mb-3 sm:mb-4 rounded-xl border border-teal-200 bg-teal-50 px-3 sm:px-4 py-2.5 text-xs sm:text-sm text-teal-900">
                                 Utility Zoho bill
                                 {focusBillIds.length > 1 ? 's' : ''} ready
-                                {initialQuery ? ` · matching “${initialQuery}”` : ''}.
-                                Already created in Zoho — no need to use New / Add Bill.
+                                {initialQuery ? ` · matching “${initialQuery}”` : ''}
+                                {activeZohoOrg?.brand ? ` · ${activeZohoOrg.brand}` : ''}.
+                                {totalCount > 0
+                                    ? ' Already created in Zoho — no need to use New / Add Bill.'
+                                    : ' Looking up bill in this Zoho org… If still empty, switch VEGA/NNIT above or click Refresh.'}
                             </div>
                         ) : null}
 
@@ -296,6 +412,11 @@ function PurchasesBillsPageContent() {
                                                     )
                                                         ? 'Connect Zoho Books to load bills.'
                                                         : 'No bills found in Zoho Books.'}
+                                                    {focusBillIds.length ? (
+                                                        <p className="mt-2 text-xs text-slate-400">
+                                                            Tip: switch the Zoho org (VEGA / NNIT) to the Pay By company, then Refresh.
+                                                        </p>
+                                                    ) : null}
                                                 </td>
                                             </tr>
                                         ) : null}
@@ -386,11 +507,14 @@ function PurchasesBillsPageContent() {
                                                       <td className="px-3 sm:px-4 py-2 sm:py-3 text-right">
                                                           <button
                                                               type="button"
-                                                              onClick={() =>
+                                                              onClick={() => {
+                                                                  const qs = organizationId
+                                                                      ? `?organizationId=${encodeURIComponent(organizationId)}`
+                                                                      : '';
                                                                   router.push(
-                                                                      `/Accounts/Bills/${encodeURIComponent(row.id)}/edit`,
-                                                                  )
-                                                              }
+                                                                      `/Accounts/Bills/${encodeURIComponent(row.id)}/edit${qs}`,
+                                                                  );
+                                                              }}
                                                               className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                                                               title={`Edit bill ${row.billNumber}`}
                                                           >

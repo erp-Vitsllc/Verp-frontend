@@ -33,17 +33,24 @@ function pickAssessmentBlock(source, key) {
 }
 
 function pickBodyBlock(source, key) {
-    if (!source || typeof source !== 'object') return { comment: '', photo: null };
+    if (!source || typeof source !== 'object') {
+        return { comment: '', photo: null, photoSource: null };
+    }
     const block = source[key];
     if (!block || typeof block !== 'object') {
         return {
             comment: String(source[`${key}Comment`] || '').trim(),
             photo: source[`${key}Photo`] ?? null,
+            photoSource: null,
         };
     }
     return {
         comment: String(block.comment ?? block.notes ?? '').trim(),
         photo: block.photo ?? block.image ?? block.attachment ?? null,
+        photoSource:
+            block.photoSource === 'previous' || block.photoSource === 'new'
+                ? block.photoSource
+                : null,
     };
 }
 
@@ -237,10 +244,14 @@ export function buildBodyConditionComparisonRows(historyEntry, assetHistory = []
     return BODY_CONDITION_VIEW_FIELDS.map((field) => {
         const current = pickBodyBlock(currentSource, field.key);
         const previous = pickBodyBlock(previousSource, field.key);
-        const photoChanged = photosDiffer(previous.photo, current.photo);
+        const hasPreviousBaseline = Boolean(previous.photo) || Boolean(previous.comment);
+        const photoChanged = hasPreviousBaseline && photosDiffer(previous.photo, current.photo);
         const commentChanged =
+            hasPreviousBaseline &&
             String(previous.comment || '').trim() !== String(current.comment || '').trim();
-        const changed = photoChanged || commentChanged;
+        const photoSourceNew = current.photoSource === 'new';
+        const changed =
+            hasPreviousBaseline && (photoSourceNew || photoChanged || commentChanged);
 
         return {
             ...field,
@@ -253,10 +264,12 @@ export function buildBodyConditionComparisonRows(historyEntry, assetHistory = []
                 comment: current.comment,
                 photo: current.photo,
                 photoUrl: resolveAssessmentMediaUrl(current.photo),
+                photoSource: current.photoSource,
             },
             changed,
             photoChanged,
             commentChanged,
+            hasPreviousBaseline,
         };
     });
 }

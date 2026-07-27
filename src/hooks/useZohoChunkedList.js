@@ -15,7 +15,13 @@ function createSyncToken() {
  * - sync:true (Refresh): pull Zoho in chunks, upsert, delete local rows missing in Zoho, then reload page
  *   so ERP listing matches Zoho (add / update / delete).
  */
-export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId = '' }) {
+export function useZohoChunkedList({
+    endpoint,
+    mapRows,
+    getRowId,
+    organizationId = '',
+    billIds = '',
+}) {
     const [rows, setRows] = useState([]);
     const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -31,6 +37,7 @@ export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId
         sortDir: '',
     });
     const orgId = String(organizationId || '').trim();
+    const focusBillIds = String(billIds || '').trim();
 
     const fetchPage = useCallback(
         async (listQuery, requestId) => {
@@ -41,10 +48,11 @@ export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId
                     sync: 'false',
                     page: listQuery.page,
                     pageSize: listQuery.pageSize,
-                    search: listQuery.search || undefined,
+                    search: focusBillIds ? undefined : listQuery.search || undefined,
                     sortBy: listQuery.sortBy || undefined,
                     sortDir: listQuery.sortDir || undefined,
                     ...(orgId ? { organizationId: orgId } : {}),
+                    ...(focusBillIds ? { billIds: focusBillIds } : {}),
                 },
             });
 
@@ -56,7 +64,7 @@ export function useZohoChunkedList({ endpoint, mapRows, getRowId, organizationId
             setTotalCount(Number(meta.total ?? mapped.length) || 0);
             return mapped;
         },
-        [endpoint, mapRows, orgId],
+        [endpoint, mapRows, orgId, focusBillIds],
     );
 
     const load = useCallback(

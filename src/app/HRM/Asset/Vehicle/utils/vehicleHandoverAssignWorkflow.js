@@ -1,11 +1,46 @@
 import { buildWorkflowStepEvents } from '@/app/HRM/shared/workflowHistory/buildWorkflowHistoryEvents';
 import { getHandoverDisplayStatus } from './vehicleHandoverHistory';
+import { hasHandoverPhotoChanges } from './vehicleHandoverPhotoComparison';
 
 export const HANDOVER_ASSIGN_WORKFLOW_STEPS = [
     { id: 1, label: 'Handover By', role: 'Assigner' },
     { id: 2, label: 'Handover To', role: 'Target' },
     { id: 3, label: 'HR Approval', role: 'HR' },
 ];
+
+function readHandoverFlowStage(vehicle) {
+    return vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage || null;
+}
+
+/**
+ * HR Approval is only in the track when accessories/body differ from previous,
+ * or when HR already acted / is the active stage. Identical reports skip HR.
+ */
+export function handoverAssignWorkflowNeedsHrStep(vehicle, historyEntry, assetHistory = []) {
+    if (!historyEntry) return false;
+
+    if (historyEntry?.details?.hrApprovalSkipped === true) return false;
+
+    const hrStageDone = Boolean(historyEntry?.details?.vehicleHandoverWorkflow?.stages?.hr?.date);
+    if (hrStageDone) return true;
+
+    const flowStage = String(readHandoverFlowStage(vehicle) || '').toLowerCase();
+    if (flowStage === 'hr' || flowStage === 'management') return true;
+
+    const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '')
+        .trim()
+        .toLowerCase();
+    if (lifecycle === 'accepted') {
+        return hasHandoverPhotoChanges(historyEntry, assetHistory, vehicle);
+    }
+
+    if (lifecycle === 'approved') {
+        // Approved without an HR stage date means HR was skipped.
+        return false;
+    }
+
+    return hasHandoverPhotoChanges(historyEntry, assetHistory, vehicle);
+}
 
 export function normalizeCategory(c) {
     return String(c || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -71,7 +106,8 @@ export function formatEmployeeName(ref) {
     return String(ref);
 }
 
-export function resolveHandoverAssignWorkflowState(vehicle, historyEntry) {
+export function resolveHandoverAssignWorkflowState(vehicle, historyEntry, options = {}) {
+    const { needsHrStep = true } = options;
     const statusObj = getHandoverDisplayStatus(historyEntry, vehicle) || {};
     const statusKey = String(statusObj.key || '').toLowerCase();
 
@@ -85,10 +121,12 @@ export function resolveHandoverAssignWorkflowState(vehicle, historyEntry) {
     }
 
     if (statusKey === 'approved') {
-        return { currentActiveStepId: 4, isRejected: false };
+        // With HR: steps 1-3, active 4. Without HR: steps 1-2, active 3.
+        return { currentActiveStepId: needsHrStep ? 4 : 3, isRejected: false };
     }
 
     if (statusKey === 'accepted') {
+        // Waiting on HR when HR is part of the track; without HR this is transitional.
         return { currentActiveStepId: 3, isRejected: false };
     }
 
@@ -193,11 +231,17 @@ export function buildHandoverAssignWorkflowEvents({
     flowchartAdminRow = null,
     flowchartHrRow = null,
     hrActiveHolder = null,
+    assetHistory = [],
 }) {
     const meta = historyEntry?.details?.vehicleHandoverWorkflow || null;
+    const needsHrStep = handoverAssignWorkflowNeedsHrStep(vehicle, historyEntry, assetHistory);
+    const steps = needsHrStep
+        ? HANDOVER_ASSIGN_WORKFLOW_STEPS
+        : HANDOVER_ASSIGN_WORKFLOW_STEPS.filter((step) => step.id !== 3);
     const { currentActiveStepId, isRejected } = resolveHandoverAssignWorkflowState(
         vehicle,
         historyEntry,
+        { needsHrStep },
     );
 
     const assignDate = historyEntry?.date || historyEntry?.createdAt || null;
@@ -240,13 +284,15 @@ export function buildHandoverAssignWorkflowEvents({
 
     const getStepDate = (step) => {
         if (step.id === 1) return meta?.stages?.assigner?.date || assignDate;
-        if (step.id === 2) return meta?.stages?.target?.date || (currentActiveStepId >= 3 ? assignDate : null);
+        if (step.id === 2) {
+            return meta?.stages?.target?.date || (currentActiveStepId >= 3 ? assignDate : null);
+        }
         if (step.id === 3) return meta?.stages?.hr?.date || (currentActiveStepId >= 4 ? assignDate : null);
         return null;
     };
 
     return buildWorkflowStepEvents({
-        steps: HANDOVER_ASSIGN_WORKFLOW_STEPS,
+        steps,
         isStepApproved: (step) => step.id < currentActiveStepId,
         isConnectorGreen: (step) => step.id < currentActiveStepId,
         getStepActor,

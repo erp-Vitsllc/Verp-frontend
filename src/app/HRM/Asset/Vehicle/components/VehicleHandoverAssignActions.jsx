@@ -19,6 +19,7 @@ import {
     getEffectiveHandoverStage,
     getHandoverReportsIncompleteMessage,
     isHandoverHistoryFullyApproved,
+    isHandoverHistoryRejected,
     isHandoverReportsCompleteForEntry,
     mergeHandoverHistoryAfterHrApproval,
 } from '../utils/vehicleHandoverAssignActions';
@@ -236,7 +237,7 @@ export default function VehicleHandoverAssignActions({
 
     if (!vehicle || !historyEntry) return null;
 
-    if (isHandoverHistoryFullyApproved(historyEntry)) {
+    if (isHandoverHistoryFullyApproved(historyEntry) || isHandoverHistoryRejected(historyEntry)) {
         return hideWhenInactive ? null : (
             <div className={`grid grid-cols-2 gap-2 sm:gap-3 ${className}`}>
                 <div className={`${ACTION_BOX} border-transparent bg-transparent min-h-[44px]`} aria-hidden="true" />

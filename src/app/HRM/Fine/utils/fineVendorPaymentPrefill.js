@@ -122,3 +122,34 @@ export function canAccountsPayFineEmployeeShare(fine, user, balance = null, flow
     if (bal <= 0.01) return false;
     return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
 }
+
+/**
+ * Employee Salary → Fine: application status after Management approve.
+ * Always "Approved" (never show Paid as workflow status — Payment column covers that).
+ */
+export function formatFineProfileStatus(fine) {
+    const status = String(fine?.fineStatus || '').trim();
+    if (status === 'Paid' || status === 'Approved' || status === 'Active') return 'Approved';
+    return status || '—';
+}
+
+/**
+ * Employee Salary → Fine: payment label. Approved fines default to Not Paid until balance clears.
+ * @param {object} fine
+ * @param {number|null} [balance] outstanding employee share (preferred when known from payments)
+ */
+export function formatFineProfilePaymentLabel(fine, balance = null) {
+    if (!fine) return '—';
+    const status = String(fine.fineStatus || '').trim();
+    const bal =
+        balance == null
+            ? Math.max(
+                  0,
+                  (Number(fine.totalFineAmount || fine.fineAmount || 0) || 0) -
+                      (Number(fine.paidAmount || 0) || 0),
+              )
+            : Number(balance) || 0;
+    if (status === 'Paid' || bal <= 0.01) return 'Paid';
+    if (status === 'Approved' || status === 'Active') return 'Not Paid';
+    return '—';
+}

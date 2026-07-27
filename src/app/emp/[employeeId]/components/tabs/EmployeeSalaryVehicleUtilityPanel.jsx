@@ -15,6 +15,9 @@ import {
 import { fetchUtilityEntries, fetchUtilityEntry } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsApi';
 import { billDisplayStatus, formatBillMoney } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillStats';
 import ViewBillModal from '@/app/HRM/Asset/UtilityBills/components/ViewBillModal';
+import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
+import { isAccountsFinanceUser } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
+import { useToast } from '@/hooks/use-toast';
 
 const MONTH_SHORT = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -179,8 +182,12 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     employee,
     assets = [],
     formatDate,
+    currentUser = null,
+    accountsFlowchartRows = [],
+    onUtilityRefundSuccess = null,
 }) {
     const router = useRouter();
+    const { toast } = useToast();
     const [fleetVehicles, setFleetVehicles] = useState([]);
     const [loadingFleet, setLoadingFleet] = useState(false);
     const [utilityEntries, setUtilityEntries] = useState([]);
@@ -197,7 +204,15 @@ export default function EmployeeSalaryVehicleUtilityPanel({
     const [dayEnd, setDayEnd] = useState('');
     const [filterMonth, setFilterMonth] = useState('');
     const [filterYear, setFilterYear] = useState('');
+    const [utilityRefundOpen, setUtilityRefundOpen] = useState(false);
+    const [utilityRefundBills, setUtilityRefundBills] = useState([]);
 
+    const isAccountsUser = useMemo(
+        () => isAccountsFinanceUser(currentUser, accountsFlowchartRows),
+        [currentUser, accountsFlowchartRows],
+    );
+
+    const businessEmployeeId = String(employee?.employeeId || '').trim();
     const loadFleet = useCallback(async () => {
         if (!employee?._id) return;
         setLoadingFleet(true);
@@ -387,111 +402,37 @@ export default function EmployeeSalaryVehicleUtilityPanel({
             const diffAmount = billAbsDifference(bill);
             if (diffAmount <= 0.009) return;
 
-            const businessEmployeeId = String(employee?.employeeId || '').trim();
+            if (!isAccountsUser) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Accounts only',
+                    description:
+                        'Only Accounts can record utility Expense Refunds from this profile.',
+                });
+                return;
+            }
+
             const expenseMeta = differencePayByBillId[String(bill._id)] || {};
-            const amount = Number(expenseMeta.amount) > 0 ? Number(expenseMeta.amount) : diffAmount;
-            const partyAccountId = String(
-                bill.partyAccountId || expenseMeta.partyAccountId || '',
-            ).trim();
-            const partyAccountName = String(
-                bill.partyAccountName || expenseMeta.partyAccountName || '',
-            ).trim();
-            const partyAccountCode = String(
-                bill.partyAccountCode || expenseMeta.partyAccountCode || '',
-            ).trim();
+            const amount =
+                Number(expenseMeta.amount) > 0 ? Number(expenseMeta.amount) : diffAmount;
 
-            const params = new URLSearchParams();
-            params.set('addUtilityPay', '1');
-            params.set('mode', 'difference');
-            if (bill.zohoBillId || expenseMeta.zohoBillId) {
-                params.set('billIds', bill.zohoBillId || expenseMeta.zohoBillId);
-            }
-            params.set('utilityBillIds', String(bill._id));
-            if (bill.zohoOrganizationId || expenseMeta.zohoOrganizationId) {
-                params.set(
-                    'organizationId',
-                    bill.zohoOrganizationId || expenseMeta.zohoOrganizationId,
-                );
-            }
-            params.set('amount', String(amount));
-            if (businessEmployeeId) params.set('employeeId', businessEmployeeId);
-            if (bill.batchId || expenseMeta.utilityBatchId) {
-                params.set('batchId', String(bill.batchId || expenseMeta.utilityBatchId));
-            }
-            if (bill.utilityType) params.set('utilityType', String(bill.utilityType));
-            if (bill.billMonth) params.set('billMonth', String(bill.billMonth));
-            if (bill.zohoVendorId) params.set('vendorId', String(bill.zohoVendorId));
-            if (bill.provider) params.set('vendorName', String(bill.provider));
-
-            const returnTo =
-                typeof window !== 'undefined'
-                    ? `${window.location.pathname}${window.location.search || ''}`
-                    : '';
-            if (returnTo) params.set('returnTo', returnTo);
-
-            const employeeName =
-                `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() ||
-                String(bill.payByEmployeeName || '');
-
-            const prefill = {
-                amount: amount.toFixed(2),
-                notes: `Utility difference payment · ${bill.utilityType || ''} ${bill.billMonth || ''}`.trim(),
-                mode: 'difference',
-                billsOnly: true,
-                utilityBatchId: String(bill.batchId || expenseMeta.utilityBatchId || ''),
-                utilityBillId: String(bill._id),
-                utilityBillIds: [String(bill._id)],
-                utilityBillLinks: [
-                    {
-                        utilityBillId: String(bill._id),
-                        zohoBillId: bill.zohoBillId || expenseMeta.zohoBillId || '',
-                        billNumber: String(bill.billNumber || bill.accountNo || ''),
-                    },
-                ],
-                zohoBillId: bill.zohoBillId || expenseMeta.zohoBillId || '',
-                selectedBillIds: bill.zohoBillId ? [bill.zohoBillId] : [],
-                zohoBillIds: bill.zohoBillId ? [bill.zohoBillId] : [],
-                organizationId: bill.zohoOrganizationId || expenseMeta.zohoOrganizationId || '',
-                vendorId: String(bill.zohoVendorId || ''),
-                vendorName: String(bill.provider || ''),
-                billNumber: String(bill.billNumber || bill.accountNo || ''),
-                accountNo: String(bill.accountNo || ''),
-                utilityType: bill.utilityType || '',
-                billMonth: bill.billMonth || '',
-                employeeId: businessEmployeeId,
-                payBy: 'employee',
-                payByEmployeeId: businessEmployeeId || String(bill.payByEmployeeId || ''),
-                payByEmployeeName: employeeName,
-                partyAccountId,
-                partyAccountName,
-                partyAccountCode,
-                // Paid Through must be Cash/Bank (Debited on settle) — not Acc2.
-                paidThroughAccountId: '',
-                paidThroughAccountName: '',
-                returnTo,
-                partyRows: [
-                    {
-                        utilityBillId: String(bill._id),
-                        accountNo: bill.accountNo || expenseMeta.accountNo || '',
-                        payBy: 'employee',
-                        amount,
-                        employeePayAmount: amount,
-                        payByEmployeeId: businessEmployeeId || String(bill.payByEmployeeId || ''),
-                        payByEmployeeName: employeeName,
-                        partyAccountId,
-                        partyAccountName,
-                        partyAccountCode,
-                    },
-                ],
-            };
-            try {
-                sessionStorage.setItem('utilityVendorPaymentPrefill', JSON.stringify(prefill));
-            } catch {
-                /* ignore */
-            }
-            router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
+            setUtilityRefundBills([
+                {
+                    ...bill,
+                    differenceAmount: amount,
+                    zohoOrganizationId:
+                        bill.zohoOrganizationId || expenseMeta.zohoOrganizationId || '',
+                    partyAccountId:
+                        bill.partyAccountId || expenseMeta.partyAccountId || '',
+                    partyAccountName:
+                        bill.partyAccountName || expenseMeta.partyAccountName || '',
+                    partyAccountCode:
+                        bill.partyAccountCode || expenseMeta.partyAccountCode || '',
+                },
+            ]);
+            setUtilityRefundOpen(true);
         },
-        [differencePayByBillId, employee, router],
+        [differencePayByBillId, isAccountsUser, toast],
     );
 
     // Profile `employee.assets` is already scoped to this employee.
@@ -895,7 +836,8 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                                                                     employee,
                                                                 ) &&
                                                                 (bill.status === 'Approved' ||
-                                                                    bill.status === 'Paid');
+                                                                    bill.status === 'Paid') &&
+                                                                isAccountsUser;
                                                             const diffExpense =
                                                                 differencePayByBillId[
                                                                     String(bill._id)
@@ -979,7 +921,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                                                                                     )
                                                                                 }
                                                                                 className="inline-flex items-center rounded-md bg-amber-500 hover:bg-amber-600 px-2.5 py-1 text-[11px] font-bold text-white"
-                                                                                title="Pay difference only (separate from vendor bill)"
+                                                                                title="Pay difference — Expense Refund (Zoho Banking)"
                                                                             >
                                                                                 Difference Pay
                                                                             </button>
@@ -1011,6 +953,26 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                 isOpen={Boolean(viewBill)}
                 onClose={() => setViewBill(null)}
                 bill={viewBill}
+            />
+
+            <FineCompanyRefundModal
+                isOpen={utilityRefundOpen}
+                employee={employee}
+                employeeId={businessEmployeeId}
+                fines={[]}
+                utilityBills={utilityRefundBills}
+                onClose={() => {
+                    setUtilityRefundOpen(false);
+                    setUtilityRefundBills([]);
+                }}
+                onSuccess={() => {
+                    setUtilityRefundOpen(false);
+                    setUtilityRefundBills([]);
+                    if (mode === 'Utility Bills') {
+                        void loadUtilities();
+                    }
+                    onUtilityRefundSuccess?.();
+                }}
             />
         </div>
     );

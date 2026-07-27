@@ -1110,18 +1110,24 @@ export default function UtilityBillReviewModal({
                         zohoBillIds: Array.isArray(b.zohoBillIds)
                             ? b.zohoBillIds.map((x) => String(x || '').trim()).filter(Boolean)
                             : [],
+                        zohoOrganizationId: String(b.zohoOrganizationId || '').trim(),
                     }));
                 if (!workingRows.length) workingRows = selected;
             }
 
             const zohoBillIds = [];
             const billNumbers = [];
+            let resolvedOrgId = String(batch?.zohoOrganizationId || '').trim();
             workingRows.forEach((r) => {
                 collectRowZohoBillIds(r).forEach((zid) => {
                     if (!zohoBillIds.includes(zid)) zohoBillIds.push(zid);
                 });
                 const bn = String(r.billNumber || '').trim();
                 if (bn && !billNumbers.includes(bn)) billNumbers.push(bn);
+                if (!resolvedOrgId) {
+                    const rowOrg = String(r.zohoOrganizationId || '').trim();
+                    if (rowOrg) resolvedOrgId = rowOrg;
+                }
             });
 
             if (!zohoBillIds.length && !billNumbers.length) {
@@ -1138,8 +1144,8 @@ export default function UtilityBillReviewModal({
             const params = new URLSearchParams();
             if (zohoBillIds.length) params.set('billIds', zohoBillIds.join(','));
             if (billNumbers[0]) params.set('q', billNumbers[0]);
-            if (batch?.zohoOrganizationId) {
-                params.set('organizationId', String(batch.zohoOrganizationId));
+            if (resolvedOrgId) {
+                params.set('organizationId', resolvedOrgId);
             }
             params.set('utilityBatchId', id);
 

@@ -182,8 +182,28 @@ export function isHandoverHistoryFullyApproved(historyEntry) {
     return Boolean(hrStage?.date);
 }
 
+/** Terminal rejected handover — Approve/Reject must stay hidden even if vehicle has a newer flow. */
+export function isHandoverHistoryRejected(historyEntry) {
+    if (!historyEntry) return false;
+
+    const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '')
+        .trim()
+        .toLowerCase();
+    if (lifecycle === 'rejected') return true;
+
+    if (String(historyEntry?.action || '').trim() === 'Rejected') return true;
+
+    const acceptance = String(
+        historyEntry?.details?.acceptanceStatus || historyEntry?.details?.AcceptanceStatus || '',
+    )
+        .trim()
+        .toLowerCase();
+    return acceptance === 'rejected';
+}
+
 export function isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle = null) {
     if (!historyEntry) return false;
+    if (historyEntry?.details?.hrApprovalSkipped === true) return false;
     if (isHandoverHistoryFullyApproved(historyEntry)) return false;
 
     const vehicleStatus = String(vehicle?.acceptanceStatus || '').trim();
@@ -250,10 +270,18 @@ export function getHandoverAcceptanceStatus(vehicle, historyEntry = null) {
         return 'Accepted';
     }
 
+    if (isHandoverHistoryRejected(historyEntry)) {
+        return 'Rejected';
+    }
+
     const flowStage = String(getHandoverFlowStage(vehicle) || '').toLowerCase();
     const fromVehicle = String(vehicle?.acceptanceStatus || '').trim();
+    const flowLinked = isHandoverFlowLinkedToHistory(vehicle, historyEntry);
 
-    if (flowStage === 'hr' || flowStage === 'management' || flowStage === 'hod') {
+    if (
+        flowLinked &&
+        (flowStage === 'hr' || flowStage === 'management' || flowStage === 'hod')
+    ) {
         return 'Pending';
     }
 
@@ -263,7 +291,7 @@ export function getHandoverAcceptanceStatus(vehicle, historyEntry = null) {
 
     if (
         isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle) &&
-        isHandoverFlowLinkedToHistory(vehicle, historyEntry)
+        flowLinked
     ) {
         return 'Pending';
     }
@@ -286,9 +314,15 @@ export function getEffectiveHandoverStage(vehicle, historyEntry = null) {
         return null;
     }
 
+    if (isHandoverHistoryRejected(historyEntry)) {
+        return null;
+    }
+
     const explicit = getHandoverFlowStage(vehicle);
-    if (explicit === 'hod') return 'hr';
-    if (explicit) return explicit;
+    if (explicit && isHandoverFlowLinkedToHistory(vehicle, historyEntry)) {
+        if (explicit === 'hod') return 'hr';
+        return explicit;
+    }
 
     if (isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle) &&
         isHandoverFlowLinkedToHistory(vehicle, historyEntry)
@@ -499,6 +533,7 @@ export function canUserActOnHandoverAssign({
     if (!vehicle || !currentUser) return false;
     if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return false;
     if (isHandoverHistoryFullyApproved(historyEntry)) return false;
+    if (isHandoverHistoryRejected(historyEntry)) return false;
     if (getHandoverAcceptanceStatus(vehicle, historyEntry) !== 'Pending') return false;
 
     const stage = getEffectiveHandoverStage(vehicle, historyEntry);

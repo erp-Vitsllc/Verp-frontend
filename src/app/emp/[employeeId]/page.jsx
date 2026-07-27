@@ -312,7 +312,6 @@ const EMP_PROFILE_SALARY_ACTIONS = [
     'Vehicle',
     'Utility Bills',
     'CTC',
-    'Expenses',
     'Certificate',
 ];
 

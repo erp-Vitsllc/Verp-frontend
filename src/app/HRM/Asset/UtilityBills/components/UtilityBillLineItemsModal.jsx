@@ -128,7 +128,47 @@ export function createDefaultLineItems({
 } = {}) {
     const contract = money(contractAmount);
     const actual = money(actualAmount);
-    const firstAmount = contract > 0 ? contract : actual;
+    const label = itemLabel || 'Utility charge';
+    const base = {
+        accountId: String(accountId || ''),
+        accountName: String(accountName || ''),
+        quantity: '1',
+        payByCompanyId: String(payByCompanyId || ''),
+        payByCompanyName: String(payByCompanyName || ''),
+    };
+
+    // Company + employee with overage → two payable lines (contract + difference).
+    if (
+        payBy === 'employee_and_company' &&
+        actual > contract + 0.009 &&
+        contract > 0.009 &&
+        (payByCompanyId || payByCompanyName) &&
+        (payByEmployeeId || payByEmployeeName)
+    ) {
+        const overage = Number((actual - contract).toFixed(2));
+        return [
+            {
+                key: newLineKey(),
+                item: label,
+                ...base,
+                amount: String(contract),
+                payBy: 'company',
+                payByEmployeeId: '',
+                payByEmployeeName: '',
+            },
+            {
+                key: newLineKey(),
+                item: label ? `${label} · overage` : 'Utility overage',
+                ...base,
+                amount: String(overage),
+                payBy: 'employee',
+                payByEmployeeId: String(payByEmployeeId || ''),
+                payByEmployeeName: String(payByEmployeeName || ''),
+            },
+        ];
+    }
+
+    const firstAmount = actual > 0 ? actual : contract;
     const resolvedPayBy = resolveLinePayBy({
         payBy,
         payByEmployeeId,
@@ -137,16 +177,12 @@ export function createDefaultLineItems({
     return [
         {
             key: newLineKey(),
-            item: itemLabel || 'Utility charge',
-            accountId: String(accountId || ''),
-            accountName: String(accountName || ''),
-            quantity: '1',
+            item: label,
+            ...base,
             amount: firstAmount > 0 ? String(firstAmount) : '',
             payBy: resolvedPayBy,
             payByEmployeeId: String(payByEmployeeId || ''),
             payByEmployeeName: String(payByEmployeeName || ''),
-            payByCompanyId: String(payByCompanyId || ''),
-            payByCompanyName: String(payByCompanyName || ''),
         },
     ];
 }

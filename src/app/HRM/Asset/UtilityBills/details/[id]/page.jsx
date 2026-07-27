@@ -46,7 +46,10 @@ import UtilityBillReviewModal from '../../components/UtilityBillReviewModal';
 import ActivateDeactivateUtilityModal from '../../components/ActivateDeactivateUtilityModal';
 import UtilityBillStatsCards from '../../components/UtilityBillStatsCards';
 import { billDisplayStatus, formatBillMoney } from '../../utils/utilityBillStats';
-import { getBillAllocationParties } from '../../components/UtilityBillTotalsBar';
+import {
+    getBillAllocationParties,
+    getBillTotalAmount,
+} from '../../components/UtilityBillTotalsBar';
 import { openUtilityAttachment } from '../../utils/openUtilityAttachment';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
@@ -59,6 +62,16 @@ function paymentByLabel(billOrMode) {
     const mode = bill ? bill.paymentBy : billOrMode;
     const companyName = String(bill?.payByCompanyName || '').trim();
     const employeeName = String(bill?.payByEmployeeName || '').trim();
+
+    if (bill) {
+        const parties = getBillAllocationParties(bill);
+        if (parties.length >= 2) {
+            return `Pay by ${parties.map((p) => p.fullName || p.name).join(' / ')}`;
+        }
+        if (parties.length === 1) {
+            return `Pay by ${parties[0].fullName || parties[0].name}`;
+        }
+    }
 
     if (mode === 'employee_balance' || mode === 'employee') {
         return employeeName ? `Pay by ${employeeName}` : 'Pay by employee';
@@ -154,7 +167,7 @@ function summarizeBillGroup(list = []) {
 
     (list || []).forEach((bill) => {
         const contract = Number(bill?.monthlyRental) || 0;
-        const actual = Number(bill?.amount) || 0;
+        const actual = getBillTotalAmount(bill);
         contractTotal += contract;
         actualTotal += actual;
         const ym = billMonthKey(bill);
@@ -340,7 +353,7 @@ function UtilityBillDetailsPageContent() {
         });
         return keys.map((ym) => {
             const list = byMonth.get(ym) || [];
-            const amount = list.reduce((sum, bill) => sum + (Number(bill?.amount) || 0), 0);
+            const amount = list.reduce((sum, bill) => sum + getBillTotalAmount(bill), 0);
             return {
                 ym,
                 label: monthLabelFromKey(ym, { shortOnly: true }),
@@ -358,7 +371,7 @@ function UtilityBillDetailsPageContent() {
             const ym = billMonthKey(bill);
             if (!ym) return;
             const contract = Number(bill?.monthlyRental) || 0;
-            const actual = Number(bill?.amount) || 0;
+            const actual = getBillTotalAmount(bill);
             const difference = contract - actual;
             if (Math.abs(difference) < 0.01) return;
             const prev = byMonth.get(ym) || { ym, difference: 0, billCount: 0 };
@@ -872,9 +885,9 @@ function UtilityBillDetailsPageContent() {
                 <div className="space-y-4 py-1">
                     {list.map((bill) => {
                         const contract = Number(bill.monthlyRental) || 0;
-                        const actual = Number(bill.amount) || 0;
-                        const difference = contract - actual;
-                        const over = actual > contract;
+                        const total = getBillTotalAmount(bill);
+                        const difference = contract - total;
+                        const over = total > contract;
                         const focused = String(bill._id) === String(focusBillId);
                         const pulsing =
                             String(bill._id) === String(pulseBillId) && pulseBillOn;
@@ -883,11 +896,14 @@ function UtilityBillDetailsPageContent() {
                         const canApproveReject = Boolean(bill.canApproveReject);
                         const actionBatchId = bill.batchId || bill._id;
                         const showApprove = Boolean(canApproveReject && actionBatchId);
-                        const statusText = isPaid
-                            ? 'Vendor Payment: Paid'
+                        const vendorPayLabel = isPaid
+                            ? 'Paid'
                             : isNotPaid
-                              ? 'Vendor Payment: Not Paid'
-                              : billDisplayStatus(bill);
+                              ? 'Not Paid'
+                              : null;
+                        const statusText = vendorPayLabel
+                            ? `Vendor Payment: ${formatBillMoney(total)} · ${vendorPayLabel}`
+                            : billDisplayStatus(bill);
                         const openBatchReview = () => openBillReview(bill);
 
                         // Subtle side border indicator class and glowing status dot
@@ -951,22 +967,22 @@ function UtilityBillDetailsPageContent() {
                                 <div className="grid grid-cols-3 gap-3 my-3">
                                     <div className="px-3 py-2 bg-gray-50/50 rounded-lg border border-gray-100/80">
                                         <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">
-                                            Contract
-                                        </p>
-                                        <p className="text-xs sm:text-sm font-semibold tabular-nums text-gray-700">
-                                            {formatBillMoney(contract)}
-                                        </p>
-                                    </div>
-                                    <div className="px-3 py-2 bg-gray-50/50 rounded-lg border border-gray-100/80">
-                                        <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">
-                                            Actual Bill
+                                            Total
                                         </p>
                                         <p
                                             className={`text-xs sm:text-sm font-semibold tabular-nums ${
                                                 over ? 'text-red-600' : 'text-gray-700'
                                             }`}
                                         >
-                                            {formatBillMoney(actual)}
+                                            {formatBillMoney(total)}
+                                        </p>
+                                    </div>
+                                    <div className="px-3 py-2 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">
+                                            Contract
+                                        </p>
+                                        <p className="text-xs sm:text-sm font-semibold tabular-nums text-gray-700">
+                                            {formatBillMoney(contract)}
                                         </p>
                                     </div>
                                     <div className={`px-3 py-2 rounded-lg border ${
@@ -977,7 +993,7 @@ function UtilityBillDetailsPageContent() {
                                               : 'bg-gray-50/50 border-gray-100 text-gray-500'
                                     }`}>
                                         <p className="text-[9px] font-bold uppercase tracking-wider mb-0.5 opacity-80">
-                                            Difference to Pay Employee
+                                            Difference
                                         </p>
                                         <div className="flex items-center gap-1">
                                             {difference < 0 ? (
@@ -999,7 +1015,7 @@ function UtilityBillDetailsPageContent() {
                                     <div className="mt-3 pt-2.5 border-t border-dashed border-gray-100 flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-1.5 text-xs text-gray-400 font-medium">
                                             <CreditCard size={12} />
-                                            <span>Allocation Details</span>
+                                            <span>Payment by</span>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-2 justify-end">
                                             {parties.map((party) => (

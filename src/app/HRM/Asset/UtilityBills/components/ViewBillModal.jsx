@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Download, Eye, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { billDisplayStatus, formatBillMoney } from '../utils/utilityBillStats';
-import { getBillAllocationParties } from './UtilityBillTotalsBar';
+import { getBillAllocationParties, getBillTotalAmount } from './UtilityBillTotalsBar';
 import {
     downloadUtilityAttachment,
     openUtilityAttachment,
@@ -79,7 +79,7 @@ export default function ViewBillModal({
     if (!isOpen || !bill) return null;
 
     const contract = Number(bill.monthlyRental) || 0;
-    const actual = Number(bill.amount) || 0;
+    const actual = getBillTotalAmount(bill);
     const difference = contract - actual;
     const status = String(bill.status || '');
     const isNotPaid = status === 'Approved';
@@ -243,7 +243,7 @@ export default function ViewBillModal({
                                         Contract
                                     </th>
                                     <th className="px-3 py-2.5 text-center font-semibold">
-                                        Actual
+                                        Total
                                     </th>
                                     <th className="px-3 py-2.5 text-center font-semibold">
                                         Difference

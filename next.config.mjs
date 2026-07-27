@@ -70,6 +70,10 @@ const nextConfig = {
         source: '/default-avatar.png',
         destination: '/default-avatar.svg',
       },
+      {
+        source: '/favicon.ico',
+        destination: '/favicon.svg',
+      },
     ];
   },
 
