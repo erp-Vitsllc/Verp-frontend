@@ -105,9 +105,15 @@ function FieldCard({ label, children, accentClass, minHeightPx }) {
     );
 }
 
-function isServiceDetailsComplete(form) {
+function hasGarageInvoice(form, hasPersisted = false) {
+    if (hasPersisted) return true;
+    return Boolean(String(form?.garageInvoice?.data || '').trim());
+}
+
+function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false) {
     const charge = Number(form.totalServiceCharge);
     return (
+        hasGarageInvoice(form, hasPersistedGarageInvoice) &&
         Number.isFinite(charge) &&
         charge > 0 &&
         String(form.returnDate || '').trim() !== '' &&
@@ -117,8 +123,9 @@ function isServiceDetailsComplete(form) {
     );
 }
 
-function getServiceDetailsMissingFields(form) {
+function getServiceDetailsMissingFields(form, hasPersistedGarageInvoice = false) {
     const missing = [];
+    if (!hasGarageInvoice(form, hasPersistedGarageInvoice)) missing.push('Garage invoice');
     const charge = Number(form.totalServiceCharge);
     if (!Number.isFinite(charge) || charge <= 0) missing.push('Total service charge');
     if (!String(form.returnDate || '').trim()) missing.push('Return date');
@@ -146,7 +153,10 @@ export default function VehicleOilServiceDetailsForm({
     }, [service?._id, service?.updatedAt, service?.remark, workflow?.scheduledServiceDate, workflow?.serviceWindowEndDate]);
 
     const hasPersistedGarageInvoice =
-        !!String(service?.shopInvoice || '').trim() || !!String(remark.garageInvoiceUrl || '').trim();
+        !!String(service?.shopInvoice || '').trim() ||
+        !!String(remark.garageInvoiceUrl || '').trim() ||
+        !!String(remark.garageInvoiceName || '').trim() ||
+        !!String(remark.shopInvoiceName || '').trim();
     const hasPersistedOtherDoc =
         !!String(service?.invoice || '').trim() || !!String(remark.returnOtherDocUrl || '').trim();
 
@@ -154,8 +164,8 @@ export default function VehicleOilServiceDetailsForm({
     const showActions = !locked && canAct;
     const { fieldMinHeightPx, gapClass } = OIL_SERVICE_DETAIL_GRID_LAYOUT;
     const accent = (index) => OIL_SERVICE_DETAIL_GRID_ACCENTS[index % OIL_SERVICE_DETAIL_GRID_ACCENTS.length];
-    const formComplete = isServiceDetailsComplete(form);
-    const missingFields = getServiceDetailsMissingFields(form);
+    const formComplete = isServiceDetailsComplete(form, hasPersistedGarageInvoice);
+    const missingFields = getServiceDetailsMissingFields(form, hasPersistedGarageInvoice);
     const canSaveDraft = showActions && !saving && !submitting;
     const canSend = showActions && !saving && !submitting && formComplete;
 
@@ -251,7 +261,7 @@ export default function VehicleOilServiceDetailsForm({
     return (
         <div className="flex flex-col gap-2.5">
             <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
-                <FieldCard label="Garage Invoice (optional)" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                <FieldCard label="Garage Invoice" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                     {renderUploadField(
                         'garageInvoice',
                         hasPersistedGarageInvoice,

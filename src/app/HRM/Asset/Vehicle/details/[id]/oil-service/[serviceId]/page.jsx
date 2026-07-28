@@ -312,20 +312,7 @@ function VehicleOilServiceDetailPageContent() {
                                 className="w-full shrink-0"
                             />
 
-                            <VehicleOilServiceCompletedCard
-                                asset={asset}
-                                service={service}
-                                vehicleId={vehicleId}
-                                serviceId={serviceId}
-                                canManage={canManageOilService}
-                                workflowStage={oilWorkflowStage}
-                                onUpdated={(updatedAsset) => {
-                                    if (updatedAsset) setAsset(updatedAsset);
-                                    void load();
-                                }}
-                                className="w-full shrink-0"
-                            />
-
+                            {/* Accounts / HR billing card stays above Service Details */}
                             <VehicleOilCashPaymentApprovalCard
                                 asset={asset}
                                 service={service}
@@ -356,6 +343,20 @@ function VehicleOilServiceDetailPageContent() {
                                     }}
                                 />
                             ) : null}
+
+                            <VehicleOilServiceCompletedCard
+                                asset={asset}
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canManage={canManageOilService}
+                                workflowStage={oilWorkflowStage}
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) setAsset(updatedAsset);
+                                    void load();
+                                }}
+                                className="w-full shrink-0"
+                            />
                         </div>
 
                         <div className={oilServicePageLayout.sideColumnClassName}>

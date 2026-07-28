@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Loader2, Plus, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -9,6 +9,7 @@ import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 import VehicleGarageBillingFields from './VehicleGarageBillingFields';
+import ZohoPayAccountSelect from './ZohoPayAccountSelect';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 function money(value) {
@@ -43,6 +44,21 @@ function buildInitialBillingState(service) {
                   },
               ];
 
+    // Auto-fill garage invoice from Service Details (shopInvoice) for Zoho bill attachment.
+    const existingGarageAttachmentUrl = String(
+        remark.garageAttachmentUrl ||
+            remark.garageBillAttachmentUrl ||
+            service?.shopInvoice ||
+            remark.garageInvoiceUrl ||
+            '',
+    ).trim();
+    const existingGarageAttachmentName = String(
+        remark.garageAttachmentName ||
+            remark.garageInvoiceName ||
+            remark.shopInvoiceName ||
+            '',
+    ).trim();
+
     return {
         garageName: String(remark.garageName || remark.vendorName || '').trim(),
         zohoVendorId: String(remark.zohoVendorId || '').trim(),
@@ -50,8 +66,10 @@ function buildInitialBillingState(service) {
         payAccountId: String(remark.payAccountId || remark.garagePayAccountId || '').trim(),
         payAccountName: String(remark.payAccountName || remark.garagePayAccountName || '').trim(),
         garageAttachment: null,
-        existingGarageAttachmentUrl: remark.garageAttachmentUrl || remark.garageBillAttachmentUrl || '',
-        existingGarageAttachmentName: remark.garageAttachmentName || '',
+        existingGarageAttachmentUrl,
+        existingGarageAttachmentName:
+            existingGarageAttachmentName ||
+            (existingGarageAttachmentUrl ? 'Garage invoice (from Service Details)' : ''),
         billingPayables: lines,
     };
 }
@@ -79,6 +97,10 @@ export default function VehicleOilCashPaymentApprovalCard({
     const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
     const [billing, setBilling] = useState(() => buildInitialBillingState(service));
 
+    useEffect(() => {
+        setBilling(buildInitialBillingState(service));
+    }, [service?._id, service?.updatedAt, service?.remark, service?.shopInvoice, service?.value]);
+
     const totalFromLines = useMemo(
         () =>
             (billing.billingPayables || []).reduce((sum, row) => sum + money(row.amount), 0),
@@ -95,7 +117,15 @@ export default function VehicleOilCashPaymentApprovalCard({
         setBilling((prev) => {
             const next = [...(prev.billingPayables || [])];
             next[index] = { ...next[index], ...patch };
-            return { ...prev, billingPayables: next };
+            const updated = { ...prev, billingPayables: next };
+            // Keep primary Pay Account in sync with the first payable line.
+            if (index === 0 && (patch.payAccountId !== undefined || patch.payableTo !== undefined)) {
+                updated.payAccountId =
+                    patch.payAccountId !== undefined ? patch.payAccountId : next[0]?.payAccountId || '';
+                updated.payAccountName =
+                    patch.payableTo !== undefined ? patch.payableTo : next[0]?.payableTo || '';
+            }
+            return updated;
         });
     };
 
@@ -163,6 +193,27 @@ export default function VehicleOilCashPaymentApprovalCard({
             garagePayAccountId: primary.payAccountId || billing.payAccountId || remark.garagePayAccountId,
             garagePayAccountName: primary.payableTo || billing.payAccountName || remark.garagePayAccountName,
         };
+
+        // Keep Service Details garage invoice linked as Zoho bill attachment when Accounts doesn't re-upload.
+        const existingUrl = String(
+            billing.existingGarageAttachmentUrl ||
+                service?.shopInvoice ||
+                remark.garageAttachmentUrl ||
+                remark.garageBillAttachmentUrl ||
+                '',
+        ).trim();
+        if (existingUrl && !billing.garageAttachment?.data) {
+            nextRemark.garageAttachmentUrl = existingUrl;
+            nextRemark.garageBillAttachmentUrl = existingUrl;
+            nextRemark.garageAttachmentName =
+                String(
+                    billing.existingGarageAttachmentName ||
+                        remark.garageAttachmentName ||
+                        remark.garageInvoiceName ||
+                        remark.shopInvoiceName ||
+                        '',
+                ).trim() || 'garage-invoice.pdf';
+        }
 
         const body = { remark: JSON.stringify(nextRemark) };
         if (billing.garageAttachment?.data) {
@@ -290,11 +341,22 @@ export default function VehicleOilCashPaymentApprovalCard({
                                 disabled={!canAct || busy}
                                 onChange={(e) => void handleGarageInvoice(e.target.files?.[0])}
                             />
-                            {billing.existingGarageAttachmentName || billing.garageAttachment?.name ? (
-                                <span className="mt-1 block text-[11px] text-gray-500">
-                                    {billing.garageAttachment?.name || billing.existingGarageAttachmentName}
+                            {billing.existingGarageAttachmentName ||
+                            billing.garageAttachment?.name ||
+                            billing.existingGarageAttachmentUrl ? (
+                                <span className="mt-1 block text-[11px] text-emerald-700">
+                                    {billing.garageAttachment?.name ||
+                                        billing.existingGarageAttachmentName ||
+                                        'Garage invoice from Service Details'}
+                                    {!billing.garageAttachment?.data && billing.existingGarageAttachmentUrl
+                                        ? ' — will attach to Zoho bill'
+                                        : ''}
                                 </span>
-                            ) : null}
+                            ) : (
+                                <span className="mt-1 block text-[11px] text-amber-700">
+                                    No garage invoice yet — upload here or in Service Details
+                                </span>
+                            )}
                         </label>
                     </div>
 
@@ -318,20 +380,25 @@ export default function VehicleOilCashPaymentApprovalCard({
                             {(billing.billingPayables || []).map((row, index) => (
                                 <div
                                     key={`payable-${index}`}
-                                    className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_36px]"
+                                    className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_36px] items-start"
                                 >
-                                    <input
-                                        className="min-h-[38px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
-                                        placeholder="Payable to (pay account name)"
-                                        value={row.payableTo || ''}
+                                    <ZohoPayAccountSelect
+                                        value={row.payAccountId || ''}
+                                        name={row.payableTo || ''}
                                         disabled={!canAct || busy}
-                                        onChange={(e) => setLine(index, { payableTo: e.target.value })}
+                                        placeholder="Select Chart of Accounts"
+                                        onChange={({ id, name }) => {
+                                            setLine(index, {
+                                                payAccountId: id,
+                                                payableTo: name,
+                                            });
+                                        }}
                                     />
                                     <input
                                         type="number"
                                         min="0"
                                         step="0.01"
-                                        className="min-h-[38px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
+                                        className="min-h-[44px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
                                         placeholder="Amount"
                                         value={row.amount || ''}
                                         disabled={!canAct || busy}
@@ -340,7 +407,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                     {canAct ? (
                                         <button
                                             type="button"
-                                            className="inline-flex items-center justify-center rounded-lg border border-red-100 text-red-600 disabled:opacity-40"
+                                            className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-red-100 text-red-600 disabled:opacity-40"
                                             disabled={busy || (billing.billingPayables || []).length <= 1}
                                             onClick={() => removeLine(index)}
                                             title="Remove line"
@@ -367,9 +434,12 @@ export default function VehicleOilCashPaymentApprovalCard({
                             garageBillAmount:
                                 totalFromLines > 0 ? String(totalFromLines) : billing.garageBillAmount,
                         }}
-                        setFormData={setBilling}
-                        disabled={!canAct || busy}
-                        showVendor={false}
+                        setField={(key, value) => {
+                            setBilling((prev) => ({ ...prev, [key]: value }));
+                        }}
+                        fieldsDisabled={!canAct || busy}
+                        fieldClassName="w-full min-h-[44px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold bg-white"
+                        fieldMinHeightPx={72}
                     />
                 </div>
             )}
