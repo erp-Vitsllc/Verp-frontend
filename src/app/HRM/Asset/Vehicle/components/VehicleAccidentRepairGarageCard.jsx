@@ -148,6 +148,7 @@ export default function VehicleAccidentRepairGarageCard({
             const { data } = await axiosInstance.post(`/AssetItem/${vehicleId}/service-workflow/respond`, {
                 action: 'approve',
                 comment: 'Garage and service dates approved',
+                ...(serviceId ? { serviceRecordId: serviceId } : {}),
             });
             toast({
                 title: 'Approved',

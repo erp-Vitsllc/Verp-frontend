@@ -8,7 +8,6 @@ import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
-import VehicleGarageBillingFields from './VehicleGarageBillingFields';
 import ZohoPayAccountSelect from './ZohoPayAccountSelect';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
@@ -240,14 +239,30 @@ export default function VehicleOilCashPaymentApprovalCard({
             let serviceUpdates = null;
             if (!isHr) {
                 serviceUpdates = buildServiceUpdates();
-                const total = money(
-                    JSON.parse(serviceUpdates.remark || '{}').billingTotalAmount,
+                const parsedRemark = JSON.parse(serviceUpdates.remark || '{}');
+                const total = money(parsedRemark.billingTotalAmount);
+                const payableLines = (Array.isArray(parsedRemark.billingPayables)
+                    ? parsedRemark.billingPayables
+                    : []
+                ).filter(
+                    (row) =>
+                        String(row.payAccountId || '').trim() && money(row.amount) > 0,
                 );
-                if (!(total > 0)) {
+                if (!(total > 0) || !payableLines.length) {
                     toast({
                         variant: 'destructive',
-                        title: 'Amount required',
-                        description: 'Enter at least one payable amount before submitting to Zoho.',
+                        title: 'Payable from required',
+                        description:
+                            'Add at least one Chart of Accounts line with amount before submitting to Zoho.',
+                    });
+                    setBusy(false);
+                    return;
+                }
+                if (payableLines.length !== (parsedRemark.billingPayables || []).length) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Incomplete payable lines',
+                        description: 'Every payable-from line needs a Chart of Accounts and amount.',
                     });
                     setBusy(false);
                     return;
@@ -262,6 +277,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                     ? 'HR approved oil service schedule — ready for On Service'
                     : 'Accounts submitted billing — create Zoho bill (Billed)',
                 ...(serviceUpdates ? { serviceUpdates } : {}),
+                ...(serviceId ? { serviceRecordId: serviceId } : {}),
             });
             toast({
                 title: 'Approved',
@@ -374,7 +390,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                     <div className="rounded-lg border border-gray-200 bg-white p-3">
                         <div className="mb-2 flex items-center justify-between">
                             <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                                Payable to / Amount (multiple)
+                                Payable from
                             </span>
                             {canAct ? (
                                 <button
@@ -438,21 +454,6 @@ export default function VehicleOilCashPaymentApprovalCard({
                             </span>
                         </div>
                     </div>
-
-                    <VehicleGarageBillingFields
-                        formData={{
-                            ...billing,
-                            garageBillAmount:
-                                totalFromLines > 0 ? String(totalFromLines) : billing.garageBillAmount,
-                        }}
-                        setField={(key, value) => {
-                            setBilling((prev) => ({ ...prev, [key]: value }));
-                        }}
-                        fieldsDisabled={!canAct || busy}
-                        fieldClassName="w-full min-h-[44px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold bg-white"
-                        fieldMinHeightPx={72}
-                        showAttachment={false}
-                    />
                 </div>
             )}
 

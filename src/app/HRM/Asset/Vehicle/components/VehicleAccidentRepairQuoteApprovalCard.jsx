@@ -527,6 +527,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             const payload = {
                 action,
                 comment: String(description || '').trim() || undefined,
+                ...(serviceId ? { serviceRecordId: serviceId } : {}),
             };
             if (action === 'approve' || action === 'save') {
                 payload.serviceUpdates = buildServiceUpdates();

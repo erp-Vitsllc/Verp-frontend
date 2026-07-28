@@ -8,7 +8,6 @@ import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
-import VehicleGarageBillingFields from './VehicleGarageBillingFields';
 import ZohoPayAccountSelect from './ZohoPayAccountSelect';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
@@ -241,21 +240,30 @@ export default function VehicleServiceAccountsZohoBillingCard({
         setBusy(true);
         try {
             const serviceUpdates = buildServiceUpdates();
-            const total = money(JSON.parse(serviceUpdates.remark || '{}').billingTotalAmount);
-            if (!(total > 0)) {
+            const parsedRemark = JSON.parse(serviceUpdates.remark || '{}');
+            const total = money(parsedRemark.billingTotalAmount);
+            const payableLines = (Array.isArray(parsedRemark.billingPayables)
+                ? parsedRemark.billingPayables
+                : []
+            ).filter(
+                (row) =>
+                    String(row.payAccountId || '').trim() && money(row.amount) > 0,
+            );
+            if (!(total > 0) || !payableLines.length) {
                 toast({
                     variant: 'destructive',
-                    title: 'Amount required',
-                    description: 'Enter at least one payable amount before submitting to Zoho.',
+                    title: 'Payable from required',
+                    description:
+                        'Add at least one Chart of Accounts line with amount before submitting to Zoho.',
                 });
                 setBusy(false);
                 return;
             }
-            if (!String(JSON.parse(serviceUpdates.remark || '{}').payAccountId || '').trim()) {
+            if (payableLines.length !== (parsedRemark.billingPayables || []).length) {
                 toast({
                     variant: 'destructive',
-                    title: 'Pay Account required',
-                    description: 'Select a Chart of Accounts pay account before submitting to Zoho.',
+                    title: 'Incomplete payable lines',
+                    description: 'Every payable-from line needs a Chart of Accounts and amount.',
                 });
                 setBusy(false);
                 return;
@@ -265,6 +273,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                 action: 'approve',
                 comment: `${serviceTypeLabel} — Accounts submitted billing — create Zoho bill (Billed)`,
                 serviceUpdates,
+                ...(serviceId ? { serviceRecordId: serviceId } : {}),
             });
             toast({
                 title: 'Billed',
@@ -360,7 +369,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                 <div className="rounded-lg border border-gray-200 bg-white p-3">
                     <div className="mb-2 flex items-center justify-between">
                         <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                            Payable to / Amount (multiple)
+                            Payable from
                         </span>
                         {canAct ? (
                             <button
@@ -424,21 +433,6 @@ export default function VehicleServiceAccountsZohoBillingCard({
                         </span>
                     </div>
                 </div>
-
-                <VehicleGarageBillingFields
-                    formData={{
-                        ...billing,
-                        garageBillAmount:
-                            totalFromLines > 0 ? String(totalFromLines) : billing.garageBillAmount,
-                    }}
-                    setField={(key, value) => {
-                        setBilling((prev) => ({ ...prev, [key]: value }));
-                    }}
-                    fieldsDisabled={!canAct || busy}
-                    fieldClassName="w-full min-h-[44px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold bg-white"
-                    fieldMinHeightPx={72}
-                    showAttachment={false}
-                />
             </div>
 
             {canAct ? (

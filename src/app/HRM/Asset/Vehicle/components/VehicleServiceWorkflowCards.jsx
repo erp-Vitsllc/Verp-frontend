@@ -1150,6 +1150,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                     (typeof commentOverride === 'string' ? commentOverride.trim() : '') ||
                     comment.trim() ||
                     undefined,
+                ...(serviceRecordId ? { serviceRecordId } : {}),
             };
             if (action === 'approve' && serviceUpdates) {
                 payload.serviceUpdates = serviceUpdates;
