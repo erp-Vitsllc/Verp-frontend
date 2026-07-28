@@ -22,6 +22,13 @@ export function shouldShowServiceCompletedCard(service, assignmentPending, stage
     if (assignmentPending) return false;
     const normalizedStage = String(stage || '').toLowerCase();
     if (!normalizedStage || normalizedStage === 'rejected') return false;
+    if (
+        normalizedStage === 'pending_hr' ||
+        normalizedStage === 'pending_accounts' ||
+        normalizedStage === 'complete'
+    ) {
+        return false;
+    }
     const remark = parseVehicleServiceRemark(service) || {};
     if (isOilServiceAssignmentPending(remark)) return false;
     return true;

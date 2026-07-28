@@ -148,9 +148,17 @@ export default function VehicleOilServiceDetailsPanel({
                 `/AssetItem/${vehicleId}/service/${serviceId}/oil-details/submit`,
                 { serviceUpdates },
             );
+            const routedTo = data?.routedTo || data?.asset?.activeServiceWorkflow?.stage;
             toast({
-                title: 'Service completed',
-                description: data?.message || 'Vehicle status restored. Stakeholders notified.',
+                title:
+                    routedTo === 'pending_hr'
+                        ? 'Sent to HR'
+                        : 'Service completed',
+                description:
+                    data?.message ||
+                    (routedTo === 'pending_hr'
+                        ? 'Cash payment sent to HR for approval, then Accounts will create the Zoho bill.'
+                        : 'Vehicle status restored. Stakeholders notified.'),
             });
             invalidateAssetPendingInbox('vehicle');
             if (typeof onUpdated === 'function') onUpdated(data?.asset);

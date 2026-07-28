@@ -53,13 +53,13 @@ import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundM
 import { formatRewardPaymentLabel, formatRewardStatusLabel, isRewardVisibleOnEmployeeProfile, isRewardPaymentEligible } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '@/app/HRM/Reward/utils/rewardPaymentPrefill';
 import {
-    canAccountsPayLoan,
-    buildLoanPaymentPrefill,
+    canAccountsCollectLoanRepayment,
 } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentPrefill';
 import {
     isLoanVisibleOnEmployeeProfile,
     formatLoanProfileStatus,
     formatLoanProfilePaymentLabel,
+    getLoanRepaymentBalance,
 } from '@/app/HRM/LoanAndAdvance/utils/loanStatusConstants';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
@@ -818,6 +818,7 @@ export default function SalaryTab({
     const [fineFilterEndMonth, setFineFilterEndMonth] = useState('');
     const [fineCompanyRefundOpen, setFineCompanyRefundOpen] = useState(false);
     const [fineCompanyRefundFines, setFineCompanyRefundFines] = useState([]);
+    const [loanCompanyRefundLoans, setLoanCompanyRefundLoans] = useState([]);
 
     useEffect(() => {
         const ref = profileBackHandlerRef;
@@ -826,6 +827,7 @@ export default function SalaryTab({
             if (fineCompanyRefundOpen) {
                 setFineCompanyRefundOpen(false);
                 setFineCompanyRefundFines([]);
+                setLoanCompanyRefundLoans([]);
                 return true;
             }
             if (selectedInvoice) {
@@ -1182,6 +1184,38 @@ export default function SalaryTab({
         }
 
         setFineCompanyRefundFines(list);
+        setLoanCompanyRefundLoans([]);
+        setFineCompanyRefundOpen(true);
+    };
+
+    const startLoanCompanyRefund = (loansToPay) => {
+        const list = Array.isArray(loansToPay) ? loansToPay.filter(Boolean) : [];
+        if (list.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No loan selected',
+                description: 'Select a loan or advance with an outstanding repayment balance.',
+            });
+            return;
+        }
+
+        if (
+            !list.every(
+                (l) =>
+                    canAccountsCollectLoanRepayment(l, currentUser) ||
+                    (isAccountsUser && getLoanRepaymentBalance(l) > 0.01),
+            )
+        ) {
+            toast({
+                variant: 'destructive',
+                title: 'Accounts only',
+                description: 'Only Accounts can record loan/advance Expense Refunds from this profile.',
+            });
+            return;
+        }
+
+        setFineCompanyRefundFines([]);
+        setLoanCompanyRefundLoans(list);
         setFineCompanyRefundOpen(true);
     };
 
@@ -3708,19 +3742,14 @@ export default function SalaryTab({
                                             (l.type || 'Loan') === 'Loan' &&
                                             isLoanVisibleOnEmployeeProfile(l),
                                     );
-                                    const openLoanPay = (loan) => {
-                                        const prefill = buildLoanPaymentPrefill(loan, {
-                                            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
-                                        });
-                                        if (!prefill) return;
-                                        sessionStorage.setItem('loanPaymentPrefill', JSON.stringify(prefill));
-                                        router.push('/Accounts/Payments?addLoanPay=1');
-                                    };
                                     return actualLoans.length > 0 ? (
                                         actualLoans.map((loan, index) => {
                                             const statusLabel = formatLoanProfileStatus(loan);
                                             const paymentLabel = formatLoanProfilePaymentLabel(loan);
-                                            const canPay = canAccountsPayLoan(loan, currentUser);
+                                            const canPay =
+                                                paymentLabel === 'Not Paid' &&
+                                                (canAccountsCollectLoanRepayment(loan, currentUser) ||
+                                                    isAccountsUser);
                                             return (
                                             <tr
                                                 key={loan._id || index}
@@ -3771,8 +3800,9 @@ export default function SalaryTab({
                                                     {canPay ? (
                                                         <button
                                                             type="button"
-                                                            onClick={() => openLoanPay(loan)}
+                                                            onClick={() => startLoanCompanyRefund([loan])}
                                                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                            title="Collect loan repayment — Expense Refund (Zoho Banking)"
                                                         >
                                                             <Wallet size={12} />
                                                             Pay
@@ -3825,19 +3855,14 @@ export default function SalaryTab({
                                     const advances = (loans || []).filter(
                                         (l) => l.type === 'Advance' && isLoanVisibleOnEmployeeProfile(l),
                                     );
-                                    const openAdvancePay = (loan) => {
-                                        const prefill = buildLoanPaymentPrefill(loan, {
-                                            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
-                                        });
-                                        if (!prefill) return;
-                                        sessionStorage.setItem('loanPaymentPrefill', JSON.stringify(prefill));
-                                        router.push('/Accounts/Payments?addLoanPay=1');
-                                    };
                                     return advances.length > 0 ? (
                                         advances.map((advance, index) => {
                                             const statusLabel = formatLoanProfileStatus(advance);
                                             const paymentLabel = formatLoanProfilePaymentLabel(advance);
-                                            const canPay = canAccountsPayLoan(advance, currentUser);
+                                            const canPay =
+                                                paymentLabel === 'Not Paid' &&
+                                                (canAccountsCollectLoanRepayment(advance, currentUser) ||
+                                                    isAccountsUser);
                                             return (
                                             <tr
                                                 key={advance._id || index}
@@ -3888,8 +3913,9 @@ export default function SalaryTab({
                                                     {canPay ? (
                                                         <button
                                                             type="button"
-                                                            onClick={() => openAdvancePay(advance)}
+                                                            onClick={() => startLoanCompanyRefund([advance])}
                                                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                            title="Collect advance repayment — Expense Refund (Zoho Banking)"
                                                         >
                                                             <Wallet size={12} />
                                                             Pay
@@ -6001,14 +6027,18 @@ export default function SalaryTab({
                 employee={employee}
                 employeeId={employeeId}
                 fines={fineCompanyRefundFines}
+                loans={loanCompanyRefundLoans}
                 getFineBalance={getFineFilteredBalance}
+                getLoanBalance={getLoanRepaymentBalance}
                 onClose={() => {
                     setFineCompanyRefundOpen(false);
                     setFineCompanyRefundFines([]);
+                    setLoanCompanyRefundLoans([]);
                 }}
                 onSuccess={() => {
                     setFineCompanyRefundOpen(false);
                     setFineCompanyRefundFines([]);
+                    setLoanCompanyRefundLoans([]);
                     setSelectedFinesForPayment([]);
                     axiosInstance
                         .get('/Payment', { params: { paidBy: employeeId } })

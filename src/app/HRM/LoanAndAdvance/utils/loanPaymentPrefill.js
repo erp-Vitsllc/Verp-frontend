@@ -1,4 +1,8 @@
-import { isLoanAwaitingEmployeePayment } from './loanStatusConstants';
+import {
+    getLoanRepaymentBalance,
+    isLoanAwaitingEmployeePayment,
+    isLoanPostManagementStatus,
+} from './loanStatusConstants';
 
 /**
  * Prefill helpers for Accounts → Payments (loan / advance Zoho payout).
@@ -9,18 +13,8 @@ function idEquals(a, b) {
     return String(a) === String(b);
 }
 
-/**
- * Accounts may pay after Management approval when they are Finance/Accounts
- * (dept/desig), the flowchart Accounts HOD, or the assigned "Paid to Employee" user.
- */
-export function canAccountsPayLoan(loan, user) {
-    if (!loan || !user) return false;
-    // Only after Management approval (Pending Payment to Employee, or legacy Approved with balance)
-    if (!isLoanAwaitingEmployeePayment(loan)) return false;
-    const amount = Number(loan.amount) || 0;
-    const paid = Number(loan.paidAmount) || 0;
-    if (amount <= 0 || amount - paid <= 0.01) return false;
-
+function isAccountsFinanceUser(user) {
+    if (!user) return false;
     if (user.isAdmin || user.role === 'admin') return true;
 
     const dept = String(user.department || '').toLowerCase();
@@ -35,13 +29,16 @@ export function canAccountsPayLoan(loan, user) {
     ) {
         return true;
     }
+    return false;
+}
 
-    // Live Accounts/Finance HOD for this loan (from detail API)
+function matchesLoanAccountsAssignee(loan, user) {
+    if (!loan || !user) return false;
+
     if (loan.accountsHODId && idEquals(user.employeeId, loan.accountsHODId)) {
         return true;
     }
 
-    // Assigned via submittedTo / workflow after Management approval
     if (
         idEquals(user._id || user.id, loan.submittedTo) ||
         idEquals(user.employeeObjectId, loan.submittedTo)
@@ -64,6 +61,29 @@ export function canAccountsPayLoan(loan, user) {
     }
 
     return false;
+}
+
+/**
+ * Accounts may disburse after Management approval (Loan detail / Accounts Payments).
+ */
+export function canAccountsPayLoan(loan, user) {
+    if (!loan || !user) return false;
+    if (!isLoanAwaitingEmployeePayment(loan)) return false;
+    const amount = Number(loan.amount) || 0;
+    const paid = Number(loan.paidAmount) || 0;
+    if (amount <= 0 || amount - paid <= 0.01) return false;
+
+    return isAccountsFinanceUser(user) || matchesLoanAccountsAssignee(loan, user);
+}
+
+/**
+ * Employee profile Pay: collect loan/advance repayment (Expense Refund → Zoho Banking).
+ */
+export function canAccountsCollectLoanRepayment(loan, user) {
+    if (!loan || !user) return false;
+    if (!isLoanPostManagementStatus(loan)) return false;
+    if (getLoanRepaymentBalance(loan) <= 0.01) return false;
+    return isAccountsFinanceUser(user) || matchesLoanAccountsAssignee(loan, user);
 }
 
 export function buildLoanPaymentPrefill(loan, { returnTo = '', companyId = '' } = {}) {

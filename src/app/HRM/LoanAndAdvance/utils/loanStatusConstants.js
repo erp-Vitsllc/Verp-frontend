@@ -50,6 +50,14 @@ export function isLoanFullyDisbursed(loan) {
     return workflow.some((w) => w?.role === 'Paid to Employee' && w?.status === 'Approved');
 }
 
+/** Outstanding amount the employee still owes the company. */
+export function getLoanRepaymentBalance(loan) {
+    if (!loan) return 0;
+    const amount = Number(loan.amount) || 0;
+    const repaid = Number(loan.repaidAmount) || 0;
+    return Math.max(0, amount - repaid);
+}
+
 /** Employee Salary profile: show after Management approve (awaiting pay or paid). */
 export function isLoanVisibleOnEmployeeProfile(loan) {
     return isLoanPostManagementStatus(loan);
@@ -66,12 +74,13 @@ export function formatLoanProfileStatus(loanOrStatus) {
     return status || '—';
 }
 
+/**
+ * Profile Payment column = employee → company repayment (not Accounts disbursement).
+ * After Management approval defaults to Not Paid until repaidAmount covers the loan.
+ */
 export function formatLoanProfilePaymentLabel(loan) {
     if (!loan) return '—';
-    if (isLoanFullyDisbursed(loan)) return 'Paid';
-    const status = resolveLoanStatus(loan);
-    if (isLoanAwaitingEmployeePayment(loan) || status === LOAN_PENDING_PAYMENT_STATUS) {
-        return 'Not Paid';
-    }
-    return '—';
+    if (!isLoanPostManagementStatus(loan)) return '—';
+    if (getLoanRepaymentBalance(loan) <= 0.01) return 'Paid';
+    return 'Not Paid';
 }

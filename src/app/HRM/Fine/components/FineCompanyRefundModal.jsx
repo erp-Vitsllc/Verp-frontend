@@ -161,7 +161,7 @@ function attachmentForApi(attachment, { includeData = true } = {}) {
 
 /**
  * Pay to company — Zoho Banking Expense Refund (Money In), not Payment Refund.
- * Supports Fine recovery and Utility Bill difference recovery.
+ * Supports Fine recovery, Utility Bill difference recovery, and Loan/Advance repayment.
  */
 export default function FineCompanyRefundModal({
     isOpen,
@@ -171,6 +171,7 @@ export default function FineCompanyRefundModal({
     employeeId = '',
     fines = [],
     utilityBills = [],
+    loans = [],
     getFineBalance = (f) => Number(f?.balance || f?.fineAmount || 0),
     getUtilityBalance = (b) => {
         const fromField = Number(b?.differenceAmount);
@@ -181,6 +182,8 @@ export default function FineCompanyRefundModal({
         const actual = Number(b?.amount) || 0;
         return Math.abs(contract - actual);
     },
+    getLoanBalance = (l) =>
+        Math.max(0, (Number(l?.amount) || 0) - (Number(l?.repaidAmount) || 0)),
 }) {
     const { toast } = useToast();
     const fileInputRef = useRef(null);
@@ -213,7 +216,8 @@ export default function FineCompanyRefundModal({
     const [saving, setSaving] = useState(false);
 
     const isUtilityMode = Array.isArray(utilityBills) && utilityBills.length > 0;
-    const sourceList = isUtilityMode ? utilityBills : fines;
+    const isLoanMode = !isUtilityMode && Array.isArray(loans) && loans.length > 0;
+    const sourceList = isUtilityMode ? utilityBills : isLoanMode ? loans : fines;
     const preferredOrgId = String(sourceList[0]?.zohoOrganizationId || '').trim();
     const preferredCompanyId = String(
         sourceList[0]?.company?._id || sourceList[0]?.company || '',
@@ -245,8 +249,24 @@ export default function FineCompanyRefundModal({
                     key,
                     fine: null,
                     utilityBill: b,
+                    loan: null,
                     paymentNo,
                     amount: balance,
+                    balance,
+                };
+            });
+        }
+        if (isLoanMode) {
+            return (Array.isArray(loans) ? loans : []).map((l) => {
+                const key = String(l.loanId || l._id);
+                const balance = Math.max(0, Number(getLoanBalance(l)) || 0);
+                return {
+                    key,
+                    fine: null,
+                    utilityBill: null,
+                    loan: l,
+                    paymentNo: l.loanId || key,
+                    amount: Number(l.amount) || balance,
                     balance,
                 };
             });
@@ -258,12 +278,22 @@ export default function FineCompanyRefundModal({
                 key,
                 fine: f,
                 utilityBill: null,
+                loan: null,
                 paymentNo: f.fineId || key,
                 amount: Number(f.fineAmount || f.employeeShare || balance) || 0,
                 balance,
             };
         });
-    }, [fines, utilityBills, isUtilityMode, getFineBalance, getUtilityBalance]);
+    }, [
+        fines,
+        utilityBills,
+        loans,
+        isUtilityMode,
+        isLoanMode,
+        getFineBalance,
+        getUtilityBalance,
+        getLoanBalance,
+    ]);
 
     const selectedRow = fineRows.find((r) => r.key === selectedFineKey) || null;
 
@@ -601,14 +631,20 @@ export default function FineCompanyRefundModal({
     };
 
     const handleSave = async () => {
-        const entity = isUtilityMode ? selectedRow?.utilityBill : selectedRow?.fine;
+        const entity = isUtilityMode
+            ? selectedRow?.utilityBill
+            : isLoanMode
+              ? selectedRow?.loan
+              : selectedRow?.fine;
         if (!entity) {
             toast({
                 variant: 'destructive',
                 title: 'Select a payment',
                 description: isUtilityMode
                     ? 'Choose a utility bill row to record as Expense Refund.'
-                    : 'Choose a fine payment row to record as Expense Refund.',
+                    : isLoanMode
+                      ? 'Choose a loan/advance row to record as Expense Refund.'
+                      : 'Choose a fine payment row to record as Expense Refund.',
             });
             return;
         }
@@ -696,14 +732,17 @@ export default function FineCompanyRefundModal({
                 ? attachmentForApi(attachments[0], { includeData: true })
                 : null;
 
+            const loanKind = String(entity.type || 'Loan').trim() === 'Advance' ? 'Advance' : 'Loan';
             const defaultDescription = isUtilityMode
                 ? `Expense Refund · Utility ${
                       entity.utilityType || ''
                   } ${entity.billMonth || ''} · Acc ${entity.accountNo || selectedRow.paymentNo}`.trim()
-                : `Expense Refund · Fine ${entity.fineId || selectedRow.paymentNo}`;
+                : isLoanMode
+                  ? `Expense Refund · ${loanKind} ${entity.loanId || selectedRow.paymentNo}`
+                  : `Expense Refund · Fine ${entity.fineId || selectedRow.paymentNo}`;
 
             const res = await axiosInstance.post('/Payment', {
-                paymentType: isUtilityMode ? 'UtilityBill' : 'Fine',
+                paymentType: isUtilityMode ? 'UtilityBill' : isLoanMode ? loanKind : 'Fine',
                 paidBy: employeeId,
                 amount: payAmt,
                 status: 'Completed',
@@ -713,8 +752,16 @@ export default function FineCompanyRefundModal({
                 }${selectedVendor ? ` · Vendor: ${selectedVendor.label}` : ''}`,
                 referenceId: isUtilityMode
                     ? String(entity._id || selectedRow.paymentNo)
-                    : entity.fineId,
-                relatedEntityType: isUtilityMode ? 'UtilityBill' : 'Fine',
+                    : isLoanMode
+                      ? entity.loanId || String(entity._id)
+                      : entity.fineId,
+                relatedEntityType: isUtilityMode
+                    ? 'UtilityBill'
+                    : isLoanMode
+                      ? loanKind === 'Advance'
+                          ? 'AdvanceRepayment'
+                          : 'LoanRepayment'
+                      : 'Fine',
                 relatedEntityId: entity._id,
                 paymentSource: paymentSourceMap[receivedVia] || 'Cash',
                 paymentDate: date,

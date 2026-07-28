@@ -43,6 +43,16 @@ export function isOilServiceLive(service, asset) {
 
     const remark = parseVehicleServiceRemark(service) || {};
     const wf = asset?.activeServiceWorkflow || {};
+    const stage = resolveOilServiceWorkflowStage(service, asset);
+
+    if (
+        stage === 'complete' ||
+        stage === 'pending_hr' ||
+        stage === 'pending_accounts' ||
+        stage === 'rejected'
+    ) {
+        return false;
+    }
 
     if (!isOilServiceWorkflowMatch(service, asset)) {
         return String(remark.oilServiceLiveAt || '').trim().length > 0;
@@ -136,6 +146,12 @@ export function resolveOilServiceApprovalStageLabel(service, asset) {
     if (stage === 'complete' || vehicleServiceDone) {
         return 'Complete';
     }
+    if (stage === 'pending_hr') {
+        return 'Awaiting HR (Cash)';
+    }
+    if (stage === 'pending_accounts') {
+        return 'Awaiting Accounts (Cash)';
+    }
     if (stage === 'rejected') {
         return 'Rejected';
     }
@@ -168,6 +184,12 @@ export function resolveOilServiceTableStatusLabel(service, asset) {
     }
     if (stage === 'complete' || vehicleServiceDone) {
         return { label: 'Complete', tone: 'complete' };
+    }
+    if (stage === 'pending_hr') {
+        return { label: 'Awaiting HR', tone: 'pending' };
+    }
+    if (stage === 'pending_accounts') {
+        return { label: 'Awaiting Accounts', tone: 'pending' };
     }
     if (stage === 'rejected') {
         return { label: 'Rejected', tone: 'rejected' };

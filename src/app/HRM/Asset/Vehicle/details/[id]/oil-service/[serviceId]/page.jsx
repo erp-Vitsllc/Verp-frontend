@@ -16,6 +16,7 @@ import VehicleOilServiceWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/V
 import VehicleOilServicePreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServicePreviousHistoryPanel';
 import VehicleOilServiceDetailsPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceDetailsPanel';
 import VehicleOilServiceCompletedCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceCompletedCard';
+import VehicleOilCashPaymentApprovalCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilCashPaymentApprovalCard';
 import {
     canUserManageOilService,
     canUserCreateOrInitiateVehicleService,
@@ -32,6 +33,10 @@ import {
     parseVehicleServiceRemark,
     vehicleServiceTypeKey,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
+import {
+    pickFlowchartAccountsRow,
+    pickFlowchartHrRow,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflow';
 
 const PAGE_SECTION_ANIMATION =
     'animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both';
@@ -155,6 +160,42 @@ function VehicleOilServiceDetailPageContent() {
         [service, asset],
     );
 
+    const isFlowchartHr = useMemo(() => {
+        const hrRow = pickFlowchartHrRow(flowchartRows);
+        if (!hrRow || !currentUser) return false;
+        const empRef = hrRow.empObjectId;
+        const rowMongo = typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
+        const myEmpObj = currentUser.employeeObjectId;
+        const myDocId = currentUser._id || currentUser.id;
+        if (rowMongo) {
+            if (myEmpObj && String(rowMongo) === String(myEmpObj)) return true;
+            if (myDocId && String(rowMongo) === String(myDocId)) return true;
+        }
+        const norm = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
+        const rowCode = norm(hrRow.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '');
+        const myCode = norm(currentUser.employeeId || '');
+        return !!(rowCode && myCode && rowCode === myCode);
+    }, [currentUser, flowchartRows]);
+
+    const isFlowchartAccounts = useMemo(() => {
+        const accountsRow = pickFlowchartAccountsRow(flowchartRows);
+        if (!accountsRow || !currentUser) return false;
+        const empRef = accountsRow.empObjectId;
+        const rowMongo = typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
+        const myEmpObj = currentUser.employeeObjectId;
+        const myDocId = currentUser._id || currentUser.id;
+        if (rowMongo) {
+            if (myEmpObj && String(rowMongo) === String(myEmpObj)) return true;
+            if (myDocId && String(rowMongo) === String(myDocId)) return true;
+        }
+        const norm = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
+        const rowCode = norm(
+            accountsRow.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '',
+        );
+        const myCode = norm(currentUser.employeeId || '');
+        return !!(rowCode && myCode && rowCode === myCode);
+    }, [currentUser, flowchartRows]);
+
     const handleRequested = useCallback(() => {
         if (typeof draftSubmitRef.current === 'function') {
             void draftSubmitRef.current();
@@ -277,6 +318,21 @@ function VehicleOilServiceDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canManage={canManageOilService}
+                                workflowStage={oilWorkflowStage}
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) setAsset(updatedAsset);
+                                    void load();
+                                }}
+                                className="w-full shrink-0"
+                            />
+
+                            <VehicleOilCashPaymentApprovalCard
+                                asset={asset}
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canActHr={isFlowchartHr}
+                                canActAccounts={isFlowchartAccounts}
                                 workflowStage={oilWorkflowStage}
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
