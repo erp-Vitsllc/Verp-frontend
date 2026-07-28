@@ -116,10 +116,8 @@ export function canEditAccidentRepairGarage(stage, canManageAccidentRepair, { as
 }
 
 export function canApproveAccidentRepairGarageAccounts(stage, isFlowchartAccounts) {
-    return (
-        isFlowchartAccounts &&
-        (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS || stage === 'pending_billing')
-    );
+    // Zoho billing uses VehicleServiceAccountsZohoBillingCard (pending_billing), not this garage Approve.
+    return isFlowchartAccounts && stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS;
 }
 
 export function canEditAccidentRepairReturn(stage, canManageAccidentRepair, isComplete, asset) {

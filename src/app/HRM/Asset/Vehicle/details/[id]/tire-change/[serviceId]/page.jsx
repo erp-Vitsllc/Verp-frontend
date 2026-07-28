@@ -15,6 +15,7 @@ import VehicleTireChangeDetailForm from '@/app/HRM/Asset/Vehicle/components/Vehi
 import VehicleTireChangeQuoteApprovalCard from '@/app/HRM/Asset/Vehicle/components/VehicleTireChangeQuoteApprovalCard';
 import VehicleTireChangeGarageCard from '@/app/HRM/Asset/Vehicle/components/VehicleTireChangeGarageCard';
 import VehicleTireChangeReturnCard from '@/app/HRM/Asset/Vehicle/components/VehicleTireChangeReturnCard';
+import VehicleServiceAccountsZohoBillingCard from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAccountsZohoBillingCard';
 import VehicleTireChangePreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleTireChangePreviousHistoryPanel';
 import VehicleTireChangeDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleTireChangeDriverHistoryPanel';
 import VehicleOilServiceWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceWorkflowPanel';
@@ -343,6 +344,19 @@ function VehicleTireChangeDetailPageContent() {
                                         className="w-full shrink-0"
                                     />
                                 ) : null}
+                                <VehicleServiceAccountsZohoBillingCard
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canActAccounts={isFlowchartAccounts}
+                                    workflowStage={tireWorkflowStage}
+                                    serviceTypeLabel="Tire Change"
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load();
+                                    }}
+                                    className="w-full shrink-0"
+                                />
                             </div>
                         </div>
 

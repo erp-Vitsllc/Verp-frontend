@@ -312,22 +312,7 @@ function VehicleOilServiceDetailPageContent() {
                                 className="w-full shrink-0"
                             />
 
-                            {/* Accounts / HR billing card stays above Service Details */}
-                            <VehicleOilCashPaymentApprovalCard
-                                asset={asset}
-                                service={service}
-                                vehicleId={vehicleId}
-                                serviceId={serviceId}
-                                canActHr={isFlowchartHr}
-                                canActAccounts={isFlowchartAccounts}
-                                workflowStage={oilWorkflowStage}
-                                onUpdated={(updatedAsset) => {
-                                    if (updatedAsset) setAsset(updatedAsset);
-                                    void load();
-                                }}
-                                className="w-full shrink-0"
-                            />
-
+                            {/* Workflow order: Service Details (End Service) first, then Accounts / HR */}
                             {!assignmentPending ? (
                                 <VehicleOilServiceDetailsPanel
                                     asset={asset}
@@ -343,6 +328,21 @@ function VehicleOilServiceDetailPageContent() {
                                     }}
                                 />
                             ) : null}
+
+                            <VehicleOilCashPaymentApprovalCard
+                                asset={asset}
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canActHr={isFlowchartHr}
+                                canActAccounts={isFlowchartAccounts}
+                                workflowStage={oilWorkflowStage}
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) setAsset(updatedAsset);
+                                    void load();
+                                }}
+                                className="w-full shrink-0"
+                            />
 
                             <VehicleOilServiceCompletedCard
                                 asset={asset}

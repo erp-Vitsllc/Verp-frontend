@@ -66,10 +66,8 @@ export function canEditBodyWorkGarage(stage, canManageBodyWork, { asset, service
 }
 
 export function canApproveBodyWorkGarageAccounts(stage, isFlowchartAccounts) {
-    return (
-        isFlowchartAccounts &&
-        (stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS || stage === 'pending_billing')
-    );
+    // Zoho billing uses VehicleServiceAccountsZohoBillingCard (pending_billing), not this garage Approve.
+    return isFlowchartAccounts && stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS;
 }
 
 export function canEditBodyWorkReturn(stage, canManageBodyWork, isComplete, asset) {

@@ -66,10 +66,8 @@ export function canEditMechanicalWorkGarage(stage, canManageMechanicalWork, { as
 }
 
 export function canApproveMechanicalWorkGarageAccounts(stage, isFlowchartAccounts) {
-    return (
-        isFlowchartAccounts &&
-        (stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS || stage === 'pending_billing')
-    );
+    // Zoho billing uses VehicleServiceAccountsZohoBillingCard (pending_billing), not this garage Approve.
+    return isFlowchartAccounts && stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS;
 }
 
 export function canEditMechanicalWorkReturn(stage, canManageMechanicalWork, isComplete, asset) {

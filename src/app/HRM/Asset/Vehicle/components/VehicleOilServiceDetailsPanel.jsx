@@ -13,7 +13,39 @@ import {
     isOilServiceScheduledWaiting,
 } from '../utils/vehicleOilServiceAccess';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
-import { normalizeMongoId, parseVehicleServiceRemark } from './vehicleServiceUtils';
+import {
+    normalizeMongoId,
+    parseVehicleServiceRemark,
+    resolveAssetCurrentKilometer,
+} from './vehicleServiceUtils';
+
+function formatKmDisplay(value) {
+    if (value == null || String(value).trim() === '') return '—';
+    const n = Number(value);
+    if (Number.isFinite(n)) return n.toLocaleString();
+    return String(value).trim();
+}
+
+function resolveServiceCurrentKm(service, asset) {
+    const remark = parseVehicleServiceRemark(service) || {};
+    const fromService =
+        remark.currentKm != null && String(remark.currentKm).trim() !== ''
+            ? remark.currentKm
+            : service?.currentKm != null && String(service.currentKm).trim() !== ''
+              ? service.currentKm
+              : '';
+    if (fromService !== '') return fromService;
+    return resolveAssetCurrentKilometer(asset);
+}
+
+function CurrentKmHeaderBadge({ value }) {
+    return (
+        <div className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-1.5 text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-700/80">Current KM</p>
+            <p className="text-sm font-bold tabular-nums text-teal-900">{formatKmDisplay(value)}</p>
+        </div>
+    );
+}
 
 function resolveWorkflow(asset, serviceId) {
     const activeWf = asset?.activeServiceWorkflow;
@@ -117,6 +149,7 @@ export default function VehicleOilServiceDetailsPanel({
 
     const locked = isComplete || isRejected;
     const canAct = !locked && canManage && detailsEnabled;
+    const currentKm = resolveServiceCurrentKm(service, asset);
 
     const handleSave = async (formPayload) => {
         if (!vehicleId || !canAct) return;
@@ -188,6 +221,7 @@ export default function VehicleOilServiceDetailsPanel({
                 iconBg="bg-teal-50"
                 iconColor="text-teal-600"
                 className="w-full"
+                headerAction={<CurrentKmHeaderBadge value={currentKm} />}
             >
                 <VehicleOilServiceDetailsForm
                     service={service}

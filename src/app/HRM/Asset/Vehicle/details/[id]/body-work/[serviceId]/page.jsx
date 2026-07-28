@@ -15,6 +15,7 @@ import VehicleBodyWorkDetailForm from '@/app/HRM/Asset/Vehicle/components/Vehicl
 import VehicleBodyWorkQuoteApprovalCard from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkQuoteApprovalCard';
 import VehicleBodyWorkGarageCard from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkGarageCard';
 import VehicleBodyWorkReturnCard from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkReturnCard';
+import VehicleServiceAccountsZohoBillingCard from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAccountsZohoBillingCard';
 import VehicleBodyWorkPreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkPreviousHistoryPanel';
 import VehicleBodyWorkDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkDriverHistoryPanel';
 import VehicleBodyWorkWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkWorkflowPanel';
@@ -343,6 +344,19 @@ function VehicleBodyWorkDetailPageContent() {
                                         className="w-full shrink-0"
                                     />
                                 ) : null}
+                                <VehicleServiceAccountsZohoBillingCard
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canActAccounts={isFlowchartAccounts}
+                                    workflowStage={bodyWorkflowStage}
+                                    serviceTypeLabel="Body Work"
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load();
+                                    }}
+                                    className="w-full shrink-0"
+                                />
                             </div>
                         </div>
 

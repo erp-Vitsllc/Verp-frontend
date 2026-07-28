@@ -143,9 +143,7 @@ export default function VehicleMechanicalWorkGarageCard({
         stage === MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_OFFICER
             ? 'Admin Officer — update garage vendor, pay account, amount, attachment and service window, then click Update Garage'
             : stage === 'pending_billing'
-              ? canApproveAccounts
-                  ? 'Accounts — review billing below, then Submit to Zoho (Billed only if Zoho succeeds)'
-                  : 'Service completed — awaiting Accounts Zoho billing'
+              ? 'Service completed — use Accounts Billing card below for Zoho'
               : stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS
                 ? canApproveAccounts
                     ? 'Legacy — Accounts garage schedule approval (Zoho is after End Service)'

@@ -108,6 +108,14 @@ export default function VehicleOilCashPaymentApprovalCard({
     );
 
     if (!isCash) return null;
+
+    const isBilled =
+        stage === 'billed' ||
+        stage === 'complete' ||
+        String(remark.billingStatus || '').toLowerCase() === 'billed' ||
+        Boolean(String(remark.zohoBillId || '').trim());
+    // After billed — hide Accounts / HR action card (no need to go there again).
+    if (isBilled) return null;
     if (stage !== 'pending_hr' && stage !== 'pending_accounts') return null;
 
     const isHr = stage === 'pending_hr';

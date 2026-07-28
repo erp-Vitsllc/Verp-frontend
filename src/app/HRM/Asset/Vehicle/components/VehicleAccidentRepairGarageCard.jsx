@@ -178,9 +178,7 @@ export default function VehicleAccidentRepairGarageCard({
             : stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER
               ? 'Admin Officer — complete garage vendor, pay account, amount, attachment and service window, then click Done'
               : stage === 'pending_billing'
-                ? canApproveAccounts
-                    ? 'Accounts — review billing below, then Submit to Zoho (Billed only if Zoho succeeds)'
-                    : 'Service completed — awaiting Accounts Zoho billing'
+                ? 'Service completed — use Accounts Billing card below for Zoho'
                 : stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS
                   ? canApproveAccounts
                       ? 'Legacy — Accounts garage schedule approval (Zoho is after End Service)'

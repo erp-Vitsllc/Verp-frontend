@@ -18,11 +18,22 @@ export function resolveOilServiceWorkflowStage(service, asset) {
     const wf = asset?.activeServiceWorkflow || {};
     const wfMatch = serviceId && normalizeMongoId(wf.serviceRecordId) === serviceId;
 
+    const remarkStage = String(remark.workflowStage || remark.stage || '')
+        .toLowerCase()
+        .trim();
+    const billingStatus = String(remark.billingStatus || '')
+        .toLowerCase()
+        .trim();
+
+    // Billed is final — never keep showing Accounts from a stale snapshot/wf stage.
+    if (remarkStage === 'billed' || billingStatus === 'billed' || String(remark.zohoBillId || '').trim()) {
+        return 'billed';
+    }
+
     return String(
-        service?.workflowSnapshot?.stage ||
-            (wfMatch ? wf.stage : '') ||
-            remark.workflowStage ||
-            remark.stage ||
+        (wfMatch ? wf.stage : '') ||
+            service?.workflowSnapshot?.stage ||
+            remarkStage ||
             '',
     )
         .toLowerCase()

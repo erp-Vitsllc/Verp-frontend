@@ -14,6 +14,7 @@ import VehicleAccidentRepairDetailHeaderCards from '@/app/HRM/Asset/Vehicle/comp
 import VehicleAccidentRepairDetailForm from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairDetailForm';
 import VehicleAccidentRepairGarageCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairGarageCard';
 import VehicleAccidentRepairReturnCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairReturnCard';
+import VehicleServiceAccountsZohoBillingCard from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAccountsZohoBillingCard';
 import VehicleAccidentRepairPreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairPreviousHistoryPanel';
 import VehicleAccidentRepairDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairDriverHistoryPanel';
 import VehicleAccidentRepairWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairWorkflowPanel';
@@ -299,6 +300,19 @@ function VehicleAccidentRepairDetailPageContent() {
                                         className="w-full shrink-0"
                                     />
                                 ) : null}
+                                <VehicleServiceAccountsZohoBillingCard
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canActAccounts={isFlowchartAccounts}
+                                    workflowStage={accidentRepairflowStage}
+                                    serviceTypeLabel="Accident Repair"
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load();
+                                    }}
+                                    className="w-full shrink-0"
+                                />
                             </div>
                         </div>
 

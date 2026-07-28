@@ -172,10 +172,8 @@ export function canEditTireChangeGarage(stage, canManageTireChange) {
 }
 
 export function canApproveTireChangeGarageAccounts(stage, isFlowchartAccounts) {
-    return (
-        isFlowchartAccounts &&
-        (stage === TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS || stage === 'pending_billing')
-    );
+    // Zoho billing uses VehicleServiceAccountsZohoBillingCard (pending_billing), not this garage Approve.
+    return isFlowchartAccounts && stage === TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS;
 }
 
 export function canEditTireChangeReturn(stage, canManageTireChange, isComplete, asset) {
