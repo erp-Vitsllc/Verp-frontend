@@ -521,7 +521,15 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
             detail = detail ? `${detail} · ${startLine}` : startLine;
         }
         if (step.id === 3 && serviceStartDate) {
-            detail = `Waiting for start date · ${formatOilDate(serviceStartDate)}`;
+            const waiting = isOilServiceScheduledWaiting(service, asset);
+            const live = isOilServiceLive(service, asset);
+            if (waiting) {
+                detail = `Waiting for start date · ${formatOilDate(serviceStartDate)}`;
+            } else if (live || scheduled) {
+                detail = `Scheduled · start ${formatOilDate(serviceStartDate)}`;
+            } else {
+                detail = `Planned start · ${formatOilDate(serviceStartDate)}`;
+            }
         }
         if (step.id === 4 && serviceStartDate) {
             detail = `Service start: ${formatOilDate(serviceStartDate)}`;

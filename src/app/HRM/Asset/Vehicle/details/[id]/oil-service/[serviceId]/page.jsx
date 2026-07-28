@@ -81,9 +81,9 @@ function VehicleOilServiceDetailPageContent() {
         });
     }, []);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async ({ silent = false } = {}) => {
         if (!vehicleId) return;
-        setLoading(true);
+        if (!silent) setLoading(true);
         try {
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`);
             setAsset(response.data || null);
@@ -93,9 +93,9 @@ function VehicleOilServiceDetailPageContent() {
                 title: 'Could not load oil service details',
                 description: error.response?.data?.message || 'Try again in a moment.',
             });
-            setAsset(null);
+            if (!silent) setAsset(null);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, [toast, vehicleId]);
 
@@ -305,7 +305,7 @@ function VehicleOilServiceDetailPageContent() {
                                         if (updatedAsset) {
                                             setAsset(updatedAsset);
                                         }
-                                        void load();
+                                        void load({ silent: true });
                                     }}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}

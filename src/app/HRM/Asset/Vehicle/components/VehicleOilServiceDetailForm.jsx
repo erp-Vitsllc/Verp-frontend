@@ -8,7 +8,11 @@ import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { isSystemSuperUser } from '@/utils/permissions';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { DatePicker } from '@/components/ui/date-picker';
-import { parseVehicleServiceRemark } from './vehicleServiceUtils';
+import {
+    normalizeMongoId,
+    parseVehicleServiceRemark,
+    vehicleServiceTypeKey,
+} from './vehicleServiceUtils';
 import {
     OIL_SERVICE_DETAIL_GRID_ACCENTS,
     OIL_SERVICE_DETAIL_GRID_LAYOUT,
@@ -16,6 +20,8 @@ import {
 import { formatVehicleServiceReqNo } from '../utils/vehicleServiceReqNo';
 import {
     isOilServiceAssignmentPending,
+    isOilServiceLive,
+    isOilServiceScheduledWaiting,
 } from '../utils/vehicleOilServiceAccess';
 import {
     formatWarrantyExpiryFromAsset,
@@ -532,12 +538,37 @@ export default function VehicleOilServiceDetailForm({
             const submitRes = await axiosInstance.post(
                 `/AssetItem/${vehicleId}/service/${serviceId}/submit-request`,
             );
+            const nextAsset = submitRes.data?.asset || null;
+            const nextService =
+                (Array.isArray(nextAsset?.services)
+                    ? nextAsset.services.find(
+                          (row) =>
+                              normalizeMongoId(row?._id) === normalizeMongoId(serviceId) &&
+                              vehicleServiceTypeKey(row) === 'Oil Service',
+                      )
+                    : null) || service;
+            const live = nextAsset ? isOilServiceLive(nextService, nextAsset) : false;
+            const waiting = nextAsset ? isOilServiceScheduledWaiting(nextService, nextAsset) : false;
+            const startLabel = String(formData.serviceStartDate || '').trim();
+
             toast({
-                title: 'Service requested',
-                description: 'Vehicle is on service. HR, Admin Officer, and assignee have been notified.',
+                title: live ? 'Vehicle on service' : 'Oil service scheduled',
+                description: live
+                    ? 'Service Details unlocked below — complete End Service when the work is done. HR approval comes after End Service for cash.'
+                    : waiting
+                      ? `Scheduled. Service Details unlock on ${startLabel || 'the start date'} (On Service). Same page — scroll down.`
+                      : 'Request submitted. Refresh if the tracker does not update.',
             });
             if (typeof onSaved === 'function') {
-                onSaved(submitRes.data?.asset || null);
+                onSaved(nextAsset);
+            }
+            // Stay on this page — scroll to Service Details / waiting panel (no separate route).
+            if (typeof window !== 'undefined') {
+                window.setTimeout(() => {
+                    document
+                        .getElementById('oil-service-details-panel')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 350);
             }
         } catch (error) {
             toast({
@@ -548,7 +579,7 @@ export default function VehicleOilServiceDetailForm({
         } finally {
             setSaving(false);
         }
-    }, [formData, assignmentPending, onSaved, saving, serviceId, toast, vehicleId]);
+    }, [formData, assignmentPending, onSaved, saving, service, serviceId, toast, vehicleId]);
 
     const canRequest = assignmentPending && !saving && canEditAssignment && isOilServiceDetailFormComplete(formData);
     const missingFields = useMemo(

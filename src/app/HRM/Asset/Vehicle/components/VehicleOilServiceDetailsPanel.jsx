@@ -58,7 +58,7 @@ export default function VehicleOilServiceDetailsPanel({
 
     if (assignmentPending) {
         return (
-            <div className="w-full shrink-0">
+            <div id="oil-service-details-panel" className="w-full shrink-0">
                 <FineFormCard
                     title="Service Details"
                     subtitle="Available after the assignment is sent"
@@ -77,7 +77,7 @@ export default function VehicleOilServiceDetailsPanel({
 
     if (scheduledWaiting) {
         return (
-            <div className="w-full shrink-0">
+            <div id="oil-service-details-panel" className="w-full shrink-0">
                 <FineFormCard
                     title="Service Details"
                     subtitle="Scheduled — waiting for service start date"
@@ -89,7 +89,7 @@ export default function VehicleOilServiceDetailsPanel({
                     <p className="text-sm text-gray-500">
                         This service is scheduled. Service Details will unlock automatically on{' '}
                         <span className="font-semibold text-gray-700">{formatShortDate(serviceStartDate)}</span>{' '}
-                        when the vehicle moves to On Service.
+                        when the vehicle moves to On Service. There is no separate next page — stay on this screen.
                     </p>
                 </FineFormCard>
             </div>
@@ -98,7 +98,7 @@ export default function VehicleOilServiceDetailsPanel({
 
     if (!detailsEnabled && !isComplete && !isRejected) {
         return (
-            <div className="w-full shrink-0">
+            <div id="oil-service-details-panel" className="w-full shrink-0">
                 <FineFormCard
                     title="Service Details"
                     subtitle="Not available yet"
@@ -174,7 +174,7 @@ export default function VehicleOilServiceDetailsPanel({
     };
 
     return (
-        <div className={`w-full shrink-0 ${locked ? 'opacity-95' : ''}`}>
+        <div id="oil-service-details-panel" className={`w-full shrink-0 ${locked ? 'opacity-95' : ''}`}>
             <FineFormCard
                 title="Service Details"
                 subtitle={
