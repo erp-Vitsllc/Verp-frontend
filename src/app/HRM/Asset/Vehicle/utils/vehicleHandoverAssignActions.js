@@ -435,6 +435,10 @@ export function canEditInspectionHandoverContent({
 }) {
     if (!vehicle || !currentUser || !historyEntry) return false;
     if (!isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return false;
+
+    // Portal Super User may add/change photos at any inspection status (draft / pending / complete / rejected).
+    if (isPortalSuperUser()) return true;
+
     if (String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft') return false;
 
     const linkedId = vehicle?.vehicleInspectionHandoverHistoryId;
@@ -445,8 +449,6 @@ export function canEditInspectionHandoverContent({
     if (!allowAfterBodyComplete && historyEntry?.details?.bodyConditionCompleted === true) {
         return false;
     }
-
-    if (isPortalSuperUser()) return true;
 
     const isAdmin = isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow);
 
@@ -481,6 +483,11 @@ export function canEditInspectionHandoverAccessories({
     currentUser = null,
     flowchartAdminRow = null,
 } = {}) {
+    if (!vehicle || !currentUser || !historyEntry) return false;
+    // Portal Super User may change accessory photos after assessment is done / approved / rejected.
+    if (isPortalSuperUser()) {
+        return isVehicleInspectionHandoverEntry(historyEntry, vehicle);
+    }
     if (isReceiverAssessmentMarkedDone(historyEntry)) return false;
     return canEditInspectionHandoverContent({
         vehicle,
@@ -498,9 +505,11 @@ export function canEditHandoverReports({
     flowchartAdminRow = null,
 }) {
     if (!vehicle || !currentUser) return false;
-    if (isHandoverReportsLocked(vehicle, historyEntry)) return false;
 
+    // Portal Super User may add/change handover photos at any status (pending / approved / rejected).
     if (isPortalSuperUser()) return true;
+
+    if (isHandoverReportsLocked(vehicle, historyEntry)) return false;
 
     const isAdmin = isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow);
     const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
@@ -521,6 +530,11 @@ export function canEditHandoverReports({
     }
 
     return isAdmin;
+}
+
+/** True when Portal Super User may force Add/Change photo controls after complete/reject. */
+export function canForceEditHandoverPhotos() {
+    return isPortalSuperUser();
 }
 
 export function canUserActOnHandoverAssign({

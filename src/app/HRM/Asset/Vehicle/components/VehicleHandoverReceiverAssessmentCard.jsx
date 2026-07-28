@@ -326,6 +326,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
     inspectionHandover = false,
     mirrorLiveAccessories = false,
     readOnly: readOnlyProp = false,
+    forceEditable = false,
     handoverItemFines = {},
     handoverFines = [],
     handoverItemFineWaivers = {},
@@ -523,10 +524,13 @@ export default function VehicleHandoverReceiverAssessmentCard({
 
     const displayEntry = localEntry || historyEntry;
     const assessmentCompleted = isReceiverAssessmentMarkedDone(displayEntry);
-    const readOnly = readOnlyProp || assessmentCompleted || (
-        inspectionHandover &&
-        String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft'
-    );
+    // Portal Super User may Add/Change photos after assessment done / approved / rejected.
+    const readOnly = forceEditable
+        ? false
+        : readOnlyProp ||
+          assessmentCompleted ||
+          (inspectionHandover &&
+              String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft');
     const effectiveAssessmentForm = useMemo(() => {
         if (inspectionHandover || mirrorLiveAccessories || assessmentCompleted || readOnly) {
             return cloneAssessmentForm(form);

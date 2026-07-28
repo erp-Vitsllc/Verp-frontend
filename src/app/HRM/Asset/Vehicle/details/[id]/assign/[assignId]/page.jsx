@@ -110,6 +110,7 @@ function VehicleHandoverAssignPageContent() {
         canEditInspectionForm,
         canEditInspectionAccessories,
         canSubmitInspectionForHr,
+        canForceEditPhotos,
         isHandoverHrStage: handoverAtHrStage,
         isFlowchartHr,
         flowchartRows,
@@ -117,10 +118,11 @@ function VehicleHandoverAssignPageContent() {
         loading: permissionsLoading,
     } = useHandoverAssignPermissions(vehicle, historyEntry);
     const isInspectionHandover = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
-    const reportsReadOnly = !permissionsLoading && !canEditReports;
-    const inspectionFormReadOnly = !permissionsLoading && !canEditInspectionForm;
+    const reportsReadOnly = !permissionsLoading && !canEditReports && !canForceEditPhotos;
+    const inspectionFormReadOnly =
+        !permissionsLoading && !canEditInspectionForm && !canForceEditPhotos;
     const inspectionAccessoriesReadOnly =
-        permissionsLoading || !canEditInspectionAccessories;
+        permissionsLoading || (!canEditInspectionAccessories && !canForceEditPhotos);
     const accessoriesReadOnly = isInspectionHandover
         ? inspectionAccessoriesReadOnly
         : reportsReadOnly;
@@ -838,6 +840,7 @@ function VehicleHandoverAssignPageContent() {
                                                 !isReceiverAssessmentMarkedDone(historyEntry)
                                             }
                                             readOnly={accessoriesReadOnly}
+                                            forceEditable={canForceEditPhotos}
                                             handoverItemFines={handoverItemFineIndexForUi}
                                             handoverFines={handoverFinesForUi}
                                             handoverItemFineWaivers={handoverItemFineWaiversForUi}
@@ -883,6 +886,7 @@ function VehicleHandoverAssignPageContent() {
                                     readOnly={
                                         isInspectionHandover ? inspectionFormReadOnly : reportsReadOnly
                                     }
+                                    forceEditable={canForceEditPhotos}
                                     inspectionHandover={isInspectionHandover}
                                     onVehicleUpdated={handleVehicleUpdated}
                                     onGoToApproval={scrollToApprovalHeader}

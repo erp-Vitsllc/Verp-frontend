@@ -6,6 +6,7 @@ import {
     canEditHandoverReports,
     canEditInspectionHandoverContent,
     canEditInspectionHandoverAccessories,
+    canForceEditHandoverPhotos,
     canUserActOnHandoverAssign,
     flowchartAdminRowMatchesUser,
     isHandoverReportsLocked,
@@ -178,6 +179,8 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         return isHandoverReportsCompleteForEntry(historyEntry, vehicle);
     }, [vehicle, historyEntry, currentUser, flowchartAdminRow]);
 
+    const canForceEditPhotos = useMemo(() => canForceEditHandoverPhotos(), [currentUser]);
+
     return {
         currentUser,
         flowchartAdminRow,
@@ -205,6 +208,7 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         canEditInspectionForm,
         canEditInspectionAccessories,
         canSubmitInspectionForHr,
+        canForceEditPhotos,
         reportsLocked,
         loading,
     };

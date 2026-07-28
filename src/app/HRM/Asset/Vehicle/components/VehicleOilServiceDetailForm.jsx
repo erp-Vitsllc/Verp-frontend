@@ -546,10 +546,32 @@ export default function VehicleOilServiceDetailForm({
                               normalizeMongoId(row?._id) === normalizeMongoId(serviceId) &&
                               vehicleServiceTypeKey(row) === 'Oil Service',
                       )
-                    : null) || service;
-            const live = nextAsset ? isOilServiceLive(nextService, nextAsset) : false;
-            const waiting = nextAsset ? isOilServiceScheduledWaiting(nextService, nextAsset) : false;
+                    : null) || null;
+            const nextRemark = (() => {
+                try {
+                    return nextService?.remark ? JSON.parse(nextService.remark) : {};
+                } catch {
+                    return {};
+                }
+            })();
+            const submitted =
+                String(nextRemark.requestStatus || '').toLowerCase() === 'submitted' ||
+                Boolean(nextRemark.assignmentSubmittedAt);
+            const live = nextAsset && nextService ? isOilServiceLive(nextService, nextAsset) : false;
+            const waiting =
+                nextAsset && nextService ? isOilServiceScheduledWaiting(nextService, nextAsset) : false;
             const startLabel = String(formData.serviceStartDate || '').trim();
+
+            if (!submitted && !live && !waiting) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Submit did not stick',
+                    description:
+                        'Server returned success but the request is still pending. Restart the backend and click Send again.',
+                });
+                if (typeof onSaved === 'function') onSaved(nextAsset);
+                return;
+            }
 
             toast({
                 title: live ? 'Vehicle on service' : 'Oil service scheduled',
@@ -557,12 +579,11 @@ export default function VehicleOilServiceDetailForm({
                     ? 'Service Details unlocked below — complete End Service when the work is done. HR approval comes after End Service for cash.'
                     : waiting
                       ? `Scheduled. Service Details unlock on ${startLabel || 'the start date'} (On Service). Same page — scroll down.`
-                      : 'Request submitted. Refresh if the tracker does not update.',
+                      : 'Request submitted. Scroll down for the next section on this page.',
             });
             if (typeof onSaved === 'function') {
                 onSaved(nextAsset);
             }
-            // Stay on this page — scroll to Service Details / waiting panel (no separate route).
             if (typeof window !== 'undefined') {
                 window.setTimeout(() => {
                     document

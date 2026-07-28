@@ -783,7 +783,8 @@ function VehicleDetailsPageContent() {
             }
             const response = await axiosInstance.get(endpoint, {
                 params: Object.keys(locatorParams).length ? locatorParams : undefined,
-                timeout: locatorRoute ? 45000 : light ? 20000 : 45000,
+                // Light first paint must stay snappy; full/locator can take longer.
+                timeout: locatorRoute ? 30000 : light ? 15000 : 30000,
                 skipToast: silent,
             });
             if (ticket !== fetchAssetDetailsTicketRef.current) return;
@@ -811,43 +812,48 @@ function VehicleDetailsPageContent() {
                     ? { ...payload, ...locatorOverlayRef.current }
                     : payload;
 
-            let nextAsset = merged;
-
-            if (!locatorRoute && merged?.locatorDeviceId && !merged?.locator) {
-                try {
-                    const overlayRes = await axiosInstance.get(
-                        `/locator/device-overlay/${merged.locatorDeviceId}`,
-                        { skipToast: true, timeout: 30000 },
-                    );
-                    const overlay = overlayRes.data?.data;
-                    if (overlay) {
-                        locatorOverlayRef.current = overlay;
-                        nextAsset = {
-                            ...merged,
-                            ...overlay,
-                            currentKilometer:
-                                overlay.currentKilometer != null
-                                    ? overlay.currentKilometer
-                                    : merged.currentKilometer,
-                        };
-                    }
-                } catch {
-                    // Locator overlay is optional when GPS is unavailable.
-                }
+            // Paint ERP details immediately — don't block spinner on GPS overlay.
+            setAsset(merged);
+            if (ticket === fetchAssetDetailsTicketRef.current && !silent) {
+                setLoading(false);
             }
 
-            setAsset(nextAsset);
-
-            if (locatorRoute && nextAsset?._id) {
+            if (locatorRoute && merged?._id) {
                 pendingLocatorRouteReplaceRef.current = true;
                 const qs = searchParams.toString();
                 const nextPath = qs
-                    ? `/HRM/Asset/Vehicle/details/${nextAsset._id}?${qs}`
-                    : `/HRM/Asset/Vehicle/details/${nextAsset._id}`;
+                    ? `/HRM/Asset/Vehicle/details/${merged._id}?${qs}`
+                    : `/HRM/Asset/Vehicle/details/${merged._id}`;
                 router.replace(nextPath, { scroll: false });
             }
 
-            return nextAsset;
+            if (!locatorRoute && merged?.locatorDeviceId && !merged?.locator) {
+                void axiosInstance
+                    .get(`/locator/device-overlay/${merged.locatorDeviceId}`, {
+                        skipToast: true,
+                        timeout: 12000,
+                    })
+                    .then((overlayRes) => {
+                        if (ticket !== fetchAssetDetailsTicketRef.current) return;
+                        const overlay = overlayRes.data?.data;
+                        if (!overlay) return;
+                        locatorOverlayRef.current = overlay;
+                        setAsset((prev) => {
+                            if (!prev || String(prev._id) !== String(merged._id)) return prev;
+                            return {
+                                ...prev,
+                                ...overlay,
+                                currentKilometer:
+                                    overlay.currentKilometer != null
+                                        ? overlay.currentKilometer
+                                        : prev.currentKilometer,
+                            };
+                        });
+                    })
+                    .catch(() => {});
+            }
+
+            return merged;
         } catch (error) {
             if (ticket !== fetchAssetDetailsTicketRef.current) return;
             if (!silent) {

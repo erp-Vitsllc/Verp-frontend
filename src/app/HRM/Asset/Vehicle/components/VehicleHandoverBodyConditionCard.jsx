@@ -289,6 +289,7 @@ export default function VehicleHandoverBodyConditionCard({
     assetHistory = [],
     onSaved,
     readOnly = false,
+    forceEditable = false,
     onGoToApproval,
     onGoToAssessment,
     inspectionHandover = false,
@@ -328,7 +329,8 @@ export default function VehicleHandoverBodyConditionCard({
     const skipFineFlow = inspectionHandover || isFirstInspection;
     const inspectionStatus = String(vehicle?.vehicleInspectionStatus || '').toLowerCase();
     const inspectionSubmitted = inspectionHandover && inspectionStatus === 'pending_hr';
-    const isEditingDisabled = readOnly || sectionLocked;
+    // Portal Super User can still Add/Change photos after section complete / approved / rejected.
+    const isEditingDisabled = forceEditable ? false : readOnly || sectionLocked;
     const previousBaseline = useMemo(
         () => buildBodyConditionPreviousFormState(historyEntry, formOptions),
         [formOptions, historyEntry, historyEntryId],
