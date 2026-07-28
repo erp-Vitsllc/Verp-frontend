@@ -1,23 +1,37 @@
 import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
+/** Asset vehicle/tools inbox: longer TTL so badge warm + modal share without re-hit. */
+const ASSET_INBOX_CACHE_TTL_MS = 3 * 60 * 1000;
 
 const cachedByKey = new Map();
 const inFlightByKey = new Map();
 
+export const FINE_PENDING_INBOX_ENDPOINT = '/Fine/dashboard/pending-inbox';
+export const PAYMENT_PENDING_INBOX_ENDPOINT = '/Payment/dashboard/pending-inbox';
+export const ASSET_PENDING_INBOX_ENDPOINT = '/AssetItem/dashboard/pending-inbox';
+export const REWARD_PENDING_INBOX_ENDPOINT = '/Reward/dashboard/pending-inbox';
+export const LOAN_PENDING_INBOX_ENDPOINT = '/Employee/loans/dashboard/pending-inbox';
+
 function buildCacheKey(endpoint, params = {}) {
+    // skipSync must NOT fragment the cache — badge (skipSync) and modal must share rows.
     const entries = Object.entries(params)
-        .filter(([, value]) => value != null && value !== '')
+        .filter(([key, value]) => key !== 'skipSync' && value != null && value !== '')
         .sort(([a], [b]) => a.localeCompare(b));
     if (entries.length === 0) return endpoint;
     const qs = entries.map(([key, value]) => `${key}=${value}`).join('&');
     return `${endpoint}?${qs}`;
 }
 
+function cacheTtlForKey(key) {
+    if (String(key || '').includes(ASSET_PENDING_INBOX_ENDPOINT)) return ASSET_INBOX_CACHE_TTL_MS;
+    return CACHE_TTL_MS;
+}
+
 function getCachedEntry(key) {
     const entry = cachedByKey.get(key);
     if (!entry) return null;
-    if (Date.now() - entry.at >= CACHE_TTL_MS) return null;
+    if (Date.now() - entry.at >= cacheTtlForKey(key)) return null;
     return entry.items;
 }
 
@@ -27,7 +41,8 @@ export function getCachedPendingInbox(endpoint, params = {}) {
 
 export function rememberPendingInbox(endpoint, params = {}, items = []) {
     const list = sortNotificationsStackOrder(Array.isArray(items) ? items : []);
-    cachedByKey.set(buildCacheKey(endpoint, params), { items: list, at: Date.now() });
+    const key = buildCacheKey(endpoint, params);
+    cachedByKey.set(key, { items: list, at: Date.now() });
     return list;
 }
 
@@ -79,12 +94,6 @@ export async function fetchPendingInbox(
     return request;
 }
 
-export const FINE_PENDING_INBOX_ENDPOINT = '/Fine/dashboard/pending-inbox';
-export const PAYMENT_PENDING_INBOX_ENDPOINT = '/Payment/dashboard/pending-inbox';
-export const ASSET_PENDING_INBOX_ENDPOINT = '/AssetItem/dashboard/pending-inbox';
-export const REWARD_PENDING_INBOX_ENDPOINT = '/Reward/dashboard/pending-inbox';
-export const LOAN_PENDING_INBOX_ENDPOINT = '/Employee/loans/dashboard/pending-inbox';
-
 export function fetchFinePendingInbox(axiosInstance, options = {}) {
     const { targetUserId, ...rest } = options;
     const params = targetUserId ? { targetUserId } : undefined;
@@ -109,10 +118,17 @@ export function fetchLoanPendingInbox(axiosInstance, options = {}) {
     return fetchPendingInbox(axiosInstance, LOAN_PENDING_INBOX_ENDPOINT, { ...rest, params });
 }
 
-export function fetchAssetPendingInbox(axiosInstance, { inboxScope = 'all', skipSync, targetUserId, ...options } = {}) {
+/**
+ * Asset pending inbox. Prefer skipSync:true for UI (badge/modal) — sync is expensive.
+ * Cache is shared across skipSync on/off so badge warm hydrates the modal instantly.
+ */
+export function fetchAssetPendingInbox(
+    axiosInstance,
+    { inboxScope = 'all', skipSync = true, targetUserId, ...options } = {},
+) {
     const params = {};
     if (inboxScope === 'tools' || inboxScope === 'vehicle') params.scope = inboxScope;
-    if (skipSync) params.skipSync = '1';
+    if (skipSync !== false) params.skipSync = '1';
     if (targetUserId) params.targetUserId = targetUserId;
     return fetchPendingInbox(axiosInstance, ASSET_PENDING_INBOX_ENDPOINT, { ...options, params });
 }

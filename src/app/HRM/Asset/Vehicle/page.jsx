@@ -310,11 +310,11 @@ export default function VehicleAssetPage() {
         [pathname, router],
     );
 
-    const fetchVehicleInboxCount = useCallback(async ({ force = false, sync = false } = {}) => {
+    const fetchVehicleInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
             const items = await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope: 'vehicle',
-                skipSync: !(sync || force),
+                skipSync: true,
                 skipToast: true,
                 force,
             });
@@ -333,31 +333,62 @@ export default function VehicleAssetPage() {
     const fetchVehicles = useCallback(async ({ silent = false } = {}) => {
         try {
             if (!silent) setLoading(true);
-            try {
-                const locatorRes = await axiosInstance.get('/locator/vehicle-list', {
+
+            // Prefer fast ERP list; Locator is optional enrichment (short timeout so the page isn't blocked).
+            const erpPromise = axiosInstance
+                .get('/AssetItem/vehicle-fleet-dashboard', {
+                    params: { scope: 'list' },
+                    timeout: silent ? 20000 : 30000,
                     skipToast: true,
-                    timeout: silent ? 20000 : 45000,
+                })
+                .then((fleetRes) => {
+                    const fleetVehicles = Array.isArray(fleetRes.data?.vehicles)
+                        ? fleetRes.data.vehicles
+                        : [];
+                    return fleetVehicles.filter((row) => !isToolsAssetNotFleetVehicle(row));
                 });
-                const payload = locatorRes.data?.data;
-                if (payload?.configured && Array.isArray(payload.vehicles) && payload.vehicles.length > 0) {
-                    setVehicles(payload.vehicles.filter((row) => !isToolsAssetNotFleetVehicle(row)));
-                    return;
-                }
-            } catch {
-                // Fall back to ERP fleet list when Locator is unavailable.
+
+            const locatorPromise = axiosInstance
+                .get('/locator/vehicle-list', {
+                    skipToast: true,
+                    timeout: silent ? 8000 : 12000,
+                })
+                .then((locatorRes) => {
+                    const payload = locatorRes.data?.data;
+                    if (payload?.configured && Array.isArray(payload.vehicles) && payload.vehicles.length > 0) {
+                        return payload.vehicles.filter((row) => !isToolsAssetNotFleetVehicle(row));
+                    }
+                    return null;
+                })
+                .catch(() => null);
+
+            // Paint ERP data as soon as it arrives; swap to Locator if it returns first with data.
+            const erpRows = await erpPromise.catch(() => null);
+            if (Array.isArray(erpRows) && erpRows.length > 0) {
+                setVehicles(erpRows);
+                if (!silent) setLoading(false);
             }
 
-            const fleetRes = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard', {
-                params: { scope: 'list' },
-                timeout: 30000,
-            });
-            const fleetVehicles = Array.isArray(fleetRes.data?.vehicles) ? fleetRes.data.vehicles : [];
-            setVehicles(fleetVehicles.filter((row) => !isToolsAssetNotFleetVehicle(row)));
+            const locatorRows = await locatorPromise;
+            if (Array.isArray(locatorRows) && locatorRows.length > 0) {
+                setVehicles(locatorRows);
+            } else if (!Array.isArray(erpRows) || erpRows.length === 0) {
+                // Both empty / ERP failed — surface error only if we still have nothing.
+                if (!Array.isArray(erpRows)) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Error',
+                        description: 'Failed to fetch vehicle assets.',
+                    });
+                } else {
+                    setVehicles(erpRows);
+                }
+            }
         } catch (error) {
             toast({
-                variant: "destructive",
-                title: "Error",
-                description: "Failed to fetch vehicle assets."
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Failed to fetch vehicle assets.',
             });
         } finally {
             if (!silent) setLoading(false);

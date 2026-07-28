@@ -63,7 +63,7 @@ export default function PendingAssetRequestsModal({
         setCanDeleteNotifications(canDismissAssetInboxNotifications());
     }, [isOpen]);
 
-    const load = useCallback(async ({ force = false, sync = false } = {}) => {
+    const load = useCallback(async ({ force = false } = {}) => {
         const fetchScope = inboxScope === 'utility' ? 'tools' : inboxScope;
         const cacheParams =
             fetchScope === 'tools' || fetchScope === 'vehicle' ? { scope: fetchScope } : {};
@@ -90,13 +90,14 @@ export default function PendingAssetRequestsModal({
         if (block) setLoading(true);
         else setRefreshing(true);
         try {
+            // Always skipSync for UI open — full sync was hanging the Vehicle pending modal.
             const list = partitionByScope(
                 await fetchAssetPendingInbox(axiosInstance, {
-                inboxScope: fetchScope,
-                skipSync: !sync,
-                skipToast: true,
-                force,
-            }),
+                    inboxScope: fetchScope,
+                    skipSync: true,
+                    skipToast: true,
+                    force,
+                }),
             );
             setItems(list);
             if (typeof onPendingInboxCount === 'function') {
@@ -118,9 +119,29 @@ export default function PendingAssetRequestsModal({
 
     useEffect(() => {
         if (!isOpen) return;
-        load({ sync: inboxScope === 'vehicle' });
+        // Hydrate from badge cache immediately (same frame as open) before network.
+        const fetchScope = inboxScope === 'utility' ? 'tools' : inboxScope;
+        const cacheParams =
+            fetchScope === 'tools' || fetchScope === 'vehicle' ? { scope: fetchScope } : {};
+        const cached = getCachedPendingInbox(ASSET_PENDING_INBOX_ENDPOINT, cacheParams);
+        if (cached?.length) {
+            const deduped = dedupeAssetPendingInboxItems(cached);
+            const partitioned =
+                inboxScope === 'utility'
+                    ? deduped.filter(isUtilityBillInboxRow)
+                    : inboxScope === 'tools'
+                      ? filterToolsAssetInboxRows(deduped)
+                      : inboxScope === 'vehicle'
+                        ? filterVehicleAssetInboxRows(deduped)
+                        : deduped;
+            setItems(partitioned);
+            if (typeof onPendingInboxCount === 'function') {
+                onPendingInboxCount(countVisibleAssetPendingInbox(partitioned));
+            }
+        }
+        load();
         setBulkRow(null);
-    }, [isOpen, load, inboxScope]);
+    }, [isOpen, load, inboxScope, onPendingInboxCount]);
 
     const handleRowActivate = (row) => {
         if (row.requestType === 'Asset Owner On Duty' && row.dashboardActionId) {

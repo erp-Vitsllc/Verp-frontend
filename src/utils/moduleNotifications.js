@@ -201,7 +201,7 @@ export function buildCompanyListBellFromStats(statsData, companiesList = []) {
  * - statsData: reuse already-fetched user-stats (avoid second user-stats hop via company bundle)
  * - force: bypass cache
  */
-const FEEDS_CACHE_TTL_MS = 90 * 1000;
+const FEEDS_CACHE_TTL_MS = 120 * 1000;
 let cachedFeeds = null;
 let cachedFeedsAt = 0;
 let feedsInFlight = null;
