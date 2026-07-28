@@ -92,7 +92,6 @@ export default function VehicleServiceAccountsZohoBillingCard({
 }) {
     const { toast } = useToast();
     const [busy, setBusy] = useState(false);
-    const stage = String(workflowStage || '').toLowerCase();
     const remark = parseVehicleServiceRemark(service) || {};
     const [billing, setBilling] = useState(() => buildInitialBillingState(service));
 
@@ -105,15 +104,25 @@ export default function VehicleServiceAccountsZohoBillingCard({
         [billing.billingPayables],
     );
 
+    const stageProp = String(workflowStage || '').toLowerCase();
+    const stageFromRemark = String(remark.workflowStage || '').toLowerCase();
+    const stage =
+        stageProp === 'pending_billing' || stageProp === 'pending_accounts'
+            ? stageProp
+            : stageFromRemark === 'pending_billing' || stageFromRemark === 'pending_accounts'
+              ? stageFromRemark
+              : stageProp || stageFromRemark;
+
+    const awaitingBilling = stage === 'pending_billing' || stage === 'pending_accounts';
     const isBilled =
-        stage === 'billed' ||
-        stage === 'complete' ||
-        String(remark.billingStatus || '').toLowerCase() === 'billed' ||
-        Boolean(String(remark.zohoBillId || '').trim());
+        !awaitingBilling &&
+        (stage === 'billed' ||
+            String(remark.billingStatus || '').toLowerCase() === 'billed' ||
+            Boolean(String(remark.zohoBillId || '').trim()));
 
     // Only show while awaiting Accounts Zoho billing (hide after billed).
     if (isBilled) return null;
-    if (stage !== 'pending_billing' && stage !== 'pending_accounts') return null;
+    if (!awaitingBilling) return null;
 
     const canAct = Boolean(canActAccounts);
 
@@ -428,6 +437,7 @@ export default function VehicleServiceAccountsZohoBillingCard({
                     fieldsDisabled={!canAct || busy}
                     fieldClassName="w-full min-h-[44px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold bg-white"
                     fieldMinHeightPx={72}
+                    showAttachment={false}
                 />
             </div>
 

@@ -43,8 +43,13 @@ export function isOilServiceCashAmountMode(remark = {}) {
 }
 
 function isPlaceholderActor(name) {
-    const n = String(name || '').trim().toLowerCase();
-    return !n || n === 'user' || n === 'system' || n === 'admin' || n === '—';
+    const n = String(name || '').trim();
+    if (!n) return true;
+    const lower = n.toLowerCase();
+    if (lower === 'user' || lower === 'system' || lower === 'admin' || lower === '—') return true;
+    // Never show raw Mongo ObjectIds in the timeline "Action by" line.
+    if (/^[a-fA-F0-9]{24}$/.test(n)) return true;
+    return false;
 }
 
 /** Tracker labels: name only (no employee id); collapse duplicated first/last. */
@@ -52,7 +57,7 @@ function formatTrackerActorName(name) {
     let cleaned = String(name || '')
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim();
-    if (!cleaned) return '';
+    if (!cleaned || isPlaceholderActor(cleaned)) return '';
     const parts = cleaned.split(/\s+/).filter(Boolean);
     if (parts.length >= 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
         return parts[0];
@@ -62,6 +67,23 @@ function formatTrackerActorName(name) {
 
 function flowchartNameOnly(name) {
     return formatTrackerActorName(name);
+}
+
+function nameFromFlowchartObjectId(flowchartRows = [], objectId) {
+    const id = String(objectId || '').trim().toLowerCase();
+    if (!id || !Array.isArray(flowchartRows) || !flowchartRows.length) return '';
+    const row = flowchartRows.find((r) => {
+        const candidates = [
+            r?.empObjectId,
+            r?.employeeObjectId,
+            r?._id,
+            r?.id,
+            r?.employee?._id,
+            r?.employee?.id,
+        ];
+        return candidates.some((c) => String(c || '').trim().toLowerCase() === id);
+    });
+    return flowchartNameOnly(nameFromFlowchartRow(row));
 }
 
 function resolveOilAssigneeName(asset) {
@@ -84,10 +106,24 @@ function resolveOilRequesterName(remark = {}, asset = null, service = null) {
 
 function resolveOilActorName(
     raw,
-    { remark, asset, service, flowchartActors, preferSystem = false, allowAssigneeFallback = false } = {},
+    {
+        remark,
+        asset,
+        service,
+        flowchartActors,
+        flowchartRows,
+        preferSystem = false,
+        allowAssigneeFallback = false,
+    } = {},
 ) {
+    const rawStr = String(raw || '').trim();
+    const fromFlowchartId = /^[a-fA-F0-9]{24}$/.test(rawStr)
+        ? nameFromFlowchartObjectId(flowchartRows, rawStr)
+        : '';
+    if (fromFlowchartId) return fromFlowchartId;
+
     const cleaned = formatTrackerActorName(raw);
-    if (!isPlaceholderActor(cleaned)) return cleaned;
+    if (cleaned && !isPlaceholderActor(cleaned)) return cleaned;
     if (preferSystem && String(raw || '').trim().toLowerCase() === 'system') {
         return (
             flowchartNameOnly(flowchartActors?.adminOfficer) ||
@@ -175,7 +211,7 @@ function resolveWorkflowForService(asset, service) {
     return { stage: '', history: [] };
 }
 
-function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flowchartActors = {} }) {
+function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flowchartActors = {}, flowchartRows = [] }) {
     const legacy = [];
     const live = isOilServiceLive(service, asset);
     const waiting = isOilServiceScheduledWaiting(service, asset);
@@ -184,6 +220,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
     const hrName = flowchartNameOnly(flowchartActors?.hr) || 'HR';
     const accountsName = flowchartNameOnly(flowchartActors?.accounts) || 'Accounts';
     const adminName = flowchartNameOnly(flowchartActors?.adminOfficer) || 'Admin Officer';
+    const actorOpts = { remark, asset, service, flowchartActors, flowchartRows };
 
     if (service?.createdAt) {
         legacy.push({
@@ -198,7 +235,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
         legacy.push({
             type: 'service_updated',
             at: h.at,
-            byName: resolveOilActorName(h.byName, { remark, asset, service }),
+            byName: resolveOilActorName(h.byName, actorOpts),
         });
     });
 
@@ -229,7 +266,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
             type: 'service_scheduled',
             at: scheduledEntry?.at || remark.oilServiceScheduledAt || remark.assignmentSubmittedAt || service?.updatedAt,
             byName:
-                resolveOilActorName(scheduledEntry?.byName, { remark, asset, service }) ||
+                resolveOilActorName(scheduledEntry?.byName, actorOpts) ||
                 requester ||
                 adminName,
         });
@@ -246,7 +283,11 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
                 remark.oilServiceLiveAt ||
                 asset?.activeServiceWorkflow?.oilServiceLiveAt ||
                 service?.updatedAt,
-            byName: onService?.byName || 'System',
+            byName:
+                resolveOilActorName(onService?.byName, {
+                    ...actorOpts,
+                    preferSystem: true,
+                }) || adminName,
         });
     }
 
@@ -256,7 +297,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
             legacy.push({
                 type: 'date_change',
                 at: h.at,
-                byName: resolveOilActorName(h.byName, { remark, asset, service }),
+                byName: resolveOilActorName(h.byName, actorOpts),
                 note: h.note || 'Service date updated',
                 field: h.field,
                 from: h.from,
@@ -286,12 +327,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
             type: 'service_completed',
             at: completed?.at || remark.vehicleServiceCompletedAt || remark.oilServiceEndedAt || service?.updatedAt,
             byName:
-                resolveOilActorName(completed?.byName || remark.serviceCompletedByName, {
-                    remark,
-                    asset,
-                    service,
-                    flowchartActors,
-                }) ||
+                resolveOilActorName(completed?.byName || remark.serviceCompletedByName, actorOpts) ||
                 adminName ||
                 requester,
         });
@@ -341,7 +377,7 @@ function mergeOilActivityLogs(primary = [], supplemental = []) {
     return merged.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
 }
 
-function getOilActivityLog(service, asset, flowchartActors = {}) {
+function getOilActivityLog(service, asset, flowchartActors = {}, flowchartRows = []) {
     const remark = parseVehicleServiceRemark(service) || {};
     const fromRemark = Array.isArray(remark.oilActivityLog) ? remark.oilActivityLog : [];
     const { history, stage } = resolveWorkflowForService(asset, service);
@@ -349,6 +385,7 @@ function getOilActivityLog(service, asset, flowchartActors = {}) {
         history,
         stage,
         flowchartActors,
+        flowchartRows,
     });
 
     if (!fromRemark.length) return legacy;
@@ -357,7 +394,17 @@ function getOilActivityLog(service, asset, flowchartActors = {}) {
         if (entry.type === 'on_service' && !isOilServiceLive(service, asset) && remark.assignmentSubmittedAt) {
             return { ...entry, type: 'service_scheduled', note: entry.note || 'Oil service scheduled' };
         }
-        return entry;
+        return {
+            ...entry,
+            byName: resolveOilActorName(entry.byName, {
+                remark,
+                asset,
+                service,
+                flowchartActors,
+                flowchartRows,
+                preferSystem: entry.type === 'on_service',
+            }),
+        };
     });
 
     return mergeOilActivityLogs(normalized, legacy);
@@ -510,7 +557,7 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
     const remark = parseVehicleServiceRemark(service) || {};
     const isCash = isOilServiceCashAmountMode(remark);
     const flowchartActors = resolveShopServiceFlowchartActors(flowchartRows);
-    const activities = getOilActivityLog(service, asset, flowchartActors);
+    const activities = getOilActivityLog(service, asset, flowchartActors, flowchartRows);
     const { stage } = resolveWorkflowForService(asset, service);
     const currentActiveStepId = resolveActiveStepId(activities, stage, service, asset, isCash);
 
@@ -530,6 +577,7 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
     const accountsOfficer = flowchartNameOnly(flowchartActors.accounts) || 'Accounts';
     const requester = resolveOilRequesterName(remark, asset, service);
     const { start: serviceStartDate, end: serviceEndDate } = resolveOilScheduleDates(asset, service, remark);
+    const actorOpts = { remark, asset, service, flowchartActors, flowchartRows };
 
     const steps = isCash ? OIL_SERVICE_CASH_WORKFLOW_STEPS : OIL_SERVICE_WORKFLOW_STEPS;
 
@@ -543,26 +591,18 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
         activityCreatorRaw && !isPlaceholderActor(activityCreatorRaw) ? activityCreatorRaw : '';
     const createdActor = storedCreator || activityCreator || adminOfficer;
     const updatedActor =
-        resolveOilActorName(updated?.byName, { remark, asset, service, flowchartActors }) || createdActor;
+        resolveOilActorName(updated?.byName, actorOpts) || createdActor;
     const scheduledActor =
-        resolveOilActorName(scheduled?.byName, { remark, asset, service, flowchartActors }) ||
+        resolveOilActorName(scheduled?.byName, actorOpts) ||
         requester ||
         adminOfficer;
     const onServiceActor =
         resolveOilActorName(onService?.byName, {
-            remark,
-            asset,
-            service,
-            flowchartActors,
+            ...actorOpts,
             preferSystem: true,
         }) || adminOfficer;
     const endServiceActor =
-        resolveOilActorName(completed?.byName || remark.serviceCompletedByName, {
-            remark,
-            asset,
-            service,
-            flowchartActors,
-        }) ||
+        resolveOilActorName(completed?.byName || remark.serviceCompletedByName, actorOpts) ||
         adminOfficer ||
         requester;
     const hrActor =
@@ -680,7 +720,7 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
             ...row,
             actor:
                 formatTrackerActorName(
-                    resolveOilActorName(row.actor, { remark, asset, service, flowchartActors }),
+                    resolveOilActorName(row.actor, { remark, asset, service, flowchartActors, flowchartRows }),
                 ) || adminOfficer,
         }));
 

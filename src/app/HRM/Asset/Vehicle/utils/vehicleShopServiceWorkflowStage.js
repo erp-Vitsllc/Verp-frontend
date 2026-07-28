@@ -7,10 +7,14 @@ function findServiceRow(asset, serviceId, service) {
         : null;
 }
 
+function shopActivityLog(remark = {}) {
+    return Array.isArray(remark.tireActivityLog) ? remark.tireActivityLog : [];
+}
+
 function accountsApprovalRecorded(asset, service, accountsStage) {
     if (!service) return false;
     const remark = parseVehicleServiceRemark(service) || {};
-    const log = Array.isArray(remark.tireActivityLog) ? remark.tireActivityLog : [];
+    const log = shopActivityLog(remark);
     if (log.some((entry) => entry.type === 'accounts_approved')) return true;
     if (remark.accountsApprovedAt) return true;
 
@@ -27,21 +31,21 @@ function accountsApprovalRecorded(asset, service, accountsStage) {
 }
 
 function inferStageFromRemarkActivity(remark, asset, stages) {
-    const log = Array.isArray(remark.tireActivityLog) ? remark.tireActivityLog : [];
+    const log = shopActivityLog(remark);
     const has = (type) => log.some((entry) => entry.type === type);
     const workflowStage = String(remark.workflowStage || '').toLowerCase();
     const billingStatus = String(remark.billingStatus || '').toLowerCase();
     const pendingBilling = stages.PENDING_BILLING || 'pending_billing';
 
+    // Billing after End Service must win over "service completed" flags.
+    if (workflowStage === pendingBilling) {
+        return pendingBilling;
+    }
     if (has('zoho_bill_created') || workflowStage === 'billed' || billingStatus === 'billed') {
         return workflowStage === 'billed' || billingStatus === 'billed' ? 'billed' : stages.COMPLETE;
     }
     if (workflowStage === stages.COMPLETE || workflowStage === 'complete') {
         return stages.COMPLETE;
-    }
-    // Service completed / vehicleServiceCompleted live with pending_billing stays on billing — not complete.
-    if (workflowStage === pendingBilling) {
-        return pendingBilling;
     }
 
     if (has('accounts_approved') || remark.accountsApprovedAt) {
@@ -61,6 +65,11 @@ function inferStageFromRemarkActivity(remark, asset, stages) {
 
 function normalizeShopServiceDisplayStage(rawStage, asset, service, stages) {
     let stage = String(rawStage || '').toLowerCase();
+    const pendingBilling = stages.PENDING_BILLING || 'pending_billing';
+
+    if (stage === pendingBilling || stage === 'billed') {
+        return stage;
+    }
 
     if (stage === 'pending_admin') {
         return stages.ADMIN_RETURN;
@@ -96,14 +105,22 @@ function resolveRawShopServiceStage(asset, serviceId, service, stages) {
     const wfMatch = normalizeMongoId(wf?.serviceRecordId) === normalizeMongoId(serviceId);
     const remark = parseVehicleServiceRemark(serviceRow) || {};
     const snap = serviceRow?.workflowSnapshot;
+    const pendingBilling = stages.PENDING_BILLING || 'pending_billing';
+    const wfStage = wfMatch ? String(wf?.stage || '').toLowerCase() : '';
+    const remarkStage = String(remark.workflowStage || '').toLowerCase();
+    const billingStatus = String(remark.billingStatus || '').toLowerCase();
+
+    // Live Accounts Zoho billing always wins (do not collapse to "complete" from vehicleServiceCompleted).
+    if (wfStage === pendingBilling || remarkStage === pendingBilling) {
+        return pendingBilling;
+    }
+    if (wfStage === 'billed' || remarkStage === 'billed' || billingStatus === 'billed') {
+        return 'billed';
+    }
 
     const inferred = inferStageFromRemarkActivity(remark, asset, stages);
-    const pendingBilling = stages.PENDING_BILLING || 'pending_billing';
-    if (inferred === stages.COMPLETE || inferred === 'billed') {
+    if (inferred === pendingBilling || inferred === 'billed' || inferred === stages.COMPLETE) {
         return inferred;
-    }
-    if (inferred === pendingBilling) {
-        return pendingBilling;
     }
 
     if (wfMatch && wf?.stage) {

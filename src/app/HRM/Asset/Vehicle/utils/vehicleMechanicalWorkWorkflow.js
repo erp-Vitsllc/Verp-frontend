@@ -11,6 +11,7 @@ export const MECHANICAL_WORK_WORKFLOW_STAGES = {
     ACCOUNTS: 'pending_accounts',
     SCHEDULED: 'scheduled_service',
     ADMIN_RETURN: 'pending_admin_return',
+    PENDING_BILLING: 'pending_billing',
     COMPLETE: 'complete',
     REJECTED: 'rejected',
 };
@@ -35,7 +36,7 @@ export function showMechanicalWorkGarageCard(assignmentPending, stage) {
         MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_OFFICER,
         MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS,
         MECHANICAL_WORK_WORKFLOW_STAGES.SCHEDULED,
-        'pending_billing',
+        MECHANICAL_WORK_WORKFLOW_STAGES.PENDING_BILLING,
         'billed',
         MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_RETURN,
         MECHANICAL_WORK_WORKFLOW_STAGES.COMPLETE,

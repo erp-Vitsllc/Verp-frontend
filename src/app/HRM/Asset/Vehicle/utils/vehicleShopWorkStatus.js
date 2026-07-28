@@ -20,15 +20,18 @@ function resolveShopWorkWorkflowStage(service, asset) {
     const wf = asset?.activeServiceWorkflow || {};
     const wfMatch = serviceId && normalizeMongoId(wf.serviceRecordId) === serviceId;
 
-    return String(
-        service?.workflowSnapshot?.stage ||
-            (wfMatch ? wf.stage : '') ||
-            remark.workflowStage ||
-            remark.stage ||
-            '',
-    )
-        .toLowerCase()
-        .trim();
+    const candidates = [
+        wfMatch ? wf.stage : '',
+        remark.workflowStage,
+        service?.workflowSnapshot?.stage,
+        remark.stage,
+    ]
+        .map((value) => String(value || '').toLowerCase().trim())
+        .filter(Boolean);
+
+    if (candidates.includes('pending_billing')) return 'pending_billing';
+    if (candidates.includes('billed')) return 'billed';
+    return candidates[0] || '';
 }
 
 function isWorkflowMatch(service, asset) {
@@ -85,10 +88,13 @@ export function resolveShopWorkTableStatusLabel(service, asset) {
     if (stage === 'billed' || String(remark.billingStatus || '').toLowerCase() === 'billed') {
         return { label: 'Billed', tone: 'complete' };
     }
-    if (stage === 'pending_billing') {
-        return { label: 'Awaiting Billing', tone: 'pending' };
+    if (
+        stage === 'pending_billing' ||
+        (vehicleServiceDone && String(remark.workflowStage || '').toLowerCase() === 'pending_billing')
+    ) {
+        return { label: 'Complete — Waiting for Bill', tone: 'pending' };
     }
-    if (stage === 'complete' || (vehicleServiceDone && stage !== 'pending_billing')) {
+    if (stage === 'complete' || vehicleServiceDone) {
         return { label: 'Complete', tone: 'complete' };
     }
     if (stage === 'rejected') {
@@ -113,6 +119,7 @@ export function resolveShopWorkHeaderStatus(service, asset) {
         Scheduled: 'bg-violet-50 border-violet-100 text-violet-700',
         'On Service': 'bg-amber-50 border-amber-100 text-amber-700',
         'Awaiting Billing': 'bg-sky-50 border-sky-100 text-sky-800',
+        'Complete — Waiting for Bill': 'bg-sky-50 border-sky-100 text-sky-800',
         Billed: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         Complete: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         Rejected: 'bg-slate-50 border-slate-100 text-slate-600',

@@ -99,11 +99,16 @@ export function nameFromFlowchartRow(row) {
 
 export function formatEmployeeName(ref) {
     if (!ref) return '';
+    const looksLikeObjectId = (value) => /^[a-fA-F0-9]{24}$/.test(String(value || '').trim());
     if (typeof ref === 'object') {
         const name = `${ref.firstName || ''} ${ref.lastName || ''}`.trim();
-        return name || String(ref.employeeId || '').trim();
+        if (name) return name;
+        const empId = String(ref.employeeId || '').trim();
+        if (empId && !looksLikeObjectId(empId)) return empId;
+        return '';
     }
-    return String(ref);
+    const raw = String(ref).trim();
+    return looksLikeObjectId(raw) ? '' : raw;
 }
 
 export function resolveHandoverAssignWorkflowState(vehicle, historyEntry, options = {}) {

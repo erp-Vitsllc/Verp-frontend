@@ -466,6 +466,7 @@ function buildRowFromViewBill(bill, entries = [], monthlyRental = 0) {
     const payBy = normalizeViewPayBy(bill.paymentBy);
     const attachment = bill.attachment?.name ? bill.attachment : null;
     return {
+        billId: String(bill._id || bill.billId || ''),
         entryId: String(bill.entryId || entry?.id || ''),
         selected: true,
         accountNo: String(bill.accountNo || entryAccountNo(entry) || '—'),
@@ -937,6 +938,7 @@ function collectPayloadRows(
         const includeCompany =
             payBy === PAY_BY_COMPANY || payBy === PAY_BY_BOTH;
         payloadRows.push({
+            billId: String(row.billId || '').trim(),
             entryId: row.entryId,
             accountNo: row.accountNo,
             provider: String(row.provider || '').trim(),
@@ -982,8 +984,12 @@ export default function AddBillModal({
     onSubmit,
     saving = false,
     viewBill = null,
+    /** Existing batch bills to edit in the same Add Bills UI (Accounts / HR). */
+    editBills = null,
+    editBatchId = '',
 }) {
-    const isViewMode = Boolean(viewBill);
+    const isViewMode = Boolean(viewBill) && !editBills;
+    const isEditMode = Array.isArray(editBills) && editBills.length > 0;
     const [rows, setRows] = useState([]);
     const [error, setError] = useState('');
     const [info, setInfo] = useState('');
@@ -1218,7 +1224,7 @@ export default function AddBillModal({
         setAttachMenuIndex(null);
         setLineItemsRowIndex(null);
 
-        if (viewBill) {
+        if (viewBill && !isEditMode) {
             const ym =
                 String(viewBill.billMonth || '').trim() || currentBillMonthValue();
             const viewRow = buildRowFromViewBill(viewBill, listEntries, monthlyRental);
@@ -1228,6 +1234,26 @@ export default function AddBillModal({
             setRows(viewRow ? [viewRow] : []);
             setDraftLoaded(false);
             setInfo('Viewing submitted bill details (read only).');
+            return;
+        }
+
+        if (isEditMode) {
+            const first = editBills[0] || {};
+            const ym =
+                String(first.billMonth || '').trim() || currentBillMonthValue();
+            const editRows = editBills
+                .map((bill) => buildRowFromViewBill(bill, listEntries, monthlyRental))
+                .filter(Boolean);
+            setBillMonth(ym);
+            setPickerYear(yearFromBillMonth(ym));
+            setExpenseAccountId(
+                String(first.expenseAccountId || editRows[0]?.expenseAccountId || ''),
+            );
+            setRows(editRows);
+            setDraftLoaded(false);
+            setInfo(
+                'Edit bill details (Accounts / expense lines / amounts). Save, then Retry Zoho or Pay.',
+            );
             return;
         }
 
@@ -1328,7 +1354,7 @@ export default function AddBillModal({
         }
         // intentionally only re-init when modal opens / entry list type changes
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, listEntries, monthlyRental, utilityType, viewBill]);
+    }, [isOpen, listEntries, monthlyRental, utilityType, viewBill, editBills, isEditMode]);
 
     const allSelected = rows.length > 0 && rows.every((r) => r.selected);
     const someSelected = rows.some((r) => r.selected);
@@ -1496,20 +1522,32 @@ export default function AddBillModal({
                 utilityType,
                 expenseAccountId: payloadRows[0]?.expenseAccountId || expenseAccountId,
                 expenseAccountName: payloadRows[0]?.expenseAccountName || expenseAccountName,
-                rows: payloadRows,
+                rows: payloadRows.map((row, index) => ({
+                    ...row,
+                    billId:
+                        row.billId ||
+                        editBills?.[index]?._id ||
+                        editBills?.[index]?.billId ||
+                        rows.find((r) => String(r.entryId) === String(row.entryId))?.billId ||
+                        '',
+                })),
                 amount: payloadRows[0]?.actualAmount,
                 notes: '',
                 sendForHr: payloadRows[0]?.sendForHr,
                 attachment: payloadRows[0]?.attachment || null,
                 monthlyRental: payloadRows[0]?.contractAmount,
-                clearDraftOnSuccess: true,
+                clearDraftOnSuccess: !isEditMode,
                 keepOpen: false,
+                editBatchId: isEditMode ? String(editBatchId || '') : '',
+                isEdit: isEditMode,
             });
             if (result === false || result?.ok === false) return;
 
             toast({
-                title: 'Completed',
-                description: `${titleFromBillMonth(snapshotMonth)} bills submitted.`,
+                title: isEditMode ? 'Saved' : 'Completed',
+                description: isEditMode
+                    ? `${titleFromBillMonth(snapshotMonth)} bill details updated.`
+                    : `${titleFromBillMonth(snapshotMonth)} bills submitted.`,
             });
             onClose?.();
         } catch {
@@ -1520,7 +1558,7 @@ export default function AddBillModal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/45">
+        <div className={`fixed inset-0 ${isEditMode ? 'z-[70]' : 'z-50'} flex items-center justify-center p-3 sm:p-4 bg-black/45`}>
             <div className="bg-white rounded-xl shadow-lg w-full max-w-[72rem] max-h-[95vh] overflow-hidden flex flex-col border border-gray-200">
                 <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
                     <div className="min-w-0 relative" ref={monthPickerRef}>
@@ -1537,6 +1575,22 @@ export default function AddBillModal({
                                     ) : null}
                                     <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
                                         View
+                                    </span>
+                                </div>
+                            </div>
+                        ) : isEditMode ? (
+                            <div className="text-left -ml-1 px-1 py-0.5">
+                                <h2 className="text-lg sm:text-xl font-bold text-gray-800">
+                                    Edit {monthTitle} Bill
+                                </h2>
+                                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                    {utilityType ? (
+                                        <p className="text-xs font-medium text-teal-700">
+                                            {utilityType}
+                                        </p>
+                                    ) : null}
+                                    <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                        Edit
                                     </span>
                                 </div>
                             </div>
@@ -2089,20 +2143,28 @@ export default function AddBillModal({
                         </button>
                         {!isViewMode ? (
                             <>
-                                <button
-                                    type="button"
-                                    onClick={handleDraft}
-                                    disabled={saving || !rows.length}
-                                    className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-sm font-semibold disabled:opacity-50"
-                                >
-                                    Draft
-                                </button>
+                                {!isEditMode ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleDraft}
+                                        disabled={saving || !rows.length}
+                                        className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-sm font-semibold disabled:opacity-50"
+                                    >
+                                        Draft
+                                    </button>
+                                ) : null}
                                 <button
                                     type="submit"
                                     disabled={saving || !rows.length}
                                     className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
                                 >
-                                    {saving ? 'Submitting…' : 'Submit'}
+                                    {saving
+                                        ? isEditMode
+                                          ? 'Saving…'
+                                          : 'Submitting…'
+                                        : isEditMode
+                                          ? 'Save'
+                                          : 'Submit'}
                                 </button>
                             </>
                         ) : null}

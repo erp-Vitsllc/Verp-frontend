@@ -11,6 +11,7 @@ export const BODY_WORK_WORKFLOW_STAGES = {
     ACCOUNTS: 'pending_accounts',
     SCHEDULED: 'scheduled_service',
     ADMIN_RETURN: 'pending_admin_return',
+    PENDING_BILLING: 'pending_billing',
     COMPLETE: 'complete',
     REJECTED: 'rejected',
 };
@@ -35,7 +36,7 @@ export function showBodyWorkGarageCard(assignmentPending, stage) {
         BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER,
         BODY_WORK_WORKFLOW_STAGES.ACCOUNTS,
         BODY_WORK_WORKFLOW_STAGES.SCHEDULED,
-        'pending_billing',
+        BODY_WORK_WORKFLOW_STAGES.PENDING_BILLING,
         'billed',
         BODY_WORK_WORKFLOW_STAGES.ADMIN_RETURN,
         BODY_WORK_WORKFLOW_STAGES.COMPLETE,

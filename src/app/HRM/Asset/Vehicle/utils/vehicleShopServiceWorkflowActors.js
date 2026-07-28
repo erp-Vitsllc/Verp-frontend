@@ -30,7 +30,9 @@ export function resolveShopServiceStepActor(
     } = {},
 ) {
     const existing = String(actor || '').trim();
-    if (existing) return existing;
+    // Ignore raw Mongo ObjectIds — fall through to flowchart role names.
+    const usable = existing && !/^[a-fA-F0-9]{24}$/.test(existing) ? existing : '';
+    if (usable) return usable;
     if (!flowchartActors) return '';
 
     if (stepId === 4) {

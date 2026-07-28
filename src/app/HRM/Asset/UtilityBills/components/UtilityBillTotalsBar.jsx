@@ -279,7 +279,14 @@ export function computeRowPayTotals(row = {}) {
     const contract = Number(row.contractAmount) || 0;
     const actual = Number(row.actualAmount);
     if (!Number.isFinite(actual) || actual < 0 || row.actualAmount === '') {
-        return { companyPayAmount: 0, employeePayAmount: 0, companyDiffShare: 0, employeeDiffShare: 0 };
+        return {
+            companyPayAmount: 0,
+            employeePayAmount: 0,
+            companyDiffShare: 0,
+            employeeDiffShare: 0,
+            payByCompanyName: String(row.payByCompanyName || '').trim(),
+            payByEmployeeName: String(row.payByEmployeeName || '').trim(),
+        };
     }
 
     const underDiff = Math.max(0, contract - actual);
@@ -293,6 +300,8 @@ export function computeRowPayTotals(row = {}) {
             employeePayAmount: 0,
             companyDiffShare,
             employeeDiffShare,
+            payByCompanyName: String(row.payByCompanyName || '').trim(),
+            payByEmployeeName: String(row.payByEmployeeName || '').trim(),
         };
     }
 
@@ -321,11 +330,14 @@ export function computeRowPayTotals(row = {}) {
         employeePayAmount: Math.max(0, employeeUnderShare + employeeOverageShare),
         companyDiffShare,
         employeeDiffShare,
+        payByCompanyName: String(row.payByCompanyName || '').trim(),
+        payByEmployeeName: String(row.payByEmployeeName || '').trim(),
     };
 }
 
 /**
  * Totals for selected rows — Company/Employee match computeRowPayTotals.
+ * Also resolves display names for TOTAL / Difference labels.
  */
 export function summarizeSelectedBillRows(rows = []) {
     let contractTotal = 0;
@@ -334,6 +346,8 @@ export function summarizeSelectedBillRows(rows = []) {
     let employeeDiffShare = 0;
     let companyTotal = 0;
     let employeeTotal = 0;
+    let payByCompanyName = '';
+    let payByEmployeeName = '';
 
     (rows || [])
         .filter((r) => r.selected)
@@ -351,6 +365,21 @@ export function summarizeSelectedBillRows(rows = []) {
             employeeDiffShare += pay.employeeDiffShare;
             companyTotal += pay.companyPayAmount;
             employeeTotal += pay.employeePayAmount;
+
+            const coName =
+                String(pay.payByCompanyName || r.payByCompanyName || '').trim() ||
+                (String(r.payBy || '').trim() === 'company'
+                    ? String(r.assignedToName || '').trim()
+                    : '');
+            const empName =
+                String(pay.payByEmployeeName || r.payByEmployeeName || '').trim() ||
+                (['employee', 'employee_balance', 'employee_and_company'].includes(
+                    String(r.payBy || '').trim(),
+                )
+                    ? String(r.assignedToName || '').trim()
+                    : '');
+            if (!payByCompanyName && coName) payByCompanyName = coName;
+            if (!payByEmployeeName && empName) payByEmployeeName = empName;
         });
 
     const payByDiffTotal = companyDiffShare + employeeDiffShare;
@@ -367,6 +396,10 @@ export function summarizeSelectedBillRows(rows = []) {
         employeeDiffShare,
         companyTotal,
         employeeTotal,
+        payByCompanyName,
+        payByEmployeeName,
+        companyLabel: shortAllocationPartyName(payByCompanyName, 'company'),
+        employeeLabel: shortAllocationPartyName(payByEmployeeName, 'employee'),
     };
 }
 
@@ -384,6 +417,8 @@ export default function UtilityBillTotalsBar({ rows = [] }) {
         : isUnder
           ? 'text-emerald-600'
           : 'text-gray-500';
+    const companyLabel = t.companyLabel || 'Company';
+    const employeeLabel = t.employeeLabel || 'Employee';
 
     return (
         <div className="mx-4 sm:mx-5 mb-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 sm:px-4 py-3 shrink-0">
@@ -418,8 +453,8 @@ export default function UtilityBillTotalsBar({ rows = [] }) {
                     </p>
                     <div className="space-y-0.5 text-[11px] text-gray-700">
                         {showCompanyDiff ? (
-                            <p className="whitespace-nowrap">
-                                <span className="font-semibold text-gray-800">Company</span>
+                            <p className="whitespace-nowrap" title={t.payByCompanyName || companyLabel}>
+                                <span className="font-semibold text-gray-800">{companyLabel}</span>
                                 <span className="text-gray-400">: </span>
                                 <strong className="tabular-nums font-semibold text-gray-700">
                                     {formatMoney(t.companyDiffShare)}
@@ -427,8 +462,8 @@ export default function UtilityBillTotalsBar({ rows = [] }) {
                             </p>
                         ) : null}
                         {showEmployeeDiff ? (
-                            <p className="whitespace-nowrap">
-                                <span className="font-semibold text-gray-800">Employee</span>
+                            <p className="whitespace-nowrap" title={t.payByEmployeeName || employeeLabel}>
+                                <span className="font-semibold text-gray-800">{employeeLabel}</span>
                                 <span className="text-gray-400">: </span>
                                 <strong className="tabular-nums font-semibold text-gray-700">
                                     {formatMoney(t.employeeDiffShare)}
@@ -452,8 +487,8 @@ export default function UtilityBillTotalsBar({ rows = [] }) {
                     </p>
                     <div className="space-y-1 text-[11px] text-gray-700">
                         {showCompanyTotal ? (
-                            <p className="whitespace-nowrap">
-                                <span className="font-semibold text-gray-800">Company</span>
+                            <p className="whitespace-nowrap" title={t.payByCompanyName || companyLabel}>
+                                <span className="font-semibold text-gray-800">{companyLabel}</span>
                                 <span className="text-gray-400">: </span>
                                 <strong className="text-sm tabular-nums text-emerald-600">
                                     {formatMoney(t.companyTotal)} AED
@@ -461,8 +496,8 @@ export default function UtilityBillTotalsBar({ rows = [] }) {
                             </p>
                         ) : null}
                         {showEmployeeTotal ? (
-                            <p className="whitespace-nowrap">
-                                <span className="font-semibold text-gray-800">Employee</span>
+                            <p className="whitespace-nowrap" title={t.payByEmployeeName || employeeLabel}>
+                                <span className="font-semibold text-gray-800">{employeeLabel}</span>
                                 <span className="text-gray-400">: </span>
                                 <strong className="text-sm tabular-nums text-emerald-600">
                                     {formatMoney(t.employeeTotal)} AED
