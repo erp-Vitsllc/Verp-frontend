@@ -64,7 +64,10 @@ export function canEditBodyWorkGarage(stage, canManageBodyWork, { asset, service
 }
 
 export function canApproveBodyWorkGarageAccounts(stage, isFlowchartAccounts) {
-    return isFlowchartAccounts && stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS;
+    return (
+        isFlowchartAccounts &&
+        (stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS || stage === 'pending_billing')
+    );
 }
 
 export function canEditBodyWorkReturn(stage, canManageBodyWork, isComplete, asset) {

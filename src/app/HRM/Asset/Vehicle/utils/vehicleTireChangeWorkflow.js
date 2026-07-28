@@ -170,7 +170,10 @@ export function canEditTireChangeGarage(stage, canManageTireChange) {
 }
 
 export function canApproveTireChangeGarageAccounts(stage, isFlowchartAccounts) {
-    return isFlowchartAccounts && stage === TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS;
+    return (
+        isFlowchartAccounts &&
+        (stage === TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS || stage === 'pending_billing')
+    );
 }
 
 export function canEditTireChangeReturn(stage, canManageTireChange, isComplete, asset) {

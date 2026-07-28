@@ -44,6 +44,10 @@ import {
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import { AssetListSummaryPanels } from '@/app/HRM/Asset/components/ListPageSummaryCards';
 import {
+    readVehicleListCache,
+    saveVehicleListCache,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetCache';
+import {
     isVehicleAssetRequestApproved,
     isVehicleAssetRequestPending,
     isVehicleHandoverAccepted,
@@ -241,8 +245,8 @@ export default function VehicleAssetPage() {
     const router = useRouter();
     const pathname = usePathname();
     const [mounted, setMounted] = useState(false);
-    const [vehicles, setVehicles] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [vehicles, setVehicles] = useState(() => readVehicleListCache() || []);
+    const [loading, setLoading] = useState(() => !(readVehicleListCache()?.length));
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [showFilters, setShowFilters] = useState(true);
@@ -330,14 +334,20 @@ export default function VehicleAssetPage() {
         fetchVehicleInboxCount();
     }, [fetchVehicleInboxCount]);
 
+    const vehiclesRef = useRef(vehicles);
+    vehiclesRef.current = vehicles;
+
     const fetchVehicles = useCallback(async ({ silent = false } = {}) => {
+        const hasRowsOnScreen = (vehiclesRef.current?.length || 0) > 0;
+        const hasCachedRows = hasRowsOnScreen || (readVehicleListCache()?.length || 0) > 0;
         try {
-            if (!silent) setLoading(true);
+            // Keep cached rows visible — only show spinner when there is nothing to paint.
+            if (!silent && !hasCachedRows) setLoading(true);
 
             // Fast path: ERP list only. Locator GPS enrichment is background (never blocks the table).
             const fleetRes = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard', {
                 params: { scope: 'list' },
-                timeout: silent ? 15000 : 20000,
+                timeout: 20000,
                 skipToast: true,
             });
             const fleetVehicles = Array.isArray(fleetRes.data?.vehicles)
@@ -345,6 +355,7 @@ export default function VehicleAssetPage() {
                 : [];
             const erpRows = fleetVehicles.filter((row) => !isToolsAssetNotFleetVehicle(row));
             setVehicles(erpRows);
+            saveVehicleListCache(erpRows);
             if (!silent) setLoading(false);
 
             // Optional GPS merge — do not await for spinner.
@@ -360,18 +371,22 @@ export default function VehicleAssetPage() {
                         Array.isArray(payload.vehicles) &&
                         payload.vehicles.length > 0
                     ) {
-                        setVehicles(
-                            payload.vehicles.filter((row) => !isToolsAssetNotFleetVehicle(row)),
+                        const merged = payload.vehicles.filter(
+                            (row) => !isToolsAssetNotFleetVehicle(row),
                         );
+                        setVehicles(merged);
+                        saveVehicleListCache(merged);
                     }
                 })
                 .catch(() => {});
         } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Failed to fetch vehicle assets.',
-            });
+            if (!hasCachedRows) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: 'Failed to fetch vehicle assets.',
+                });
+            }
             if (!silent) setLoading(false);
         } finally {
             if (!silent) setLoading(false);
@@ -879,15 +894,18 @@ export default function VehicleAssetPage() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
-                                        {loading ? (
-                                            <tr>
-                                                <td colSpan={tableColSpan} className="px-4 sm:px-6 py-8 sm:py-12 text-center text-gray-500">
-                                                    <div className="flex flex-col items-center gap-2">
-                                                        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                                        <p className="text-sm">Loading vehicles...</p>
-                                                    </div>
-                                                </td>
-                                            </tr>
+                                        {loading && vehicles.length === 0 ? (
+                                            <>
+                                                {Array.from({ length: 8 }).map((_, i) => (
+                                                    <tr key={`sk-${i}`} className="animate-pulse">
+                                                        {Array.from({ length: tableColSpan }).map((__, j) => (
+                                                            <td key={j} className="px-2 sm:px-3 py-2.5">
+                                                                <div className="h-3 rounded bg-gray-100 w-[70%]" />
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </>
                                         ) : vehicles.length === 0 ? (
                                             <tr>
                                                 <td colSpan={tableColSpan} className="px-4 sm:px-6 py-8 sm:py-12 text-center text-gray-500">

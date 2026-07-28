@@ -47,6 +47,7 @@ export function isOilServiceLive(service, asset) {
 
     if (
         stage === 'complete' ||
+        stage === 'billed' ||
         stage === 'pending_hr' ||
         stage === 'pending_accounts' ||
         stage === 'rejected'
@@ -74,7 +75,8 @@ export function isOilServiceScheduledWaiting(service, asset) {
     const requestStatus = String(remark.requestStatus || '').toLowerCase();
     if (requestStatus !== 'submitted') return false;
     const stage = resolveOilServiceWorkflowStage(service, asset);
-    if (stage !== 'scheduled_service') return false;
+    // Cash waits on HR after Send; warranty waits on scheduled_service for start date.
+    if (stage !== 'scheduled_service' && stage !== 'pending_hr') return false;
     return !isOilServiceLive(service, asset);
 }
 
@@ -96,6 +98,18 @@ export function resolveOilServiceHeaderStatus(service, asset) {
     const stage = resolveOilServiceWorkflowStage(service, asset);
     const vehicleServiceDone = String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live';
 
+    if (stage === 'billed' || String(remark.billingStatus || '').toLowerCase() === 'billed') {
+        return {
+            label: 'Billed',
+            boxClass: 'bg-emerald-50 border-emerald-100 text-emerald-700',
+        };
+    }
+    if (stage === 'pending_accounts' && vehicleServiceDone) {
+        return {
+            label: 'Complete — awaiting billing',
+            boxClass: 'bg-amber-50 border-amber-100 text-amber-800',
+        };
+    }
     if (stage === 'complete' || vehicleServiceDone) {
         return {
             label: 'Complete',

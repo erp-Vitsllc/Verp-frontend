@@ -108,7 +108,10 @@ export function canEditAccidentRepairGarage(stage, canManageAccidentRepair, { as
 }
 
 export function canApproveAccidentRepairGarageAccounts(stage, isFlowchartAccounts) {
-    return isFlowchartAccounts && stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS;
+    return (
+        isFlowchartAccounts &&
+        (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS || stage === 'pending_billing')
+    );
 }
 
 export function canEditAccidentRepairReturn(stage, canManageAccidentRepair, isComplete, asset) {

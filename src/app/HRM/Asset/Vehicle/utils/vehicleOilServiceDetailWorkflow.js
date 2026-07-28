@@ -18,10 +18,24 @@ export const OIL_SERVICE_WORKFLOW_STEPS = [
     { id: 5, label: 'End Service', role: 'Complete' },
 ];
 
-/** Appended after End Service when payment type is Cash. */
+/** Cash: HR sits after Scheduled; Accounts → Billed after End Service. */
 export const OIL_SERVICE_CASH_PAYMENT_STEPS = [
-    { id: 6, label: 'HR Approval', role: 'HR' },
+    { id: 4, label: 'HR Approval', role: 'HR' },
+    { id: 5, label: 'On Service', role: 'Service' },
+    { id: 6, label: 'End Service', role: 'Complete' },
     { id: 7, label: 'Accounts Payment', role: 'Accounts' },
+    { id: 8, label: 'Billed', role: 'Zoho' },
+];
+
+export const OIL_SERVICE_CASH_WORKFLOW_STEPS = [
+    { id: 1, label: 'Service Created', role: 'Creator' },
+    { id: 2, label: 'Service Updated', role: 'Editor' },
+    { id: 3, label: 'Scheduled', role: 'Schedule' },
+    { id: 4, label: 'HR Approval', role: 'HR' },
+    { id: 5, label: 'On Service', role: 'Service' },
+    { id: 6, label: 'End Service', role: 'Complete' },
+    { id: 7, label: 'Accounts Payment', role: 'Accounts' },
+    { id: 8, label: 'Billed', role: 'Zoho' },
 ];
 
 export function isOilServiceCashAmountMode(remark = {}) {
@@ -305,13 +319,18 @@ function resolveActiveStepId(activities, stage, service, asset, isCash = false) 
     const waiting = isOilServiceScheduledWaiting(service, asset);
 
     if (isCash) {
-        if (stage === 'complete' || hasAccounts) return 8;
-        if (stage === 'pending_accounts' || hasHr) return 7;
-        if (stage === 'pending_hr' || hasCompleted) return 6;
-    } else if (hasCompleted || stage === 'complete') {
-        return 6;
+        // 1 Created 2 Updated 3 Scheduled 4 HR 5 On Service 6 End 7 Accounts 8 Billed
+        if (stage === 'billed' || hasAccounts) return 9;
+        if (stage === 'pending_accounts' || hasCompleted) return 7;
+        if (hasOnService || live) return 6;
+        if (hasHr || stage === 'scheduled_service') return 5;
+        if (stage === 'pending_hr' || hasScheduled || waiting) return 4;
+        if (hasUpdated) return 3;
+        if (hasCreated) return 2;
+        return 1;
     }
 
+    if (hasCompleted || stage === 'complete' || stage === 'billed') return 6;
     if (hasOnService || live) return 5;
     if (hasScheduled || waiting || stage === 'scheduled_service') return 4;
     if (hasUpdated) return 3;
@@ -451,9 +470,7 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
     const requester = resolveOilRequesterName(remark, asset);
     const { start: serviceStartDate, end: serviceEndDate } = resolveOilScheduleDates(asset, service, remark);
 
-    const steps = isCash
-        ? [...OIL_SERVICE_WORKFLOW_STEPS, ...OIL_SERVICE_CASH_PAYMENT_STEPS]
-        : OIL_SERVICE_WORKFLOW_STEPS;
+    const steps = isCash ? OIL_SERVICE_CASH_WORKFLOW_STEPS : OIL_SERVICE_WORKFLOW_STEPS;
 
     const stepActors = {
         1: resolveOilActorName(created?.byName, { remark, asset, flowchartActors }) || requester || adminOfficer,

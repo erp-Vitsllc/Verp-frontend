@@ -169,6 +169,7 @@ import {
 } from '../../utils/vehicleCarWashAccess';
 import { canAdminDeleteActivatedVehicleRecord, isVehicleProfileActivationActive } from '../../utils/vehicleAdminDeleteAccess';
 import { canDeleteVehicleAsset } from '../../utils/vehiclePermissionAccess';
+import { readVehicleListCacheRow } from '../../utils/vehicleFleetCache';
 import { parseServiceRemark } from '../../components/vehicleServicePayload';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
@@ -384,6 +385,8 @@ function VehicleDetailsPageContent() {
     const fetchAssetDetailsTicketRef = useRef(0);
     const locatorOverlayRef = useRef(null);
     const pendingLocatorRouteReplaceRef = useRef(false);
+    const lightUpgradeDoneRef = useRef(false);
+    const deferredUpgradeStartedRef = useRef(false);
     const [creationDecisionBusy, setCreationDecisionBusy] = useState(null);
     const [imageError, setImageError] = useState(false);
     const [showAssignModal, setShowAssignModal] = useState(false);
@@ -840,6 +843,9 @@ function VehicleDetailsPageContent() {
                     : payload;
 
             // Paint ERP details immediately — don't block spinner on GPS overlay.
+            if (merged && typeof merged === 'object') {
+                delete merged._fromListCache;
+            }
             setAsset(merged);
             if (ticket === fetchAssetDetailsTicketRef.current && !silent) {
                 setLoading(false);
@@ -1048,20 +1054,24 @@ function VehicleDetailsPageContent() {
     const refreshData = useCallback(() => {
         if (!assetId) return;
         setDocumentAttachmentsLoaded(false);
+        lightUpgradeDoneRef.current = false;
         const includeDocuments = activeTab === 'document';
         fetchAssetDetails({
             deferServiceSigning: true,
             light: !includeDocuments,
             silent: false,
-        }).then(() => {
-            if (includeDocuments) setDocumentAttachmentsLoaded(true);
+        }).then((merged) => {
+            if (includeDocuments || merged?.deferredAttachmentSigning === false) {
+                setDocumentAttachmentsLoaded(true);
+                lightUpgradeDoneRef.current = true;
+            }
         });
         if (activeTab === 'history') fetchAssetHistory();
         if (activeTab === 'handover') {
             fetchAssetHistory({ forHandover: true });
         }
         if (activeTab === 'accessoriesList') {
-            void fetchAssetDetails({ light: true, silent: true });
+            // Use existing asset payload — avoid a redundant light detail refetch.
             fetchAssetHistory({ forHandover: false });
         }
         if (activeTab === 'fine') fetchFines();
@@ -1082,18 +1092,46 @@ function VehicleDetailsPageContent() {
             locatorOverlayRef.current = null;
         }
         setDocumentAttachmentsLoaded(false);
-        fetchAssetDetails({ light: !isLocatorDetailsRouteId(assetId) });
+        lightUpgradeDoneRef.current = false;
+        deferredUpgradeStartedRef.current = false;
+
+        // Paint shell immediately from list cache, then refresh from API.
+        const cached = !isLocatorDetailsRouteId(assetId)
+            ? readVehicleListCacheRow(assetId)
+            : null;
+        if (cached) {
+            setAsset((prev) => {
+                if (prev && String(prev._id) === String(cached._id) && !prev._fromListCache) {
+                    return prev;
+                }
+                return cached;
+            });
+            setLoading(false);
+            void fetchAssetDetails({
+                light: true,
+                silent: true,
+            });
+        } else {
+            fetchAssetDetails({ light: !isLocatorDetailsRouteId(assetId) });
+        }
     }, [assetId]);
 
     // After light paint, quietly upgrade with heals + non-service attachment signing.
     useEffect(() => {
         if (!assetId || isLocatorDetailsRouteId(assetId)) return;
+        if (!asset || asset._fromListCache) return; // wait for first real API light payload
+        if (deferredUpgradeStartedRef.current) return;
+        deferredUpgradeStartedRef.current = true;
         let cancelled = false;
         let idleId = null;
         let timeoutId = null;
         const upgrade = () => {
             if (cancelled) return;
-            void fetchAssetDetails({ deferServiceSigning: true, silent: true });
+            void fetchAssetDetails({ deferServiceSigning: true, silent: true }).then(() => {
+                if (cancelled) return;
+                lightUpgradeDoneRef.current = true;
+                setDocumentAttachmentsLoaded(true);
+            });
         };
         if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
             idleId = window.requestIdleCallback(upgrade, { timeout: 2500 });
@@ -1107,19 +1145,28 @@ function VehicleDetailsPageContent() {
             }
             if (timeoutId != null) clearTimeout(timeoutId);
         };
-    }, [assetId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per asset after first API paint
+    }, [assetId, asset?._id, asset?._fromListCache]);
 
     useEffect(() => {
         if (!assetId || activeTab !== 'document' || documentAttachmentsLoaded) return;
+        // Idle upgrade already signed docs — don't hit detail a third time.
+        if (lightUpgradeDoneRef.current || asset?.deferredAttachmentSigning === false) {
+            setDocumentAttachmentsLoaded(true);
+            return;
+        }
         let cancelled = false;
         (async () => {
             await fetchAssetDetails({ deferServiceSigning: true, silent: true });
-            if (!cancelled) setDocumentAttachmentsLoaded(true);
+            if (!cancelled) {
+                lightUpgradeDoneRef.current = true;
+                setDocumentAttachmentsLoaded(true);
+            }
         })();
         return () => {
             cancelled = true;
         };
-    }, [assetId, activeTab, documentAttachmentsLoaded]);
+    }, [assetId, activeTab, documentAttachmentsLoaded, asset?.deferredAttachmentSigning]);
 
     useEffect(() => {
         if (!assetId) return;
@@ -1128,7 +1175,7 @@ function VehicleDetailsPageContent() {
             fetchAssetHistory({ forHandover: true });
         }
         if (activeTab === 'accessoriesList') {
-            void fetchAssetDetails({ light: true, silent: true });
+            // History only — asset already has accessories list metadata from light/upgrade.
             fetchAssetHistory({ forHandover: false });
         }
         if (activeTab === 'fine') fetchFines();
@@ -1798,12 +1845,27 @@ function VehicleDetailsPageContent() {
         return (
             <div className="flex min-h-screen w-full bg-[#F2F6F9]">
                 <Sidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-w-0">
                     <Navbar />
-                    <div className="flex-1 flex items-center justify-center p-8">
-                        <div className="flex flex-col items-center gap-3">
-                            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                            <p className="text-gray-500 font-semibold">Loading vehicle details...</p>
+                    <div className="p-4 sm:p-6 lg:p-8 space-y-4 animate-pulse">
+                        <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-lg bg-gray-200" />
+                            <div className="h-6 w-48 rounded bg-gray-200" />
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div className="h-40 rounded-xl bg-white border border-gray-100 shadow-sm" />
+                            <div className="h-40 rounded-xl bg-white border border-gray-100 shadow-sm" />
+                        </div>
+                        <div className="flex gap-2">
+                            {Array.from({ length: 6 }).map((_, i) => (
+                                <div key={i} className="h-8 w-20 rounded-lg bg-gray-200" />
+                            ))}
+                        </div>
+                        <div className="h-64 rounded-xl bg-white border border-gray-100 shadow-sm flex items-center justify-center">
+                            <div className="flex flex-col items-center gap-2">
+                                <Loader2 className="h-6 w-6 animate-spin text-teal-600" />
+                                <p className="text-sm text-gray-500 font-medium">Loading vehicle details...</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3087,6 +3149,12 @@ function VehicleDetailsPageContent() {
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
                 <Navbar />
+                {asset?._fromListCache ? (
+                    <div className="px-4 sm:px-8 py-1.5 bg-teal-50 border-b border-teal-100 text-[11px] font-semibold text-teal-800 flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                        Refreshing full vehicle details…
+                    </div>
+                ) : null}
                 <div className="p-8">
 
                     {/* Header + creation approval (aligned with main asset detail page) */}
@@ -6323,29 +6391,18 @@ function VehicleDetailsPageContent() {
 }
 
 export default function VehicleDetailsPage() {
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
-
-    if (!mounted) {
-        return (
-            <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
-                <div className="flex flex-col items-center gap-3">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
-                    <span className="text-gray-500 font-medium text-sm">Loading details...</span>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <Suspense fallback={
-            <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
-                <div className="flex flex-col items-center gap-3">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
-                    <span className="text-gray-500 font-medium text-sm">Loading details...</span>
+            <div className="flex min-h-screen w-full bg-[#F2F6F9]">
+                <Sidebar />
+                <div className="flex-1 flex flex-col min-w-0">
+                    <Navbar />
+                    <div className="flex-1 flex items-center justify-center p-8">
+                        <div className="flex flex-col items-center gap-2">
+                            <Loader2 className="h-6 w-6 animate-spin text-teal-600" />
+                            <span className="text-gray-500 font-medium text-sm">Loading details...</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         }>

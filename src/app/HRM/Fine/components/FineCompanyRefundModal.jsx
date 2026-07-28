@@ -159,6 +159,19 @@ function attachmentForApi(attachment, { includeData = true } = {}) {
     return payload;
 }
 
+const defaultGetFineBalance = (f) => Number(f?.balance || f?.fineAmount || 0);
+const defaultGetUtilityBalance = (b) => {
+    const fromField = Number(b?.differenceAmount);
+    if (Number.isFinite(fromField) && Math.abs(fromField) > 0.009) {
+        return Math.abs(fromField);
+    }
+    const contract = Number(b?.monthlyRental) || 0;
+    const actual = Number(b?.amount) || 0;
+    return Math.abs(contract - actual);
+};
+const defaultGetLoanBalance = (l) =>
+    Math.max(0, (Number(l?.amount) || 0) - (Number(l?.repaidAmount) || 0));
+
 /**
  * Pay to company — Zoho Banking Expense Refund (Money In), not Payment Refund.
  * Supports Fine recovery, Utility Bill difference recovery, and Loan/Advance repayment.
@@ -172,18 +185,9 @@ export default function FineCompanyRefundModal({
     fines = [],
     utilityBills = [],
     loans = [],
-    getFineBalance = (f) => Number(f?.balance || f?.fineAmount || 0),
-    getUtilityBalance = (b) => {
-        const fromField = Number(b?.differenceAmount);
-        if (Number.isFinite(fromField) && Math.abs(fromField) > 0.009) {
-            return Math.abs(fromField);
-        }
-        const contract = Number(b?.monthlyRental) || 0;
-        const actual = Number(b?.amount) || 0;
-        return Math.abs(contract - actual);
-    },
-    getLoanBalance = (l) =>
-        Math.max(0, (Number(l?.amount) || 0) - (Number(l?.repaidAmount) || 0)),
+    getFineBalance = defaultGetFineBalance,
+    getUtilityBalance = defaultGetUtilityBalance,
+    getLoanBalance = defaultGetLoanBalance,
 }) {
     const { toast } = useToast();
     const fileInputRef = useRef(null);
@@ -236,11 +240,19 @@ export default function FineCompanyRefundModal({
         preferredCompanyId,
     });
 
+    const balanceGettersRef = useRef({ getFineBalance, getUtilityBalance, getLoanBalance });
+    balanceGettersRef.current = { getFineBalance, getUtilityBalance, getLoanBalance };
+
     const fineRows = useMemo(() => {
+        const {
+            getFineBalance: fineBal,
+            getUtilityBalance: utilBal,
+            getLoanBalance: loanBal,
+        } = balanceGettersRef.current;
         if (isUtilityMode) {
             return (Array.isArray(utilityBills) ? utilityBills : []).map((b) => {
                 const key = String(b._id || b.billNumber || b.accountNo || '');
-                const balance = Math.max(0, Number(getUtilityBalance(b)) || 0);
+                const balance = Math.max(0, Number(utilBal(b)) || 0);
                 const paymentNo =
                     String(b.billNumber || '').trim() ||
                     String(b.accountNo || '').trim() ||
@@ -259,7 +271,7 @@ export default function FineCompanyRefundModal({
         if (isLoanMode) {
             return (Array.isArray(loans) ? loans : []).map((l) => {
                 const key = String(l.loanId || l._id);
-                const balance = Math.max(0, Number(getLoanBalance(l)) || 0);
+                const balance = Math.max(0, Number(loanBal(l)) || 0);
                 return {
                     key,
                     fine: null,
@@ -273,7 +285,7 @@ export default function FineCompanyRefundModal({
         }
         return (Array.isArray(fines) ? fines : []).map((f) => {
             const key = String(f.fineId || f._id);
-            const balance = Math.max(0, Number(getFineBalance(f)) || 0);
+            const balance = Math.max(0, Number(fineBal(f)) || 0);
             return {
                 key,
                 fine: f,
@@ -284,16 +296,7 @@ export default function FineCompanyRefundModal({
                 balance,
             };
         });
-    }, [
-        fines,
-        utilityBills,
-        loans,
-        isUtilityMode,
-        isLoanMode,
-        getFineBalance,
-        getUtilityBalance,
-        getLoanBalance,
-    ]);
+    }, [fines, utilityBills, loans, isUtilityMode, isLoanMode]);
 
     const selectedRow = fineRows.find((r) => r.key === selectedFineKey) || null;
 
@@ -347,16 +350,22 @@ export default function FineCompanyRefundModal({
         [vendors],
     );
 
-    const selectedBank = bankOptions.find((o) => o.value === bankAccountId) || null;
-    const selectedExpense = flatFromAccounts.find((o) => o.value === expenseAccountId) || null;
-    const selectedVendor = vendorOptions.find((o) => o.value === vendorId) || null;
-    const selectedLocation = locationOptions.find((o) => o.value === locationId) || null;
+    const selectedBank =
+        bankOptions.find((o) => String(o.value) === String(bankAccountId || '')) || null;
+    const selectedExpense =
+        flatFromAccounts.find((o) => String(o.value) === String(expenseAccountId || '')) || null;
+    const selectedVendor =
+        vendorOptions.find((o) => String(o.value) === String(vendorId || '')) || null;
+    const selectedLocation =
+        locationOptions.find((o) => String(o.value) === String(locationId || '')) || null;
     const selectedReceivedVia = receivedViaOptions.find((o) => o.value === receivedVia) || null;
     const selectedTaxTreatment = TAX_TREATMENT_OPTIONS.find((o) => o.value === taxTreatment) || null;
     const selectedPlaceOfSupply =
         PLACE_OF_SUPPLY_OPTIONS.find((o) => o.value === placeOfSupply) || null;
     const selectedTax = taxes.find((o) => o.value === taxId) || null;
 
+    // Reset only when the modal opens — do not depend on fineRows identity
+    // (parent re-renders recreate balance getters and were wiping dropdown selections).
     useEffect(() => {
         if (!isOpen) return;
         setDate(todayInputValue());
@@ -383,7 +392,8 @@ export default function FineCompanyRefundModal({
             setSelectedFineKey('');
             setAmount('');
         }
-    }, [isOpen, fineRows]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally reset only on open
+    }, [isOpen]);
 
     const loadBanks = useCallback(async () => {
         if (!organizationId) return;
@@ -859,7 +869,7 @@ export default function FineCompanyRefundModal({
                             classNamePrefix="refund-location"
                             instanceId="refund-location"
                             value={selectedLocation}
-                            onChange={(opt) => setLocationId(opt?.value || '')}
+                            onChange={(opt) => setLocationId(opt?.value ? String(opt.value) : '')}
                             options={locationOptions}
                             isLoading={loadingSupport}
                             isClearable
@@ -877,7 +887,9 @@ export default function FineCompanyRefundModal({
                             classNamePrefix="refund-from-account"
                             instanceId="refund-from-account"
                             value={selectedExpense}
-                            onChange={(opt) => setExpenseAccountId(opt?.value || '')}
+                            onChange={(opt) =>
+                                setExpenseAccountId(opt?.value ? String(opt.value) : '')
+                            }
                             options={fromAccountGroupedOptions}
                             isLoading={loadingSupport}
                             isClearable
@@ -959,7 +971,7 @@ export default function FineCompanyRefundModal({
                             classNamePrefix="refund-vendor"
                             instanceId="refund-vendor"
                             value={selectedVendor}
-                            onChange={(opt) => setVendorId(opt?.value || '')}
+                            onChange={(opt) => setVendorId(opt?.value ? String(opt.value) : '')}
                             options={vendorOptions}
                             isLoading={loadingVendors}
                             isClearable
@@ -992,7 +1004,9 @@ export default function FineCompanyRefundModal({
                                     classNamePrefix="refund-bank"
                                     instanceId="refund-bank"
                                     value={selectedBank}
-                                    onChange={(opt) => setBankAccountId(opt?.value || '')}
+                                    onChange={(opt) =>
+                                        setBankAccountId(opt?.value ? String(opt.value) : '')
+                                    }
                                     options={bankOptions}
                                     isLoading={loadingBanks}
                                     isClearable

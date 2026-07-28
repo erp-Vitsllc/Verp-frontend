@@ -64,7 +64,10 @@ export function canEditMechanicalWorkGarage(stage, canManageMechanicalWork, { as
 }
 
 export function canApproveMechanicalWorkGarageAccounts(stage, isFlowchartAccounts) {
-    return isFlowchartAccounts && stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS;
+    return (
+        isFlowchartAccounts &&
+        (stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS || stage === 'pending_billing')
+    );
 }
 
 export function canEditMechanicalWorkReturn(stage, canManageMechanicalWork, isComplete, asset) {
