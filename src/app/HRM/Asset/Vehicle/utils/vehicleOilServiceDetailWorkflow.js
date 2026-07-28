@@ -47,29 +47,47 @@ function isPlaceholderActor(name) {
     return !n || n === 'user' || n === 'system' || n === 'admin' || n === '—';
 }
 
+/** Tracker labels: name only (no employee id); collapse duplicated first/last. */
+function formatTrackerActorName(name) {
+    let cleaned = String(name || '')
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim();
+    if (!cleaned) return '';
+    const parts = cleaned.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+        return parts[0];
+    }
+    return cleaned;
+}
+
+function flowchartNameOnly(name) {
+    return formatTrackerActorName(name);
+}
+
 function resolveOilAssigneeName(asset) {
-    return formatEmployeeName(asset?.assignedTo) || '';
+    return formatTrackerActorName(formatEmployeeName(asset?.assignedTo)) || '';
 }
 
 function resolveOilRequesterName(remark = {}, asset = null) {
-    const fromRemark = String(remark.requestedByName || '').trim();
+    const fromRemark = formatTrackerActorName(remark.requestedByName);
     if (fromRemark && !isPlaceholderActor(fromRemark)) return fromRemark;
     return resolveOilAssigneeName(asset);
 }
 
 function resolveOilActorName(raw, { remark, asset, flowchartActors, preferSystem = false } = {}) {
-    if (!isPlaceholderActor(raw)) return String(raw).trim();
+    const cleaned = formatTrackerActorName(raw);
+    if (!isPlaceholderActor(cleaned)) return cleaned;
     if (preferSystem && String(raw || '').trim().toLowerCase() === 'system') {
         // Auto start-date transition — still show who owns the service.
         return (
-            flowchartActors?.adminOfficer ||
+            flowchartNameOnly(flowchartActors?.adminOfficer) ||
             resolveOilRequesterName(remark, asset) ||
             'System'
         );
     }
     return (
         resolveOilRequesterName(remark, asset) ||
-        flowchartActors?.adminOfficer ||
+        flowchartNameOnly(flowchartActors?.adminOfficer) ||
         ''
     );
 }
@@ -111,7 +129,7 @@ function resolveWorkflowForService(asset, service) {
     }
 
     const remarkStage = String(remark.workflowStage || '').toLowerCase();
-    if (remarkStage === 'pending_hr' || remarkStage === 'pending_accounts') {
+    if (remarkStage === 'pending_hr' || remarkStage === 'pending_accounts' || remarkStage === 'billed') {
         return {
             stage: remarkStage,
             history: Array.isArray(snap?.history)
@@ -150,6 +168,10 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
     const live = isOilServiceLive(service, asset);
     const waiting = isOilServiceScheduledWaiting(service, asset);
     const requester = resolveOilRequesterName(remark, asset);
+    const isCash = isOilServiceCashAmountMode(remark);
+    const hrName = flowchartNameOnly(flowchartActors?.hr) || 'HR';
+    const accountsName = flowchartNameOnly(flowchartActors?.accounts) || 'Accounts';
+    const adminName = flowchartNameOnly(flowchartActors?.adminOfficer) || 'Admin Officer';
 
     if (service?.createdAt) {
         legacy.push({
@@ -235,14 +257,16 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
                   byName: remark.serviceCompletedByName || requester,
               }
             : null);
-    if (
-        completed ||
+    // Cash: pending_hr is schedule approval (before On Service) — never treat as End Service.
+    const endServiceDone =
+        Boolean(completed) ||
         stage === 'complete' ||
-        stage === 'pending_hr' ||
-        stage === 'pending_accounts' ||
-        remark.vehicleServiceCompleted === 'live' ||
-        remark.oilServiceEndedAt
-    ) {
+        stage === 'billed' ||
+        (isCash && stage === 'pending_accounts') ||
+        String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live' ||
+        Boolean(remark.oilServiceEndedAt);
+
+    if (endServiceDone) {
         legacy.push({
             type: 'service_completed',
             at: completed?.at || remark.vehicleServiceCompletedAt || remark.oilServiceEndedAt || service?.updatedAt,
@@ -250,23 +274,39 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
                 resolveOilActorName(completed?.byName || remark.serviceCompletedByName, {
                     remark,
                     asset,
-                }) || requester,
+                    flowchartActors,
+                }) ||
+                adminName ||
+                requester,
         });
     }
 
-    if (stage === 'pending_accounts' || stage === 'complete' || remark.hrPaymentApprovedAt) {
+    const hrDone =
+        Boolean(remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt) ||
+        (isCash &&
+            ['scheduled_service', 'pending_accounts', 'billed', 'complete'].includes(stage) &&
+            (Boolean(remark.assignmentSubmittedAt) || waiting || live || endServiceDone));
+
+    if (hrDone && isCash) {
         legacy.push({
             type: 'hr_approved',
-            at: remark.hrPaymentApprovedAt || null,
-            byName: remark.hrPaymentApprovedByName || flowchartActors?.hr || 'HR',
+            at: remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt || null,
+            byName:
+                formatTrackerActorName(remark.hrScheduleApprovedByName || remark.hrPaymentApprovedByName) ||
+                hrName,
         });
     }
 
-    if (stage === 'complete' || remark.accountsPaymentApprovedAt) {
+    const accountsDone =
+        stage === 'billed' ||
+        String(remark.billingStatus || '').toLowerCase() === 'billed' ||
+        Boolean(remark.accountsPaymentApprovedAt);
+
+    if (accountsDone && isCash) {
         legacy.push({
             type: 'accounts_approved',
-            at: remark.accountsPaymentApprovedAt || remark.vehicleServiceCompletedAt || null,
-            byName: remark.accountsPaymentApprovedByName || flowchartActors?.accounts || 'Accounts',
+            at: remark.accountsPaymentApprovedAt || null,
+            byName: formatTrackerActorName(remark.accountsPaymentApprovedByName) || accountsName,
         });
     }
 
@@ -320,11 +360,14 @@ function resolveActiveStepId(activities, stage, service, asset, isCash = false) 
 
     if (isCash) {
         // 1 Created 2 Updated 3 Scheduled 4 HR 5 On Service 6 End 7 Accounts 8 Billed
+        // Return id of the *current* (pending) step; Done = id < this.
         if (stage === 'billed' || hasAccounts) return 9;
-        if (stage === 'pending_accounts' || hasCompleted) return 7;
+        if (stage === 'pending_accounts') return 7;
+        if (hasCompleted) return 7;
         if (hasOnService || live) return 6;
         if (hasHr || stage === 'scheduled_service') return 5;
-        if (stage === 'pending_hr' || hasScheduled || waiting) return 4;
+        if (stage === 'pending_hr') return 4;
+        if (hasScheduled || waiting) return 4;
         if (hasUpdated) return 3;
         if (hasCreated) return 2;
         return 1;
@@ -464,67 +507,82 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
     const accountsApproved = latestActivity(activities, 'accounts_approved');
 
     const adminOfficer =
-        flowchartActors.adminOfficer ||
-        nameFromFlowchartRow(pickFlowchartAdminRow(flowchartRows)) ||
+        flowchartNameOnly(flowchartActors.adminOfficer) ||
+        flowchartNameOnly(nameFromFlowchartRow(pickFlowchartAdminRow(flowchartRows))) ||
         'Admin Officer';
+    const hrOfficer = flowchartNameOnly(flowchartActors.hr) || 'HR';
+    const accountsOfficer = flowchartNameOnly(flowchartActors.accounts) || 'Accounts';
     const requester = resolveOilRequesterName(remark, asset);
     const { start: serviceStartDate, end: serviceEndDate } = resolveOilScheduleDates(asset, service, remark);
 
     const steps = isCash ? OIL_SERVICE_CASH_WORKFLOW_STEPS : OIL_SERVICE_WORKFLOW_STEPS;
 
-    const stepActors = {
-        1: resolveOilActorName(created?.byName, { remark, asset, flowchartActors }) || requester || adminOfficer,
-        2:
-            resolveOilActorName(updated?.byName, { remark, asset, flowchartActors }) ||
-            resolveOilActorName(created?.byName, { remark, asset, flowchartActors }) ||
-            requester ||
-            adminOfficer,
-        3:
-            resolveOilActorName(scheduled?.byName, { remark, asset, flowchartActors }) ||
-            requester ||
-            adminOfficer,
-        4:
-            resolveOilActorName(onService?.byName, {
-                remark,
-                asset,
-                flowchartActors,
-                preferSystem: true,
-            }) || adminOfficer,
-        5:
-            resolveOilActorName(completed?.byName || remark.serviceCompletedByName, {
-                remark,
-                asset,
-                flowchartActors,
-            }) ||
-            adminOfficer ||
-            requester,
-        6:
-            resolveOilActorName(hrApproved?.byName || remark.hrPaymentApprovedByName, {
-                remark,
-                asset,
-                flowchartActors,
-            }) ||
-            flowchartActors.hr ||
-            'HR',
-        7:
-            resolveOilActorName(accountsApproved?.byName || remark.accountsPaymentApprovedByName, {
-                remark,
-                asset,
-                flowchartActors,
-            }) ||
-            flowchartActors.accounts ||
-            'Accounts',
-    };
+    const createdActor =
+        resolveOilActorName(created?.byName, { remark, asset, flowchartActors }) || requester || adminOfficer;
+    const updatedActor =
+        resolveOilActorName(updated?.byName, { remark, asset, flowchartActors }) || createdActor;
+    const scheduledActor =
+        resolveOilActorName(scheduled?.byName, { remark, asset, flowchartActors }) || requester || adminOfficer;
+    const onServiceActor =
+        resolveOilActorName(onService?.byName, {
+            remark,
+            asset,
+            flowchartActors,
+            preferSystem: true,
+        }) || adminOfficer;
+    const endServiceActor =
+        resolveOilActorName(completed?.byName || remark.serviceCompletedByName, {
+            remark,
+            asset,
+            flowchartActors,
+        }) ||
+        adminOfficer ||
+        requester;
+    const hrActor =
+        formatTrackerActorName(hrApproved?.byName || remark.hrScheduleApprovedByName || remark.hrPaymentApprovedByName) ||
+        hrOfficer;
+    const accountsActor =
+        formatTrackerActorName(
+            accountsApproved?.byName || remark.accountsPaymentApprovedByName,
+        ) || accountsOfficer;
 
-    const stepDates = {
-        1: created?.at || service?.createdAt || service?.date || null,
-        2: updated?.at || null,
-        3: scheduled?.at || remark.oilServiceScheduledAt || remark.assignmentSubmittedAt || null,
-        4: onService?.at || remark.oilServiceLiveAt || asset?.activeServiceWorkflow?.oilServiceLiveAt || null,
-        5: completed?.at || remark.oilServiceEndedAt || remark.vehicleServiceCompletedAt || null,
-        6: hrApproved?.at || remark.hrPaymentApprovedAt || null,
-        7: accountsApproved?.at || remark.accountsPaymentApprovedAt || null,
-    };
+    const stepActors = isCash
+        ? {
+              1: createdActor,
+              2: updatedActor,
+              3: scheduledActor,
+              4: hrActor,
+              5: onServiceActor,
+              6: endServiceActor,
+              7: accountsActor,
+              8: accountsActor,
+          }
+        : {
+              1: createdActor,
+              2: updatedActor,
+              3: scheduledActor,
+              4: onServiceActor,
+              5: endServiceActor,
+          };
+
+    const stepDates = isCash
+        ? {
+              1: created?.at || service?.createdAt || service?.date || null,
+              2: updated?.at || null,
+              3: scheduled?.at || remark.oilServiceScheduledAt || remark.assignmentSubmittedAt || null,
+              4: hrApproved?.at || remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt || null,
+              5: onService?.at || remark.oilServiceLiveAt || asset?.activeServiceWorkflow?.oilServiceLiveAt || null,
+              6: completed?.at || remark.oilServiceEndedAt || remark.vehicleServiceCompletedAt || null,
+              7: accountsApproved?.at || remark.accountsPaymentApprovedAt || null,
+              8: accountsApproved?.at || remark.accountsPaymentApprovedAt || null,
+          }
+        : {
+              1: created?.at || service?.createdAt || service?.date || null,
+              2: updated?.at || null,
+              3: scheduled?.at || remark.oilServiceScheduledAt || remark.assignmentSubmittedAt || null,
+              4: onService?.at || remark.oilServiceLiveAt || asset?.activeServiceWorkflow?.oilServiceLiveAt || null,
+              5: completed?.at || remark.oilServiceEndedAt || remark.vehicleServiceCompletedAt || null,
+          };
 
     const updateCount = activities.filter((a) => a.type === 'service_updated').length;
 
@@ -540,7 +598,9 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
         if (step.id === 3 && serviceStartDate) {
             const waiting = isOilServiceScheduledWaiting(service, asset);
             const live = isOilServiceLive(service, asset);
-            if (waiting) {
+            if (waiting && stage === 'pending_hr') {
+                detail = `Awaiting HR · start ${formatOilDate(serviceStartDate)}`;
+            } else if (waiting) {
                 detail = `Waiting for start date · ${formatOilDate(serviceStartDate)}`;
             } else if (live || scheduled) {
                 detail = `Scheduled · start ${formatOilDate(serviceStartDate)}`;
@@ -548,17 +608,32 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
                 detail = `Planned start · ${formatOilDate(serviceStartDate)}`;
             }
         }
-        if (step.id === 4 && serviceStartDate) {
-            detail = `Service start: ${formatOilDate(serviceStartDate)}`;
-        }
-        if (step.id === 5 && serviceEndDate) {
-            detail = `Service end: ${formatOilDate(serviceEndDate)}`;
-        }
-        if (step.id === 6) {
-            detail = 'Cash payment — HR review';
-        }
-        if (step.id === 7) {
-            detail = 'Accounts approve → Zoho bill';
+        if (isCash) {
+            if (step.id === 4) {
+                detail = currentActiveStepId === 4 ? 'Flowchart HR must approve schedule' : 'HR approved schedule';
+            }
+            if (step.id === 5 && serviceStartDate) {
+                detail = `Service start: ${formatOilDate(serviceStartDate)}`;
+            }
+            if (step.id === 6 && serviceEndDate) {
+                detail = `Service end: ${formatOilDate(serviceEndDate)}`;
+            }
+            if (step.id === 7) {
+                detail =
+                    currentActiveStepId === 7
+                        ? 'Flowchart Accounts — Zoho bill'
+                        : 'Accounts approved → Zoho bill';
+            }
+            if (step.id === 8) {
+                detail = 'Billed in Zoho';
+            }
+        } else {
+            if (step.id === 4 && serviceStartDate) {
+                detail = `Service start: ${formatOilDate(serviceStartDate)}`;
+            }
+            if (step.id === 5 && serviceEndDate) {
+                detail = `Service end: ${formatOilDate(serviceEndDate)}`;
+            }
         }
 
         return buildStepEvent(step, {
@@ -573,46 +648,84 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
     const { beforeOnService: dateEventsBeforeOnService, afterOnService: dateEventsAfterOnService } =
         partitionDateChangeEvents(activities, service, asset);
 
-    const steps12 = workflowEvents.slice(0, 2);
-    const scheduledStep = workflowEvents[2];
-    const onServiceStep = workflowEvents[3];
-    const endServiceStep = workflowEvents[4];
-    const hrStep = isCash ? workflowEvents[5] : null;
-    const accountsStep = isCash ? workflowEvents[6] : null;
-
-    const paymentTail = [hrStep, accountsStep].filter(Boolean).length;
-    const tailCount = dateEventsAfterOnService.length + (endServiceStep ? 1 : 0) + paymentTail;
-    if (onServiceStep) {
-        onServiceStep.isLast = tailCount === 0;
-        onServiceStep.connectorGreen = currentActiveStepId > 4;
-    }
-    if (endServiceStep) {
-        endServiceStep.isLast = !isCash;
-        endServiceStep.connectorGreen = currentActiveStepId > 5;
-    }
-    if (hrStep) {
-        hrStep.isLast = false;
-        hrStep.connectorGreen = currentActiveStepId > 6;
-    }
-    if (accountsStep) {
-        accountsStep.isLast = true;
-        accountsStep.connectorGreen = currentActiveStepId > 7;
-    }
-
     const decorateDateEvents = (rows) =>
         rows.map((row) => ({
             ...row,
-            actor: resolveOilActorName(row.actor, { remark, asset, flowchartActors }) || adminOfficer,
+            actor:
+                formatTrackerActorName(
+                    resolveOilActorName(row.actor, { remark, asset, flowchartActors }),
+                ) || adminOfficer,
         }));
 
-    return [
-        ...steps12,
+    if (!isCash) {
+        const steps12 = workflowEvents.slice(0, 2);
+        const scheduledStep = workflowEvents[2];
+        const onServiceStep = workflowEvents[3];
+        const endServiceStep = workflowEvents[4];
+
+        const tailCount = dateEventsAfterOnService.length + (endServiceStep ? 1 : 0);
+        if (onServiceStep) {
+            onServiceStep.isLast = tailCount === 0;
+            onServiceStep.connectorGreen = currentActiveStepId > 4;
+        }
+        if (endServiceStep) {
+            endServiceStep.isLast = true;
+            endServiceStep.connectorGreen = currentActiveStepId > 5;
+        }
+
+        return [
+            ...steps12,
+            scheduledStep,
+            ...decorateDateEvents(dateEventsBeforeOnService),
+            onServiceStep,
+            ...decorateDateEvents(dateEventsAfterOnService),
+            endServiceStep,
+        ].filter(Boolean);
+    }
+
+    // Cash: Created → Updated → Scheduled → HR → On Service → End → Accounts → Billed
+    const [
+        createdStep,
+        updatedStep,
         scheduledStep,
+        hrStep,
+        onServiceStep,
+        endServiceStep,
+        accountsStep,
+        billedStep,
+    ] = workflowEvents;
+
+    if (hrStep) {
+        hrStep.connectorGreen = currentActiveStepId > 4;
+        hrStep.isLast = false;
+    }
+    if (onServiceStep) {
+        onServiceStep.connectorGreen = currentActiveStepId > 5;
+        onServiceStep.isLast = false;
+    }
+    if (endServiceStep) {
+        endServiceStep.connectorGreen = currentActiveStepId > 6;
+        endServiceStep.isLast = false;
+    }
+    if (accountsStep) {
+        accountsStep.connectorGreen = currentActiveStepId > 7;
+        accountsStep.isLast = false;
+    }
+    if (billedStep) {
+        billedStep.connectorGreen = currentActiveStepId > 8;
+        billedStep.isLast = true;
+    }
+
+    return [
+        createdStep,
+        updatedStep,
+        scheduledStep,
+        hrStep,
         ...decorateDateEvents(dateEventsBeforeOnService),
         onServiceStep,
         ...decorateDateEvents(dateEventsAfterOnService),
         endServiceStep,
-        hrStep,
         accountsStep,
+        billedStep,
     ].filter(Boolean);
 }
