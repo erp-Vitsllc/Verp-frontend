@@ -160,8 +160,10 @@ export default function VehicleAccidentRepairGarageCard({
         } catch (error) {
             toast({
                 variant: 'destructive',
-                title: 'Approval failed',
-                description: error.response?.data?.message || 'Could not approve garage details.',
+                title: 'Accounts approval blocked',
+                description:
+                    error.response?.data?.message ||
+                    'Zoho bill must be created successfully before Accounts can approve.',
             });
         } finally {
             setSaving(false);

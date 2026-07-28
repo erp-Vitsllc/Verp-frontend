@@ -600,15 +600,21 @@ function VehicleDetailsPageContent() {
     useEffect(() => {
         if (!asset?._id) return;
 
+        let cancelled = false;
         const fetchUserDataAndCheckController = async () => {
             try {
                 const [userRes, companyRes, flowRes] = await Promise.all([
-                    axiosInstance.get('/Employee/me'),
-                    axiosInstance.get('/Company', { params: { scope: 'responsibilities' } }),
-                    axiosInstance.get('/Flowchart').catch((e) => {
+                    axiosInstance.get('/Employee/me', { skipToast: true, timeout: 12000 }),
+                    axiosInstance.get('/Company', {
+                        params: { scope: 'responsibilities' },
+                        skipToast: true,
+                        timeout: 12000,
+                    }),
+                    axiosInstance.get('/Flowchart', { skipToast: true, timeout: 12000 }).catch(() => {
                         return { data: [] };
                     }),
                 ]);
+                if (cancelled) return;
 
                 if (userRes && userRes.data) {
                     const stored = parseStoredSessionUser();
@@ -682,8 +688,9 @@ function VehicleDetailsPageContent() {
                         try {
                             const ctrlRes = await axiosInstance.get(
                                 `/AssetItem/unassigned/controller/${encodeURIComponent(userRes.data.employeeId)}?checkOnly=true`,
-                                { skipToast: true },
+                                { skipToast: true, timeout: 8000 },
                             ).catch(() => null);
+                            if (cancelled) return;
                             if (ctrlRes?.status === 200 && ctrlRes.data?.isAuthorized === true) {
                                 assetControllerFound = true;
                             }
@@ -755,13 +762,33 @@ function VehicleDetailsPageContent() {
                     );
                 }
             } catch (err) {
+                if (cancelled) return;
                 setHasAssetController(false);
                 setIsFlowchartAdminController(false);
                 setIsFlowchartAssignedAdminOfficer(false);
                 setVehicleProfileActivationFlowchartAdminName('');
             }
         };
-        fetchUserDataAndCheckController();
+
+        // Defer role/flowchart burst until after vehicle details have painted.
+        let idleId = null;
+        let timeoutId = null;
+        const schedule = () => {
+            if (cancelled) return;
+            void fetchUserDataAndCheckController();
+        };
+        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+            idleId = window.requestIdleCallback(schedule, { timeout: 1200 });
+        } else {
+            timeoutId = setTimeout(schedule, 0);
+        }
+        return () => {
+            cancelled = true;
+            if (idleId != null && typeof window.cancelIdleCallback === 'function') {
+                window.cancelIdleCallback(idleId);
+            }
+            if (timeoutId != null) clearTimeout(timeoutId);
+        };
     }, [asset?._id]);
 
     const fetchAssetDetails = async (opts = {}) => {
@@ -1056,6 +1083,30 @@ function VehicleDetailsPageContent() {
         }
         setDocumentAttachmentsLoaded(false);
         fetchAssetDetails({ light: !isLocatorDetailsRouteId(assetId) });
+    }, [assetId]);
+
+    // After light paint, quietly upgrade with heals + non-service attachment signing.
+    useEffect(() => {
+        if (!assetId || isLocatorDetailsRouteId(assetId)) return;
+        let cancelled = false;
+        let idleId = null;
+        let timeoutId = null;
+        const upgrade = () => {
+            if (cancelled) return;
+            void fetchAssetDetails({ deferServiceSigning: true, silent: true });
+        };
+        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+            idleId = window.requestIdleCallback(upgrade, { timeout: 2500 });
+        } else {
+            timeoutId = setTimeout(upgrade, 400);
+        }
+        return () => {
+            cancelled = true;
+            if (idleId != null && typeof window.cancelIdleCallback === 'function') {
+                window.cancelIdleCallback(idleId);
+            }
+            if (timeoutId != null) clearTimeout(timeoutId);
+        };
     }, [assetId]);
 
     useEffect(() => {

@@ -54,7 +54,7 @@ export default function VehicleOilCashPaymentApprovalCard({
             });
             toast({
                 title: 'Approved',
-                description: data?.message || (isHr ? 'Sent to Accounts.' : 'Payment complete.'),
+                description: data?.message || (isHr ? 'Sent to Accounts.' : 'Zoho bill created — payment complete.'),
             });
             if (typeof onUpdated === 'function') {
                 onUpdated(data?.asset || null);
@@ -62,8 +62,12 @@ export default function VehicleOilCashPaymentApprovalCard({
         } catch (err) {
             toast({
                 variant: 'destructive',
-                title: 'Approval failed',
-                description: err.response?.data?.message || 'Could not approve this step.',
+                title: isHr ? 'Approval failed' : 'Accounts approval blocked',
+                description:
+                    err.response?.data?.message ||
+                    (isHr
+                        ? 'Could not approve this step.'
+                        : 'Zoho bill must succeed before Accounts can approve.'),
             });
         } finally {
             setBusy(false);
