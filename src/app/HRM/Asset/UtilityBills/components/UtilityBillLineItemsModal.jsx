@@ -168,7 +168,8 @@ export function createDefaultLineItems({
         ];
     }
 
-    const firstAmount = actual > 0 ? actual : contract;
+    // 1st row = contract; user adds more rows for the difference up to Actual.
+    const firstAmount = contract > 0.009 ? contract : actual;
     const resolvedPayBy = resolveLinePayBy({
         payBy,
         payByEmployeeId,

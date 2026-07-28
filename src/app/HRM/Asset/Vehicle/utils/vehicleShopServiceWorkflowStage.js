@@ -27,22 +27,28 @@ function accountsApprovalRecorded(asset, service, accountsStage) {
 }
 
 function inferStageFromRemarkActivity(remark, asset, stages) {
-    if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live') {
-        return stages.COMPLETE;
-    }
-    if (String(remark.workflowStage || '').toLowerCase() === stages.COMPLETE) {
-        return stages.COMPLETE;
-    }
-
     const log = Array.isArray(remark.tireActivityLog) ? remark.tireActivityLog : [];
     const has = (type) => log.some((entry) => entry.type === type);
+    const workflowStage = String(remark.workflowStage || '').toLowerCase();
+    const billingStatus = String(remark.billingStatus || '').toLowerCase();
+    const pendingBilling = stages.PENDING_BILLING || 'pending_billing';
 
-    if (has('service_completed')) return stages.COMPLETE;
+    if (has('zoho_bill_created') || workflowStage === 'billed' || billingStatus === 'billed') {
+        return workflowStage === 'billed' || billingStatus === 'billed' ? 'billed' : stages.COMPLETE;
+    }
+    if (workflowStage === stages.COMPLETE || workflowStage === 'complete') {
+        return stages.COMPLETE;
+    }
+    // Service completed / vehicleServiceCompleted live with pending_billing stays on billing — not complete.
+    if (workflowStage === pendingBilling) {
+        return pendingBilling;
+    }
+
     if (has('accounts_approved') || remark.accountsApprovedAt) {
         return stages.SCHEDULED;
     }
     if (has('garage_updated') || remark.garageSubmittedByName) {
-        return stages.ACCOUNTS;
+        return stages.SCHEDULED;
     }
     if (has('quotation_review_approved')) {
         return stages.ADMIN_OFFICER;
@@ -92,8 +98,12 @@ function resolveRawShopServiceStage(asset, serviceId, service, stages) {
     const snap = serviceRow?.workflowSnapshot;
 
     const inferred = inferStageFromRemarkActivity(remark, asset, stages);
-    if (inferred === stages.COMPLETE) {
-        return stages.COMPLETE;
+    const pendingBilling = stages.PENDING_BILLING || 'pending_billing';
+    if (inferred === stages.COMPLETE || inferred === 'billed') {
+        return inferred;
+    }
+    if (inferred === pendingBilling) {
+        return pendingBilling;
     }
 
     if (wfMatch && wf?.stage) {

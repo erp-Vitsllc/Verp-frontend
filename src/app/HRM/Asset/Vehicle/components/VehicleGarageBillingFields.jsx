@@ -31,6 +31,8 @@ export default function VehicleGarageBillingFields({
     fieldMinHeightPx = 88,
     fieldClassName = '',
     amountReadOnly = true,
+    /** When false, hide Attachment (e.g. Accounts oil card already has Garage invoice). */
+    showAttachment = true,
 }) {
     const { toast } = useToast();
     const fileRef = useRef(null);
@@ -115,38 +117,40 @@ export default function VehicleGarageBillingFields({
                 </p>
             </VehicleTireChangeFormFieldCell>
 
-            <VehicleTireChangeFormFieldCell
-                label="Attachment"
-                accentClass={accent?.(1)}
-                minHeightPx={fieldMinHeightPx}
-            >
-                <label
-                    className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:border-teal-400 hover:bg-teal-50/40 ${
-                        fieldsDisabled ? 'pointer-events-none opacity-60' : ''
-                    }`}
+            {showAttachment ? (
+                <VehicleTireChangeFormFieldCell
+                    label="Attachment"
+                    accentClass={accent?.(1)}
+                    minHeightPx={fieldMinHeightPx}
                 >
-                    <Upload size={14} />
-                    <span className="truncate">
-                        {formData.garageAttachmentName ||
-                            (formData.existingGarageAttachmentUrl
-                                ? 'Attachment on file — click to replace'
-                                : 'Upload PDF or JPEG')}
-                    </span>
-                    <input
-                        ref={fileRef}
-                        type="file"
-                        className="hidden"
-                        accept={ERP_ATTACHMENT_ACCEPT}
-                        disabled={fieldsDisabled}
-                        onChange={(e) => {
-                            void handleFile(e.target.files);
-                        }}
-                    />
-                </label>
-                <p className="mt-1 text-[10px] text-slate-400">
-                    PDF max 5 MB · JPEG max 2 MB — stored on Accounts approve as Zoho bill
-                </p>
-            </VehicleTireChangeFormFieldCell>
+                    <label
+                        className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:border-teal-400 hover:bg-teal-50/40 ${
+                            fieldsDisabled ? 'pointer-events-none opacity-60' : ''
+                        }`}
+                    >
+                        <Upload size={14} />
+                        <span className="truncate">
+                            {formData.garageAttachmentName ||
+                                (formData.existingGarageAttachmentUrl
+                                    ? 'Attachment on file — click to replace'
+                                    : 'Upload PDF or JPEG')}
+                        </span>
+                        <input
+                            ref={fileRef}
+                            type="file"
+                            className="hidden"
+                            accept={ERP_ATTACHMENT_ACCEPT}
+                            disabled={fieldsDisabled}
+                            onChange={(e) => {
+                                void handleFile(e.target.files);
+                            }}
+                        />
+                    </label>
+                    <p className="mt-1 text-[10px] text-slate-400">
+                        PDF max 5 MB · JPEG max 2 MB — stored on Accounts approve as Zoho bill
+                    </p>
+                </VehicleTireChangeFormFieldCell>
+            ) : null}
         </>
     );
 }

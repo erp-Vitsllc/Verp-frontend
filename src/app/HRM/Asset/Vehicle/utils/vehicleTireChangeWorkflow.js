@@ -153,6 +153,8 @@ export function showTireChangeGarageCard(assignmentPending, stage) {
         TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_OFFICER,
         TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS,
         TIRE_CHANGE_WORKFLOW_STAGES.SCHEDULED,
+        'pending_billing',
+        'billed',
         TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_RETURN,
         TIRE_CHANGE_WORKFLOW_STAGES.COMPLETE,
     ].includes(stage);

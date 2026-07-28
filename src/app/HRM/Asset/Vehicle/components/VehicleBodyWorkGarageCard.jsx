@@ -94,7 +94,7 @@ export default function VehicleBodyWorkGarageCard({
             );
             toast({
                 title: 'Garage updated',
-                description: 'Accounts was notified to review and approve garage details.',
+                description: 'Service scheduled. Accounts Zoho billing starts after Service Completed.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
@@ -121,7 +121,9 @@ export default function VehicleBodyWorkGarageCard({
                 description:
                     data?.message ||
                     data?.zohoBillMessage ||
-                    'Admin Officer was notified. Zoho bill stored when billing fields are complete.',
+                    (stage === 'pending_billing'
+                        ? 'Zoho bill created — Billed.'
+                        : 'Service scheduled. Zoho billing happens after End Service.'),
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
@@ -140,13 +142,17 @@ export default function VehicleBodyWorkGarageCard({
     const subtitle =
         stage === BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER
             ? 'Admin Officer — update garage vendor, pay account, amount, attachment and service window, then click Update Garage'
-            : stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS
+            : stage === 'pending_billing'
               ? canApproveAccounts
-                  ? 'Accounts — review garage billing details below, then click Approve (creates Zoho bill)'
-                  : 'Garage details submitted — awaiting Accounts approval'
-              : isComplete
-                ? 'Garage details approved and locked'
-                : 'Garage vendor, pay account, amount, attachment, and scheduled service window';
+                  ? 'Accounts — review billing below, then Submit to Zoho (Billed only if Zoho succeeds)'
+                  : 'Service completed — awaiting Accounts Zoho billing'
+              : stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS
+                ? canApproveAccounts
+                    ? 'Legacy — Accounts garage schedule approval (Zoho is after End Service)'
+                    : 'Garage details submitted — awaiting Accounts schedule approval'
+                : isComplete || stage === 'billed'
+                  ? 'Garage details locked'
+                  : 'Garage vendor, pay account, amount, attachment, and scheduled service window';
 
     return (
         <div className={`w-full ${className}`.trim()}>

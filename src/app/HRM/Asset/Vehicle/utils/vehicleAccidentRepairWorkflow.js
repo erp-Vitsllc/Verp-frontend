@@ -82,7 +82,15 @@ export function showAccidentRepairGarageCard(assignmentPending, stage) {
     if (assignmentPending) return false;
     if (!stage || stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.REJECTED) return false;
     if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return false;
-    return true;
+    return [
+        ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER,
+        ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS,
+        ACCIDENT_REPAIR_WORKFLOW_STAGES.SCHEDULED,
+        'pending_billing',
+        'billed',
+        ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_RETURN,
+        ACCIDENT_REPAIR_WORKFLOW_STAGES.COMPLETE,
+    ].includes(stage);
 }
 
 export function showAccidentRepairReturnCard(assignmentPending, stage) {

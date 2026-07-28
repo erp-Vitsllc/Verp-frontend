@@ -229,8 +229,9 @@ export default function VehicleOilCashPaymentApprovalCard({
         if (!vehicleId || !canAct || busy) return;
         setBusy(true);
         try {
+            let serviceUpdates = null;
             if (!isHr) {
-                const serviceUpdates = buildServiceUpdates();
+                serviceUpdates = buildServiceUpdates();
                 const total = money(
                     JSON.parse(serviceUpdates.remark || '{}').billingTotalAmount,
                 );
@@ -243,14 +244,16 @@ export default function VehicleOilCashPaymentApprovalCard({
                     setBusy(false);
                     return;
                 }
-                await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, serviceUpdates);
             }
 
+            // Billing must go through workflow/respond (merge + Zoho). Do NOT use
+            // PUT /service/:id — that endpoint only allows draft/pending requests.
             const { data } = await axiosInstance.post(`/AssetItem/${vehicleId}/service-workflow/respond`, {
                 action: 'approve',
                 comment: isHr
                     ? 'HR approved oil service schedule — ready for On Service'
                     : 'Accounts submitted billing — create Zoho bill (Billed)',
+                ...(serviceUpdates ? { serviceUpdates } : {}),
             });
             toast({
                 title: 'Approved',
@@ -440,6 +443,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                         fieldsDisabled={!canAct || busy}
                         fieldClassName="w-full min-h-[44px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold bg-white"
                         fieldMinHeightPx={72}
+                        showAttachment={false}
                     />
                 </div>
             )}

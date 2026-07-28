@@ -10,8 +10,8 @@ export const TIRE_CHANGE_WORKFLOW_STEPS = [
     { id: 3, label: 'Request Submitted' },
     { id: 4, label: 'Quotation Review Approved' },
     { id: 5, label: 'Garage Updated' },
-    { id: 6, label: 'Accounts Approved' },
-    { id: 7, label: 'Service Completed' },
+    { id: 6, label: 'Service Completed' },
+    { id: 7, label: 'Accounts Billing (Zoho)' },
 ];
 
 const ACTIVITY_BY_STEP = {
@@ -20,8 +20,8 @@ const ACTIVITY_BY_STEP = {
     3: 'request_submitted',
     4: 'quotation_review_approved',
     5: 'garage_updated',
-    6: 'accounts_approved',
-    7: 'service_completed',
+    6: 'service_completed',
+    7: 'accounts_approved',
 };
 
 function resolveWorkflowForService(asset, service) {
@@ -32,8 +32,23 @@ function resolveWorkflowForService(asset, service) {
     const remark = parseVehicleServiceRemark(service) || {};
 
     const remarkComplete =
-        String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live' ||
-        String(remark.workflowStage || '').toLowerCase() === 'complete';
+        String(remark.workflowStage || '').toLowerCase() === 'complete' ||
+        String(remark.workflowStage || '').toLowerCase() === 'billed' ||
+        String(remark.billingStatus || '').toLowerCase() === 'billed';
+
+    const remarkBilling = String(remark.workflowStage || '').toLowerCase() === 'pending_billing';
+
+    if (remarkBilling) {
+        return {
+            stage: 'pending_billing',
+            history: Array.isArray(snap?.history)
+                ? snap.history
+                : Array.isArray(activeWf?.history) && wfMatch
+                  ? activeWf.history
+                  : [],
+            wf: wfMatch ? activeWf : {},
+        };
+    }
 
     if (remarkComplete) {
         return {
@@ -81,7 +96,7 @@ function mapHistoryEntry(h) {
     if (action === 'approve' && stage === 'pending_hr') {
         return { type: 'quotation_review_approved', at: h.at, byName: h.byName, note: h.note };
     }
-    if (action === 'approve' && stage === 'pending_accounts') {
+    if (action === 'approve' && (stage === 'pending_accounts' || stage === 'pending_billing')) {
         return { type: 'accounts_approved', at: h.at, byName: h.byName, note: h.note };
     }
     if (action === 'updated') {
@@ -180,15 +195,16 @@ function latestActivity(activities, type) {
 
 function resolveActiveStepId(activities, stage) {
     const has = (t) => activities.some((a) => a.type === t);
+    const s = String(stage || '').toLowerCase();
 
-    if (has('service_completed') || stage === 'complete') return 8;
-    if (stage === 'pending_admin_return') return 7;
-    if (has('accounts_approved')) return 7;
-    if (stage === 'pending_accounts') return 6;
-    if (has('garage_updated')) return 6;
-    if (stage === 'pending_admin_officer') return 5;
+    if (has('zoho_bill_created') || s === 'billed' || s === 'complete') return 8;
+    if (s === 'pending_billing') return 7;
+    if (has('service_completed')) return 7;
+    if (s === 'pending_admin_return' || s === 'scheduled_service' || s === 'pending_accounts') return 6;
+    if (has('garage_updated') || has('service_scheduled') || has('accounts_approved')) return 6;
+    if (s === 'pending_admin_officer') return 5;
     if (has('quotation_review_approved')) return 5;
-    if (stage === 'pending_hr') return 4;
+    if (s === 'pending_hr') return 4;
     if (has('request_submitted')) return 4;
     if (has('service_updated')) return 3;
     if (has('service_created')) return 2;
@@ -273,9 +289,21 @@ export function buildTireChangeDetailWorkflowEvents(asset, service, flowchartRow
             const startLine = `Service start: ${start}`;
             detail = detail ? `${detail} · ${startLine}` : startLine;
         }
-        if (step.id === 7 && remark.vehicleServiceCompletedAt) {
+        if (step.id === 6 && remark.vehicleServiceCompletedAt) {
             date = date || remark.vehicleServiceCompletedAt;
             actor = actor || remark.serviceCompletedByName || '';
+        }
+        if (step.id === 7) {
+            const zoho = latestActivity(activities, 'zoho_bill_created');
+            if (zoho) {
+                date = date || zoho.at;
+                actor = actor || zoho.byName || '';
+                detail = detail || zoho.note || 'Zoho bill created — Billed';
+            } else if (activity?.note) {
+                detail = activity.note;
+            } else if (String(stage || '') === 'pending_billing') {
+                detail = 'Awaiting Accounts Zoho billing';
+            }
         }
 
         actor = resolveShopServiceStepActor(step.id, { actor, flowchartActors });

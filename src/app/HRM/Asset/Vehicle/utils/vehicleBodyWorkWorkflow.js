@@ -35,6 +35,8 @@ export function showBodyWorkGarageCard(assignmentPending, stage) {
         BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER,
         BODY_WORK_WORKFLOW_STAGES.ACCOUNTS,
         BODY_WORK_WORKFLOW_STAGES.SCHEDULED,
+        'pending_billing',
+        'billed',
         BODY_WORK_WORKFLOW_STAGES.ADMIN_RETURN,
         BODY_WORK_WORKFLOW_STAGES.COMPLETE,
     ].includes(stage);

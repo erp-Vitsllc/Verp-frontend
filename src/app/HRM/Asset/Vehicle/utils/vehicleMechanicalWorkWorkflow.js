@@ -35,6 +35,8 @@ export function showMechanicalWorkGarageCard(assignmentPending, stage) {
         MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_OFFICER,
         MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS,
         MECHANICAL_WORK_WORKFLOW_STAGES.SCHEDULED,
+        'pending_billing',
+        'billed',
         MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_RETURN,
         MECHANICAL_WORK_WORKFLOW_STAGES.COMPLETE,
     ].includes(stage);

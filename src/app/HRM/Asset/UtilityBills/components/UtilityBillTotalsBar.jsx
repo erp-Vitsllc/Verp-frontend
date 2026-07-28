@@ -354,11 +354,14 @@ export function summarizeSelectedBillRows(rows = []) {
         });
 
     const payByDiffTotal = companyDiffShare + employeeDiffShare;
+    // Display difference = Actual − Contract (positive when over budget).
+    const billDifference = actualTotal - contractTotal;
 
     return {
         contractTotal,
         actualTotal,
         differenceTotal: contractTotal - actualTotal,
+        billDifference,
         payByDiffTotal,
         companyDiffShare,
         employeeDiffShare,
@@ -373,6 +376,14 @@ export default function UtilityBillTotalsBar({ rows = [] }) {
     const showEmployeeDiff = t.employeeDiffShare > 0;
     const showCompanyTotal = t.companyTotal > 0;
     const showEmployeeTotal = t.employeeTotal > 0;
+    const billDiffAbs = Math.abs(Number(t.billDifference) || 0);
+    const isOverage = Number(t.billDifference) > 0.009;
+    const isUnder = Number(t.billDifference) < -0.009;
+    const diffColorClass = isOverage
+        ? 'text-red-600'
+        : isUnder
+          ? 'text-emerald-600'
+          : 'text-gray-500';
 
     return (
         <div className="mx-4 sm:mx-5 mb-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 sm:px-4 py-3 shrink-0">
@@ -401,12 +412,8 @@ export default function UtilityBillTotalsBar({ rows = [] }) {
                     <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
                         Difference
                     </p>
-                    <p
-                        className={`text-sm font-bold tabular-nums mb-1 ${
-                            t.payByDiffTotal > 0 ? 'text-gray-800' : 'text-gray-500'
-                        }`}
-                    >
-                        {formatMoney(t.payByDiffTotal)}{' '}
+                    <p className={`text-sm font-bold tabular-nums mb-1 ${diffColorClass}`}>
+                        {formatMoney(billDiffAbs)}{' '}
                         <span className="text-[11px] font-semibold text-gray-400">AED</span>
                     </p>
                     <div className="space-y-0.5 text-[11px] text-gray-700">
@@ -428,8 +435,13 @@ export default function UtilityBillTotalsBar({ rows = [] }) {
                                 </strong>
                             </p>
                         ) : null}
-                        {!showCompanyDiff && !showEmployeeDiff ? (
-                            <p className="text-[10px] text-gray-400">No difference assigned</p>
+                        {billDiffAbs > 0.009 && !showCompanyDiff && !showEmployeeDiff ? (
+                            <p className="text-[10px] text-gray-400">
+                                {isOverage ? 'Actual − Contract' : 'Contract − Actual'}
+                            </p>
+                        ) : null}
+                        {billDiffAbs <= 0.009 && !showCompanyDiff && !showEmployeeDiff ? (
+                            <p className="text-[10px] text-gray-400">No difference</p>
                         ) : null}
                     </div>
                 </div>

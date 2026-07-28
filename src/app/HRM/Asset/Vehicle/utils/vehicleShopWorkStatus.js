@@ -82,7 +82,13 @@ export function resolveShopWorkTableStatusLabel(service, asset) {
     if (requestStatus === 'pending') {
         return { label: 'Pending', tone: 'pending' };
     }
-    if (stage === 'complete' || vehicleServiceDone) {
+    if (stage === 'billed' || String(remark.billingStatus || '').toLowerCase() === 'billed') {
+        return { label: 'Billed', tone: 'complete' };
+    }
+    if (stage === 'pending_billing') {
+        return { label: 'Awaiting Billing', tone: 'pending' };
+    }
+    if (stage === 'complete' || (vehicleServiceDone && stage !== 'pending_billing')) {
         return { label: 'Complete', tone: 'complete' };
     }
     if (stage === 'rejected') {
@@ -106,6 +112,8 @@ export function resolveShopWorkHeaderStatus(service, asset) {
         Pending: 'bg-amber-50 border-amber-100 text-amber-700',
         Scheduled: 'bg-violet-50 border-violet-100 text-violet-700',
         'On Service': 'bg-amber-50 border-amber-100 text-amber-700',
+        'Awaiting Billing': 'bg-sky-50 border-sky-100 text-sky-800',
+        Billed: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         Complete: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         Rejected: 'bg-slate-50 border-slate-100 text-slate-600',
     };
@@ -146,10 +154,12 @@ export function isShopServiceLiveOnAsset(asset, service = null) {
     return false;
 }
 
-/** Return / completion card — visible after Accounts approves (Scheduled) through Complete. */
+/** Return / completion card — visible from Scheduled through billing/complete. */
 export function shouldShowShopServiceReturnCard(stage) {
     const normalized = String(stage || '').toLowerCase();
-    return ['scheduled_service', 'pending_admin_return', 'complete'].includes(normalized);
+    return ['scheduled_service', 'pending_admin_return', 'pending_billing', 'billed', 'complete'].includes(
+        normalized,
+    );
 }
 
 export function normalizeShopServiceDateValue(value) {

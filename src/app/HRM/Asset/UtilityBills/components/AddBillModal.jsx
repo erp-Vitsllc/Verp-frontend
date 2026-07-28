@@ -841,8 +841,9 @@ function collectPayloadRows(
                               ? 'company'
                               : 'employee'
                           : '';
+                // 1st line = contract; if Actual is higher, append overage so Total = Actual.
                 lineItems = createDefaultLineItems({
-                    contractAmount: actual,
+                    contractAmount: contract,
                     actualAmount: actual,
                     accountId,
                     accountName,
@@ -854,20 +855,54 @@ function collectPayloadRows(
                     payByCompanyId,
                     payByCompanyName,
                     itemLabel,
-                }).map((line) => ({
-                    ...line,
-                    quantity: 1,
-                    amount: actual,
-                    rate: actual,
-                    description: line.item,
-                    payBy: linePayBy || line.payBy || '',
-                    payByEmployeeId:
-                        linePayBy === 'employee' ? payByEmployeeId : '',
-                    payByEmployeeName:
-                        linePayBy === 'employee' ? payByEmployeeName : '',
-                    payByCompanyId,
-                    payByCompanyName,
-                }));
+                }).map((line) => {
+                    const amount = Number(line.amount) || 0;
+                    return {
+                        ...line,
+                        quantity: 1,
+                        amount,
+                        rate: amount,
+                        description: line.item,
+                        payBy: linePayBy || line.payBy || '',
+                        payByEmployeeId:
+                            linePayBy === 'employee' ? payByEmployeeId : '',
+                        payByEmployeeName:
+                            linePayBy === 'employee' ? payByEmployeeName : '',
+                        payByCompanyId,
+                        payByCompanyName,
+                    };
+                });
+                const linesSum = lineItems.reduce(
+                    (sum, line) => sum + (Number(line.amount) || 0),
+                    0,
+                );
+                const overage = Number((actual - linesSum).toFixed(2));
+                if (overage > 0.009) {
+                    lineItems = [
+                        ...lineItems,
+                        {
+                            key: `auto-overage-${row.entryId || 'row'}`,
+                            item: itemLabel
+                                ? `${itemLabel} · overage`
+                                : 'Utility overage',
+                            description: itemLabel
+                                ? `${itemLabel} · overage`
+                                : 'Utility overage',
+                            accountId,
+                            accountName,
+                            quantity: 1,
+                            amount: overage,
+                            rate: overage,
+                            payBy: linePayBy,
+                            payByEmployeeId:
+                                linePayBy === 'employee' ? payByEmployeeId : '',
+                            payByEmployeeName:
+                                linePayBy === 'employee' ? payByEmployeeName : '',
+                            payByCompanyId,
+                            payByCompanyName,
+                        },
+                    ];
+                }
             }
         } else if (!lineItemsMatchActual(lineItems, actual)) {
             return {
@@ -1802,7 +1837,12 @@ export default function AddBillModal({
                                                             const diff = has
                                                                 ? contractN - actualN
                                                                 : 0;
-                                                            const patch = { actualAmount: nextActual };
+                                                            const patch = {
+                                                                actualAmount: nextActual,
+                                                                // Reset item lines so Add more regenerates
+                                                                // 1st row from contract (not a stale Actual).
+                                                                lineItems: null,
+                                                            };
                                                             if (!has || Math.abs(diff) < 0.01) {
                                                                 patch.partyAccountId = '';
                                                                 patch.partyAccountName = '';
