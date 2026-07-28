@@ -110,10 +110,12 @@ export default function VehicleGarageBillingFields({
                             ? undefined
                             : (e) => setField('garageBillAmount', e.target.value)
                     }
-                    placeholder="From service approval"
+                    placeholder={amountReadOnly ? 'From service approval' : 'Enter amount'}
                 />
                 <p className="mt-1 text-[10px] text-slate-400">
-                    From service company pay / approved amount
+                    {amountReadOnly
+                        ? 'From service company pay / approved amount'
+                        : 'Enter bill amount (AED), or keep the approved amount from earlier'}
                 </p>
             </VehicleTireChangeFormFieldCell>
 

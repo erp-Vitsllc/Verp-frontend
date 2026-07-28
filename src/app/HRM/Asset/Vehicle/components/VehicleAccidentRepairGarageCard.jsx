@@ -332,6 +332,9 @@ export default function VehicleAccidentRepairGarageCard({
                             accent={accent}
                             fieldMinHeightPx={fieldMinHeightPx}
                             fieldClassName={tireFieldSelect}
+                            // Admin Officer must enter amount when HR skip / no approved value
+                            // (empty read-only amount keeps Done permanently disabled).
+                            amountReadOnly={!canEditGarage}
                         />
                     </div>
 

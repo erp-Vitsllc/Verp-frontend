@@ -250,6 +250,7 @@ export default function VehicleMechanicalWorkGarageCard({
                         accent={accent}
                         fieldMinHeightPx={fieldMinHeightPx}
                         fieldClassName={tireFieldSelect}
+                        amountReadOnly={!canEditGarage}
                     />
                 </div>
 
