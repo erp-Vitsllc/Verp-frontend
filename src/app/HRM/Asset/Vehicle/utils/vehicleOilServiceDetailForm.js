@@ -112,6 +112,9 @@ export function buildOilServiceDetailFormState(service, asset, scheduleRow) {
         serviceType: 'Oil Service',
         amountMode,
         paymentMethod,
+        garageName: String(remark.garageName || remark.vendorName || base.garageName || base.vendorName || '').trim(),
+        vendorName: String(remark.vendorName || remark.garageName || base.vendorName || base.garageName || '').trim(),
+        zohoVendorId: String(remark.zohoVendorId || base.zohoVendorId || '').trim(),
         oilServiceTypeText: remark.oilServiceTypeText || base.oilServiceTypeText || DEFAULT_OIL_SERVICE_TYPE,
         currentKm:
             remark.currentKm != null && remark.currentKm !== ''
@@ -183,7 +186,6 @@ export function validateOilServiceDetailCreateForm(formData) {
     delete errors.serviceEndDate;
     delete errors.nextChangeMonth;
     delete errors.date;
-    delete errors.vendorName;
     delete errors.payAccountId;
     delete errors.garageBillAmount;
     delete errors.garageAttachment;
@@ -208,9 +210,14 @@ export function validateOilServiceDetailCreateForm(formData) {
         if (!normalizeOilPaymentMethod(formData.paymentMethod)) {
             errors.paymentMethod = 'Payment method is required';
         }
+        delete errors.vendorName;
+        delete errors.garageName;
     } else {
         delete errors.value;
         delete errors.paymentMethod;
+        if (!String(formData.garageName || formData.vendorName || '').trim()) {
+            errors.vendorName = 'Vendor is required for warranty';
+        }
     }
 
     return errors;
@@ -269,6 +276,8 @@ const OIL_SERVICE_FIELD_LABELS = {
     serviceIssue: 'Work description',
     amountMode: 'Payment type',
     paymentMethod: 'Payment method',
+    vendorName: 'Vendor',
+    garageName: 'Vendor',
     value: 'Amount',
     attachment: 'Quote 1',
     quotation1Amount: 'Amount',
@@ -294,13 +303,17 @@ export function buildOilServiceDetailSubmitBody(formData, { initiated = false } 
     const paymentMethod = payable
         ? normalizeOilPaymentMethod(formData.paymentMethod) || 'cash'
         : '';
+    const warrantyVendor = String(formData.garageName || formData.vendorName || '').trim();
     const payload = {
         ...formData,
         serviceType: 'Oil Service',
         amountMode,
         paymentMethod,
+        vendorName: payable ? String(formData.vendorName || '').trim() : warrantyVendor,
+        garageName: String(formData.garageName || formData.vendorName || '').trim(),
+        zohoVendorId: String(formData.zohoVendorId || '').trim(),
         quotation1Amount: payable ? amount : formData.quotation1Amount,
-        value: payable ? amount : formData.value,
+        value: payable ? amount : 0,
         garageBillAmount: payable ? amount || formData.garageBillAmount : formData.garageBillAmount,
     };
     const body = buildAddServiceBody(payload);
@@ -334,14 +347,23 @@ export function buildOilServiceDetailSubmitBody(formData, { initiated = false } 
         remark.serviceEndDate = `${String(formData.nextChangeMonth).slice(0, 7)}-01`;
     }
     Object.assign(remark, garageBillingRemarkPatch(payload));
-    if (String(formData.garageName || '').trim()) {
-        remark.garageName = String(formData.garageName).trim();
-        remark.vendorName = remark.garageName;
+    if (warrantyVendor || payable) {
+        const vendor = String(payload.garageName || payload.vendorName || '').trim();
+        if (vendor) {
+            remark.garageName = vendor;
+            remark.vendorName = vendor;
+        }
+    }
+    if (String(payload.zohoVendorId || '').trim()) {
+        remark.zohoVendorId = String(payload.zohoVendorId).trim();
     }
     if (String(formData.approvedQuotationChoice || '').trim()) {
         remark.approvedQuotationChoice = String(formData.approvedQuotationChoice).trim();
     }
     body.remark = JSON.stringify(remark);
+    if (!payable) {
+        body.value = 0;
+    }
     Object.assign(body, garageBillingAttachmentBody(formData));
     return body;
 }

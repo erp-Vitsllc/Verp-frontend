@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, GripVertical, Loader2, Plus, ShieldCheck, Trash2, Wallet } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, Eye, Loader2, Plus, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
@@ -18,11 +18,7 @@ import {
     oilPaymentMethodLabel,
     oilPaymentTypeLabel,
 } from '../utils/vehicleOilServiceDetailForm';
-import {
-    OIL_QUOTE_DRAG_TYPE,
-    oilQuoteKeyToLabel,
-    parseOilQuoteDragPayload,
-} from '../utils/vehicleOilServiceQuoteDrag';
+import { oilQuoteKeyToLabel } from '../utils/vehicleOilServiceQuoteDrag';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 function money(value) {
@@ -38,7 +34,13 @@ function buildOilQuoteRows(service, remark) {
     const rows = [];
     const add = (key, urlVal, name, amount) => {
         if (urlVal || name) {
-            rows.push({ key, label: oilQuoteKeyToLabel(key), name: name || '', amount });
+            rows.push({
+                key,
+                label: oilQuoteKeyToLabel(key),
+                name: name || '',
+                amount,
+                url: urlVal || '',
+            });
         }
     };
     add(
@@ -164,7 +166,6 @@ export default function VehicleOilCashPaymentApprovalCard({
     const [hrDescription, setHrDescription] = useState(() =>
         String(remark.hrReviewDescription || remark.quoteReviewDescription || '').trim(),
     );
-    const [isDragOver, setIsDragOver] = useState(false);
 
     useEffect(() => {
         setHrQuoteChoice(String(remark.approvedQuotationChoice || '').trim());
@@ -184,7 +185,13 @@ export default function VehicleOilCashPaymentApprovalCard({
         () => quoteRows.find((row) => row.key === hrQuoteChoice) || null,
         [quoteRows, hrQuoteChoice],
     );
-    const quoteAmount = money(remark.garageBillAmount) || money(remark.value) || money(service?.value);
+    const selectedQuoteAmount = money(selectedQuoteRow?.amount);
+    const quoteAmount =
+        selectedQuoteAmount ||
+        money(remark.garageBillAmount) ||
+        money(remark.amount) ||
+        money(remark.value) ||
+        money(service?.value);
     const paymentTypeLabel = oilPaymentTypeLabel(remark.amountMode);
     const paymentMethodLabel =
         String(remark.amountMode || '').toLowerCase() === 'warranty'
@@ -195,37 +202,30 @@ export default function VehicleOilCashPaymentApprovalCard({
         (hrQuoteChoice ? oilQuoteKeyToLabel(hrQuoteChoice) : '') ||
         (remark.approvedQuotationChoice ? oilQuoteKeyToLabel(remark.approvedQuotationChoice) : '');
 
-    const handleHrDragOver = (event) => {
-        if (!canActOnHr) return;
-        if (!event.dataTransfer.types.includes(OIL_QUOTE_DRAG_TYPE)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-        setIsDragOver(true);
-    };
-
-    const handleHrDragLeave = () => setIsDragOver(false);
-
-    const handleHrDrop = (event) => {
-        event.preventDefault();
-        setIsDragOver(false);
-        if (!canActOnHr) return;
-        const payload = parseOilQuoteDragPayload(event.dataTransfer);
-        if (!payload?.key) return;
-        setHrQuoteChoice(payload.key);
-        toast({
-            title: 'Quotation selected',
-            description: `${payload.label || oilQuoteKeyToLabel(payload.key)} set for HR approval.`,
-        });
-    };
-
     const handleApproveHr = async () => {
         if (!vehicleId || !canActOnHr) return;
+        if (quoteRows.length > 0 && !hrQuoteChoice) {
+            toast({
+                variant: 'destructive',
+                title: 'Select a quotation',
+                description: 'Choose one quote to continue. The other quotes will not go forward.',
+            });
+            return;
+        }
         setBusy(true);
         try {
             const description = String(hrDescription || '').trim();
+            const amountNum = selectedQuoteAmount > 0 ? selectedQuoteAmount : null;
             const nextRemark = {
                 ...remark,
-                ...(hrQuoteChoice ? { approvedQuotationChoice: hrQuoteChoice } : {}),
+                approvedQuotationChoice: hrQuoteChoice || '',
+                ...(amountNum != null
+                    ? {
+                          amount: amountNum,
+                          garageBillAmount: amountNum,
+                          value: amountNum,
+                      }
+                    : {}),
                 ...(description
                     ? {
                           hrReviewDescription: description,
@@ -233,17 +233,24 @@ export default function VehicleOilCashPaymentApprovalCard({
                       }
                     : {}),
             };
+            const serviceUpdates = {
+                remark: JSON.stringify(nextRemark),
+                ...(amountNum != null ? { value: amountNum } : {}),
+            };
             const { data } = await axiosInstance.post(`/AssetItem/${vehicleId}/service-workflow/respond`, {
                 action: 'approve',
-                comment: description || 'HR approved oil service schedule — ready for On Service',
+                comment: description ||
+                    (selectedQuoteRow
+                        ? `HR approved ${selectedQuoteRow.label} — ready for Accounts`
+                        : 'HR approved oil service schedule — ready for Accounts'),
                 ...(serviceId ? { serviceRecordId: serviceId } : {}),
-                serviceUpdates: {
-                    remark: JSON.stringify(nextRemark),
-                },
+                serviceUpdates,
             });
             toast({
                 title: 'Approved',
-                description: data?.message || 'Schedule approved — On Service when start date is reached.',
+                description: selectedQuoteRow
+                    ? `${selectedQuoteRow.label} selected. Other quotes will not continue.`
+                    : data?.message || 'Schedule approved — Accounts can review next.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset || null);
         } catch (err) {
@@ -282,6 +289,7 @@ export default function VehicleOilCashPaymentApprovalCard({
 
     // ---- Make Payment (Zoho billing) ----
     const [billing, setBilling] = useState(() => buildInitialBillingState(service));
+    const garageInvoiceInputRef = useRef(null);
 
     useEffect(() => {
         setBilling(buildInitialBillingState(service));
@@ -347,6 +355,11 @@ export default function VehicleOilCashPaymentApprovalCard({
             existingGarageAttachmentName: file.name,
         }));
     };
+
+    const garageInvoiceViewUrl = String(
+        billing.garageAttachment?.data || billing.existingGarageAttachmentUrl || '',
+    ).trim();
+    const hasGarageInvoice = Boolean(garageInvoiceViewUrl);
 
     const buildServiceUpdates = () => {
         const lines = (billing.billingPayables || [])
@@ -512,32 +525,56 @@ export default function VehicleOilCashPaymentApprovalCard({
                                         />
                                     </div>
                                 </label>
-                                <label className="block text-xs font-semibold text-gray-500">
+                                <div className="block text-xs font-semibold text-gray-500">
                                     Garage invoice (PDF)
                                     <input
+                                        ref={garageInvoiceInputRef}
                                         type="file"
                                         accept={ERP_PDF_ACCEPT}
-                                        className="mt-1 block w-full text-sm"
+                                        className="sr-only"
                                         disabled={fieldsDisabled}
-                                        onChange={(e) => void handleGarageInvoice(e.target.files?.[0])}
+                                        onChange={(e) => {
+                                            void handleGarageInvoice(e.target.files?.[0]);
+                                            e.target.value = '';
+                                        }}
                                     />
-                                    {billing.existingGarageAttachmentName ||
-                                    billing.garageAttachment?.name ||
-                                    billing.existingGarageAttachmentUrl ? (
-                                        <span className="mt-1 block text-[11px] text-emerald-700">
-                                            {billing.garageAttachment?.name ||
-                                                billing.existingGarageAttachmentName ||
-                                                'Garage invoice from Complete Service'}
-                                            {!billing.garageAttachment?.data && billing.existingGarageAttachmentUrl
-                                                ? ' — will attach to Zoho bill'
-                                                : ''}
-                                        </span>
+                                    {hasGarageInvoice ? (
+                                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                            <a
+                                                href={garageInvoiceViewUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-100"
+                                            >
+                                                <Eye size={14} />
+                                                View
+                                            </a>
+                                            {!fieldsDisabled ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => garageInvoiceInputRef.current?.click()}
+                                                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50"
+                                                >
+                                                    Change
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     ) : (
-                                        <span className="mt-1 block text-[11px] text-amber-700">
-                                            No garage invoice yet — upload here or in Complete Service
-                                        </span>
+                                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={fieldsDisabled}
+                                                onClick={() => garageInvoiceInputRef.current?.click()}
+                                                className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                            >
+                                                Upload PDF
+                                            </button>
+                                            <span className="text-[11px] font-medium text-amber-700">
+                                                No invoice yet — upload here or in Complete Service
+                                            </span>
+                                        </div>
                                     )}
-                                </label>
+                                </div>
                             </div>
 
                             <div className="rounded-lg border border-gray-200 bg-white p-3">
@@ -640,7 +677,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                             hrLocked
                                 ? 'Locked until Schedule and Reschedule is submitted'
                                 : hrActiveStage
-                                  ? 'Drop a quotation from Initiate (optional), then approve'
+                                  ? 'Select one quotation, then approve'
                                   : hrDone
                                     ? 'HR approved this schedule'
                                     : 'Waiting for HR'
@@ -651,50 +688,99 @@ export default function VehicleOilCashPaymentApprovalCard({
                         className="h-full w-full"
                     >
                         <p className="text-sm text-gray-600">
-                            Review the scheduled oil service. After you approve, the vehicle can move to{' '}
-                            <span className="font-semibold text-gray-800">On Service</span> on the start date.
+                            Select one quote from Initiate. Only that quote continues to Accounts and later steps;
+                            the other quotes are not used.
                         </p>
 
-                        <div
-                            onDragOver={handleHrDragOver}
-                            onDragLeave={handleHrDragLeave}
-                            onDrop={handleHrDrop}
-                            className={`mt-4 flex min-h-[100px] flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors ${
-                                isDragOver
-                                    ? 'border-emerald-400 bg-emerald-50/80'
-                                    : selectedQuoteRow || quoteLabel
-                                      ? 'border-emerald-200 bg-white'
-                                      : 'border-gray-200 bg-gray-50/70'
-                            } ${!canActOnHr ? 'opacity-80' : ''}`}
-                        >
-                            <GripVertical size={18} className="text-gray-300" />
-                            {selectedQuoteRow || quoteLabel ? (
-                                <>
-                                    <p className="text-sm font-bold text-gray-800">
-                                        {quoteLabel}
-                                        {selectedQuoteRow?.name ? (
-                                            <span className="ml-2 text-xs font-medium text-gray-500">
-                                                ({selectedQuoteRow.name})
-                                            </span>
-                                        ) : null}
-                                    </p>
-                                    {selectedQuoteRow?.amount ? (
-                                        <p className="text-xs font-semibold text-emerald-700">
-                                            Quote amount: AED{' '}
-                                            {Number(selectedQuoteRow.amount).toLocaleString()}
-                                        </p>
-                                    ) : null}
-                                </>
+                        <div className="mt-4 space-y-2">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                Quotations
+                            </span>
+                            {quoteRows.length === 0 ? (
+                                <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-sm text-gray-500">
+                                    No quotations uploaded on Initiate yet.
+                                </p>
                             ) : (
-                                <>
-                                    <p className="text-sm font-semibold text-gray-600">
-                                        Drag a quotation from Initiate Service (optional)
-                                    </p>
-                                    <p className="text-xs text-gray-400">
-                                        Drop Quote 1, Quote 2, or Quote 3 here
-                                    </p>
-                                </>
+                                <div className="space-y-2" role="radiogroup" aria-label="Select quotation">
+                                    {quoteRows.map((row) => {
+                                        const selected = hrQuoteChoice === row.key;
+                                        const amountLabel =
+                                            row.amount != null &&
+                                            row.amount !== '' &&
+                                            Number.isFinite(Number(row.amount))
+                                                ? `AED ${Number(row.amount).toLocaleString()}`
+                                                : null;
+                                        return (
+                                            <button
+                                                key={row.key}
+                                                type="button"
+                                                role="radio"
+                                                aria-checked={selected}
+                                                disabled={!canActOnHr && !hrDone}
+                                                onClick={() => {
+                                                    if (!canActOnHr) return;
+                                                    setHrQuoteChoice(row.key);
+                                                }}
+                                                className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                                                    selected
+                                                        ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200'
+                                                        : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/40'
+                                                } ${!canActOnHr ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
+                                            >
+                                                <span
+                                                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                                                        selected
+                                                            ? 'border-emerald-600 bg-emerald-600'
+                                                            : 'border-gray-300 bg-white'
+                                                    }`}
+                                                    aria-hidden
+                                                >
+                                                    {selected ? (
+                                                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                                                    ) : null}
+                                                </span>
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                                        <span className="text-sm font-bold text-gray-900">
+                                                            {row.label}
+                                                        </span>
+                                                        {amountLabel ? (
+                                                            <span className="text-xs font-semibold text-emerald-700">
+                                                                {amountLabel}
+                                                            </span>
+                                                        ) : null}
+                                                    </span>
+                                                    {row.name ? (
+                                                        <span className="mt-0.5 block truncate text-xs text-gray-500">
+                                                            {row.name}
+                                                        </span>
+                                                    ) : null}
+                                                </span>
+                                                {row.url ? (
+                                                    <a
+                                                        href={row.url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="shrink-0 text-xs font-semibold text-sky-700 hover:underline"
+                                                    >
+                                                        View
+                                                    </a>
+                                                ) : null}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             )}
+                            {hrDone && quoteLabel ? (
+                                <p className="text-xs font-semibold text-emerald-700">
+                                    Approved with {quoteLabel}
+                                    {selectedQuoteAmount > 0
+                                        ? ` · AED ${formatAed(selectedQuoteAmount)}`
+                                        : ''}
+                                    . Other quotes were not selected.
+                                </p>
+                            ) : null}
                         </div>
 
                         <div className="mt-4">
@@ -716,7 +802,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                 <button
                                     type="button"
                                     onClick={() => void handleApproveHr()}
-                                    disabled={busy}
+                                    disabled={busy || (quoteRows.length > 0 && !hrQuoteChoice)}
                                     className="inline-flex min-w-[160px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
                                 >
                                     {busy ? (
@@ -766,6 +852,19 @@ export default function VehicleOilCashPaymentApprovalCard({
                                     Selected quotation
                                 </span>
                                 <p className="mt-1 text-sm font-bold text-gray-900">{quoteLabel || '—'}</p>
+                                {selectedQuoteRow?.name ? (
+                                    <p className="mt-0.5 truncate text-xs text-gray-500">{selectedQuoteRow.name}</p>
+                                ) : null}
+                                {selectedQuoteRow?.url ? (
+                                    <a
+                                        href={selectedQuoteRow.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="mt-1 inline-block text-xs font-semibold text-sky-700 hover:underline"
+                                    >
+                                        View PDF
+                                    </a>
+                                ) : null}
                             </div>
                             <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">

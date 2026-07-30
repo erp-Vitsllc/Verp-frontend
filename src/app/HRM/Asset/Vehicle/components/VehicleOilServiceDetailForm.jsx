@@ -674,6 +674,26 @@ export default function VehicleOilServiceDetailForm({
                         />
                     </FormFieldCell>
 
+                    {!cashPaymentMode ? (
+                        <FormFieldCell label="Vendor" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                            <ZohoVendorSelect
+                                className="w-full"
+                                value={formData.garageName || formData.vendorName || ''}
+                                onChange={(nextValue, vendor) => {
+                                    set('garageName', nextValue);
+                                    set('vendorName', nextValue);
+                                    set(
+                                        'zohoVendorId',
+                                        String(vendor?.id || vendor?.zohoContactId || vendor?.value || '').trim(),
+                                    );
+                                }}
+                                disabled={fieldsDisabled}
+                                placeholder="Select Zoho vendor"
+                                extraOptions={garageHistoryOptions}
+                            />
+                        </FormFieldCell>
+                    ) : null}
+
                     <FormFieldCell label="Oil Type" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                         {isSuperUser && !fieldsDisabled ? (
                             <OilTypeSuperUserDropdown

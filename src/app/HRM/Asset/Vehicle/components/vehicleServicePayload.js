@@ -383,6 +383,7 @@ export function buildAddServiceBody(formData, options = {}) {
                 garageName: String(formData.garageName || formData.vendorName || '').trim() || undefined,
                 garageLocation: String(formData.garageLocation || '').trim() || undefined,
                 garageContact: String(formData.garageContact || '').trim() || undefined,
+                zohoVendorId: String(formData.zohoVendorId || '').trim() || undefined,
                 ...normalizeCarDrivenByRemarkFields(formData),
                 serviceStartDate: formData.serviceStartDate || formData.date || undefined,
                 ...(isOilService || isTireChange
