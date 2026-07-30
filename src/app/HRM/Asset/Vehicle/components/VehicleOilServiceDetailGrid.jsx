@@ -54,7 +54,7 @@ export default function VehicleOilServiceDetailGrid({ asset, service, scheduleRo
     return (
         <div className="flex h-full w-full">
             <FineFormCard
-                title="Oil Service Assignment Details"
+                title="Initiate Service"
                 subtitle="Vehicle, schedule, and service request information"
                 icon={ClipboardList}
                 iconBg="bg-blue-50"

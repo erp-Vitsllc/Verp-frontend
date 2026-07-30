@@ -184,6 +184,7 @@ function OilServiceDocTable({ rows, mode, onOpenAttachment, onAdd }) {
             <table className="w-full text-sm border-collapse min-w-[980px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
+                        <th className={thClass}>VSR-No</th>
                         <th className={thClass}>Vehicle asset no</th>
                         <th className={thClass}>Vehicle no</th>
                         <th className={thClass}>Last oil service km</th>
@@ -198,6 +199,7 @@ function OilServiceDocTable({ rows, mode, onOpenAttachment, onAdd }) {
                 <tbody>
                     {rows.map(({ srv, row }) => (
                         <tr key={row.id} className="border-b border-slate-100 hover:bg-blue-50/30">
+                            <td className={`${tdClass} font-mono text-xs`}>{row.serviceReqNo || '—'}</td>
                             <td className={`${tdClass} font-mono text-xs`}>{row.vehicleAssetNo}</td>
                             <td className={tdClass}>{row.vehicleNo}</td>
                             <td className={`${tdClass} tabular-nums`}>{formatKm(row.lastOilServiceKm)}</td>
@@ -236,6 +238,7 @@ function CarWashDocTable({ rows, mode, onOpenAttachment, onAdd }) {
             <table className="w-full text-sm border-collapse min-w-[900px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
+                        <th className={thClass}>VSR-No</th>
                         <th className={thClass}>Vehicle asset no</th>
                         <th className={thClass}>Vehicle no</th>
                         <th className={thClass}>Car Wash Month</th>
@@ -249,6 +252,7 @@ function CarWashDocTable({ rows, mode, onOpenAttachment, onAdd }) {
                 <tbody>
                     {rows.map(({ srv, row }) => (
                         <tr key={row.id} className="border-b border-slate-100 hover:bg-blue-50/30">
+                            <td className={`${tdClass} font-mono text-xs`}>{row.serviceReqNo || '—'}</td>
                             <td className={`${tdClass} font-mono text-xs`}>{row.vehicleAssetNo}</td>
                             <td className={tdClass}>{row.vehicleNo}</td>
                             <td className={`${tdClass} whitespace-nowrap`}>
@@ -288,6 +292,7 @@ function GenericServiceDocTable({ serviceType, rows, mode, onOpenAttachment, onA
             <table className="w-full text-sm border-collapse min-w-[820px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
+                        <th className={thClass}>VSR-No</th>
                         <th className={thClass}>Vehicle asset no</th>
                         <th className={thClass}>Vehicle no</th>
                         <th className={thClass}>Request date</th>
@@ -300,6 +305,7 @@ function GenericServiceDocTable({ serviceType, rows, mode, onOpenAttachment, onA
                 <tbody>
                     {rows.map(({ srv, row }) => (
                         <tr key={row.id} className="border-b border-slate-100 hover:bg-blue-50/30">
+                            <td className={`${tdClass} font-mono text-xs`}>{row.serviceReqNo || '—'}</td>
                             <td className={`${tdClass} font-mono text-xs`}>{row.vehicleAssetNo}</td>
                             <td className={tdClass}>{row.vehicleNo}</td>
                             <td className={`${tdClass} whitespace-nowrap text-xs`}>

@@ -61,11 +61,12 @@ export const VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG = {
         widthClass: 'w-1',
     },
 
-    /** Detail pages — main form ~3/4, workflow/history sidebar ~1/4 */
+    /** Detail pages — main form ~3/4, workflow/history sidebar ~1/4 (same card size on all services) */
     page: {
         rowClassName: 'grid w-full grid-cols-1 items-start gap-6 lg:grid-cols-4',
         mainColumnClassName: 'flex w-full min-w-0 flex-col gap-6 lg:col-span-3',
-        sideColumnClassName: 'w-full min-w-0 lg:col-span-1 lg:sticky lg:top-6 h-fit self-start',
+        sideColumnClassName:
+            'flex w-full min-w-0 flex-col gap-6 lg:col-span-1 lg:sticky lg:top-6 h-fit self-start',
         columnClassName: 'w-full min-w-0 self-start lg:col-span-1 h-fit',
         panelClassName: 'w-full h-fit',
     },

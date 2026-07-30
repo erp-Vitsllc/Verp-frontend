@@ -324,6 +324,8 @@ export default function UtilityBillLineItemsModal({
     onClose,
     onSave,
     readOnly = false,
+    /** Accounts may change Chart of Accounts + Payable to before Pay (other columns stay locked). */
+    accountPayableEditable = false,
     accountNo = '',
     provider = '',
     contractAmount = 0,
@@ -384,7 +386,10 @@ export default function UtilityBillLineItemsModal({
     const linesTotal = useMemo(() => sumLineAmounts(lines), [lines]);
     const remaining = money(actual - linesTotal);
     const totalsMatch = Math.abs(remaining) < 0.01 && actual > 0;
-    const canAddRow = actual > 0 && !totalsMatch && remaining > 0.009;
+    const canAddRow = actual > 0 && !totalsMatch && remaining > 0.009 && !readOnly;
+    const canEditAccountPayable = !readOnly || Boolean(accountPayableEditable);
+    const fullyEditable = !readOnly;
+    const showSave = fullyEditable || Boolean(accountPayableEditable);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -574,7 +579,11 @@ export default function UtilityBillLineItemsModal({
                 <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
                     <div>
                         <h3 className="text-base font-bold text-slate-800">
-                            {readOnly ? 'Item Table (View)' : 'Item Table'}
+                            {fullyEditable
+                                ? 'Item Table'
+                                : accountPayableEditable
+                                  ? 'Item Table'
+                                  : 'Item Table (View)'}
                         </h3>
                         <p className="text-xs text-slate-500 mt-0.5">
                             {accountNo ? `Account ${accountNo}` : 'Bill row'}
@@ -583,6 +592,9 @@ export default function UtilityBillLineItemsModal({
                             Contract {formatMoney(contract)} · Actual {formatMoney(actual)} AED
                             {' · '}
                             All item rows post inside one Zoho bill
+                            {accountPayableEditable && readOnly
+                                ? ' · Accounts can change Account and Payable to before Pay'
+                                : ''}
                         </p>
                     </div>
                     <button
@@ -633,7 +645,7 @@ export default function UtilityBillLineItemsModal({
                                                     <input
                                                         type="text"
                                                         value={line.item}
-                                                        disabled={readOnly}
+                                                        disabled={!fullyEditable}
                                                         onChange={(e) =>
                                                             updateLine(line.key, {
                                                                 item: e.target.value,
@@ -642,7 +654,7 @@ export default function UtilityBillLineItemsModal({
                                                         placeholder="Type item details"
                                                         className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-slate-50 disabled:text-slate-700"
                                                     />
-                                                    {index === 0 && !readOnly ? (
+                                                    {index === 0 && fullyEditable ? (
                                                         <p className="mt-1 text-[10px] text-slate-400">
                                                             1st row amount defaults to contract
                                                         </p>
@@ -655,7 +667,7 @@ export default function UtilityBillLineItemsModal({
                                                         styles={selectStyles}
                                                         options={accountOptions}
                                                         value={selectedAccount}
-                                                        isDisabled={readOnly}
+                                                        isDisabled={!canEditAccountPayable}
                                                         onChange={(option) =>
                                                             updateLine(line.key, {
                                                                 accountId: option?.value || '',
@@ -680,7 +692,7 @@ export default function UtilityBillLineItemsModal({
                                                         min="0"
                                                         step="any"
                                                         value={line.quantity}
-                                                        disabled={readOnly}
+                                                        disabled={!fullyEditable}
                                                         onChange={(e) =>
                                                             updateLine(line.key, {
                                                                 quantity: e.target.value,
@@ -695,7 +707,7 @@ export default function UtilityBillLineItemsModal({
                                                         min="0"
                                                         step="0.01"
                                                         value={line.amount}
-                                                        disabled={readOnly}
+                                                        disabled={!fullyEditable}
                                                         onChange={(e) =>
                                                             updateLine(line.key, {
                                                                 amount: e.target.value,
@@ -712,7 +724,7 @@ export default function UtilityBillLineItemsModal({
                                                         styles={selectStyles}
                                                         options={payableOptions}
                                                         value={selectedPayable}
-                                                        isDisabled={readOnly}
+                                                        isDisabled={!canEditAccountPayable}
                                                         onChange={(option) =>
                                                             updateLine(
                                                                 line.key,
@@ -723,7 +735,7 @@ export default function UtilityBillLineItemsModal({
                                                         }
                                                         placeholder="Select company or employee"
                                                         isSearchable
-                                                        isClearable={!readOnly}
+                                                        isClearable={canEditAccountPayable}
                                                         menuPortalTarget={
                                                             typeof document !== 'undefined'
                                                                 ? document.body
@@ -736,7 +748,7 @@ export default function UtilityBillLineItemsModal({
                                                     />
                                                 </td>
                                                 <td className="px-3 py-2">
-                                                    {!readOnly ? (
+                                                    {fullyEditable ? (
                                                         <button
                                                             type="button"
                                                             onClick={() => removeLine(line.key)}
@@ -756,7 +768,7 @@ export default function UtilityBillLineItemsModal({
                         </div>
 
                         <div className="border-t border-slate-200 bg-white px-3 sm:px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-                            {!readOnly ? (
+                            {fullyEditable ? (
                                 <button
                                     type="button"
                                     onClick={addLine}
@@ -807,15 +819,17 @@ export default function UtilityBillLineItemsModal({
                         onClick={onClose}
                         className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
                     >
-                        {readOnly ? 'Close' : 'Cancel'}
+                        {showSave ? 'Cancel' : 'Close'}
                     </button>
-                    {!readOnly ? (
+                    {showSave ? (
                         <button
                             type="button"
                             onClick={handleSave}
                             className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold"
                         >
-                            Save lines
+                            {accountPayableEditable && readOnly
+                                ? 'Save Account / Payable'
+                                : 'Save lines'}
                         </button>
                     ) : null}
                 </div>

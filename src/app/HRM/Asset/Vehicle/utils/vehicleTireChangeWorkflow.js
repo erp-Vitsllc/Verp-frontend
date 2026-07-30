@@ -50,8 +50,16 @@ export function showTireChangeReturnCard(assignmentPending, stage) {
     return shouldShowShopServiceReturnCard(stage);
 }
 
-export function canEditTireChangeGarage(stage, canManageTireChange) {
-    return canManageTireChange && stage === TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_OFFICER;
+export function canEditTireChangeGarage(stage, canManageTireChange, { asset, service } = {}) {
+    if (!canManageTireChange) return false;
+    if (asset && service) {
+        const wf = asset?.activeServiceWorkflow || {};
+        const remark = parseVehicleServiceRemark(service) || {};
+        if (wf.garageSubmittedAt || String(remark.garageSubmittedByName || '').trim()) return false;
+    }
+    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
+    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS) return true;
+    return false;
 }
 
 export function canApproveTireChangeGarageAccounts(stage, isFlowchartAccounts) {

@@ -167,7 +167,7 @@ export default function VehicleOilServiceDetailHeaderCards({
                         </div>
                         <div className={`${COMPACT_BOX} bg-gray-50 border-gray-100 text-gray-500`}>
                             <span className="text-[10px] font-medium uppercase tracking-wide truncate">
-                                Record ID
+                                VSR-No
                             </span>
                             <span className="text-xs font-bold ml-2 truncate font-mono">
                                 {formatVehicleServiceReqNo(service, vehicle)}

@@ -25,7 +25,8 @@ import {
 } from '@/utils/headerPairLayout';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { isAdmin } from '@/utils/permissions';
+import { isAdmin, parseStoredSessionUser } from '@/utils/permissions';
+import { isCurrentUserFlowchartAccounts } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
 import {
     buildDetailFieldRows,
     clearUtilityBillDraft,
@@ -303,6 +304,9 @@ function UtilityBillDetailsPageContent() {
     const [addBillOpen, setAddBillOpen] = useState(false);
     const [viewBill, setViewBill] = useState(null);
     const [savingBill, setSavingBill] = useState(false);
+    const [savingLineAccounts, setSavingLineAccounts] = useState(false);
+    const [currentUser, setCurrentUser] = useState(null);
+    const [flowchartRows, setFlowchartRows] = useState([]);
     const [reviewBatchId, setReviewBatchId] = useState('');
     const [statusChangeOpen, setStatusChangeOpen] = useState(false);
     const [statusChangeSaving, setStatusChangeSaving] = useState(false);
@@ -338,6 +342,26 @@ function UtilityBillDetailsPageContent() {
         }, 350);
         return () => window.clearInterval(timer);
     }, [pulseBillId]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        setCurrentUser(parseStoredSessionUser());
+        axiosInstance
+            .get('/Flowchart')
+            .then(({ data }) => setFlowchartRows(Array.isArray(data) ? data : []))
+            .catch(() => setFlowchartRows([]));
+    }, []);
+
+    const isFlowchartAccounts = useMemo(
+        () => isCurrentUserFlowchartAccounts(currentUser, flowchartRows),
+        [currentUser, flowchartRows],
+    );
+
+    const viewBillAllowsAccountsLineEdit = useMemo(() => {
+        if (!viewBill || !(isFlowchartAccounts || canAdminDelete)) return false;
+        const status = String(viewBill.status || '').trim();
+        return ['Pending Accounts', 'Pending HR', 'Approved'].includes(status);
+    }, [viewBill, isFlowchartAccounts, canAdminDelete]);
 
     const recentMonthKeys = useMemo(() => getRecentMonthKeys(6), []);
 
@@ -491,6 +515,72 @@ function UtilityBillDetailsPageContent() {
             setLoadingBills(false);
         }
     }, [entryId]);
+
+    const handleAccountsSaveLines = useCallback(
+        async ({ billId, batchId, lines, patch }) => {
+            const id = String(batchId || viewBill?.batchId || '').trim();
+            const bid = String(billId || viewBill?._id || '').trim();
+            if (!id || !bid) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot save',
+                    description: 'Missing batch or bill id.',
+                });
+                return false;
+            }
+            setSavingLineAccounts(true);
+            try {
+                await axiosInstance.put(`/UtilityBill/batch/${id}`, {
+                    rows: [
+                        {
+                            billId: bid,
+                            lineItems: Array.isArray(lines) ? lines : [],
+                            expenseAccountId: patch?.expenseAccountId || '',
+                            expenseAccountName: patch?.expenseAccountName || '',
+                            payBy: patch?.payBy || '',
+                            payByCompanyId: patch?.payByCompanyId || '',
+                            payByCompanyName: patch?.payByCompanyName || '',
+                            payByEmployeeId: patch?.payByEmployeeId || '',
+                            payByEmployeeName: patch?.payByEmployeeName || '',
+                        },
+                    ],
+                });
+                toast({
+                    title: 'Account / Payable saved',
+                    description: 'Zoho will use the updated accounts on Retry / Pay.',
+                });
+                setViewBill((prev) =>
+                    prev && String(prev._id) === bid
+                        ? {
+                              ...prev,
+                              lineItems: lines,
+                              expenseAccountId: patch?.expenseAccountId || prev.expenseAccountId,
+                              expenseAccountName:
+                                  patch?.expenseAccountName || prev.expenseAccountName,
+                              payBy: patch?.payBy || prev.payBy,
+                              payByCompanyId: patch?.payByCompanyId || prev.payByCompanyId,
+                              payByCompanyName: patch?.payByCompanyName || prev.payByCompanyName,
+                              payByEmployeeId: patch?.payByEmployeeId || prev.payByEmployeeId,
+                              payByEmployeeName:
+                                  patch?.payByEmployeeName || prev.payByEmployeeName,
+                          }
+                        : prev,
+                );
+                await loadBills();
+                return true;
+            } catch (error) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Save failed',
+                    description: error.response?.data?.message || 'Could not update line accounts.',
+                });
+                return false;
+            } finally {
+                setSavingLineAccounts(false);
+            }
+        },
+        [loadBills, toast, viewBill],
+    );
 
     useEffect(() => {
         loadBills();
@@ -1597,8 +1687,10 @@ function UtilityBillDetailsPageContent() {
                 utilityAttachment={utilityConfig?.attachment || null}
                 monthlyRental={monthlyRental}
                 onSubmit={handleAddBill}
-                saving={savingBill}
+                saving={savingBill || savingLineAccounts}
                 viewBill={viewBill}
+                accountsCanEditLines={viewBillAllowsAccountsLineEdit}
+                onAccountsSaveLines={handleAccountsSaveLines}
             />
 
             <UtilityBillReviewModal

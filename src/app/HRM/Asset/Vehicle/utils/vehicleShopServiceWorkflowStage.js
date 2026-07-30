@@ -123,6 +123,23 @@ function resolveRawShopServiceStage(asset, serviceId, service, stages) {
         return inferred;
     }
 
+    // Garage already submitted → never stay on Admin Officer / pre-schedule stages.
+    // Stale snapshot/active stage can lag behind the activity log (Done stays visible, Return card hidden).
+    if (inferred === stages.SCHEDULED) {
+        const ahead = new Set([
+            stages.SCHEDULED,
+            stages.ADMIN_RETURN,
+            pendingBilling,
+            'billed',
+            stages.COMPLETE,
+            'complete',
+        ]);
+        if (wfMatch && wfStage && ahead.has(wfStage)) return wfStage;
+        const snapStage = snap?.stage ? String(snap.stage).toLowerCase() : '';
+        if (snapStage && ahead.has(snapStage)) return snapStage;
+        return stages.SCHEDULED;
+    }
+
     if (wfMatch && wf?.stage) {
         return String(wf.stage).toLowerCase();
     }

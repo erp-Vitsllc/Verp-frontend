@@ -13,6 +13,7 @@ import { ClipboardList, Loader2 } from 'lucide-react';
 import VehicleAccidentRepairDetailHeaderCards from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairDetailHeaderCards';
 import VehicleAccidentRepairDetailForm from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairDetailForm';
 import VehicleAccidentRepairGarageCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairGarageCard';
+import VehicleAccidentRepairHrOnServiceCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairHrOnServiceCard';
 import VehicleAccidentRepairReturnCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairReturnCard';
 import VehicleServiceAccountsZohoBillingCard from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAccountsZohoBillingCard';
 import VehicleAccidentRepairPreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairPreviousHistoryPanel';
@@ -24,7 +25,10 @@ import {
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
-import { pickFlowchartAccountsRow } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflow';
+import {
+    pickFlowchartAccountsRow,
+    pickFlowchartHrRow,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflow';
 import {
     resolveAccidentRepairWorkflowStage,
     showAccidentRepairGarageCard,
@@ -138,6 +142,23 @@ function VehicleAccidentRepairDetailPageContent() {
     /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
     const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageAccidentRepair;
 
+    const isFlowchartHr = useMemo(() => {
+        const hrRow = pickFlowchartHrRow(flowchartRows);
+        if (!hrRow || !currentUser) return false;
+        const empRef = hrRow.empObjectId;
+        const rowMongo = typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
+        const myEmpObj = currentUser.employeeObjectId;
+        const myDocId = currentUser._id || currentUser.id;
+        if (rowMongo) {
+            if (myEmpObj && String(rowMongo) === String(myEmpObj)) return true;
+            if (myDocId && String(rowMongo) === String(myDocId)) return true;
+        }
+        const norm = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
+        const rowCode = norm(hrRow.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '');
+        const myCode = norm(currentUser.employeeId || '');
+        return !!(rowCode && myCode && rowCode === myCode);
+    }, [currentUser, flowchartRows]);
+
     const isFlowchartAccounts = useMemo(() => {
         const accountsRow = pickFlowchartAccountsRow(flowchartRows);
         if (!accountsRow || !currentUser) return false;
@@ -150,7 +171,9 @@ function VehicleAccidentRepairDetailPageContent() {
             if (myDocId && String(rowMongo) === String(myDocId)) return true;
         }
         const norm = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
-        const rowCode = norm(accountsRow.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '');
+        const rowCode = norm(
+            accountsRow.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '',
+        );
         const myCode = norm(currentUser.employeeId || '');
         return !!(rowCode && myCode && rowCode === myCode);
     }, [currentUser, flowchartRows]);
@@ -255,68 +278,78 @@ function VehicleAccidentRepairDetailPageContent() {
 
                     <div className={`${accidentRepairPageLayout.rowClassName} ${PAGE_SECTION_ANIMATION} delay-150`}>
                         <div className={accidentRepairPageLayout.mainColumnClassName}>
-                            <div className="flex flex-col gap-5 w-full">
-                                <VehicleAccidentRepairDetailForm
+                            <VehicleAccidentRepairDetailForm
+                                asset={asset}
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canEditAssignment={canEditAssignment}
+                                onSaved={() => {
+                                    void load();
+                                }}
+                                draftSubmitRef={draftSubmitRef}
+                                onDraftStateChange={handleDraftStateChange}
+                                className="w-full shrink-0"
+                            />
+                            {showAccidentRepairGarageCard(assignmentPending, accidentRepairflowStage) ? (
+                                <VehicleAccidentRepairGarageCard
                                     asset={asset}
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canEditAssignment={canEditAssignment}
-                                    onSaved={() => {
-                                        void load();
-                                    }}
-                                    draftSubmitRef={draftSubmitRef}
-                                    onDraftStateChange={handleDraftStateChange}
-                                    className="w-full shrink-0"
-                                />
-                                {showAccidentRepairGarageCard(assignmentPending, accidentRepairflowStage) ? (
-                                    <VehicleAccidentRepairGarageCard
-                                        asset={asset}
-                                        service={service}
-                                        vehicleId={vehicleId}
-                                        serviceId={serviceId}
-                                        canManage={canManageAccidentRepair}
-                                        canActAccounts={isFlowchartAccounts}
-                                        workflowStage={accidentRepairflowStage}
-                                        onUpdated={(updatedAsset) => {
-                                            if (updatedAsset) setAsset(updatedAsset);
-                                            void load();
-                                        }}
-                                        className="w-full shrink-0"
-                                    />
-                                ) : null}
-                                {showAccidentRepairReturnCard(assignmentPending, accidentRepairflowStage) ? (
-                                    <VehicleAccidentRepairReturnCard
-                                        asset={asset}
-                                        service={service}
-                                        vehicleId={vehicleId}
-                                        serviceId={serviceId}
-                                        canManage={canManageAccidentRepair}
-                                        workflowStage={accidentRepairflowStage}
-                                        onUpdated={(updatedAsset) => {
-                                            if (updatedAsset) setAsset(updatedAsset);
-                                            void load();
-                                        }}
-                                        className="w-full shrink-0"
-                                    />
-                                ) : null}
-                                <VehicleServiceAccountsZohoBillingCard
-                                    service={service}
-                                    vehicleId={vehicleId}
-                                    serviceId={serviceId}
+                                    canManage={canManageAccidentRepair}
                                     canActAccounts={isFlowchartAccounts}
                                     workflowStage={accidentRepairflowStage}
-                                    serviceTypeLabel="Accident Repair"
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
                                         void load();
                                     }}
                                     className="w-full shrink-0"
                                 />
-                            </div>
+                            ) : null}
+                            <VehicleAccidentRepairHrOnServiceCard
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                service={service}
+                                canActHr={isFlowchartHr}
+                                workflowStage={accidentRepairflowStage}
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) setAsset(updatedAsset);
+                                    void load();
+                                }}
+                                className="w-full shrink-0"
+                            />
+                            {showAccidentRepairReturnCard(assignmentPending, accidentRepairflowStage) ? (
+                                <VehicleAccidentRepairReturnCard
+                                    asset={asset}
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canManage={canManageAccidentRepair}
+                                    workflowStage={accidentRepairflowStage}
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load();
+                                    }}
+                                    className="w-full shrink-0"
+                                />
+                            ) : null}
+                            <VehicleServiceAccountsZohoBillingCard
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canActAccounts={isFlowchartAccounts}
+                                workflowStage={accidentRepairflowStage}
+                                serviceTypeLabel="Accident Repair"
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) setAsset(updatedAsset);
+                                    void load();
+                                }}
+                                className="w-full shrink-0"
+                            />
                         </div>
 
-                        <div className={`${accidentRepairPageLayout.sideColumnClassName} min-h-0`}>
+                        <div className={accidentRepairPageLayout.sideColumnClassName}>
                             <VehicleAccidentRepairPreviousHistoryPanel
                                 asset={asset}
                                 service={service}
@@ -330,7 +363,7 @@ function VehicleAccidentRepairDetailPageContent() {
                             <VehicleAccidentRepairWorkflowPanel
                                 asset={asset}
                                 service={service}
-                                className="min-h-[360px] flex-1 shrink-0"
+                                className="min-h-[320px] flex-1"
                             />
                         </div>
                     </div>

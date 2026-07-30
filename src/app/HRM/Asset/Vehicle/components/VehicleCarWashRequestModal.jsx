@@ -22,6 +22,8 @@ import {
 } from './vehicleServiceUtils';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import ZohoPayAccountSelect from './ZohoPayAccountSelect';
 
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
 /** Fixed wash-type choices on the car wash request form. */
@@ -239,6 +241,10 @@ function buildFormDataFromService(service, assignedEmployee, todayIso) {
         amountReceiptName: '',
         amountReceiptBase64: '',
         amountReceiptMime: '',
+        garageName: String(remark?.garageName || remark?.vendorName || '').trim(),
+        zohoVendorId: String(remark?.zohoVendorId || '').trim(),
+        payAccountId: String(remark?.payAccountId || remark?.garagePayAccountId || '').trim(),
+        payAccountName: String(remark?.payAccountName || remark?.garagePayAccountName || '').trim(),
     };
 }
 
@@ -333,6 +339,10 @@ export default function VehicleCarWashRequestModal({
         amountReceiptName: '',
         amountReceiptBase64: '',
         amountReceiptMime: '',
+        garageName: '',
+        zohoVendorId: '',
+        payAccountId: '',
+        payAccountName: '',
     });
 
     const set = (key, val) => setFormData((prev) => ({ ...prev, [key]: val }));
@@ -354,6 +364,10 @@ export default function VehicleCarWashRequestModal({
             amountReceiptName: '',
             amountReceiptBase64: '',
             amountReceiptMime: '',
+            garageName: '',
+            zohoVendorId: '',
+            payAccountId: '',
+            payAccountName: '',
         });
         setErrors({});
         setShowHistory(false);
@@ -443,15 +457,19 @@ export default function VehicleCarWashRequestModal({
         if (!assetId) return;
         const amount = Number(formData.value);
         const month = String(formData.carWashMonth || '').trim();
+        const payAccountId = String(formData.payAccountId || '').trim();
+        const garageName = String(formData.garageName || '').trim();
         const nextErrors = {};
         if (!month) nextErrors.carWashMonth = 'Car wash month is required';
         if (!Number.isFinite(amount) || amount <= 0) nextErrors.value = 'Amount is required';
+        if (!garageName) nextErrors.garageName = 'Vendor is required for Zoho bill';
+        if (!payAccountId) nextErrors.payAccountId = 'Pay Account is required for Zoho bill';
         if (Object.keys(nextErrors).length) {
             setErrors(nextErrors);
             toast({
                 variant: 'destructive',
                 title: 'Required fields',
-                description: 'Enter a valid amount and car wash month before approving.',
+                description: 'Enter amount, vendor, and Pay Account before storing the Zoho bill.',
             });
             return;
         }
@@ -460,31 +478,48 @@ export default function VehicleCarWashRequestModal({
         const updatedRemark = {
             ...existingRemark,
             carWashMonth: month,
+            garageName,
+            vendorName: garageName,
+            zohoVendorId: String(formData.zohoVendorId || '').trim(),
+            payAccountId,
+            payAccountName: String(formData.payAccountName || '').trim(),
+            garagePayAccountId: payAccountId,
+            garagePayAccountName: String(formData.payAccountName || '').trim(),
+            garageBillAmount: amount,
+            billingTotalAmount: amount,
+            billingPayables: [
+                {
+                    payableTo: String(formData.payAccountName || '').trim(),
+                    payAccountId,
+                    amount,
+                },
+            ],
         };
 
         setLoading(true);
         try {
             const { data } = await axiosInstance.post(`/AssetItem/${assetId}/service-workflow/respond`, {
                 action: 'approve',
-                comment: 'Approved by Accounts',
+                comment: 'Accounts stored Zoho bill — Billed',
                 serviceUpdates: {
                     value: amount,
                     remark: JSON.stringify(updatedRemark),
                 },
+                ...(existingService?._id ? { serviceRecordId: String(existingService._id) } : {}),
             });
             toast({
-                title: 'Approved',
-                description: data?.message || 'Car wash status updated to Not paid.',
+                title: 'Billed',
+                description: data?.message || data?.zohoBillMessage || 'Zoho bill created — Billed.',
             });
             if (onSuccess) onSuccess(data?.asset);
             onClose();
         } catch (error) {
             toast({
                 variant: 'destructive',
-                title: 'Approval failed',
+                title: 'Store to Zoho failed',
                 description:
                     error.response?.data?.message ||
-                    'Could not approve this car wash request. Check your digital signature in profile.',
+                    'Could not create Zoho bill. Check vendor, Pay Account, amount, and digital signature.',
             });
         } finally {
             setLoading(false);
@@ -715,14 +750,18 @@ export default function VehicleCarWashRequestModal({
                                     className="text-lg sm:text-xl font-semibold text-slate-900 tracking-tight mt-0.5"
                                 >
                                     {accountsReviewMode
-                                        ? 'Car Wash Request — Accounts Review'
+                                        ? 'Car Wash — Store Zoho Bill'
                                         : existingService
                                           ? 'Car Wash Request'
                                           : 'Car Wash Request Form'}
                                 </h2>
                                 <p className="text-sm text-slate-500 mt-1 flex items-center gap-1.5">
                                     <Calendar size={14} className="text-slate-400 shrink-0" />
-                                    <span>Dated {formatDatedHeader(new Date())}</span>
+                                    <span>
+                                        {accountsReviewMode
+                                            ? 'Car wash is complete — store bill in Zoho'
+                                            : `Dated ${formatDatedHeader(new Date())}`}
+                                    </span>
                                 </p>
                             </div>
                         </div>
@@ -929,6 +968,56 @@ export default function VehicleCarWashRequestModal({
                                 />
                             </div>
                         </FormField>
+
+                        {accountsReviewMode ? (
+                            <>
+                                <FormField label="Vendor (Zoho)" error={errors.garageName}>
+                                    <ZohoVendorSelect
+                                        className="w-full"
+                                        value={formData.garageName || ''}
+                                        onChange={(nextValue, vendor) => {
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                garageName: nextValue,
+                                                zohoVendorId: String(
+                                                    vendor?.id ||
+                                                        vendor?.zohoContactId ||
+                                                        vendor?.value ||
+                                                        '',
+                                                ).trim(),
+                                            }));
+                                            setErrors((prev) => {
+                                                const next = { ...prev };
+                                                delete next.garageName;
+                                                return next;
+                                            });
+                                        }}
+                                        disabled={loading}
+                                        placeholder="Select vendor"
+                                    />
+                                </FormField>
+                                <FormField label="Payable from" error={errors.payAccountId}>
+                                    <ZohoPayAccountSelect
+                                        value={formData.payAccountId || ''}
+                                        name={formData.payAccountName || ''}
+                                        disabled={loading}
+                                        placeholder="Select Chart of Accounts"
+                                        onChange={({ id, name }) => {
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                payAccountId: id,
+                                                payAccountName: name,
+                                            }));
+                                            setErrors((prev) => {
+                                                const next = { ...prev };
+                                                delete next.payAccountId;
+                                                return next;
+                                            });
+                                        }}
+                                    />
+                                </FormField>
+                            </>
+                        ) : null}
                     </div>
                 </form>
 
@@ -947,7 +1036,7 @@ export default function VehicleCarWashRequestModal({
                                 ) : (
                                     <>
                                         <CheckCircle2 size={16} />
-                                        Approve
+                                        Store to Zoho
                                     </>
                                 )}
                             </button>

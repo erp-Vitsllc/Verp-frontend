@@ -28,16 +28,25 @@ import {
 } from '../utils/vehicleOilServiceWarranty';
 import {
     DEFAULT_OIL_SERVICE_TYPE,
+    OIL_PAYMENT_METHOD_OPTIONS,
+    OIL_PAYMENT_TYPE_OPTIONS,
     buildOilServiceDetailFormState,
     buildOilServiceDetailSubmitBody,
+    isOilPayablePaymentMode,
     isOilServiceDetailFormComplete,
     getOilServiceDetailFormMissingFields,
+    normalizeOilPaymentMethod,
+    normalizeOilPaymentType,
 } from '../utils/vehicleOilServiceDetailForm';
+import {
+    OIL_QUOTE_DRAG_TYPE,
+    buildOilQuoteDragPayload,
+    oilQuoteKindToKey,
+} from '../utils/vehicleOilServiceQuoteDrag';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
-import VehicleGarageBillingFields from './VehicleGarageBillingFields';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 
 const fieldInput =
@@ -61,20 +70,18 @@ function FormFieldCell({ label, children, accentClass, minHeightPx }) {
     );
 }
 
-function PaymentToggle({ value, onChange, disabled }) {
+function SegmentedToggle({ options, value, onChange, disabled, selectedFallback }) {
+    const selected = value || selectedFallback;
     return (
-        <div className="inline-flex w-full rounded-lg border border-gray-200 bg-gray-50 p-0.5">
-            {[
-                { id: 'amount', label: 'Cash' },
-                { id: 'warranty', label: 'Warranty' },
-            ].map((opt) => (
+        <div className="inline-flex w-full flex-wrap gap-0.5 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            {options.map((opt) => (
                 <button
                     key={opt.id}
                     type="button"
                     disabled={disabled}
                     onClick={() => onChange(opt.id)}
-                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-bold transition-all ${
-                        value === opt.id
+                    className={`min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-[11px] font-bold transition-all sm:text-xs ${
+                        selected === opt.id
                             ? 'bg-white text-blue-600 shadow-sm'
                             : 'text-gray-500 hover:text-gray-700'
                     } disabled:opacity-60`}
@@ -86,9 +93,10 @@ function PaymentToggle({ value, onChange, disabled }) {
     );
 }
 
-function QuoteField({ existingUrl, fileName, disabled, onFile }) {
+function QuoteField({ existingUrl, fileName, disabled, onFile, dragPayload = null }) {
     const { toast } = useToast();
     const [viewing, setViewing] = useState(false);
+    const canDrag = Boolean(dragPayload && (existingUrl || fileName));
 
     const handleView = async () => {
         if (!existingUrl || viewing) return;
@@ -117,7 +125,15 @@ function QuoteField({ existingUrl, fileName, disabled, onFile }) {
     };
 
     return (
-        <div className="flex flex-col gap-1">
+        <div
+            className={`flex flex-col gap-1 ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            draggable={canDrag}
+            onDragStart={(event) => {
+                if (!canDrag || !dragPayload) return;
+                event.dataTransfer.setData(OIL_QUOTE_DRAG_TYPE, buildOilQuoteDragPayload(dragPayload));
+                event.dataTransfer.effectAllowed = 'copy';
+            }}
+        >
             <div className="flex flex-wrap items-center gap-2 min-h-[32px]">
                 {existingUrl ? (
                     <button
@@ -150,7 +166,10 @@ function QuoteField({ existingUrl, fileName, disabled, onFile }) {
             {fileName ? (
                 <p className="truncate text-[10px] font-medium text-gray-500" title={fileName}>
                     {fileName}
+                    {canDrag ? ' · drag to HR Approval' : ''}
                 </p>
+            ) : canDrag ? (
+                <p className="text-[10px] font-medium text-blue-600">Drag to HR Approval card</p>
             ) : null}
         </div>
     );
@@ -347,15 +366,14 @@ export default function VehicleOilServiceDetailForm({
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
-    const fieldsDisabled = !assignmentPending || saving || !canEditAssignment;
-    const datesEditable = (assignmentPending && canEditAssignment) || canEditServiceDates;
+    const initiateDone = Boolean(String(remark.oilServiceInitiatedAt || '').trim()) || !assignmentPending;
+    const fieldsDisabled = !assignmentPending || saving || !canEditAssignment || initiateDone;
 
     useEffect(() => {
         setFormData(buildOilServiceDetailFormState(service, asset, scheduleRow));
     }, [service?._id, service?.updatedAt, service?.remark, asset, scheduleRow]);
 
-    const warrantyPaymentMode = formData.amountMode === 'warranty';
-    const cashPaymentMode = !warrantyPaymentMode;
+    const cashPaymentMode = isOilPayablePaymentMode(formData.amountMode);
 
     const garageHistoryOptions = useMemo(
         () => buildGarageHistoryOptions(asset, service, formData.garageName),
@@ -379,7 +397,9 @@ export default function VehicleOilServiceDetailForm({
         };
     }, []);
 
+    // Only needed while Initiate is still editable — skip after send to avoid lag.
     useEffect(() => {
+        if (initiateDone || !canEditAssignment) return undefined;
         let active = true;
         axiosInstance
             .get('/employee')
@@ -394,9 +414,10 @@ export default function VehicleOilServiceDetailForm({
         return () => {
             active = false;
         };
-    }, []);
+    }, [initiateDone, canEditAssignment]);
 
     const licensedEmployees = useDrivingLicenseHolders({
+        enabled: !initiateDone && canEditAssignment,
         preserveEmployeeId: formData.carDrivenByEmployeeId,
         sourceEmployees: employees,
     });
@@ -404,8 +425,17 @@ export default function VehicleOilServiceDetailForm({
     const set = useCallback((key, value) => {
         setFormData((prev) => {
             const next = { ...prev, [key]: value };
-            if (key === 'value' && prev.amountMode === 'amount') {
+            if (key === 'value' && isOilPayablePaymentMode(prev.amountMode)) {
                 next.quotation1Amount = value;
+            }
+            if (key === 'amountMode') {
+                const type = normalizeOilPaymentType(value) || value;
+                next.amountMode = type;
+                if (type === 'warranty') {
+                    next.paymentMethod = '';
+                } else if (!normalizeOilPaymentMethod(prev.paymentMethod)) {
+                    next.paymentMethod = 'cash';
+                }
             }
             return next;
         });
@@ -533,76 +563,35 @@ export default function VehicleOilServiceDetailForm({
         }
         setSaving(true);
         try {
-            const body = buildOilServiceDetailSubmitBody(formData);
-            await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
-            const submitRes = await axiosInstance.post(
-                `/AssetItem/${vehicleId}/service/${serviceId}/submit-request`,
-            );
-            const nextAsset = submitRes.data?.asset || null;
-            const nextService =
-                (Array.isArray(nextAsset?.services)
-                    ? nextAsset.services.find(
-                          (row) =>
-                              normalizeMongoId(row?._id) === normalizeMongoId(serviceId) &&
-                              vehicleServiceTypeKey(row) === 'Oil Service',
-                      )
-                    : null) || null;
-            const nextRemark = (() => {
-                try {
-                    return nextService?.remark ? JSON.parse(nextService.remark) : {};
-                } catch {
-                    return {};
-                }
-            })();
-            const submitted =
-                String(nextRemark.requestStatus || '').toLowerCase() === 'submitted' ||
-                Boolean(nextRemark.assignmentSubmittedAt);
-            const live = nextAsset && nextService ? isOilServiceLive(nextService, nextAsset) : false;
-            const waiting =
-                nextAsset && nextService ? isOilServiceScheduledWaiting(nextService, nextAsset) : false;
-            const startLabel = String(formData.serviceStartDate || '').trim();
-
-            if (!submitted && !live && !waiting) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Submit did not stick',
-                    description:
-                        'Server returned success but the request is still pending. Restart the backend and click Send again.',
-                });
-                if (typeof onSaved === 'function') onSaved(nextAsset);
-                return;
-            }
-
+            const body = buildOilServiceDetailSubmitBody(formData, { initiated: true });
+            const { data } = await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
             toast({
-                title: live ? 'Vehicle on service' : 'Oil service scheduled',
-                description: live
-                    ? 'Service Details unlocked below — complete End Service when the work is done. HR approval comes after End Service for cash.'
-                    : waiting
-                      ? `Scheduled. Service Details unlock on ${startLabel || 'the start date'} (On Service). Same page — scroll down.`
-                      : 'Request submitted. Scroll down for the next section on this page.',
+                title: 'Service initiated',
+                description: 'Complete Schedule and Reschedule Service below, then click OK.',
             });
             if (typeof onSaved === 'function') {
-                onSaved(nextAsset);
+                onSaved(data?.asset || data || null);
             }
             if (typeof window !== 'undefined') {
                 window.setTimeout(() => {
                     document
-                        .getElementById('oil-service-details-panel')
+                        .getElementById('oil-service-schedule-panel')
                         ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }, 350);
             }
         } catch (error) {
             toast({
                 variant: 'destructive',
-                title: 'Could not submit request',
+                title: 'Could not initiate service',
                 description: error.response?.data?.message || 'Try again in a moment.',
             });
         } finally {
             setSaving(false);
         }
-    }, [formData, assignmentPending, onSaved, saving, service, serviceId, toast, vehicleId]);
+    }, [formData, assignmentPending, onSaved, saving, serviceId, toast, vehicleId]);
 
-    const canRequest = assignmentPending && !saving && canEditAssignment && isOilServiceDetailFormComplete(formData);
+    const canRequest =
+        assignmentPending && !saving && canEditAssignment && !initiateDone && isOilServiceDetailFormComplete(formData);
     const missingFields = useMemo(
         () => (assignmentPending && canEditAssignment ? getOilServiceDetailFormMissingFields(formData) : []),
         [formData, assignmentPending, canEditAssignment],
@@ -628,11 +617,11 @@ export default function VehicleOilServiceDetailForm({
     return (
         <div className={`flex w-full ${className}`.trim()}>
             <FineFormCard
-                title="Oil Service Assignment Details"
+                title="Initiate Service"
                 subtitle={
                     assignmentPending
-                        ? 'Complete all fields, then click Send to submit'
-                        : 'Submitted assignment — vehicle, schedule, and service request information'
+                        ? 'Complete the required fields, then click Send to submit'
+                        : 'Submitted — vehicle, schedule, and service request information'
                 }
                 icon={ClipboardList}
                 iconBg="bg-blue-50"
@@ -648,25 +637,32 @@ export default function VehicleOilServiceDetailForm({
                 />
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                     <FormFieldCell label="Payment Type" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
-                        <PaymentToggle
-                            value={formData.amountMode === 'warranty' ? 'warranty' : 'amount'}
+                        <SegmentedToggle
+                            options={OIL_PAYMENT_TYPE_OPTIONS}
+                            value={normalizeOilPaymentType(formData.amountMode)}
+                            selectedFallback="amount"
                             onChange={(mode) => set('amountMode', mode)}
                             disabled={fieldsDisabled}
                         />
                     </FormFieldCell>
-                    <FormFieldCell label="Select Warranty Type" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
-                        <ZohoVendorSelect
-                            className={`w-full ${cashPaymentMode ? 'opacity-60' : ''}`}
-                            value={formData.vendorName || ''}
-                            onChange={(nextValue) => set('vendorName', nextValue)}
-                            disabled={fieldsDisabled || cashPaymentMode}
-                            placeholder={
-                                warrantyPaymentMode
-                                    ? 'Select warranty type'
-                                    : 'Warranty supplier (select Warranty above)'
-                            }
-                            extraOptions={garageHistoryOptions}
-                        />
+                    <FormFieldCell label="Payment Method" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
+                        {cashPaymentMode ? (
+                            <SegmentedToggle
+                                options={OIL_PAYMENT_METHOD_OPTIONS}
+                                value={normalizeOilPaymentMethod(formData.paymentMethod)}
+                                selectedFallback="cash"
+                                onChange={(mode) => set('paymentMethod', mode)}
+                                disabled={fieldsDisabled}
+                            />
+                        ) : (
+                            <input
+                                className={`${fieldInput} opacity-60`}
+                                type="text"
+                                readOnly
+                                value="—"
+                                disabled
+                            />
+                        )}
                     </FormFieldCell>
                     <FormFieldCell label="Warranty Expiry" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
                         <input
@@ -746,8 +742,12 @@ export default function VehicleOilServiceDetailForm({
                             {employeeOptions}
                         </select>
                     </FormFieldCell>
+                    <FormFieldCell label="VSR No" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
+                        <input className={fieldInput} type="text" readOnly value={serviceReqNo} disabled />
+                    </FormFieldCell>
+
                     {cashPaymentMode ? (
-                        <FormFieldCell label="Amount" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
+                        <FormFieldCell label="Amount" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                             <div className="relative">
                                 <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
                                     AED
@@ -770,123 +770,50 @@ export default function VehicleOilServiceDetailForm({
 
                     {cashPaymentMode ? (
                         <>
-                            <FormFieldCell label="Quote 1 (optional)" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                            <FormFieldCell label="Quote 1 (optional)" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
                                 <QuoteField
                                     existingUrl={formData.existingAttachmentUrl}
                                     fileName={formData.attachmentName || formData.remarkAttachmentName}
                                     disabled={fieldsDisabled}
                                     onFile={(file) => handleQuoteFile('attachment', file)}
+                                    dragPayload={{
+                                        key: oilQuoteKindToKey('attachment'),
+                                        label: 'Quote 1',
+                                        fileName: formData.attachmentName || formData.remarkAttachmentName || '',
+                                        amount: formData.value || formData.quotation1Amount || '',
+                                    }}
                                 />
                             </FormFieldCell>
-                            <FormFieldCell label="Quote 2 (optional)" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
+                            <FormFieldCell label="Quote 2 (optional)" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
                                 <QuoteField
                                     existingUrl={formData.existingQuotation2Url}
                                     fileName={formData.quotation2Name}
                                     disabled={fieldsDisabled}
                                     onFile={(file) => handleQuoteFile('quotation2', file)}
+                                    dragPayload={{
+                                        key: oilQuoteKindToKey('quotation2'),
+                                        label: 'Quote 2',
+                                        fileName: formData.quotation2Name || '',
+                                        amount: formData.quotation2Amount || '',
+                                    }}
                                 />
                             </FormFieldCell>
-                            <FormFieldCell label="Quote 3 (optional)" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
+                            <FormFieldCell label="Quote 3 (optional)" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                                 <QuoteField
                                     existingUrl={formData.existingQuotation3Url}
                                     fileName={formData.quotation3Name}
                                     disabled={fieldsDisabled}
                                     onFile={(file) => handleQuoteFile('quotation3', file)}
+                                    dragPayload={{
+                                        key: oilQuoteKindToKey('quotation3'),
+                                        label: 'Quote 3',
+                                        fileName: formData.quotation3Name || '',
+                                        amount: formData.quotation3Amount || '',
+                                    }}
                                 />
                             </FormFieldCell>
                         </>
                     ) : null}
-
-                    <FormFieldCell label="Garage Name (Vendor)" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
-                        <ZohoVendorSelect
-                            className="w-full"
-                            value={formData.garageName || ''}
-                            onChange={(nextValue, vendor) => {
-                                set('garageName', nextValue);
-                                set(
-                                    'zohoVendorId',
-                                    String(vendor?.id || vendor?.zohoContactId || vendor?.value || '').trim(),
-                                );
-                            }}
-                            disabled={fieldsDisabled}
-                            placeholder="Select vendor"
-                            extraOptions={garageHistoryOptions}
-                        />
-                    </FormFieldCell>
-                    <FormFieldCell label="Garage Location" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
-                        <input
-                            className={fieldInput}
-                            type="text"
-                            value={formData.garageLocation || ''}
-                            onChange={(e) => set('garageLocation', e.target.value)}
-                            disabled={fieldsDisabled}
-                        />
-                    </FormFieldCell>
-                    <FormFieldCell label="Garage Contact" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
-                        <input
-                            className={fieldInput}
-                            type="text"
-                            value={formData.garageContact || ''}
-                            onChange={(e) => set('garageContact', e.target.value)}
-                            disabled={fieldsDisabled}
-                        />
-                    </FormFieldCell>
-
-                    {cashPaymentMode ? (
-                        <VehicleGarageBillingFields
-                            formData={{
-                                ...formData,
-                                garageBillAmount: formData.garageBillAmount || formData.value || '',
-                            }}
-                            setField={(key, value) => {
-                                set(key, value);
-                                if (key === 'garageBillAmount') set('value', value);
-                            }}
-                            fieldsDisabled={fieldsDisabled}
-                            accent={accent}
-                            fieldMinHeightPx={fieldMinHeightPx}
-                            fieldClassName={fieldInput}
-                        />
-                    ) : null}
-
-                    <FormFieldCell label="Service Req No" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
-                        <input className={fieldInput} type="text" readOnly value={serviceReqNo} disabled />
-                    </FormFieldCell>
-                    <FormFieldCell label="Service Start Date" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
-                        <DatePicker
-                            value={formData.serviceStartDate || ''}
-                            onChange={(value) => set('serviceStartDate', value || '')}
-                            placeholder="dd/mm/yyyy"
-                            className={datePickerClass}
-                            disabled={!datesEditable || saving}
-                        />
-                    </FormFieldCell>
-                    <FormFieldCell label="Service End Date" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
-                        <DatePicker
-                            value={formData.serviceEndDate || ''}
-                            onChange={(value) => {
-                                set('serviceEndDate', value || '');
-                                if (value) set('nextChangeMonth', value.slice(0, 7));
-                            }}
-                            placeholder="dd/mm/yyyy"
-                            className={datePickerClass}
-                            disabled={!datesEditable || saving}
-                        />
-                    </FormFieldCell>
-                </div>
-
-                <div className="mt-4 border-t border-gray-100 pt-4">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                        Work Description
-                    </span>
-                    <textarea
-                        className={`${fieldInput} mt-1.5 min-h-[88px] resize-y font-medium`}
-                        rows={3}
-                        value={formData.serviceIssue || ''}
-                        onChange={(e) => set('serviceIssue', e.target.value)}
-                        disabled={fieldsDisabled}
-                        placeholder="Enter work description"
-                    />
                 </div>
 
                 {assignmentPending && canEditAssignment ? (
@@ -911,17 +838,6 @@ export default function VehicleOilServiceDetailForm({
                                 {saving ? 'Sending...' : 'Send'}
                             </button>
                         </div>
-                    </div>
-                ) : canEditServiceDates ? (
-                    <div className="mt-4 flex justify-end border-t border-gray-100 pt-4">
-                        <button
-                            type="button"
-                            onClick={() => void handleSaveServiceDates()}
-                            disabled={saving}
-                            className="min-w-[140px] rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-40"
-                        >
-                            {saving ? 'Saving...' : 'Save dates'}
-                        </button>
                     </div>
                 ) : null}
             </FineFormCard>

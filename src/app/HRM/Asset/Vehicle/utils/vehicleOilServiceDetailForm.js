@@ -4,10 +4,77 @@ import {
     garageBillingAttachmentBody,
     garageBillingFieldsFromRemark,
     garageBillingRemarkPatch,
-    validateGarageBillingFields,
 } from './vehicleGarageBillingFields';
 
 export const DEFAULT_OIL_SERVICE_TYPE = 'Engine Oil';
+
+/** Payment Type — drives workflow (Cash path vs Warranty). Stored in remark.amountMode. */
+export const OIL_PAYMENT_TYPE_OPTIONS = [
+    { id: 'amount', label: 'Cash' },
+    { id: 'warranty', label: 'Warranty' },
+];
+
+/** Payment Method — how cash services are paid. Stored in remark.paymentMethod. */
+export const OIL_PAYMENT_METHOD_OPTIONS = [
+    { id: 'cash', label: 'Cash' },
+    { id: 'acc_pay', label: 'Acc Pay' },
+    { id: 'bank_transfer', label: 'Bank Transfer' },
+];
+
+const OIL_PAYMENT_METHOD_IDS = new Set(OIL_PAYMENT_METHOD_OPTIONS.map((o) => o.id));
+
+export function normalizeOilPaymentType(value) {
+    const raw = String(value || '').toLowerCase().trim();
+    if (raw === 'warranty') return 'warranty';
+    if (raw === 'amount' || raw === 'cash') return 'amount';
+    // Legacy: payment method values were briefly stored in amountMode
+    if (raw === 'acc_pay' || raw === 'bank_transfer') return 'amount';
+    return '';
+}
+
+export function normalizeOilPaymentMethod(value) {
+    const raw = String(value || '').toLowerCase().trim();
+    if (raw === 'amount' || raw === 'cash') return 'cash';
+    if (raw === 'accpay' || raw === 'account_pay' || raw === 'account pay') return 'acc_pay';
+    if (raw === 'banktransfer' || raw === 'bank transfer') return 'bank_transfer';
+    if (OIL_PAYMENT_METHOD_IDS.has(raw)) return raw;
+    return '';
+}
+
+export function isOilWarrantyPaymentMode(mode) {
+    return normalizeOilPaymentType(mode) === 'warranty';
+}
+
+/** Cash payment type — amount + HR/Accounts path. */
+export function isOilPayablePaymentMode(mode) {
+    return !isOilWarrantyPaymentMode(mode);
+}
+
+export function oilPaymentTypeLabel(mode) {
+    const id = normalizeOilPaymentType(mode);
+    return OIL_PAYMENT_TYPE_OPTIONS.find((o) => o.id === id)?.label || '—';
+}
+
+export function oilPaymentMethodLabel(mode) {
+    const id = normalizeOilPaymentMethod(mode);
+    return OIL_PAYMENT_METHOD_OPTIONS.find((o) => o.id === id)?.label || '—';
+}
+
+/** Resolve payment type + method from service remark (supports brief legacy mix-up). */
+export function resolveOilPaymentFields(remark = {}, base = {}) {
+    const rawMode = String(remark.amountMode || base.amountMode || '').toLowerCase().trim();
+    const amountMode =
+        normalizeOilPaymentType(rawMode) ||
+        (rawMode === 'acc_pay' || rawMode === 'bank_transfer' ? 'amount' : '') ||
+        '';
+    const fromRemark = normalizeOilPaymentMethod(remark.paymentMethod);
+    const fromLegacyMode =
+        rawMode === 'acc_pay' || rawMode === 'bank_transfer' || rawMode === 'amount' || rawMode === 'cash'
+            ? normalizeOilPaymentMethod(rawMode === 'amount' ? 'cash' : rawMode)
+            : '';
+    const paymentMethod = fromRemark || fromLegacyMode || 'cash';
+    return { amountMode, paymentMethod };
+}
 
 export const OIL_SERVICE_VENDOR_OPTIONS = [
     'Al Futtaim Motors',
@@ -35,16 +102,16 @@ export function buildOilServiceDetailFormState(service, asset, scheduleRow) {
 
     const assigneeId = asset?.assignedTo?._id || asset?.assignedTo;
     const assigneeIdStr = assigneeId ? String(assigneeId) : '';
-    const savedAmountMode = String(remark.amountMode || base.amountMode || '').toLowerCase();
-    const amountMode =
-        savedAmountMode === 'warranty' || savedAmountMode === 'amount'
-            ? savedAmountMode
-            : resolveDefaultPaymentMode(asset);
+    const resolved = resolveOilPaymentFields(remark, base);
+    const amountMode = resolved.amountMode || resolveDefaultPaymentMode(asset);
+    const paymentMethod =
+        amountMode === 'warranty' ? '' : resolved.paymentMethod || 'cash';
 
     return {
         ...base,
         serviceType: 'Oil Service',
         amountMode,
+        paymentMethod,
         oilServiceTypeText: remark.oilServiceTypeText || base.oilServiceTypeText || DEFAULT_OIL_SERVICE_TYPE,
         currentKm:
             remark.currentKm != null && remark.currentKm !== ''
@@ -99,15 +166,27 @@ export function validateOilServiceDetailCreateForm(formData) {
         serviceIssue: String(formData.serviceIssue || '').trim(),
         quotation1Amount:
             formData.quotation1Amount ||
-            (formData.amountMode === 'amount' ? formData.value : ''),
+            (isOilPayablePaymentMode(formData.amountMode) ? formData.value : ''),
     };
 
     const errors = validateVehicleServiceForm(payload);
 
-    // Quotes / quote PDFs are optional for oil service — drop shared mandatory quote checks.
+    // Initiate Service only — schedule fields / quotes / description handled on later cards.
     delete errors.attachment;
     delete errors.quotation1Amount;
     delete errors.approvedQuotationChoice;
+    delete errors.serviceIssue;
+    delete errors.garageName;
+    delete errors.garageLocation;
+    delete errors.garageContact;
+    delete errors.serviceStartDate;
+    delete errors.serviceEndDate;
+    delete errors.nextChangeMonth;
+    delete errors.date;
+    delete errors.vendorName;
+    delete errors.payAccountId;
+    delete errors.garageBillAmount;
+    delete errors.garageAttachment;
 
     if (!String(formData.oilServiceTypeText ?? '').trim()) {
         errors.oilServiceTypeText = 'Oil type is required';
@@ -121,8 +200,27 @@ export function validateOilServiceDetailCreateForm(formData) {
     if (!String(formData.carDrivenByEmployeeId ?? '').trim()) {
         errors.carDrivenByEmployeeId = 'Car driven by is required';
     }
+    if (isOilPayablePaymentMode(formData.amountMode)) {
+        const amount = Number(formData.value);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            errors.value = 'Amount must be greater than 0';
+        }
+        if (!normalizeOilPaymentMethod(formData.paymentMethod)) {
+            errors.paymentMethod = 'Payment method is required';
+        }
+    } else {
+        delete errors.value;
+        delete errors.paymentMethod;
+    }
+
+    return errors;
+}
+
+/** Schedule & Reschedule card — garage, dates, description. Amount comes from Initiate. Quotation drop is optional. */
+export function validateOilServiceScheduleForm(formData) {
+    const errors = {};
     if (!String(formData.garageName ?? '').trim()) {
-        errors.garageName = 'Garage vendor is required';
+        errors.garageName = 'Garage name is required';
     }
     if (!String(formData.garageLocation ?? '').trim()) {
         errors.garageLocation = 'Garage location is required';
@@ -136,24 +234,24 @@ export function validateOilServiceDetailCreateForm(formData) {
     if (!String(formData.serviceEndDate ?? '').trim() && !String(formData.nextChangeMonth ?? '').trim()) {
         errors.serviceEndDate = 'Service end date is required';
     }
-    if (!String(formData.serviceIssue ?? '').trim()) {
-        errors.serviceIssue = 'Work description is required';
-    }
-
-    if (formData.amountMode === 'warranty') {
-        if (!String(formData.vendorName ?? '').trim()) {
-            errors.vendorName = 'Warranty type is required';
-        }
-    } else {
-        const amount = Number(formData.value);
-        if (!Number.isFinite(amount) || amount <= 0) {
-            errors.value = 'Amount must be greater than 0';
-        }
-        // Paid oil jobs need Zoho bill fields (same as shop garage services).
-        Object.assign(errors, validateGarageBillingFields(formData));
-    }
-
+    // Description is optional for oil schedule / HR approval.
     return errors;
+}
+
+export function getOilServiceScheduleMissingFields(formData) {
+    const errors = validateOilServiceScheduleForm(formData);
+    const labels = {
+        garageName: 'Garage name',
+        garageLocation: 'Garage location',
+        garageContact: 'Garage contact',
+        serviceStartDate: 'Service start date',
+        serviceEndDate: 'Service end date',
+    };
+    return Object.keys(errors).map((key) => labels[key] || errors[key]);
+}
+
+export function isOilServiceScheduleFormComplete(formData) {
+    return Object.keys(validateOilServiceScheduleForm(formData)).length === 0;
 }
 
 const OIL_SERVICE_FIELD_LABELS = {
@@ -169,15 +267,12 @@ const OIL_SERVICE_FIELD_LABELS = {
     serviceEndDate: 'Service end date',
     nextChangeMonth: 'Service end date',
     serviceIssue: 'Work description',
-    vendorName: 'Warranty type',
     amountMode: 'Payment type',
+    paymentMethod: 'Payment method',
     value: 'Amount',
     attachment: 'Quote 1',
     quotation1Amount: 'Amount',
     date: 'Service date',
-    payAccountId: 'Pay Account',
-    garageBillAmount: 'Amount (AED)',
-    garageAttachment: 'Attachment',
 };
 
 export function getOilServiceDetailFormMissingFields(formData) {
@@ -192,17 +287,21 @@ export function isOilServiceDetailFormComplete(formData) {
 
 export { formatWarrantyExpiryFromAsset };
 
-export function buildOilServiceDetailSubmitBody(formData) {
+export function buildOilServiceDetailSubmitBody(formData, { initiated = false } = {}) {
     const amount = String(formData.value || '').trim();
+    const payable = isOilPayablePaymentMode(formData.amountMode);
+    const amountMode = normalizeOilPaymentType(formData.amountMode) || formData.amountMode;
+    const paymentMethod = payable
+        ? normalizeOilPaymentMethod(formData.paymentMethod) || 'cash'
+        : '';
     const payload = {
         ...formData,
         serviceType: 'Oil Service',
-        quotation1Amount: formData.amountMode === 'amount' ? amount : formData.quotation1Amount,
-        value: formData.amountMode === 'amount' ? amount : formData.value,
-        garageBillAmount:
-            formData.amountMode === 'amount'
-                ? amount || formData.garageBillAmount
-                : formData.garageBillAmount,
+        amountMode,
+        paymentMethod,
+        quotation1Amount: payable ? amount : formData.quotation1Amount,
+        value: payable ? amount : formData.value,
+        garageBillAmount: payable ? amount || formData.garageBillAmount : formData.garageBillAmount,
     };
     const body = buildAddServiceBody(payload);
     const remark = (() => {
@@ -212,10 +311,21 @@ export function buildOilServiceDetailSubmitBody(formData) {
             return {};
         }
     })();
+    remark.amountMode = amountMode;
+    if (paymentMethod) {
+        remark.paymentMethod = paymentMethod;
+    } else {
+        delete remark.paymentMethod;
+    }
     if (formData.lastChangeKm !== '' && formData.lastChangeKm != null) {
         remark.previousChangeKm = Number(formData.lastChangeKm);
     }
-    remark.requestStatus = 'pending';
+    if (initiated) {
+        remark.requestStatus = 'pending';
+        remark.oilServiceInitiatedAt = new Date().toISOString();
+    } else {
+        remark.requestStatus = 'pending';
+    }
     if (formData.serviceEndDate) {
         remark.serviceEndDate = formData.serviceEndDate;
         remark.nextChangeMonth = String(formData.serviceEndDate).slice(0, 7);
@@ -227,6 +337,9 @@ export function buildOilServiceDetailSubmitBody(formData) {
     if (String(formData.garageName || '').trim()) {
         remark.garageName = String(formData.garageName).trim();
         remark.vendorName = remark.garageName;
+    }
+    if (String(formData.approvedQuotationChoice || '').trim()) {
+        remark.approvedQuotationChoice = String(formData.approvedQuotationChoice).trim();
     }
     body.remark = JSON.stringify(remark);
     Object.assign(body, garageBillingAttachmentBody(formData));

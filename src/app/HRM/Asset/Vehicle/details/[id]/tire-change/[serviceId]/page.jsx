@@ -280,87 +280,85 @@ function VehicleTireChangeDetailPageContent() {
 
                     <div className={`${tireChangePageLayout.rowClassName} ${PAGE_SECTION_ANIMATION} delay-150`}>
                         <div className={tireChangePageLayout.mainColumnClassName}>
-                            <div className="flex flex-col gap-5 w-full">
-                                <VehicleTireChangeDetailForm
+                            <VehicleTireChangeDetailForm
+                                asset={asset}
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canEditAssignment={canEditAssignment}
+                                onSaved={() => {
+                                    void load();
+                                }}
+                                draftSubmitRef={draftSubmitRef}
+                                onDraftStateChange={handleDraftStateChange}
+                                className="w-full shrink-0"
+                            />
+                            {!assignmentPending && showTireChangeQuoteCard(assignmentPending) ? (
+                                <VehicleTireChangeQuoteApprovalCard
                                     asset={asset}
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canEditAssignment={canEditAssignment}
-                                    onSaved={() => {
+                                    canActHr={isFlowchartHr}
+                                    canRespondToWorkflow={canRespondToTireWorkflow}
+                                    canManageTireChange={canManageTireChange}
+                                    workflowStage={tireWorkflowStage}
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) {
+                                            setAsset(updatedAsset);
+                                        }
                                         void load();
                                     }}
-                                    draftSubmitRef={draftSubmitRef}
-                                    onDraftStateChange={handleDraftStateChange}
                                     className="w-full shrink-0"
                                 />
-                                {!assignmentPending && showTireChangeQuoteCard(assignmentPending) ? (
-                                    <VehicleTireChangeQuoteApprovalCard
-                                        asset={asset}
-                                        service={service}
-                                        vehicleId={vehicleId}
-                                        serviceId={serviceId}
-                                        canActHr={isFlowchartHr}
-                                        canRespondToWorkflow={canRespondToTireWorkflow}
-                                        canManageTireChange={canManageTireChange}
-                                        workflowStage={tireWorkflowStage}
-                                        onUpdated={(updatedAsset) => {
-                                            if (updatedAsset) {
-                                                setAsset(updatedAsset);
-                                            }
-                                            void load();
-                                        }}
-                                        className="w-full shrink-0"
-                                    />
-                                ) : null}
-                                {showTireChangeGarageCard(assignmentPending, tireWorkflowStage) ? (
-                                    <VehicleTireChangeGarageCard
-                                        asset={asset}
-                                        service={service}
-                                        vehicleId={vehicleId}
-                                        serviceId={serviceId}
-                                        canManage={canManageTireChange}
-                                        canActAccounts={isFlowchartAccounts}
-                                        workflowStage={tireWorkflowStage}
-                                        onUpdated={(updatedAsset) => {
-                                            if (updatedAsset) setAsset(updatedAsset);
-                                            void load();
-                                        }}
-                                        className="w-full shrink-0"
-                                    />
-                                ) : null}
-                                {showTireChangeReturnCard(assignmentPending, tireWorkflowStage) ? (
-                                    <VehicleTireChangeReturnCard
-                                        asset={asset}
-                                        service={service}
-                                        vehicleId={vehicleId}
-                                        serviceId={serviceId}
-                                        canManage={canManageTireChange}
-                                        workflowStage={tireWorkflowStage}
-                                        onUpdated={(updatedAsset) => {
-                                            if (updatedAsset) setAsset(updatedAsset);
-                                            void load();
-                                        }}
-                                        className="w-full shrink-0"
-                                    />
-                                ) : null}
-                                <VehicleServiceAccountsZohoBillingCard
+                            ) : null}
+                            {showTireChangeGarageCard(assignmentPending, tireWorkflowStage) ? (
+                                <VehicleTireChangeGarageCard
+                                    asset={asset}
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
+                                    canManage={canManageTireChange}
                                     canActAccounts={isFlowchartAccounts}
                                     workflowStage={tireWorkflowStage}
-                                    serviceTypeLabel="Tire Change"
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
                                         void load();
                                     }}
                                     className="w-full shrink-0"
                                 />
-                            </div>
+                            ) : null}
+                            {showTireChangeReturnCard(assignmentPending, tireWorkflowStage) ? (
+                                <VehicleTireChangeReturnCard
+                                    asset={asset}
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canManage={canManageTireChange}
+                                    workflowStage={tireWorkflowStage}
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load();
+                                    }}
+                                    className="w-full shrink-0"
+                                />
+                            ) : null}
+                            <VehicleServiceAccountsZohoBillingCard
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canActAccounts={isFlowchartAccounts}
+                                workflowStage={tireWorkflowStage}
+                                serviceTypeLabel="Tire Change"
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) setAsset(updatedAsset);
+                                    void load();
+                                }}
+                                className="w-full shrink-0"
+                            />
                         </div>
 
-                        <div className={`${tireChangePageLayout.sideColumnClassName} min-h-0`}>
+                        <div className={tireChangePageLayout.sideColumnClassName}>
                             <VehicleTireChangePreviousHistoryPanel
                                 asset={asset}
                                 service={service}
@@ -374,7 +372,7 @@ function VehicleTireChangeDetailPageContent() {
                             <VehicleOilServiceWorkflowPanel
                                 asset={asset}
                                 service={service}
-                                className="min-h-[360px] flex-1 shrink-0"
+                                className="min-h-[320px] flex-1"
                             />
                         </div>
                     </div>

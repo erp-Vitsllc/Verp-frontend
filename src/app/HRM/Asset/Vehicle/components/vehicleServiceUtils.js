@@ -94,6 +94,7 @@ export function buildVehicleServiceListRows(services, asset, { serviceTypeFilter
             const remark = parseVehicleServiceRemark(s) ?? {};
             const row = {
                 serviceId: normalizeMongoId(s._id),
+                serviceReqNo: String(s.serviceReqNo || '').trim() || '—',
                 serviceType: vehicleServiceTypeKey(s) || '—',
                 date: s.date || s.createdAt,
                 value: s.value,
@@ -321,6 +322,7 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
     return {
         id: serviceId || id || `oil-pending-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         serviceId: serviceId || undefined,
+        serviceReqNo: String(service?.serviceReqNo || '').trim() || '—',
         vehicleAssetNo: asset?.assetId || '—',
         vehicleNo,
         lastOilServiceKm,
@@ -426,17 +428,26 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
     const serviceId = service ? normalizeMongoId(service._id) : '';
     const statusInfo = service
         ? (() => {
+              // Lazy import avoided — mirror vehicleCarWashAccess labels inline for this util.
               const requestStatus = String(remark?.requestStatus || '').toLowerCase();
               if (requestStatus === 'draft') return { label: 'Draft', tone: 'draft' };
               const paymentStatus = String(remark?.carWashPaymentStatus || '').toLowerCase();
+              const billingStatus = String(remark?.billingStatus || '').toLowerCase();
               const stage = String(
                   service?.workflowSnapshot?.stage ||
                       (normalizeMongoId(asset?.activeServiceWorkflow?.serviceRecordId) === serviceId
                           ? asset?.activeServiceWorkflow?.stage
                           : '') ||
+                      remark?.workflowStage ||
                       '',
               ).toLowerCase();
               if (stage === 'rejected') return { label: 'Rejected', tone: 'rejected' };
+              if (stage === 'billed' || billingStatus === 'billed' || paymentStatus === 'billed') {
+                  return { label: 'Billed', tone: 'complete' };
+              }
+              if (stage === 'pending_billing' || stage === 'pending_accounts') {
+                  return { label: 'Complete — Waiting for Bill', tone: 'pending' };
+              }
               if (paymentStatus === 'not_paid' || stage === 'complete') {
                   return { label: 'Not paid', tone: 'complete' };
               }
@@ -447,6 +458,7 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
     return {
         id: serviceId || `car-wash-${Date.now()}`,
         serviceId: serviceId || undefined,
+        serviceReqNo: String(service?.serviceReqNo || '').trim() || '—',
         vehicleAssetNo: asset?.assetId || '—',
         vehicleNo,
         carWashMonth: remark?.carWashMonth || '',
@@ -505,6 +517,7 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
     return {
         id: serviceId || `${serviceType}-pending-${Date.now()}`,
         serviceId: serviceId || undefined,
+        serviceReqNo: String(service?.serviceReqNo || '').trim() || '—',
         vehicleAssetNo: asset?.assetId || '—',
         vehicleNo,
         requestDate: service?.date || service?.createdAt || null,

@@ -59,10 +59,9 @@ export function isBodyWorkGarageSubmitted(asset, service) {
 
 export function canEditBodyWorkGarage(stage, canManageBodyWork, { asset, service } = {}) {
     if (!canManageBodyWork) return false;
+    if (asset && service && isBodyWorkGarageSubmitted(asset, service)) return false;
     if (stage === BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
-    if (stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS && asset && service) {
-        return !isBodyWorkGarageSubmitted(asset, service);
-    }
+    if (stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS) return true;
     return false;
 }
 

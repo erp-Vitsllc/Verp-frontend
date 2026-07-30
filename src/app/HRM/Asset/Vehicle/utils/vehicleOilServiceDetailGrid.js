@@ -2,6 +2,7 @@ import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { formatNextChangeMonthDisplay, parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import { pickLatestDocOfType } from './vehicleExpirySources';
 import { formatVehicleServiceReqNo } from './vehicleServiceReqNo';
+import { oilPaymentMethodLabel, oilPaymentTypeLabel } from './vehicleOilServiceDetailForm';
 
 function formatDate(value) {
     if (!value) return '—';
@@ -63,12 +64,15 @@ export function buildOilServiceDetailGridFields(asset, service, scheduleRow, emp
     if (!asset || !service) return { fields: [], workDescription: '—' };
 
     const remark = parseVehicleServiceRemark(service) || {};
-    const paymentType =
-        remark.amountMode === 'warranty' ? 'Warranty' : remark.amountMode === 'amount' ? 'Cash' : '—';
+    const paymentType = oilPaymentTypeLabel(remark.amountMode);
+    const paymentMethod =
+        String(remark.amountMode || '').toLowerCase() === 'warranty'
+            ? '—'
+            : oilPaymentMethodLabel(remark.paymentMethod || remark.amountMode);
 
     const fields = [
         { label: 'Payment Type', value: paymentType },
-        { label: 'Select Warranty Type', value: remark.vendorName || '—' },
+        { label: 'Payment Method', value: paymentMethod },
         { label: 'Warranty Expiry', value: formatWarrantyExpiry(asset) },
         { label: 'Oil Type', value: remark.oilServiceTypeText || '—' },
         { label: 'OIL Milage', value: formatKm(remark.nextChangeKm ?? scheduleRow?.nextOilServiceKm) },
@@ -104,7 +108,7 @@ export function buildOilServiceDetailGridFields(asset, service, scheduleRow, emp
         { label: 'Garage Location', value: remark.garageLocation || '—' },
         { label: 'Garage Contact', value: remark.garageContact || '—' },
         {
-            label: 'Service Req No',
+            label: 'VSR No',
             value: formatVehicleServiceReqNo(service, asset),
         },
         {

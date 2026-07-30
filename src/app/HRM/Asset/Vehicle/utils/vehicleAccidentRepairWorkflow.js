@@ -31,10 +31,10 @@ export function showAccidentRepairQuoteCard(assignmentPending) {
 export function showAccidentRepairGarageCard(assignmentPending, stage) {
     if (assignmentPending) return false;
     if (!stage || stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.REJECTED) return false;
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return false;
     return [
         ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER,
         ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS,
+        ACCIDENT_REPAIR_WORKFLOW_STAGES.HR,
         ACCIDENT_REPAIR_WORKFLOW_STAGES.SCHEDULED,
         ACCIDENT_REPAIR_WORKFLOW_STAGES.PENDING_BILLING,
         'billed',
@@ -46,6 +46,9 @@ export function showAccidentRepairGarageCard(assignmentPending, stage) {
 export function showAccidentRepairReturnCard(assignmentPending, stage) {
     if (assignmentPending) return false;
     if (!stage || stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.REJECTED) return false;
+    // Return / End Service only after HR has moved the job to scheduled / live.
+    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return false;
+    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER) return false;
     return shouldShowShopServiceReturnCard(stage);
 }
 
@@ -58,10 +61,10 @@ export function isAccidentRepairGarageSubmitted(asset, service) {
 
 export function canEditAccidentRepairGarage(stage, canManageAccidentRepair, { asset, service } = {}) {
     if (!canManageAccidentRepair) return false;
+    if (asset && service && isAccidentRepairGarageSubmitted(asset, service)) return false;
+    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return false;
     if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS && asset && service) {
-        return !isAccidentRepairGarageSubmitted(asset, service);
-    }
+    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS) return true;
     return false;
 }
 

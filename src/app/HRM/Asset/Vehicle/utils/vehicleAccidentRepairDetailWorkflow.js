@@ -1,15 +1,12 @@
 ﻿import { normalizeMongoId, parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
-import {
-    resolveShopServiceFlowchartActors,
-    resolveShopServiceStepActor,
-} from './vehicleShopServiceWorkflowActors';
+import { resolveShopServiceFlowchartActors } from './vehicleShopServiceWorkflowActors';
 
 export const ACCIDENT_REPAIR_WORKFLOW_STEPS = [
     { id: 1, label: 'Service Created' },
     { id: 2, label: 'Service Updated' },
     { id: 3, label: 'Request Submitted' },
-    { id: 4, label: 'Quotation Review Approved' },
-    { id: 5, label: 'Garage Updated' },
+    { id: 4, label: 'Garage Updated' },
+    { id: 5, label: 'HR On Service Approval' },
     { id: 6, label: 'Service Completed' },
     { id: 7, label: 'Accounts Billing (Zoho)' },
 ];
@@ -18,8 +15,8 @@ const ACTIVITY_BY_STEP = {
     1: 'service_created',
     2: 'service_updated',
     3: 'request_submitted',
-    4: 'quotation_review_approved',
-    5: 'garage_updated',
+    4: 'garage_updated',
+    5: 'hr_approved',
     6: 'service_completed',
     7: 'accounts_approved',
 };
@@ -94,7 +91,7 @@ function mapHistoryEntry(h) {
         return { type: 'request_submitted', at: h.at, byName: h.byName, note: h.note };
     }
     if (action === 'approve' && stage === 'pending_hr') {
-        return { type: 'quotation_review_approved', at: h.at, byName: h.byName, note: h.note };
+        return { type: 'hr_approved', at: h.at, byName: h.byName, note: h.note || 'HR approved On Service' };
     }
     if (action === 'approve' && (stage === 'pending_accounts' || stage === 'pending_billing')) {
         return { type: 'accounts_approved', at: h.at, byName: h.byName, note: h.note };
@@ -201,10 +198,12 @@ function resolveActiveStepId(activities, stage) {
     if (s === 'pending_billing') return 7;
     if (has('service_completed')) return 7;
     if (s === 'pending_admin_return' || s === 'scheduled_service' || s === 'pending_accounts') return 6;
-    if (has('garage_updated') || has('service_scheduled') || has('accounts_approved')) return 6;
-    if (s === 'pending_admin_officer') return 5;
-    if (has('quotation_review_approved')) return 5;
-    if (s === 'pending_hr') return 4;
+    if (has('hr_approved') || has('service_scheduled') || has('on_service') || has('accounts_approved')) {
+        return 6;
+    }
+    if (s === 'pending_hr') return 5;
+    if (has('garage_updated')) return 5;
+    if (s === 'pending_admin_officer') return 4;
     if (has('request_submitted')) return 4;
     if (has('service_updated')) return 3;
     if (has('service_created')) return 2;
@@ -280,14 +279,22 @@ export function buildAccidentRepairDetailWorkflowEvents(asset, service, flowchar
             date = date || remark.assignmentSubmittedAt;
             actor = actor || remark.requestedByName || '';
         }
-        if (step.id === 4 && remark.tireQuoteReview?.approvedQuote) {
-            const quoteLine = `Approved quote: ${remark.tireQuoteReview.approvedQuote}`;
-            detail = detail ? `${detail} · ${quoteLine}` : quoteLine;
-        }
-        if (step.id === 5 && (remark.serviceStartDate || remark.scheduledServiceDate)) {
+        if (step.id === 4 && (remark.serviceStartDate || remark.scheduledServiceDate)) {
             const start = formatDetailDate(remark.serviceStartDate || remark.scheduledServiceDate);
             const startLine = `Service start: ${start}`;
             detail = detail ? `${detail} · ${startLine}` : startLine;
+        }
+        if (step.id === 5) {
+            if (String(stage || '') === 'pending_hr') {
+                detail = detail || 'Flowchart HR must approve On Service';
+            } else if (activity?.note) {
+                detail = activity.note;
+            }
+            if (remark.serviceStartDate || remark.scheduledServiceDate) {
+                const start = formatDetailDate(remark.serviceStartDate || remark.scheduledServiceDate);
+                const startLine = `Service start: ${start}`;
+                detail = detail ? `${detail} · ${startLine}` : startLine;
+            }
         }
         if (step.id === 6 && remark.vehicleServiceCompletedAt) {
             date = date || remark.vehicleServiceCompletedAt;
@@ -306,12 +313,15 @@ export function buildAccidentRepairDetailWorkflowEvents(asset, service, flowchar
             }
         }
 
-        // Accident skips HR quotation — Admin Officer is next after submit.
-        actor = resolveShopServiceStepActor(step.id, {
-            actor,
-            flowchartActors,
-            skipHrQuotation: true,
-        });
+        // Accident: 4 Garage (Admin), 5 HR On Service, 7 Accounts — no early quotation HR.
+        if (!String(actor || '').trim()) {
+            if (step.id === 4) actor = flowchartActors.adminOfficer;
+            else if (step.id === 5) actor = flowchartActors.hr;
+            else if (step.id === 6) actor = flowchartActors.adminOfficer;
+            else if (step.id === 7) actor = flowchartActors.accounts;
+        } else if (step.id === 5 && String(stage || '') === 'pending_hr') {
+            actor = flowchartActors.hr || actor;
+        }
 
         return buildStepEvent(step, {
             currentActiveStepId,

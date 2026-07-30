@@ -987,9 +987,13 @@ export default function AddBillModal({
     /** Existing batch bills to edit in the same Add Bills UI (Accounts / HR). */
     editBills = null,
     editBatchId = '',
+    /** Accounts may edit Account + Payable to on Item Table while viewing unpaid bills. */
+    accountsCanEditLines = false,
+    onAccountsSaveLines = null,
 }) {
     const isViewMode = Boolean(viewBill) && !editBills;
     const isEditMode = Array.isArray(editBills) && editBills.length > 0;
+    const accountPayableEditable = Boolean(isViewMode && accountsCanEditLines);
     const [rows, setRows] = useState([]);
     const [error, setError] = useState('');
     const [info, setInfo] = useState('');
@@ -2176,6 +2180,7 @@ export default function AddBillModal({
                 isOpen={lineItemsRowIndex != null}
                 onClose={() => setLineItemsRowIndex(null)}
                 readOnly={isViewMode}
+                accountPayableEditable={accountPayableEditable}
                 accountNo={
                     lineItemsRowIndex != null
                         ? rows[lineItemsRowIndex]?.accountNo || ''
@@ -2278,7 +2283,7 @@ export default function AddBillModal({
                               .join(' · ')
                         : utilityType
                 }
-                onSave={(lines) => {
+                onSave={async (lines) => {
                     if (lineItemsRowIndex == null) return;
                     const first = lines[0];
                     const payBy =
@@ -2306,7 +2311,7 @@ export default function AddBillModal({
                         companyId = auto.payByCompanyId || '';
                         companyName = auto.payByCompanyName || '';
                     }
-                    updateRow(lineItemsRowIndex, {
+                    const patch = {
                         lineItems: lines,
                         expenseAccountId:
                             first?.accountId ||
@@ -2329,7 +2334,24 @@ export default function AddBillModal({
                                   payByCompanyName: companyName,
                               }
                             : {}),
-                    });
+                    };
+
+                    if (accountPayableEditable && typeof onAccountsSaveLines === 'function') {
+                        const row = rows[lineItemsRowIndex] || {};
+                        const ok = await onAccountsSaveLines({
+                            billId: row._id || row.billId || viewBill?._id || '',
+                            batchId: row.batchId || viewBill?.batchId || editBatchId || '',
+                            lines,
+                            patch,
+                        });
+                        if (ok === false) return;
+                        updateRow(lineItemsRowIndex, patch);
+                        setLineItemsRowIndex(null);
+                        setError('');
+                        return;
+                    }
+
+                    updateRow(lineItemsRowIndex, patch);
                     setLineItemsRowIndex(null);
                     setError('');
                 }}

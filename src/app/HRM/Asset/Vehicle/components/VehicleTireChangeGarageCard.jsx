@@ -53,7 +53,7 @@ export default function VehicleTireChangeGarageCard({
     const stage = String(workflowStage || '').toLowerCase();
     const isComplete = stage === TIRE_CHANGE_WORKFLOW_STAGES.COMPLETE;
 
-    const canEditGarage = canEditTireChangeGarage(stage, canManage);
+    const canEditGarage = canEditTireChangeGarage(stage, canManage, { asset, service });
     const canApproveAccounts = canApproveTireChangeGarageAccounts(stage, canActAccounts);
     const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending;
 

@@ -12,21 +12,12 @@ import { useToast } from '@/hooks/use-toast';
 import { ClipboardList, Loader2 } from 'lucide-react';
 import VehicleOilServiceDetailHeaderCards from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceDetailHeaderCards';
 import VehicleOilServiceDetailForm from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceDetailForm';
+import VehicleOilServiceScheduleCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceScheduleCard';
 import VehicleOilServiceWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceWorkflowPanel';
 import VehicleOilServicePreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServicePreviousHistoryPanel';
 import VehicleOilServiceDetailsPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceDetailsPanel';
-import VehicleOilServiceCompletedCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceCompletedCard';
 import VehicleOilCashPaymentApprovalCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilCashPaymentApprovalCard';
-import {
-    canUserManageOilService,
-    canUserCreateOrInitiateVehicleService,
-    canUserEditOilServiceDates,
-    isCurrentUserFlowchartAdminOfficer,
-    isOilServiceAssignmentPending,
-    resolveOilServiceWorkflowStage,
-} from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
-import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflowTrackerConfig';
-import { parseStoredSessionUser } from '@/utils/permissions';
+import { isPortalSuperUser, parseStoredSessionUser } from '@/utils/permissions';
 import {
     buildOilServiceScheduleRowFromAsset,
     normalizeMongoId,
@@ -81,11 +72,13 @@ function VehicleOilServiceDetailPageContent() {
         });
     }, []);
 
-    const load = useCallback(async ({ silent = false } = {}) => {
+    const load = useCallback(async ({ silent = false, light = false } = {}) => {
         if (!vehicleId) return;
         if (!silent) setLoading(true);
         try {
-            const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`);
+            const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
+                params: light ? { light: 1 } : undefined,
+            });
             setAsset(response.data || null);
         } catch (error) {
             toast({
@@ -100,7 +93,16 @@ function VehicleOilServiceDetailPageContent() {
     }, [toast, vehicleId]);
 
     useEffect(() => {
-        void load();
+        let cancelled = false;
+        (async () => {
+            // Fast first paint (skip heal writes + shrink attachment blobs), then upgrade.
+            await load({ light: true });
+            if (cancelled) return;
+            await load({ silent: true, light: false });
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [load]);
 
     const service = useMemo(() => {
@@ -126,6 +128,12 @@ function VehicleOilServiceDetailPageContent() {
     const isFlowchartAdminOfficer = useMemo(
         () => isCurrentUserFlowchartAdminOfficer(currentUser, flowchartRows),
         [currentUser, flowchartRows],
+    );
+
+    /** Schedule + Complete Service — flowchart Admin Officer (or portal super user). */
+    const canAdminOilSteps = useMemo(
+        () => isFlowchartAdminOfficer || isPortalSuperUser(currentUser),
+        [currentUser, isFlowchartAdminOfficer],
     );
 
     const canManageOilService = useMemo(
@@ -283,9 +291,10 @@ function VehicleOilServiceDetailPageContent() {
                         </div>
                     ) : null}
 
-                    {!assignmentPending && !canManageOilService ? (
+                    {!assignmentPending && !canAdminOilSteps && !isFlowchartHr && !isFlowchartAccounts ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                            Only the Super User, Admin Officer, or assigned user can submit service details.
+                            Schedule, Reschedule, and Complete Service are actioned by the flowchart Admin
+                            Officer. HR and Accounts handle their approval and payment steps.
                         </div>
                     ) : null}
 
@@ -312,24 +321,22 @@ function VehicleOilServiceDetailPageContent() {
                                 className="w-full shrink-0"
                             />
 
-                            {/* Workflow order: Service Details (End Service) first, then Accounts / HR */}
-                            {!assignmentPending ? (
-                                <VehicleOilServiceDetailsPanel
-                                    asset={asset}
-                                    service={service}
-                                    vehicleId={vehicleId}
-                                    serviceId={serviceId}
-                                    canManage={canManageOilService}
-                                    onUpdated={(updatedAsset) => {
-                                        if (updatedAsset) {
-                                            setAsset(updatedAsset);
-                                        }
-                                        void load();
-                                    }}
-                                />
-                            ) : null}
+                            <VehicleOilServiceScheduleCard
+                                asset={asset}
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canManage={canAdminOilSteps}
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) setAsset(updatedAsset);
+                                    void load({ silent: true });
+                                }}
+                                className="w-full shrink-0"
+                            />
 
+                            {/* Approve Service: HR Approval | Accounts Approve */}
                             <VehicleOilCashPaymentApprovalCard
+                                mode="approvals"
                                 asset={asset}
                                 service={service}
                                 vehicleId={vehicleId}
@@ -339,21 +346,38 @@ function VehicleOilServiceDetailPageContent() {
                                 workflowStage={oilWorkflowStage}
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
-                                    void load();
+                                    void load({ silent: true });
                                 }}
                                 className="w-full shrink-0"
                             />
 
-                            <VehicleOilServiceCompletedCard
+                            <VehicleOilServiceDetailsPanel
                                 asset={asset}
                                 service={service}
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
-                                canManage={canManageOilService}
+                                canManage={canAdminOilSteps}
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) {
+                                        setAsset(updatedAsset);
+                                    }
+                                    void load({ silent: true });
+                                }}
+                            />
+
+                            {/* Make Payment: Accounts Zoho bill (unlocks at pending_accounts) */}
+                            <VehicleOilCashPaymentApprovalCard
+                                mode="payment"
+                                asset={asset}
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canActHr={isFlowchartHr}
+                                canActAccounts={isFlowchartAccounts}
                                 workflowStage={oilWorkflowStage}
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
-                                    void load();
+                                    void load({ silent: true });
                                 }}
                                 className="w-full shrink-0"
                             />

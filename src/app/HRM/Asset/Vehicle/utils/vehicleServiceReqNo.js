@@ -1,6 +1,7 @@
 /**
- * Display Service Req No: `{assetId}-{NNN}` (e.g. VEGA-Veh-001-001).
- * Prefers stored serviceReqNo; falls back to index among asset.services for legacy rows.
+ * Display VSR-No (stored on service.serviceReqNo).
+ * New services use global ERP format `VSR-001`, `VSR-002`, …
+ * Prefers stored value; falls back to index among asset.services for legacy rows.
  */
 export function formatVehicleServiceReqNo(service, asset) {
     const stored = String(service?.serviceReqNo || '').trim();

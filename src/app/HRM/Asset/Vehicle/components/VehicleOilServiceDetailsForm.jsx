@@ -110,28 +110,29 @@ function hasGarageInvoice(form, hasPersisted = false) {
     return Boolean(String(form?.garageInvoice?.data || '').trim());
 }
 
-function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false) {
+function hasValidServiceCharge(form) {
     const charge = Number(form.totalServiceCharge);
+    return Number.isFinite(charge) && charge > 0;
+}
+
+/** Mandatory fields shown on the Complete Service form. Total charge is seeded from Schedule and hidden. */
+function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false) {
     return (
         hasGarageInvoice(form, hasPersistedGarageInvoice) &&
-        Number.isFinite(charge) &&
-        charge > 0 &&
+        String(form.handOverDate || '').trim() !== '' &&
         String(form.returnDate || '').trim() !== '' &&
         String(form.nextServiceKm ?? '').trim() !== '' &&
-        String(form.nextServiceDate || '').trim() !== '' &&
-        String(form.handOverDate || '').trim() !== ''
+        String(form.nextServiceDate || '').trim() !== ''
     );
 }
 
 function getServiceDetailsMissingFields(form, hasPersistedGarageInvoice = false) {
     const missing = [];
     if (!hasGarageInvoice(form, hasPersistedGarageInvoice)) missing.push('Garage invoice');
-    const charge = Number(form.totalServiceCharge);
-    if (!Number.isFinite(charge) || charge <= 0) missing.push('Total service charge');
+    if (!String(form.handOverDate || '').trim()) missing.push('Hand over date');
     if (!String(form.returnDate || '').trim()) missing.push('Return date');
     if (!String(form.nextServiceKm ?? '').trim()) missing.push('Next service KM');
     if (!String(form.nextServiceDate || '').trim()) missing.push('Next service date');
-    if (!String(form.handOverDate || '').trim()) missing.push('Hand over date');
     return missing;
 }
 
@@ -157,8 +158,6 @@ export default function VehicleOilServiceDetailsForm({
         !!String(remark.garageInvoiceUrl || '').trim() ||
         !!String(remark.garageInvoiceName || '').trim() ||
         !!String(remark.shopInvoiceName || '').trim();
-    const hasPersistedOtherDoc =
-        !!String(service?.invoice || '').trim() || !!String(remark.returnOtherDocUrl || '').trim();
 
     const fieldsDisabled = locked || saving || submitting;
     const showActions = !locked && canAct;
@@ -166,6 +165,7 @@ export default function VehicleOilServiceDetailsForm({
     const accent = (index) => OIL_SERVICE_DETAIL_GRID_ACCENTS[index % OIL_SERVICE_DETAIL_GRID_ACCENTS.length];
     const formComplete = isServiceDetailsComplete(form, hasPersistedGarageInvoice);
     const missingFields = getServiceDetailsMissingFields(form, hasPersistedGarageInvoice);
+    const chargeMissing = !hasValidServiceCharge(form);
     const canSaveDraft = showActions && !saving && !submitting;
     const canSend = showActions && !saving && !submitting && formComplete;
 
@@ -269,55 +269,7 @@ export default function VehicleOilServiceDetailsForm({
                         form.garageInvoice,
                     )}
                 </FieldCard>
-                <FieldCard label="Other Document (optional)" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
-                    {renderUploadField(
-                        'otherDocument',
-                        hasPersistedOtherDoc,
-                        service?.invoice,
-                        form.otherDocument,
-                    )}
-                </FieldCard>
-                <FieldCard label="Total Service Charge" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
-                    <div className="relative">
-                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
-                            AED
-                        </span>
-                        <input
-                            className={`${fieldInput} pl-11`}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={form.totalServiceCharge}
-                            onChange={(e) =>
-                                setForm((prev) => ({ ...prev, totalServiceCharge: e.target.value }))
-                            }
-                            disabled={fieldsDisabled || !canAct}
-                            placeholder="0.00"
-                        />
-                    </div>
-                </FieldCard>
-            </div>
-
-            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
-                <FieldCard label="Start Date" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
-                    <DatePicker
-                        value={form.serviceStartDate}
-                        onChange={() => {}}
-                        placeholder="dd/mm/yyyy"
-                        className={datePickerClass}
-                        disabled
-                    />
-                </FieldCard>
-                <FieldCard label="End Date" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
-                    <DatePicker
-                        value={form.serviceEndDate}
-                        onChange={() => {}}
-                        placeholder="dd/mm/yyyy"
-                        className={datePickerClass}
-                        disabled
-                    />
-                </FieldCard>
-                <FieldCard label="Hand Over Date" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
+                <FieldCard label="Hand Over Date" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
                     <DatePicker
                         value={form.handOverDate}
                         onChange={(value) => setForm((prev) => ({ ...prev, handOverDate: value || '' }))}
@@ -326,9 +278,6 @@ export default function VehicleOilServiceDetailsForm({
                         disabled={fieldsDisabled || !canAct}
                     />
                 </FieldCard>
-            </div>
-
-            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                 <FieldCard label="Return Date" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
                     <DatePicker
                         value={form.returnDate}
@@ -338,6 +287,9 @@ export default function VehicleOilServiceDetailsForm({
                         disabled={fieldsDisabled || !canAct}
                     />
                 </FieldCard>
+            </div>
+
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                 <FieldCard label="Next Service KM" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                     <input
                         className={fieldInput}
@@ -364,6 +316,11 @@ export default function VehicleOilServiceDetailsForm({
                     {missingFields.length > 0 ? (
                         <p className="text-xs text-amber-700">
                             Still required: {missingFields.join(', ')}
+                        </p>
+                    ) : null}
+                    {chargeMissing ? (
+                        <p className="text-xs text-amber-700">
+                            Total service charge missing — set the amount in Schedule and Reschedule Service
                         </p>
                     ) : null}
                     <div className="flex flex-wrap justify-center gap-3">

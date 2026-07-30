@@ -6,11 +6,11 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import VehicleOilServiceDetailsForm from './VehicleOilServiceDetailsForm';
+import VehicleOilServiceLockedSection from './VehicleOilServiceLockedSection';
 import { buildOilServiceHrServiceUpdates } from '../utils/vehicleOilServiceHrSubmit';
 import {
-    isOilServiceAssignmentPending,
-    isOilServiceDetailsEnabled,
-    isOilServiceScheduledWaiting,
+    OIL_SERVICE_CARD,
+    resolveOilServiceCardGate,
 } from '../utils/vehicleOilServiceAccess';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import {
@@ -53,13 +53,6 @@ function resolveWorkflow(asset, serviceId) {
     return wfMatches ? activeWf : asset?.activeServiceWorkflow || {};
 }
 
-function formatShortDate(value) {
-    if (!value) return '—';
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
 export default function VehicleOilServiceDetailsPanel({
     asset,
     service,
@@ -73,82 +66,20 @@ export default function VehicleOilServiceDetailsPanel({
     const [submitting, setSubmitting] = useState(false);
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
-    const assignmentPending = isOilServiceAssignmentPending(remark);
-    const scheduledWaiting = useMemo(() => isOilServiceScheduledWaiting(service, asset), [service, asset]);
-    const detailsEnabled = useMemo(() => isOilServiceDetailsEnabled(service, asset), [service, asset]);
+    const gate = useMemo(
+        () => resolveOilServiceCardGate(service, asset, OIL_SERVICE_CARD.COMPLETE),
+        [service, asset],
+    );
 
     const wf = useMemo(() => resolveWorkflow(asset, serviceId), [asset, serviceId]);
     const stage = String(wf?.stage || '').trim().toLowerCase();
     const isComplete = stage === 'complete' || String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live';
     const isRejected = stage === 'rejected';
 
-    const serviceStartDate =
-        remark.serviceStartDate ||
-        remark.scheduledServiceDate ||
-        wf?.scheduledServiceDate ||
-        null;
-
-    if (assignmentPending) {
-        return (
-            <div id="oil-service-details-panel" className="w-full shrink-0">
-                <FineFormCard
-                    title="Service Details"
-                    subtitle="Available after the assignment is sent"
-                    icon={ClipboardList}
-                    iconBg="bg-teal-50"
-                    iconColor="text-teal-600"
-                    className="w-full"
-                >
-                    <p className="text-sm text-gray-500">
-                        Complete Oil Service Assignment Details and click Send to unlock this section.
-                    </p>
-                </FineFormCard>
-            </div>
-        );
-    }
-
-    if (scheduledWaiting) {
-        return (
-            <div id="oil-service-details-panel" className="w-full shrink-0">
-                <FineFormCard
-                    title="Service Details"
-                    subtitle="Scheduled — waiting for service start date"
-                    icon={ClipboardList}
-                    iconBg="bg-violet-50"
-                    iconColor="text-violet-600"
-                    className="w-full opacity-95"
-                >
-                    <p className="text-sm text-gray-500">
-                        This service is scheduled. Service Details will unlock automatically on{' '}
-                        <span className="font-semibold text-gray-700">{formatShortDate(serviceStartDate)}</span>{' '}
-                        when the vehicle moves to On Service. There is no separate next page — stay on this screen.
-                    </p>
-                </FineFormCard>
-            </div>
-        );
-    }
-
-    if (!detailsEnabled && !isComplete && !isRejected) {
-        return (
-            <div id="oil-service-details-panel" className="w-full shrink-0">
-                <FineFormCard
-                    title="Service Details"
-                    subtitle="Not available yet"
-                    icon={ClipboardList}
-                    iconBg="bg-teal-50"
-                    iconColor="text-teal-600"
-                    className="w-full"
-                >
-                    <p className="text-sm text-gray-500">
-                        Service Details will be available once the vehicle is on service.
-                    </p>
-                </FineFormCard>
-            </div>
-        );
-    }
-
-    const locked = isComplete || isRejected;
-    const canAct = !locked && canManage && detailsEnabled;
+    const stepLocked = gate.locked;
+    const lockMessage = gate.message || 'Complete the previous step first';
+    const formLocked = isComplete || isRejected || stepLocked || Boolean(gate.done);
+    const canAct = !formLocked && canManage && Boolean(gate.active);
     const currentKm = resolveServiceCurrentKm(service, asset);
 
     const handleSave = async (formPayload) => {
@@ -183,10 +114,7 @@ export default function VehicleOilServiceDetailsPanel({
             );
             const routedTo = data?.routedTo || data?.asset?.activeServiceWorkflow?.stage;
             toast({
-                title:
-                    routedTo === 'pending_hr'
-                        ? 'Sent to HR'
-                        : 'Service completed',
+                title: routedTo === 'pending_hr' ? 'Sent to HR' : 'Service completed',
                 description:
                     data?.message ||
                     (routedTo === 'pending_hr'
@@ -206,34 +134,42 @@ export default function VehicleOilServiceDetailsPanel({
         }
     };
 
+    const card = (
+        <FineFormCard
+            title="Complete Service"
+            subtitle={
+                isComplete
+                    ? 'Service record completed'
+                    : isRejected
+                      ? 'This request was rejected'
+                      : stepLocked
+                        ? 'Locked until previous steps are done'
+                        : 'Fill required fields — Save draft or Send to close this service'
+            }
+            icon={ClipboardList}
+            iconBg="bg-teal-50"
+            iconColor="text-teal-600"
+            className="w-full"
+            headerAction={<CurrentKmHeaderBadge value={currentKm} />}
+        >
+            <VehicleOilServiceDetailsForm
+                service={service}
+                workflow={wf}
+                saving={saving}
+                submitting={submitting}
+                locked={formLocked}
+                canAct={canAct}
+                onSave={handleSave}
+                onSubmit={handleSubmit}
+            />
+        </FineFormCard>
+    );
+
     return (
-        <div id="oil-service-details-panel" className={`w-full shrink-0 ${locked ? 'opacity-95' : ''}`}>
-            <FineFormCard
-                title="Service Details"
-                subtitle={
-                    isComplete
-                        ? 'Service record completed'
-                        : isRejected
-                          ? 'This request was rejected'
-                          : 'Complete return details — Save draft or Send to close this service'
-                }
-                icon={ClipboardList}
-                iconBg="bg-teal-50"
-                iconColor="text-teal-600"
-                className="w-full"
-                headerAction={<CurrentKmHeaderBadge value={currentKm} />}
-            >
-                <VehicleOilServiceDetailsForm
-                    service={service}
-                    workflow={wf}
-                    saving={saving}
-                    submitting={submitting}
-                    locked={locked}
-                    canAct={canAct}
-                    onSave={handleSave}
-                    onSubmit={handleSubmit}
-                />
-            </FineFormCard>
+        <div id="oil-service-details-panel" className="w-full shrink-0">
+            <VehicleOilServiceLockedSection locked={stepLocked} message={lockMessage}>
+                {card}
+            </VehicleOilServiceLockedSection>
         </div>
     );
 }

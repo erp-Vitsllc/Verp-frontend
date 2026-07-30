@@ -215,8 +215,8 @@ function flags(formData) {
     const isCarWash = formData.serviceType === 'Car Wash';
     const requiresKmSchedule = isTireChange || isCarWash;
     const requiresCurrentKmOnly = isMechanicalWork || isBodyWork;
-    /** Oil may upload quotes optionally; only Tire/Mechanical/Body require quotation 1. */
-    const allowsOptionalOilQuotations = isOilService && formData.amountMode === 'amount';
+    /** Oil may upload quotes optionally for any paid method (Cash / Acc Pay / Bank Transfer). */
+    const allowsOptionalOilQuotations = isOilService && formData.amountMode !== 'warranty';
     const requiresThreeQuotations =
         isTireChange ||
         isMechanicalWork ||
@@ -264,7 +264,12 @@ export function validateVehicleServiceForm(formData, options = {}) {
     if (!formData.serviceIssue) {
         e.serviceIssue = isAccidentRepair ? 'Accident description is required' : 'Service issue is required';
     }
-    if (!isAccidentRepair && formData.amountMode === 'amount' && !formData.value && !requiresThreeQuotations) {
+    if (
+        !isAccidentRepair &&
+        formData.amountMode !== 'warranty' &&
+        !requiresThreeQuotations &&
+        !formData.value
+    ) {
         e.value = 'Amount is required';
     }
 

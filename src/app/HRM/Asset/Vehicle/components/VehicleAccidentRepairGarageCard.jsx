@@ -127,7 +127,7 @@ export default function VehicleAccidentRepairGarageCard({
             );
             toast({
                 title: 'Garage details saved',
-                description: 'Service scheduled. Accounts Zoho billing starts after Service Completed.',
+                description: 'Sent to flowchart HR to approve On Service.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {

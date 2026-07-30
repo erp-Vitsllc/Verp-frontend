@@ -10,7 +10,7 @@ const { card, timeline, steps, header, list, text, connector, spread } =
     VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
 
 const ACCIDENT_REPAIR_SUBTITLE =
-    'Service created, updated, submitted, quotation review, garage, accounts, and completion';
+    'Service created, updated, submitted, garage, HR On Service, complete, and Accounts Zoho billing';
 
 export default function VehicleAccidentRepairWorkflowPanel({ asset, service, className = '' }) {
     const [flowchartRows, setFlowchartRows] = useState([]);

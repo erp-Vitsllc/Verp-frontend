@@ -77,7 +77,7 @@ export default function VehicleServiceRecordsTable({
                             <th className="px-4 py-3 min-w-[140px]">Vehicle</th>
                         ) : null}
                         <th className="px-4 py-3 whitespace-nowrap">SL No.</th>
-                        <th className="px-4 py-3 whitespace-nowrap">ID</th>
+                        <th className="px-4 py-3 whitespace-nowrap">VSR-No</th>
                         <th className="px-4 py-3 whitespace-nowrap">Date</th>
                         <th className="px-4 py-3 whitespace-nowrap">Value</th>
                         <th className="px-4 py-3 whitespace-nowrap">Request status</th>
@@ -132,10 +132,10 @@ export default function VehicleServiceRecordsTable({
                                     {row.vehicleAssetId || '—'}
                                 </td>
                                 <td
-                                    className="px-4 py-2.5 text-slate-500 font-mono text-[11px] max-w-[140px] truncate"
-                                    title={row.serviceId ? String(row.serviceId) : ''}
+                                    className="px-4 py-2.5 text-slate-700 font-mono text-xs max-w-[140px] truncate"
+                                    title={row.serviceReqNo && row.serviceReqNo !== '—' ? String(row.serviceReqNo) : ''}
                                 >
-                                    {row.serviceId ? String(row.serviceId) : '—'}
+                                    {row.serviceReqNo || '—'}
                                 </td>
                                 <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap text-xs">
                                     {row.date

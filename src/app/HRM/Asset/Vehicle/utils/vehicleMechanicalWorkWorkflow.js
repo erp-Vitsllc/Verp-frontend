@@ -59,10 +59,9 @@ export function isMechanicalWorkGarageSubmitted(asset, service) {
 
 export function canEditMechanicalWorkGarage(stage, canManageMechanicalWork, { asset, service } = {}) {
     if (!canManageMechanicalWork) return false;
+    if (asset && service && isMechanicalWorkGarageSubmitted(asset, service)) return false;
     if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
-    if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS && asset && service) {
-        return !isMechanicalWorkGarageSubmitted(asset, service);
-    }
+    if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS) return true;
     return false;
 }
 

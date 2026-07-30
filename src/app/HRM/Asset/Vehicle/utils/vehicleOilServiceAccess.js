@@ -1,6 +1,6 @@
 import { isPortalSuperUser } from '@/utils/permissions';
 import { isCurrentUserVehicleAssignee } from './evaluateVehicleFleetHeaderActions';
-import { pickFlowchartAdminRow, pickFlowchartHrRow } from './vehicleHandoverAssignWorkflow';
+import { pickFlowchartAdminRow, pickFlowchartHrRow, pickFlowchartAccountsRow } from './vehicleHandoverAssignWorkflow';
 import { normalizeMongoId, parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import {
     isShopWorkServiceLive,
@@ -86,12 +86,20 @@ export function isOilServiceScheduledWaiting(service, asset) {
     const requestStatus = String(remark.requestStatus || '').toLowerCase();
     if (requestStatus !== 'submitted') return false;
     const stage = resolveOilServiceWorkflowStage(service, asset);
-    // Cash waits on HR after Send; warranty waits on scheduled_service for start date.
-    if (stage !== 'scheduled_service' && stage !== 'pending_hr') return false;
+    // Ready/On-Service window is only after schedule is approved through to scheduled_service.
+    if (stage !== 'scheduled_service') return false;
+    const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
+    if (isCash && !String(remark.accountsQuoteApprovedAt || '').trim()) {
+        return false;
+    }
     return !isOilServiceLive(service, asset);
 }
 
-/** Service details form is enabled only when the vehicle is on service (start date reached). */
+/** Alias: approvals done, start date not yet reached. */
+export function isOilServiceReadyToService(service, asset) {
+    return isOilServiceScheduledWaiting(service, asset);
+}
+
 export function isOilServiceDetailsEnabled(service, asset) {
     const remark = parseVehicleServiceRemark(service) || {};
     const stage = resolveOilServiceWorkflowStage(service, asset);
@@ -99,7 +107,7 @@ export function isOilServiceDetailsEnabled(service, asset) {
         return true;
     }
     if (stage === 'rejected') return false;
-    return isOilServiceLive(service, asset);
+    return isOilServiceCompleteUnlocked(service, asset);
 }
 
 /** Header / summary badge for oil service detail page. */
@@ -141,7 +149,7 @@ export function resolveOilServiceHeaderStatus(service, asset) {
     }
     if (isOilServiceScheduledWaiting(service, asset)) {
         return {
-            label: 'Scheduled',
+            label: 'Ready to Service',
             boxClass: 'bg-violet-50 border-violet-100 text-violet-700',
         };
     }
@@ -174,6 +182,12 @@ export function resolveOilServiceApprovalStageLabel(service, asset) {
     if (stage === 'pending_hr') {
         return 'Awaiting HR (Cash)';
     }
+    if (stage === 'scheduled_service') {
+        const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
+        if (isCash && !String(remark.accountsQuoteApprovedAt || '').trim()) {
+            return 'Awaiting Accounts (Cash)';
+        }
+    }
     if (stage === 'pending_accounts') {
         return 'Awaiting Accounts (Cash)';
     }
@@ -181,7 +195,7 @@ export function resolveOilServiceApprovalStageLabel(service, asset) {
         return 'Rejected';
     }
     if (isOilServiceScheduledWaiting(service, asset)) {
-        return 'Scheduled';
+        return 'Ready to Service';
     }
     if (isOilServiceLive(service, asset) || requestStatus === 'submitted') {
         return remark.serviceDetailsDraft ? 'Service Details (draft)' : 'On Service';
@@ -213,14 +227,20 @@ export function resolveOilServiceTableStatusLabel(service, asset) {
     if (stage === 'pending_hr') {
         return { label: 'Awaiting HR', tone: 'pending' };
     }
+    if (stage === 'scheduled_service') {
+        const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
+        if (isCash && !String(remark.accountsQuoteApprovedAt || '').trim()) {
+            return { label: 'Awaiting Accounts', tone: 'pending' };
+        }
+    }
     if (stage === 'pending_accounts') {
-        return { label: 'Awaiting Accounts', tone: 'pending' };
+        return { label: 'Awaiting Payment', tone: 'pending' };
     }
     if (stage === 'rejected') {
         return { label: 'Rejected', tone: 'rejected' };
     }
     if (isOilServiceScheduledWaiting(service, asset)) {
-        return { label: 'Scheduled', tone: 'scheduled' };
+        return { label: 'Ready to Service', tone: 'scheduled' };
     }
     if (isOilServiceLive(service, asset) || requestStatus === 'submitted') {
         return { label: 'On Service', tone: 'working' };
@@ -236,6 +256,190 @@ export function isOilServiceAssignmentPending(remark = {}) {
 
 export function isOilServiceAssignmentSubmitted(remark = {}) {
     return String(remark?.requestStatus || '').toLowerCase() === 'submitted';
+}
+
+/** Initiate Service Send completed (before Schedule OK / submit-request). */
+export function isOilServiceInitiated(remark = {}) {
+    if (isOilServiceAssignmentSubmitted(remark)) return true;
+    return Boolean(String(remark?.oilServiceInitiatedAt || '').trim());
+}
+
+/** Schedule card is editable after initiate, before workflow submit. */
+export function isOilServiceAwaitingSchedule(remark = {}) {
+    return isOilServiceInitiated(remark) && !isOilServiceAssignmentSubmitted(remark);
+}
+
+function utcDayMs(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/**
+ * Complete Service unlocks once On Service, or when service end date is today/past.
+ */
+export function isOilServiceCompleteUnlocked(service, asset) {
+    if (isOilServiceLive(service, asset)) return true;
+    const remark = parseVehicleServiceRemark(service) || {};
+    const stage = resolveOilServiceWorkflowStage(service, asset);
+    if (stage === 'complete' || stage === 'billed' || stage === 'pending_accounts') return true;
+    if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live') return true;
+
+    const endRaw =
+        remark.serviceEndDate ||
+        remark.nextChangeMonth ||
+        asset?.activeServiceWorkflow?.serviceWindowEndDate ||
+        '';
+    const endMs = utcDayMs(endRaw);
+    const todayMs = utcDayMs(new Date());
+    if (endMs == null || todayMs == null) return false;
+    return todayMs >= endMs;
+}
+
+/** Card keys for sequential unlock (approve current → next opens). */
+export const OIL_SERVICE_CARD = {
+    SCHEDULE: 'schedule',
+    HR: 'hr',
+    ACCOUNTS: 'accounts',
+    EXTEND: 'extend',
+    COMPLETE: 'complete',
+    PAYMENT: 'payment',
+};
+
+const CASH_ONLY_MESSAGE =
+    'Cash payment type only — switch Payment Type to Cash on Initiate Service';
+
+/**
+ * Sequential card gate: each card stays locked until the previous step is done.
+ * Cash: Anyone Initiate → Admin Officer Schedule (always editable) → HR → Accounts
+ *       → Ready/On Service → Admin Officer Complete → Accounts Make Payment
+ * Warranty: Anyone Initiate → Admin Officer Schedule → Ready/On Service → Complete
+ */
+export function resolveOilServiceCardGate(service, asset, cardKey) {
+    const remark = parseVehicleServiceRemark(service) || {};
+    const stage = resolveOilServiceWorkflowStage(service, asset);
+    const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
+    const initiated = isOilServiceInitiated(remark);
+    const submitted = isOilServiceAssignmentSubmitted(remark);
+    const hrDone =
+        submitted && Boolean(stage) && stage !== 'pending_hr' && stage !== 'rejected';
+    const accountsDone =
+        !isCash || Boolean(String(remark.accountsQuoteApprovedAt || '').trim());
+    const workComplete =
+        stage === 'pending_accounts' ||
+        stage === 'billed' ||
+        stage === 'complete' ||
+        String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live';
+    const isBilled =
+        stage === 'billed' ||
+        String(remark.billingStatus || '').toLowerCase() === 'billed' ||
+        Boolean(String(remark.zohoBillId || '').trim());
+    const readyOrLive =
+        isOilServiceCompleteUnlocked(service, asset) || isOilServiceReadyToService(service, asset);
+
+    switch (cardKey) {
+        case OIL_SERVICE_CARD.SCHEDULE: {
+            if (!initiated) {
+                return { locked: true, message: 'Complete Initiate Service and click Send first' };
+            }
+            if (workComplete || isBilled || stage === 'rejected') {
+                return {
+                    locked: true,
+                    message: 'Schedule locked — this service is complete or billed',
+                };
+            }
+            // Admin Officer can edit anytime after initiate until Complete Service.
+            return { locked: false, message: '', active: true, done: submitted };
+        }
+        case OIL_SERVICE_CARD.HR: {
+            if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
+            if (!submitted) {
+                return {
+                    locked: true,
+                    message: 'Admin Officer must complete Schedule and Reschedule first',
+                };
+            }
+            return {
+                locked: false,
+                message: '',
+                active: stage === 'pending_hr',
+                done: hrDone,
+            };
+        }
+        case OIL_SERVICE_CARD.ACCOUNTS: {
+            if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
+            if (!submitted) {
+                return {
+                    locked: true,
+                    message: 'Admin Officer must complete Schedule and Reschedule first',
+                };
+            }
+            if (!hrDone) {
+                return { locked: true, message: 'Complete HR Approval first' };
+            }
+            return {
+                locked: false,
+                message: '',
+                active: !accountsDone && !isBilled && stage !== 'rejected',
+                done: accountsDone,
+            };
+        }
+        case OIL_SERVICE_CARD.EXTEND: {
+            if (!submitted) {
+                return { locked: true, message: 'Complete Schedule and Reschedule Service first' };
+            }
+            if (workComplete || isBilled || stage === 'rejected') {
+                return {
+                    locked: true,
+                    message: 'Extend Date locked — this service is complete or billed',
+                };
+            }
+            return { locked: false, message: '', active: true, done: false };
+        }
+        case OIL_SERVICE_CARD.COMPLETE: {
+            if (!submitted) {
+                return {
+                    locked: true,
+                    message: 'Admin Officer must complete Schedule and Reschedule first',
+                };
+            }
+            if (isCash && !hrDone) {
+                return { locked: true, message: 'Complete HR Approval first' };
+            }
+            if (isCash && !accountsDone) {
+                return { locked: true, message: 'Complete Accounts Approve first' };
+            }
+            if (workComplete && (stage === 'pending_accounts' || stage === 'billed' || stage === 'complete')) {
+                return { locked: false, message: '', active: false, done: true };
+            }
+            if (stage === 'rejected') {
+                return { locked: false, message: '', active: false, done: false };
+            }
+            if (!readyOrLive) {
+                return {
+                    locked: true,
+                    message: 'Unlocks at Ready to Service / On Service',
+                };
+            }
+            return { locked: false, message: '', active: true, done: false };
+        }
+        case OIL_SERVICE_CARD.PAYMENT: {
+            if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
+            if (isBilled) {
+                return { locked: true, message: 'Zoho bill already created — Billed' };
+            }
+            if (stage !== 'pending_accounts') {
+                return {
+                    locked: true,
+                    message: 'Complete Service first — then Make Payment unlocks',
+                };
+            }
+            return { locked: false, message: '', active: true, done: false };
+        }
+        default:
+            return { locked: true, message: 'Unavailable' };
+    }
 }
 
 export function isCurrentUserFlowchartAdminOfficer(currentUser, flowchartRows = []) {
@@ -294,6 +498,10 @@ export function isCurrentUserFlowchartAssetController(currentUser, flowchartRows
 
 export function isCurrentUserFlowchartHr(currentUser, flowchartRows = []) {
     return flowchartRowMatchesUser(pickFlowchartHrRow(flowchartRows), currentUser);
+}
+
+export function isCurrentUserFlowchartAccounts(currentUser, flowchartRows = []) {
+    return flowchartRowMatchesUser(pickFlowchartAccountsRow(flowchartRows), currentUser);
 }
 
 function isCurrentUserAssigneeHod(asset, currentUserEmployeeId, currentUser = null) {

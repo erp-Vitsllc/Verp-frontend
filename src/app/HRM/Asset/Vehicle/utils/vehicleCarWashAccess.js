@@ -24,6 +24,7 @@ export function resolveCarWashTableStatusLabel(service, asset) {
     const requestStatus = String(remark.requestStatus || '').toLowerCase();
     const paymentStatus = String(remark.carWashPaymentStatus || '').toLowerCase();
     const stage = resolveCarWashWorkflowStage(service, asset);
+    const billingStatus = String(remark.billingStatus || '').toLowerCase();
 
     if (requestStatus === 'draft') {
         return { label: 'Draft', tone: 'draft' };
@@ -31,10 +32,16 @@ export function resolveCarWashTableStatusLabel(service, asset) {
     if (stage === 'rejected') {
         return { label: 'Rejected', tone: 'rejected' };
     }
+    if (stage === 'billed' || billingStatus === 'billed' || paymentStatus === 'billed') {
+        return { label: 'Billed', tone: 'complete' };
+    }
+    if (stage === 'pending_billing' || stage === 'pending_accounts') {
+        return { label: 'Complete — Waiting for Bill', tone: 'pending' };
+    }
     if (paymentStatus === 'not_paid' || (stage === 'complete' && paymentStatus !== 'paid')) {
         return { label: 'Not paid', tone: 'complete' };
     }
-    if (stage === 'pending_accounts' || paymentStatus === 'pending' || requestStatus === 'submitted') {
+    if (paymentStatus === 'pending' || requestStatus === 'submitted') {
         return { label: 'Pending', tone: 'pending' };
     }
     return { label: 'Pending', tone: 'pending' };
@@ -70,5 +77,5 @@ export function canUserValidateCarWashAccounts(service, asset, isFlowchartAccoun
 
 export function isCarWashAccountsReviewOpen(service, asset) {
     const { label } = resolveCarWashTableStatusLabel(service, asset);
-    return label === 'Pending';
+    return label === 'Complete — Waiting for Bill' || label === 'Pending';
 }

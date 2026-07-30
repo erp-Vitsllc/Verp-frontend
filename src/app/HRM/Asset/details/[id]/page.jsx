@@ -2699,7 +2699,7 @@ function AssetDetailsPageContent() {
                                     isAssignmentPending &&
                                     (isActionRequiredByMe || effectiveIsHR);
 
-                                // Only actionRequiredBy may Accept — when assignee has portal/user account, AR is them (not HOD).
+                                // Only actionRequiredBy may Accept — company email + user account → assignee; else primary reportee.
                                 const shouldShowAssignmentAck =
                                     isCompanyAsset
                                         ? isCompanyApprover

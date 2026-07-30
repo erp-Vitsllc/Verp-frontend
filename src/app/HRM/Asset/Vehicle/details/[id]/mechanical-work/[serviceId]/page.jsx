@@ -280,87 +280,85 @@ function VehicleMechanicalWorkDetailPageContent() {
 
                     <div className={`${mechanicalWorkPageLayout.rowClassName} ${PAGE_SECTION_ANIMATION} delay-150`}>
                         <div className={mechanicalWorkPageLayout.mainColumnClassName}>
-                            <div className="flex flex-col gap-5 w-full">
-                                <VehicleMechanicalWorkDetailForm
+                            <VehicleMechanicalWorkDetailForm
+                                asset={asset}
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canEditAssignment={canEditAssignment}
+                                onSaved={() => {
+                                    void load();
+                                }}
+                                draftSubmitRef={draftSubmitRef}
+                                onDraftStateChange={handleDraftStateChange}
+                                className="w-full shrink-0"
+                            />
+                            {!assignmentPending && showMechanicalWorkQuoteCard(assignmentPending) ? (
+                                <VehicleMechanicalWorkQuoteApprovalCard
                                     asset={asset}
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canEditAssignment={canEditAssignment}
-                                    onSaved={() => {
+                                    canActHr={isFlowchartHr}
+                                    canRespondToWorkflow={canRespondToMechanicalWorkflow}
+                                    canManageMechanicalWork={canManageMechanicalWork}
+                                    workflowStage={mechanicalWorkflowStage}
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) {
+                                            setAsset(updatedAsset);
+                                        }
                                         void load();
                                     }}
-                                    draftSubmitRef={draftSubmitRef}
-                                    onDraftStateChange={handleDraftStateChange}
                                     className="w-full shrink-0"
                                 />
-                                {!assignmentPending && showMechanicalWorkQuoteCard(assignmentPending) ? (
-                                    <VehicleMechanicalWorkQuoteApprovalCard
-                                        asset={asset}
-                                        service={service}
-                                        vehicleId={vehicleId}
-                                        serviceId={serviceId}
-                                        canActHr={isFlowchartHr}
-                                        canRespondToWorkflow={canRespondToMechanicalWorkflow}
-                                        canManageMechanicalWork={canManageMechanicalWork}
-                                        workflowStage={mechanicalWorkflowStage}
-                                        onUpdated={(updatedAsset) => {
-                                            if (updatedAsset) {
-                                                setAsset(updatedAsset);
-                                            }
-                                            void load();
-                                        }}
-                                        className="w-full shrink-0"
-                                    />
-                                ) : null}
-                                {showMechanicalWorkGarageCard(assignmentPending, mechanicalWorkflowStage) ? (
-                                    <VehicleMechanicalWorkGarageCard
-                                        asset={asset}
-                                        service={service}
-                                        vehicleId={vehicleId}
-                                        serviceId={serviceId}
-                                        canManage={canManageMechanicalWork}
-                                        canActAccounts={isFlowchartAccounts}
-                                        workflowStage={mechanicalWorkflowStage}
-                                        onUpdated={(updatedAsset) => {
-                                            if (updatedAsset) setAsset(updatedAsset);
-                                            void load();
-                                        }}
-                                        className="w-full shrink-0"
-                                    />
-                                ) : null}
-                                {showMechanicalWorkReturnCard(assignmentPending, mechanicalWorkflowStage) ? (
-                                    <VehicleMechanicalWorkReturnCard
-                                        asset={asset}
-                                        service={service}
-                                        vehicleId={vehicleId}
-                                        serviceId={serviceId}
-                                        canManage={canManageMechanicalWork}
-                                        workflowStage={mechanicalWorkflowStage}
-                                        onUpdated={(updatedAsset) => {
-                                            if (updatedAsset) setAsset(updatedAsset);
-                                            void load();
-                                        }}
-                                        className="w-full shrink-0"
-                                    />
-                                ) : null}
-                                <VehicleServiceAccountsZohoBillingCard
+                            ) : null}
+                            {showMechanicalWorkGarageCard(assignmentPending, mechanicalWorkflowStage) ? (
+                                <VehicleMechanicalWorkGarageCard
+                                    asset={asset}
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
+                                    canManage={canManageMechanicalWork}
                                     canActAccounts={isFlowchartAccounts}
                                     workflowStage={mechanicalWorkflowStage}
-                                    serviceTypeLabel="Mechanical Work"
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
                                         void load();
                                     }}
                                     className="w-full shrink-0"
                                 />
-                            </div>
+                            ) : null}
+                            {showMechanicalWorkReturnCard(assignmentPending, mechanicalWorkflowStage) ? (
+                                <VehicleMechanicalWorkReturnCard
+                                    asset={asset}
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canManage={canManageMechanicalWork}
+                                    workflowStage={mechanicalWorkflowStage}
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load();
+                                    }}
+                                    className="w-full shrink-0"
+                                />
+                            ) : null}
+                            <VehicleServiceAccountsZohoBillingCard
+                                service={service}
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                canActAccounts={isFlowchartAccounts}
+                                workflowStage={mechanicalWorkflowStage}
+                                serviceTypeLabel="Mechanical Work"
+                                onUpdated={(updatedAsset) => {
+                                    if (updatedAsset) setAsset(updatedAsset);
+                                    void load();
+                                }}
+                                className="w-full shrink-0"
+                            />
                         </div>
 
-                        <div className={`${mechanicalWorkPageLayout.sideColumnClassName} min-h-0`}>
+                        <div className={mechanicalWorkPageLayout.sideColumnClassName}>
                             <VehicleMechanicalWorkPreviousHistoryPanel
                                 asset={asset}
                                 service={service}
@@ -374,7 +372,7 @@ function VehicleMechanicalWorkDetailPageContent() {
                             <VehicleMechanicalWorkWorkflowPanel
                                 asset={asset}
                                 service={service}
-                                className="min-h-[360px] flex-1 shrink-0"
+                                className="min-h-[320px] flex-1"
                             />
                         </div>
                     </div>

@@ -71,10 +71,17 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
     const assigneeHasCompanyEmail = !!(assigneeCompanyEmail && String(assigneeCompanyEmail).trim().length > 0);
     const primaryReporteeRef =
         asset?.assignedTo?.primaryReportee?._id ?? asset?.assignedTo?.primaryReportee;
+    const actionRequiredByRef = asset?.actionRequiredBy?._id ?? asset?.actionRequiredBy;
+    const isActionRequiredByUser =
+        !!actionRequiredByRef &&
+        !!currentUserEmployeeId &&
+        currentUserEmployeeId.toString() === actionRequiredByRef.toString();
+    // No user account / portal password → Accept sits on primary reportee (actionRequiredBy), not assignee.
     const isPrimaryReporteeDelegate =
-        !assigneeHasCompanyEmail &&
         !!primaryReporteeRef &&
-        currentUserEmployeeId?.toString() === primaryReporteeRef.toString();
+        !!currentUserEmployeeId &&
+        currentUserEmployeeId.toString() === primaryReporteeRef.toString() &&
+        (!assigneeHasCompanyEmail || isActionRequiredByUser);
 
     const isCreator =
         asset?.createdBy?._id?.toString() === currentUserId || asset?.createdBy?.toString() === currentUserId;

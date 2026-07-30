@@ -704,7 +704,7 @@ function getAssetListWaitingLabel(item) {
     }
 
     // Assignment Accept: show who has the inbox task (actionRequiredBy).
-    // Backend sets AR to assignee when they have portal/user account; otherwise to primary reportee.
+    // Company email + user account → assignee. No user account → primary reportee.
     if (isAssignmentAcknowledgmentOnly(item)) {
         if (item.assignedCompany) {
             if (fromAr) return fromAr;

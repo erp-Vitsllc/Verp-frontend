@@ -100,6 +100,9 @@ export function resolveShopWorkTableStatusLabel(service, asset) {
     if (stage === 'rejected') {
         return { label: 'Rejected', tone: 'rejected' };
     }
+    if (stage === 'pending_hr' && vehicleServiceTypeKey(service) === 'Accident Repair') {
+        return { label: 'Awaiting HR (On Service)', tone: 'pending' };
+    }
     if (isShopWorkScheduledWaiting(service, asset)) {
         return { label: 'Scheduled', tone: 'scheduled' };
     }
@@ -116,6 +119,7 @@ export function resolveShopWorkHeaderStatus(service, asset) {
     const toneByLabel = {
         Draft: 'bg-blue-50 border-blue-100 text-blue-700',
         Pending: 'bg-amber-50 border-amber-100 text-amber-700',
+        'Awaiting HR (On Service)': 'bg-amber-50 border-amber-100 text-amber-800',
         Scheduled: 'bg-violet-50 border-violet-100 text-violet-700',
         'On Service': 'bg-amber-50 border-amber-100 text-amber-700',
         'Awaiting Billing': 'bg-sky-50 border-sky-100 text-sky-800',
