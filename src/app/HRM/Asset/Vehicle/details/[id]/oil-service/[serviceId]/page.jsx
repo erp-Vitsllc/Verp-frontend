@@ -19,6 +19,15 @@ import VehicleOilServiceDetailsPanel from '@/app/HRM/Asset/Vehicle/components/Ve
 import VehicleOilCashPaymentApprovalCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilCashPaymentApprovalCard';
 import { isPortalSuperUser, parseStoredSessionUser } from '@/utils/permissions';
 import {
+    canUserManageOilService,
+    canUserCreateOrInitiateVehicleService,
+    canUserEditOilServiceDates,
+    isCurrentUserFlowchartAdminOfficer,
+    isOilServiceAssignmentPending,
+    resolveOilServiceWorkflowStage,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
+import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflowTrackerConfig';
+import {
     buildOilServiceScheduleRowFromAsset,
     normalizeMongoId,
     parseVehicleServiceRemark,
