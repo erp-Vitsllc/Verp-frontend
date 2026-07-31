@@ -28,6 +28,10 @@ import {
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflowTrackerConfig';
 import {
+    readWarmVehicleDetail,
+    writeWarmVehicleDetail,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleDetailWarmCache';
+import {
     buildOilServiceScheduleRowFromAsset,
     normalizeMongoId,
     parseVehicleServiceRemark,
@@ -50,8 +54,8 @@ function VehicleOilServiceDetailPageContent() {
     const vehicleId = normalizeMongoId(params?.id);
     const serviceId = normalizeMongoId(params?.serviceId);
 
-    const [asset, setAsset] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [asset, setAsset] = useState(() => readWarmVehicleDetail(vehicleId) || null);
+    const [loading, setLoading] = useState(() => !readWarmVehicleDetail(vehicleId));
     const draftSubmitRef = useRef(null);
     const [draftUi, setDraftUi] = useState({ canRequest: false, requesting: false });
     const [currentUser, setCurrentUser] = useState(null);
@@ -94,7 +98,9 @@ function VehicleOilServiceDetailPageContent() {
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
                 params: Object.keys(params).length ? params : undefined,
             });
-            setAsset(response.data || null);
+            const next = response.data || null;
+            if (next?._id) writeWarmVehicleDetail(vehicleId, next);
+            setAsset(next);
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -110,7 +116,14 @@ function VehicleOilServiceDetailPageContent() {
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            // Fast first paint (light= no S3 / no heals), then upgrade only this service's files.
+            // If notification hover already warmed light detail, paint immediately then upgrade.
+            const warm = readWarmVehicleDetail(vehicleId);
+            if (warm && !cancelled) {
+                setAsset(warm);
+                setLoading(false);
+                void load({ silent: true, deferServiceSigning: true });
+                return;
+            }
             await load({ light: true });
             if (cancelled) return;
             void load({ silent: true, deferServiceSigning: true });
@@ -118,7 +131,7 @@ function VehicleOilServiceDetailPageContent() {
         return () => {
             cancelled = true;
         };
-    }, [load]);
+    }, [load, vehicleId]);
 
     const service = useMemo(() => {
         const services = Array.isArray(asset?.services) ? asset.services : [];

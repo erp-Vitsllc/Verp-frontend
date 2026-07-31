@@ -6,6 +6,7 @@ import { hasAnyPermission, isAdmin } from '@/utils/permissions';
 import {
     canAccessAssetModuleViaFlowchart,
     ensureAssetFlowchartRoleMeta,
+    getCachedAssetFlowchartRoleMeta,
     isAssetModuleId,
 } from '@/utils/assetFlowchartModuleAccess';
 
@@ -19,7 +20,12 @@ import {
 export default function PermissionGuard({ moduleId, permissionType = 'view', children, redirectTo = '/dashboard' }) {
     const router = useRouter();
     const [mounted, setMounted] = useState(false);
-    const [flowchartReady, setFlowchartReady] = useState(() => !isAssetModuleId(moduleId));
+    // Don't blank the page while flowchart meta loads — use cache when present.
+    const [flowchartReady, setFlowchartReady] = useState(() => {
+        if (!isAssetModuleId(moduleId)) return true;
+        if (typeof window === 'undefined') return true;
+        return Boolean(getCachedAssetFlowchartRoleMeta()) || isAdmin();
+    });
 
     // Handle client-side mounting to prevent hydration mismatch
     useEffect(() => {
@@ -76,9 +82,10 @@ export default function PermissionGuard({ moduleId, permissionType = 'view', chi
         return <>{children}</>;
     }
 
-    // Wait for flowchart role meta before blocking asset modules
+    // Optimistic paint: never return null for asset modules while meta loads —
+    // notification → vehicle redirect felt stuck on a blank screen.
     if (isAssetModuleId(moduleId) && !flowchartReady) {
-        return null;
+        return <>{children}</>;
     }
 
     if (!hasAccess) {

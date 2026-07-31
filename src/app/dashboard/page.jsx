@@ -12,6 +12,11 @@ import axiosInstance from '@/utils/axios';
 
 import { mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
 import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
+import {
+    vehicleIdFromNotificationHref,
+    warmVehicleDetailLight,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleDetailWarmCache';
+import { ensureAssetFlowchartRoleMeta } from '@/utils/assetFlowchartModuleAccess';
 import { fetchEmployeeDashboardStats } from '@/utils/employeeDashboardStatsFetch';
 import {
     groupCommandCenterByModule,
@@ -584,6 +589,18 @@ function DashboardContent() {
 
     // Navigation Handler
 
+    const prefetchNotificationDestination = (item) => {
+        const path = buildDashboardNotificationPath(item);
+        if (!path) return;
+        try {
+            router.prefetch?.(path);
+        } catch {
+            /* ignore */
+        }
+        const vehicleId = vehicleIdFromNotificationHref(path);
+        if (vehicleId) void warmVehicleDetailLight(vehicleId);
+    };
+
     const handleRowClick = (item) => {
         if (!item) return;
 
@@ -596,6 +613,8 @@ function DashboardContent() {
 
         const path = buildDashboardNotificationPath(item);
         if (path) {
+            prefetchNotificationDestination(item);
+            void ensureAssetFlowchartRoleMeta().catch(() => null);
             router.push(path);
             return;
         }
@@ -1290,6 +1309,7 @@ function DashboardContent() {
 
                                                                                     {...navHrefProps(buildDashboardNotificationPath(item) || '')}
 
+                                                                                    onMouseEnter={() => prefetchNotificationDestination(item)}
                                                                                     onClick={() => handleRowClick(item)}
 
                                                                                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-all cursor-pointer group"
@@ -1700,6 +1720,7 @@ function DashboardContent() {
 
                                                         {...navHrefProps(buildDashboardNotificationPath(item) || '')}
 
+                                                        onMouseEnter={() => prefetchNotificationDestination(item)}
                                                         onClick={() => handleRowClick(item)}
 
                                                         className="group flex items-center justify-between gap-2 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-50 hover:border-blue-100 hover:bg-blue-50/30 transition-all cursor-pointer"

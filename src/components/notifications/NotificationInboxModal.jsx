@@ -26,6 +26,12 @@ import {
 } from '@/utils/notificationInboxPresentation';
 import { sortNotificationPresentationRows } from '@/utils/notificationSortOrder';
 import { navHrefProps } from '@/utils/linkContextMenu';
+import { useRouter } from 'next/navigation';
+import {
+    vehicleIdFromNotificationHref,
+    warmVehicleDetailLight,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleDetailWarmCache';
+import { ensureAssetFlowchartRoleMeta } from '@/utils/assetFlowchartModuleAccess';
 
 const NOTIFICATION_ICON_STYLES = {
     'expiry-plane': {
@@ -207,12 +213,47 @@ export default function NotificationInboxModal({
     hideItemTitle = false,
     listMaxHeight,
 }) {
+    const router = useRouter();
     const [unreadKeys, setUnreadKeys] = useState(() => new Set());
 
     useEffect(() => {
         if (!isOpen) return;
         setUnreadKeys(new Set(items.map((row) => row.key)));
     }, [isOpen, items]);
+
+    // Warm flowchart meta + first few vehicle destinations while inbox is open.
+    useEffect(() => {
+        if (!isOpen) return;
+        void ensureAssetFlowchartRoleMeta().catch(() => null);
+        const hrefs = items
+            .map((row) => {
+                if (row.href) return row.href;
+                if (typeof getItemHref === 'function') return getItemHref(row.raw ?? row, row);
+                return '';
+            })
+            .filter(Boolean)
+            .slice(0, 8);
+        hrefs.forEach((href) => {
+            try {
+                router.prefetch?.(href);
+            } catch {
+                /* ignore */
+            }
+            const vehicleId = vehicleIdFromNotificationHref(href);
+            if (vehicleId) void warmVehicleDetailLight(vehicleId);
+        });
+    }, [isOpen, items, getItemHref, router]);
+
+    const prefetchItem = (itemHref) => {
+        if (!itemHref) return;
+        try {
+            router.prefetch?.(itemHref);
+        } catch {
+            /* ignore */
+        }
+        const vehicleId = vehicleIdFromNotificationHref(itemHref);
+        if (vehicleId) void warmVehicleDetailLight(vehicleId);
+    };
 
     const sortedItems = useMemo(() => sortNotificationPresentationRows(items), [items]);
     const groupedItems = useMemo(() => groupNotificationsByDate(sortedItems), [sortedItems]);
@@ -312,6 +353,8 @@ export default function NotificationInboxModal({
                                                     <button
                                                         type="button"
                                                         {...navHrefProps(itemHref)}
+                                                        onMouseEnter={() => prefetchItem(itemHref)}
+                                                        onPointerDown={() => prefetchItem(itemHref)}
                                                         onClick={() => {
                                                             markRead(row.key);
                                                             onItemClick?.(row.raw ?? row);

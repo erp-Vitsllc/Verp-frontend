@@ -170,6 +170,10 @@ import {
 import { canAdminDeleteActivatedVehicleRecord, isVehicleProfileActivationActive } from '../../utils/vehicleAdminDeleteAccess';
 import { canDeleteVehicleAsset } from '../../utils/vehiclePermissionAccess';
 import { readVehicleListCacheRow } from '../../utils/vehicleFleetCache';
+import {
+    readWarmVehicleDetail,
+    writeWarmVehicleDetail,
+} from '../../utils/vehicleDetailWarmCache';
 import { parseServiceRemark } from '../../components/vehicleServicePayload';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
@@ -858,6 +862,9 @@ function VehicleDetailsPageContent() {
                 delete merged._fromListCache;
             }
             setAsset(merged);
+            if (merged?._id && !merged._fromListCache) {
+                writeWarmVehicleDetail(merged._id, merged);
+            }
             if (ticket === fetchAssetDetailsTicketRef.current && !silent) {
                 setLoading(false);
             }
@@ -1107,16 +1114,18 @@ function VehicleDetailsPageContent() {
         lightUpgradeDoneRef.current = false;
         deferredUpgradeStartedRef.current = false;
 
-        // Paint shell immediately from list cache, then refresh from API.
+        // Paint shell immediately from list/warm cache, then refresh from API.
+        const warm = !isLocatorDetailsRouteId(assetId) ? readWarmVehicleDetail(assetId) : null;
         const cached = !isLocatorDetailsRouteId(assetId)
             ? readVehicleListCacheRow(assetId)
             : null;
-        if (cached) {
+        const shell = warm || cached;
+        if (shell) {
             setAsset((prev) => {
-                if (prev && String(prev._id) === String(cached._id) && !prev._fromListCache) {
+                if (prev && String(prev._id) === String(shell._id) && !prev._fromListCache && !warm) {
                     return prev;
                 }
-                return cached;
+                return warm || cached;
             });
             setLoading(false);
             void fetchAssetDetails({
