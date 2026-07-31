@@ -89,7 +89,10 @@ function VehicleBodyWorkDetailPageContent() {
         try {
             const params = {};
             if (light) params.light = 1;
-            if (deferServiceSigning) params.deferServiceSigning = 1;
+            if (deferServiceSigning) {
+                params.deferServiceSigning = 1;
+                if (serviceId) params.serviceId = serviceId;
+            }
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
                 params: Object.keys(params).length ? params : undefined,
             });
@@ -104,14 +107,14 @@ function VehicleBodyWorkDetailPageContent() {
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [toast, vehicleId]);
+    }, [toast, vehicleId, serviceId]);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             await load({ light: true });
             if (cancelled) return;
-            await load({ silent: true, deferServiceSigning: true });
+            void load({ silent: true, deferServiceSigning: true });
         })();
         return () => {
             cancelled = true;

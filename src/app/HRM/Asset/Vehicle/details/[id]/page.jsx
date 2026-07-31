@@ -795,14 +795,25 @@ function VehicleDetailsPageContent() {
     }, [asset?._id]);
 
     const fetchAssetDetails = async (opts = {}) => {
-        const { deferServiceSigning = false, light = false, silent = false } = opts;
+        const {
+            deferServiceSigning = false,
+            light = false,
+            silent = false,
+            signDocuments = false,
+        } = opts;
         const ticket = ++fetchAssetDetailsTicketRef.current;
         const locatorRoute = isLocatorDetailsRouteId(assetId);
         try {
             if (!silent && !asset) setLoading(true);
             const params = {};
             if (light) params.light = '1';
-            else if (deferServiceSigning) params.deferServiceSigning = '1';
+            else if (deferServiceSigning) {
+                params.deferServiceSigning = '1';
+                if (signDocuments) params.signDocuments = '1';
+            } else if (signDocuments) {
+                params.deferServiceSigning = '1';
+                params.signDocuments = '1';
+            }
             const endpoint = locatorRoute
                 ? `/locator/vehicle-detail/${locatorDeviceIdFromRouteId(assetId)}`
                 : `/AssetItem/detail/${assetId}`;
@@ -1059,6 +1070,7 @@ function VehicleDetailsPageContent() {
         fetchAssetDetails({
             deferServiceSigning: true,
             light: !includeDocuments,
+            signDocuments: includeDocuments,
             silent: false,
         }).then((merged) => {
             if (includeDocuments || merged?.deferredAttachmentSigning === false) {
@@ -1130,7 +1142,7 @@ function VehicleDetailsPageContent() {
             void fetchAssetDetails({ deferServiceSigning: true, silent: true }).then(() => {
                 if (cancelled) return;
                 lightUpgradeDoneRef.current = true;
-                setDocumentAttachmentsLoaded(true);
+                // Do NOT mark documents loaded — upgrade no longer signs attachments.
             });
         };
         if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
@@ -1150,16 +1162,19 @@ function VehicleDetailsPageContent() {
 
     useEffect(() => {
         if (!assetId || activeTab !== 'document' || documentAttachmentsLoaded) return;
-        // Idle upgrade already signed docs — don't hit detail a third time.
-        if (lightUpgradeDoneRef.current || asset?.deferredAttachmentSigning === false) {
+        // Attachments already signed on a prior full/doc fetch.
+        if (asset?.deferredAttachmentSigning === false) {
             setDocumentAttachmentsLoaded(true);
             return;
         }
         let cancelled = false;
         (async () => {
-            await fetchAssetDetails({ deferServiceSigning: true, silent: true });
+            await fetchAssetDetails({
+                deferServiceSigning: true,
+                signDocuments: true,
+                silent: true,
+            });
             if (!cancelled) {
-                lightUpgradeDoneRef.current = true;
                 setDocumentAttachmentsLoaded(true);
             }
         })();

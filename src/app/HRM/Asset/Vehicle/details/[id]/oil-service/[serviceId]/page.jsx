@@ -87,7 +87,10 @@ function VehicleOilServiceDetailPageContent() {
         try {
             const params = {};
             if (light) params.light = 1;
-            if (deferServiceSigning) params.deferServiceSigning = 1;
+            if (deferServiceSigning) {
+                params.deferServiceSigning = 1;
+                if (serviceId) params.serviceId = serviceId;
+            }
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
                 params: Object.keys(params).length ? params : undefined,
             });
@@ -102,15 +105,15 @@ function VehicleOilServiceDetailPageContent() {
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [toast, vehicleId]);
+    }, [toast, vehicleId, serviceId]);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            // Fast first paint, then upgrade without blocking on oil heal / full S3 service signing.
+            // Fast first paint (light= no S3 / no heals), then upgrade only this service's files.
             await load({ light: true });
             if (cancelled) return;
-            await load({ silent: true, deferServiceSigning: true });
+            void load({ silent: true, deferServiceSigning: true });
         })();
         return () => {
             cancelled = true;
