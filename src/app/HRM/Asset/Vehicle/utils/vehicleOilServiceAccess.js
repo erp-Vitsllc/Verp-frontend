@@ -221,6 +221,9 @@ export function resolveOilServiceTableStatusLabel(service, asset) {
     if (requestStatus === 'pending') {
         return { label: 'Request Initiated', tone: 'pending' };
     }
+    if (stage === 'billed' || String(remark.billingStatus || '').toLowerCase() === 'billed') {
+        return { label: 'Billed', tone: 'complete' };
+    }
     if (stage === 'complete' || vehicleServiceDone) {
         return { label: 'Complete', tone: 'complete' };
     }
@@ -269,32 +272,17 @@ export function isOilServiceAwaitingSchedule(remark = {}) {
     return isOilServiceInitiated(remark) && !isOilServiceAssignmentSubmitted(remark);
 }
 
-function utcDayMs(value) {
-    if (!value) return null;
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return null;
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-}
-
-/**
- * Complete Service unlocks once On Service, or when service end date is today/past.
- */
 export function isOilServiceCompleteUnlocked(service, asset) {
-    if (isOilServiceLive(service, asset)) return true;
     const remark = parseVehicleServiceRemark(service) || {};
     const stage = resolveOilServiceWorkflowStage(service, asset);
     if (stage === 'complete' || stage === 'billed' || stage === 'pending_accounts') return true;
     if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live') return true;
 
-    const endRaw =
-        remark.serviceEndDate ||
-        remark.nextChangeMonth ||
-        asset?.activeServiceWorkflow?.serviceWindowEndDate ||
-        '';
-    const endMs = utcDayMs(endRaw);
-    const todayMs = utcDayMs(new Date());
-    if (endMs == null || todayMs == null) return false;
-    return todayMs >= endMs;
+    if (!isOilServiceLive(service, asset)) return false;
+    if (!isOilServiceAssignmentSubmitted(remark)) return false;
+    const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
+    if (isCash && !String(remark.accountsQuoteApprovedAt || '').trim()) return false;
+    return true;
 }
 
 /** Card keys for sequential unlock (approve current → next opens). */
@@ -312,8 +300,9 @@ const CASH_ONLY_MESSAGE =
 
 /**
  * Sequential card gate: each card stays locked until the previous step is done.
- * Cash: Anyone Initiate → Admin Officer Schedule (always editable) → HR → Accounts
- *       → Ready/On Service → Admin Officer Complete → Accounts Make Payment
+ * Cash: Anyone Initiate → Admin Schedule + HR open together → Accounts (after HR once)
+ *       → Ready/On Service → Admin Complete (On Service + schedule once + Accounts)
+ *       → Accounts Make Payment (Zoho) — no separate Billed track step
  * Warranty: Anyone Initiate → Admin Officer Schedule → Ready/On Service → Complete
  */
 export function resolveOilServiceCardGate(service, asset, cardKey) {
@@ -323,7 +312,8 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
     const initiated = isOilServiceInitiated(remark);
     const submitted = isOilServiceAssignmentSubmitted(remark);
     const hrDone =
-        submitted && Boolean(stage) && stage !== 'pending_hr' && stage !== 'rejected';
+        Boolean(String(remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt || '').trim()) ||
+        (submitted && Boolean(stage) && stage !== 'pending_hr' && stage !== 'rejected' && stage !== '');
     const accountsDone =
         !isCash || Boolean(String(remark.accountsQuoteApprovedAt || '').trim());
     const workComplete =
@@ -335,8 +325,7 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
         stage === 'billed' ||
         String(remark.billingStatus || '').toLowerCase() === 'billed' ||
         Boolean(String(remark.zohoBillId || '').trim());
-    const readyOrLive =
-        isOilServiceCompleteUnlocked(service, asset) || isOilServiceReadyToService(service, asset);
+    const onServiceLive = isOilServiceLive(service, asset);
 
     switch (cardKey) {
         case OIL_SERVICE_CARD.SCHEDULE: {
@@ -354,29 +343,23 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
         }
         case OIL_SERVICE_CARD.HR: {
             if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
-            if (!submitted) {
+            if (!initiated) {
                 return {
                     locked: true,
-                    message: 'Admin Officer must complete Schedule and Reschedule first',
+                    message: 'Complete Initiate Service first — Schedule and HR open together',
                 };
             }
             return {
                 locked: false,
                 message: '',
-                active: stage === 'pending_hr',
+                active: !hrDone && stage !== 'rejected',
                 done: hrDone,
             };
         }
         case OIL_SERVICE_CARD.ACCOUNTS: {
             if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
-            if (!submitted) {
-                return {
-                    locked: true,
-                    message: 'Admin Officer must complete Schedule and Reschedule first',
-                };
-            }
             if (!hrDone) {
-                return { locked: true, message: 'Complete HR Approval first' };
+                return { locked: true, message: 'Complete HR Approval first (HR once)' };
             }
             return {
                 locked: false,
@@ -401,11 +384,8 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
             if (!submitted) {
                 return {
                     locked: true,
-                    message: 'Admin Officer must complete Schedule and Reschedule first',
+                    message: 'Admin must complete Schedule and Reschedule at least once',
                 };
-            }
-            if (isCash && !hrDone) {
-                return { locked: true, message: 'Complete HR Approval first' };
             }
             if (isCash && !accountsDone) {
                 return { locked: true, message: 'Complete Accounts Approve first' };
@@ -416,10 +396,10 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
             if (stage === 'rejected') {
                 return { locked: false, message: '', active: false, done: false };
             }
-            if (!readyOrLive) {
+            if (!onServiceLive) {
                 return {
                     locked: true,
-                    message: 'Unlocks at Ready to Service / On Service',
+                    message: 'Unlocks at On Service (after Accounts Approve)',
                 };
             }
             return { locked: false, message: '', active: true, done: false };
@@ -427,7 +407,7 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
         case OIL_SERVICE_CARD.PAYMENT: {
             if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
             if (isBilled) {
-                return { locked: true, message: 'Zoho bill already created — Billed' };
+                return { locked: true, message: 'Zoho bill already created — payment done' };
             }
             if (stage !== 'pending_accounts') {
                 return {

@@ -41,6 +41,22 @@ function monthToDateInput(monthValue) {
     return '';
 }
 
+/** YYYY-MM-DD → local Date at midnight (for DatePicker disabledDays). */
+function toLocalDateOnly(value) {
+    const key = monthToDateInput(value);
+    if (!key || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+    const [y, m, d] = key.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isHandOverOnOrAfterServiceEnd(handOverDate, serviceEndDate) {
+    const hand = toLocalDateOnly(handOverDate);
+    const end = toLocalDateOnly(serviceEndDate);
+    if (!hand || !end) return false;
+    return hand.getTime() >= end.getTime();
+}
+
 async function readUploadFile(file, toast) {
     if (!file) return EMPTY_FILE;
     const check = validateErpPdfFile(file);
@@ -120,6 +136,7 @@ function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false) {
     return (
         hasGarageInvoice(form, hasPersistedGarageInvoice) &&
         String(form.handOverDate || '').trim() !== '' &&
+        isHandOverOnOrAfterServiceEnd(form.handOverDate, form.serviceEndDate) &&
         String(form.returnDate || '').trim() !== '' &&
         String(form.nextServiceKm ?? '').trim() !== '' &&
         String(form.nextServiceDate || '').trim() !== ''
@@ -129,7 +146,14 @@ function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false) {
 function getServiceDetailsMissingFields(form, hasPersistedGarageInvoice = false) {
     const missing = [];
     if (!hasGarageInvoice(form, hasPersistedGarageInvoice)) missing.push('Garage invoice');
-    if (!String(form.handOverDate || '').trim()) missing.push('Hand over date');
+    if (!String(form.handOverDate || '').trim()) {
+        missing.push('Hand over date');
+    } else if (
+        form.serviceEndDate &&
+        !isHandOverOnOrAfterServiceEnd(form.handOverDate, form.serviceEndDate)
+    ) {
+        missing.push('Hand over date (must be on or after service end date)');
+    }
     if (!String(form.returnDate || '').trim()) missing.push('Return date');
     if (!String(form.nextServiceKm ?? '').trim()) missing.push('Next service KM');
     if (!String(form.nextServiceDate || '').trim()) missing.push('Next service date');
@@ -168,6 +192,11 @@ export default function VehicleOilServiceDetailsForm({
     const chargeMissing = !hasValidServiceCharge(form);
     const canSaveDraft = showActions && !saving && !submitting;
     const canSend = showActions && !saving && !submitting && formComplete;
+    const serviceEndMinDate = useMemo(
+        () => toLocalDateOnly(form.serviceEndDate),
+        [form.serviceEndDate],
+    );
+    const handOverDisabledDays = serviceEndMinDate ? { before: serviceEndMinDate } : undefined;
 
     const { toast } = useToast();
     const [viewingKey, setViewingKey] = useState('');
@@ -276,7 +305,13 @@ export default function VehicleOilServiceDetailsForm({
                         placeholder="dd/mm/yyyy"
                         className={datePickerClass}
                         disabled={fieldsDisabled || !canAct}
+                        disabledDays={handOverDisabledDays}
                     />
+                    {serviceEndMinDate ? (
+                        <p className="mt-1 text-[10px] font-medium text-gray-400">
+                            On or after service end date
+                        </p>
+                    ) : null}
                 </FieldCard>
                 <FieldCard label="Return Date" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
                     <DatePicker

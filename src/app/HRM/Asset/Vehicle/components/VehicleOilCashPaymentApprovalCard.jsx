@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 import ZohoPayAccountSelect from './ZohoPayAccountSelect';
@@ -15,8 +16,14 @@ import {
     resolveOilServiceCardGate,
 } from '../utils/vehicleOilServiceAccess';
 import {
+    OIL_PAYMENT_METHOD_OPTIONS,
+    OIL_PAYMENT_TYPE_OPTIONS,
+    isOilPayablePaymentMode,
+    normalizeOilPaymentMethod,
+    normalizeOilPaymentType,
     oilPaymentMethodLabel,
     oilPaymentTypeLabel,
+    resolveOilPaymentFields,
 } from '../utils/vehicleOilServiceDetailForm';
 import { oilQuoteKeyToLabel } from '../utils/vehicleOilServiceQuoteDrag';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
@@ -28,6 +35,29 @@ function money(value) {
 
 function formatAed(value) {
     return money(value).toLocaleString(undefined, { minimumFractionDigits: 2 });
+}
+
+function SegmentedToggle({ options, value, onChange, disabled, selectedFallback }) {
+    const selected = value || selectedFallback;
+    return (
+        <div className="inline-flex w-full flex-wrap gap-0.5 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            {options.map((opt) => (
+                <button
+                    key={opt.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onChange(opt.id)}
+                    className={`min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-[11px] font-bold transition-all sm:text-xs ${
+                        selected === opt.id
+                            ? 'bg-white text-sky-700 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                    } disabled:opacity-60`}
+                >
+                    {opt.label}
+                </button>
+            ))}
+        </div>
+    );
 }
 
 function buildOilQuoteRows(service, remark) {
@@ -62,23 +92,35 @@ function buildInitialBillingState(service) {
         money(remark.totalServiceCharge) ||
         money(service?.value) ||
         0;
+    const mapLine = (row, fallbackAmount = '') => ({
+        description: String(row?.description || row?.item || row?.name || '').trim(),
+        payableTo: String(row?.payableTo || row?.payAccountName || '').trim(),
+        payAccountId: String(row?.payAccountId || row?.accountId || '').trim(),
+        qty:
+            row?.qty != null && row?.qty !== ''
+                ? String(row.qty)
+                : row?.quantity != null && row?.quantity !== ''
+                  ? String(row.quantity)
+                  : '1',
+        amount: row?.amount != null && row?.amount !== '' ? String(row.amount) : fallbackAmount,
+    });
     const lines =
         existingLines && existingLines.length
-            ? existingLines.map((row) => ({
-                  payableTo: String(row.payableTo || row.payAccountName || '').trim(),
-                  payAccountId: String(row.payAccountId || '').trim(),
-                  amount: row.amount != null && row.amount !== '' ? String(row.amount) : '',
-              }))
+            ? existingLines.map((row) => mapLine(row))
             : [
-                  {
-                      payableTo: String(
-                          remark.payAccountName || remark.garagePayAccountName || '',
-                      ).trim(),
-                      payAccountId: String(
-                          remark.payAccountId || remark.garagePayAccountId || '',
-                      ).trim(),
-                      amount: seedAmount > 0 ? String(seedAmount) : '',
-                  },
+                  mapLine(
+                      {
+                          payableTo: String(
+                              remark.payAccountName || remark.garagePayAccountName || '',
+                          ).trim(),
+                          payAccountId: String(
+                              remark.payAccountId || remark.garagePayAccountId || '',
+                          ).trim(),
+                          description: '',
+                          qty: '1',
+                      },
+                      seedAmount > 0 ? String(seedAmount) : '',
+                  ),
               ];
 
     const existingGarageAttachmentUrl = String(
@@ -111,8 +153,8 @@ function buildInitialBillingState(service) {
 }
 
 /**
- * Cash oil — sequential unlock: Schedule → HR → Accounts → … → Make Payment.
- * mode="approvals": HR Approval | Accounts Approve (Accounts opens only after HR).
+ * Cash oil — Schedule + HR open together after Initiate; Accounts after HR once; Make Payment after Complete.
+ * mode="approvals": HR Approval | Accounts Approve (Accounts opens only after HR once).
  * mode="payment": Make Payment (Zoho), unlocks after Complete Service.
  */
 export default function VehicleOilCashPaymentApprovalCard({
@@ -160,6 +202,27 @@ export default function VehicleOilCashPaymentApprovalCard({
     const paymentLockMessage = paymentGate.message;
     const canActOnPayment = Boolean(paymentGate.active) && canActAccounts && !busy;
 
+    const resolvedPayment = useMemo(() => resolveOilPaymentFields(remark), [remark]);
+    const [accountsAmountMode, setAccountsAmountMode] = useState(
+        () => resolvedPayment.amountMode || 'amount',
+    );
+    const [accountsPaymentMethod, setAccountsPaymentMethod] = useState(
+        () => resolvedPayment.paymentMethod || 'cash',
+    );
+    const [accountsDescription, setAccountsDescription] = useState(() =>
+        String(remark.accountsReviewDescription || '').trim(),
+    );
+
+    useEffect(() => {
+        const nextRemark = parseVehicleServiceRemark(service) || {};
+        const next = resolveOilPaymentFields(nextRemark);
+        setAccountsAmountMode(next.amountMode || 'amount');
+        setAccountsPaymentMethod(next.paymentMethod || 'cash');
+        setAccountsDescription(String(nextRemark.accountsReviewDescription || '').trim());
+    }, [service?._id, service?.updatedAt, service?.remark]);
+
+    const accountsCashMode = isOilPayablePaymentMode(accountsAmountMode);
+
     const [hrQuoteChoice, setHrQuoteChoice] = useState(() =>
         String(remark.approvedQuotationChoice || '').trim(),
     );
@@ -192,15 +255,37 @@ export default function VehicleOilCashPaymentApprovalCard({
         money(remark.amount) ||
         money(remark.value) ||
         money(service?.value);
-    const paymentTypeLabel = oilPaymentTypeLabel(remark.amountMode);
+    const paymentTypeLabel = oilPaymentTypeLabel(
+        accountsQuoteApproved ? remark.amountMode : accountsAmountMode,
+    );
     const paymentMethodLabel =
-        String(remark.amountMode || '').toLowerCase() === 'warranty'
+        String(
+            (accountsQuoteApproved ? remark.amountMode : accountsAmountMode) || '',
+        ).toLowerCase() === 'warranty'
             ? '—'
-            : oilPaymentMethodLabel(remark.paymentMethod || remark.amountMode);
+            : oilPaymentMethodLabel(
+                  (accountsQuoteApproved ? remark.paymentMethod : accountsPaymentMethod) ||
+                      remark.amountMode,
+              );
     const quoteLabel =
         selectedQuoteRow?.label ||
         (hrQuoteChoice ? oilQuoteKeyToLabel(hrQuoteChoice) : '') ||
         (remark.approvedQuotationChoice ? oilQuoteKeyToLabel(remark.approvedQuotationChoice) : '');
+
+    const handleViewQuote = async (row) => {
+        if (!row?.url) return;
+        const result = await openAttachmentInNewTab(row.url, {
+            name: row.name || `${row.label || 'Quotation'}.pdf`,
+            mimeType: 'application/pdf',
+        });
+        if (!result.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open quotation',
+                description: result.error || 'File unavailable.',
+            });
+        }
+    };
 
     const handleApproveHr = async () => {
         if (!vehicleId || !canActOnHr) return;
@@ -266,10 +351,25 @@ export default function VehicleOilCashPaymentApprovalCard({
 
     const handleApproveAccountsQuote = async () => {
         if (!vehicleId || !serviceId || !canActOnAccountsQuote) return;
+        const amountMode = normalizeOilPaymentType(accountsAmountMode) || 'amount';
+        const paymentMethod =
+            amountMode === 'warranty'
+                ? ''
+                : normalizeOilPaymentMethod(accountsPaymentMethod) || 'cash';
+        if (amountMode !== 'warranty' && !paymentMethod) {
+            toast({
+                variant: 'destructive',
+                title: 'Payment method required',
+                description: 'Select a payment method before approving.',
+            });
+            return;
+        }
         setBusy(true);
         try {
+            const description = String(accountsDescription || '').trim();
             const { data } = await axiosInstance.put(
                 `/AssetItem/${vehicleId}/service/${serviceId}/oil-accounts-quote-approve`,
+                { amountMode, paymentMethod, description },
             );
             toast({
                 title: 'Quotation approved',
@@ -322,7 +422,7 @@ export default function VehicleOilCashPaymentApprovalCard({
             ...prev,
             billingPayables: [
                 ...(prev.billingPayables || []),
-                { payableTo: '', payAccountId: '', amount: '' },
+                { description: '', payableTo: '', payAccountId: '', qty: '1', amount: '' },
             ],
         }));
     };
@@ -363,12 +463,25 @@ export default function VehicleOilCashPaymentApprovalCard({
 
     const buildServiceUpdates = () => {
         const lines = (billing.billingPayables || [])
-            .map((row) => ({
-                payableTo: String(row.payableTo || '').trim(),
-                payAccountId: String(row.payAccountId || '').trim(),
-                amount: money(row.amount),
-            }))
-            .filter((row) => row.payableTo || row.payAccountId || row.amount > 0);
+            .map((row) => {
+                const qtyNum = Number(row.qty);
+                const qty = Number.isFinite(qtyNum) && qtyNum > 0 ? qtyNum : 1;
+                return {
+                    description: String(row.description || '').trim(),
+                    payableTo: String(row.payableTo || '').trim(),
+                    payAccountId: String(row.payAccountId || '').trim(),
+                    qty,
+                    quantity: qty,
+                    amount: money(row.amount),
+                };
+            })
+            .filter(
+                (row) =>
+                    row.description ||
+                    row.payableTo ||
+                    row.payAccountId ||
+                    row.amount > 0,
+            );
 
         const total = lines.reduce((s, r) => s + r.amount, 0) || money(billing.garageBillAmount);
         const primary = lines[0] || {};
@@ -426,13 +539,21 @@ export default function VehicleOilCashPaymentApprovalCard({
             const total = money(parsedRemark.billingTotalAmount);
             const payableLines = (
                 Array.isArray(parsedRemark.billingPayables) ? parsedRemark.billingPayables : []
-            ).filter((row) => String(row.payAccountId || '').trim() && money(row.amount) > 0);
+            ).filter((row) => {
+                const qty = Number(row.qty ?? row.quantity);
+                return (
+                    String(row.payAccountId || '').trim() &&
+                    money(row.amount) > 0 &&
+                    Number.isFinite(qty) &&
+                    qty > 0
+                );
+            });
             if (!(total > 0) || !payableLines.length) {
                 toast({
                     variant: 'destructive',
-                    title: 'Payable from required',
+                    title: 'Payable lines required',
                     description:
-                        'Add at least one Chart of Accounts line with amount before submitting to Zoho.',
+                        'Add at least one line with Chart of Accounts, Qty, and Amount before submitting to Zoho.',
                 });
                 setBusy(false);
                 return;
@@ -441,7 +562,8 @@ export default function VehicleOilCashPaymentApprovalCard({
                 toast({
                     variant: 'destructive',
                     title: 'Incomplete payable lines',
-                    description: 'Every payable-from line needs a Chart of Accounts and amount.',
+                    description:
+                        'Every line needs Chart of Accounts, Qty (> 0), and Amount.',
                 });
                 setBusy(false);
                 return;
@@ -540,15 +662,22 @@ export default function VehicleOilCashPaymentApprovalCard({
                                     />
                                     {hasGarageInvoice ? (
                                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                                            <a
-                                                href={garageInvoiceViewUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    void handleViewQuote({
+                                                        url: garageInvoiceViewUrl,
+                                                        name:
+                                                            billing.existingGarageAttachmentName ||
+                                                            'Garage-invoice.pdf',
+                                                        label: 'Garage invoice',
+                                                    })
+                                                }
                                                 className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-100"
                                             >
                                                 <Eye size={14} />
                                                 View
-                                            </a>
+                                            </button>
                                             {!fieldsDisabled ? (
                                                 <button
                                                     type="button"
@@ -580,7 +709,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                             <div className="rounded-lg border border-gray-200 bg-white p-3">
                                 <div className="mb-2 flex items-center justify-between">
                                     <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                                        Payable from
+                                        Zoho payable lines
                                     </span>
                                     {canActOnPayment ? (
                                         <button
@@ -593,12 +722,29 @@ export default function VehicleOilCashPaymentApprovalCard({
                                         </button>
                                     ) : null}
                                 </div>
+                                <div className="mb-1.5 hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)_72px_110px_36px] gap-2 px-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 lg:grid">
+                                    <span>Description</span>
+                                    <span>Payable (Chart of Accounts)</span>
+                                    <span>Qty</span>
+                                    <span>Amount</span>
+                                    <span />
+                                </div>
                                 <div className="space-y-2">
                                     {(billing.billingPayables || []).map((row, index) => (
                                         <div
                                             key={`payable-${index}`}
-                                            className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_36px] items-start"
+                                            className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)_72px_110px_36px] items-start"
                                         >
+                                            <input
+                                                type="text"
+                                                className="min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold text-gray-900 placeholder:text-gray-400"
+                                                placeholder="Description"
+                                                value={row.description || ''}
+                                                disabled={fieldsDisabled}
+                                                onChange={(e) =>
+                                                    setLine(index, { description: e.target.value })
+                                                }
+                                            />
                                             <ZohoPayAccountSelect
                                                 value={row.payAccountId || ''}
                                                 name={row.payableTo || ''}
@@ -613,9 +759,19 @@ export default function VehicleOilCashPaymentApprovalCard({
                                             />
                                             <input
                                                 type="number"
+                                                min="0.01"
+                                                step="any"
+                                                className="min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
+                                                placeholder="Qty"
+                                                value={row.qty ?? '1'}
+                                                disabled={fieldsDisabled}
+                                                onChange={(e) => setLine(index, { qty: e.target.value })}
+                                            />
+                                            <input
+                                                type="number"
                                                 min="0"
                                                 step="0.01"
-                                                className="min-h-[44px] rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
+                                                className="min-h-[44px] w-full rounded-lg border border-gray-200 px-2.5 text-sm font-semibold"
                                                 placeholder="Amount"
                                                 value={row.amount || ''}
                                                 disabled={fieldsDisabled}
@@ -638,7 +794,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                     ))}
                                 </div>
                                 <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-2 text-sm">
-                                    <span className="font-semibold text-gray-500">Total amount</span>
+                                    <span className="font-semibold text-gray-500">Net</span>
                                     <span className="font-bold text-gray-900">AED {formatAed(totalFromLines)}</span>
                                 </div>
                             </div>
@@ -653,7 +809,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                     className="inline-flex min-w-[160px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
                                 >
                                     {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                                    {busy ? 'Working…' : 'Submit to Zoho (Billed)'}
+                                    {busy ? 'Working…' : 'Submit Make Payment (Zoho)'}
                                 </button>
                             </div>
                         ) : stage === 'pending_accounts' ? (
@@ -675,9 +831,9 @@ export default function VehicleOilCashPaymentApprovalCard({
                         title="HR Approval"
                         subtitle={
                             hrLocked
-                                ? 'Locked until Schedule and Reschedule is submitted'
+                                ? 'Locked until Initiate Service is sent'
                                 : hrActiveStage
-                                  ? 'Select one quotation, then approve'
+                                  ? 'Open with Schedule — select quotation, then approve once'
                                   : hrDone
                                     ? 'HR approved this schedule'
                                     : 'Waiting for HR'
@@ -757,15 +913,16 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                     ) : null}
                                                 </span>
                                                 {row.url ? (
-                                                    <a
-                                                        href={row.url}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        onClick={(e) => e.stopPropagation()}
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            void handleViewQuote(row);
+                                                        }}
                                                         className="shrink-0 text-xs font-semibold text-sky-700 hover:underline"
                                                     >
                                                         View
-                                                    </a>
+                                                    </button>
                                                 ) : null}
                                             </button>
                                         );
@@ -815,7 +972,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                             </div>
                         ) : hrActiveStage ? (
                             <p className="mt-3 text-xs text-amber-800">
-                                Waiting for flowchart HR to approve the schedule.
+                                Waiting for flowchart HR to approve (open with Schedule).
                             </p>
                         ) : hrDone ? (
                             <p className="mt-3 text-xs text-emerald-700">HR approved — schedule is confirmed.</p>
@@ -831,7 +988,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                 ? 'Locked until HR Approval is done'
                                 : accountsQuoteApproved
                                   ? 'Quotation approved'
-                                  : 'Review the amount and quotation, then approve'
+                                  : 'Review amount, payment type/method, and quotation — then approve'
                         }
                         icon={Wallet}
                         iconBg="bg-sky-50"
@@ -856,34 +1013,102 @@ export default function VehicleOilCashPaymentApprovalCard({
                                     <p className="mt-0.5 truncate text-xs text-gray-500">{selectedQuoteRow.name}</p>
                                 ) : null}
                                 {selectedQuoteRow?.url ? (
-                                    <a
-                                        href={selectedQuoteRow.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleViewQuote(selectedQuoteRow)}
                                         className="mt-1 inline-block text-xs font-semibold text-sky-700 hover:underline"
                                     >
                                         View PDF
-                                    </a>
+                                    </button>
                                 ) : null}
                             </div>
-                            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+                            <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 sm:col-span-1">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                                     Payment type
                                 </span>
-                                <p className="mt-1 text-sm font-bold text-gray-900">{paymentTypeLabel}</p>
+                                {canActOnAccountsQuote ? (
+                                    <div className="mt-2">
+                                        <SegmentedToggle
+                                            options={OIL_PAYMENT_TYPE_OPTIONS}
+                                            value={normalizeOilPaymentType(accountsAmountMode)}
+                                            selectedFallback="amount"
+                                            onChange={(mode) => {
+                                                setAccountsAmountMode(mode);
+                                                if (mode === 'warranty') {
+                                                    setAccountsPaymentMethod('');
+                                                } else if (
+                                                    !normalizeOilPaymentMethod(accountsPaymentMethod)
+                                                ) {
+                                                    setAccountsPaymentMethod('cash');
+                                                }
+                                            }}
+                                            disabled={busy}
+                                        />
+                                    </div>
+                                ) : (
+                                    <p className="mt-1 text-sm font-bold text-gray-900">
+                                        {paymentTypeLabel}
+                                    </p>
+                                )}
                             </div>
-                            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+                            <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 sm:col-span-1">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                                     Payment method
                                 </span>
-                                <p className="mt-1 text-sm font-bold text-gray-900">{paymentMethodLabel}</p>
+                                {canActOnAccountsQuote ? (
+                                    <div className="mt-2">
+                                        {accountsCashMode ? (
+                                            <SegmentedToggle
+                                                options={OIL_PAYMENT_METHOD_OPTIONS}
+                                                value={normalizeOilPaymentMethod(
+                                                    accountsPaymentMethod,
+                                                )}
+                                                selectedFallback="cash"
+                                                onChange={setAccountsPaymentMethod}
+                                                disabled={busy}
+                                            />
+                                        ) : (
+                                            <p className="mt-1 text-sm font-bold text-gray-500">—</p>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="mt-1 text-sm font-bold text-gray-900">
+                                        {paymentMethodLabel}
+                                    </p>
+                                )}
                             </div>
+                        </div>
+
+                        <div className="mt-4">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                Description (optional)
+                            </span>
+                            {canActOnAccountsQuote ? (
+                                <textarea
+                                    className="mt-1.5 w-full min-h-[88px] resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 placeholder:text-gray-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:bg-gray-50 disabled:text-gray-600"
+                                    value={accountsDescription}
+                                    onChange={(e) => setAccountsDescription(e.target.value)}
+                                    disabled={busy}
+                                    placeholder="Enter accounts review notes..."
+                                    rows={3}
+                                />
+                            ) : String(remark.accountsReviewDescription || accountsDescription || '').trim() ? (
+                                <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-800">
+                                    {String(remark.accountsReviewDescription || accountsDescription).trim()}
+                                </p>
+                            ) : (
+                                <p className="mt-1.5 text-sm text-gray-400">—</p>
+                            )}
                         </div>
 
                         {accountsQuoteApproved ? (
                             <p className="mt-4 text-sm font-semibold text-emerald-700">
                                 Approved with amount AED {formatAed(quoteAmount)}
                                 {quoteLabel ? ` · ${quoteLabel}` : ''}
+                                {paymentTypeLabel ? ` · ${paymentTypeLabel}` : ''}
+                                {paymentMethodLabel && paymentMethodLabel !== '—'
+                                    ? ` · ${paymentMethodLabel}`
+                                    : ''}
                             </p>
                         ) : canActOnAccountsQuote ? (
                             <div className="mt-4 flex justify-end">

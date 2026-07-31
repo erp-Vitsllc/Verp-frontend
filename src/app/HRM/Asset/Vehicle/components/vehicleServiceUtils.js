@@ -39,6 +39,60 @@ export function isVehicleServiceTabRequestType(serviceType) {
     return VEHICLE_SERVICE_TAB_REQUEST_TYPES.includes(String(serviceType || '').trim());
 }
 
+/** End date for Service tab list sorting (service end / return / window end). */
+export function resolveVehicleServiceListEndDate(service, asset = null) {
+    if (!service) return null;
+    const remark = parseVehicleServiceRemark(service) || {};
+    const serviceId = normalizeMongoId(service._id);
+    const wf = asset?.activeServiceWorkflow;
+    const wfMatch = serviceId && wf && normalizeMongoId(wf.serviceRecordId) === serviceId;
+    const snap = service?.workflowSnapshot || {};
+
+    const raw =
+        remark.serviceEndDate ||
+        remark.returnDate ||
+        remark.nextChangeMonth ||
+        (wfMatch ? wf.serviceWindowEndDate : null) ||
+        snap.serviceWindowEndDate ||
+        null;
+    if (raw == null || raw === '') return null;
+    const str = String(raw).trim();
+    if (/^\d{4}-\d{2}$/.test(str)) return `${str}-01`;
+    return str;
+}
+
+function serviceListEndDateMs(value) {
+    if (value == null || value === '') return Number.POSITIVE_INFINITY;
+    const str = String(value).trim();
+    const d = /^\d{4}-\d{2}$/.test(str) ? new Date(`${str}-01`) : new Date(str);
+    if (Number.isNaN(d.getTime())) return Number.POSITIVE_INFINITY;
+    return d.getTime();
+}
+
+/** Completed / closed rows sink to the bottom of the Service tab list. */
+function isServiceListRowCompleted(row) {
+    const tone = String(row?.statusTone || '').toLowerCase();
+    return tone === 'complete' || tone === 'rejected';
+}
+
+/**
+ * Service tab list order: pending (open) first, completed last;
+ * within each group sort by end date ascending (earliest first).
+ */
+export function compareVehicleServiceListRows(a, b) {
+    const aDone = isServiceListRowCompleted(a);
+    const bDone = isServiceListRowCompleted(b);
+    if (aDone !== bDone) return aDone ? 1 : -1;
+
+    const ea = serviceListEndDateMs(a?.sortEndDate ?? a?.endDate ?? a?.nextOilServiceDate);
+    const eb = serviceListEndDateMs(b?.sortEndDate ?? b?.endDate ?? b?.nextOilServiceDate);
+    if (ea !== eb) return ea - eb;
+
+    const ta = a?.sortDate ? new Date(a.sortDate).getTime() : 0;
+    const tb = b?.sortDate ? new Date(b.sortDate).getTime() : 0;
+    return tb - ta;
+}
+
 export function vehicleServiceTypeKey(service) {
     if (!service) return '';
     const st = String(service.serviceType || '').trim();
@@ -332,6 +386,7 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
         nextOilServiceDate,
         status: statusInfo.label,
         statusTone: statusInfo.tone,
+        sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : nextOilServiceDate || null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
     };
 }
@@ -344,11 +399,7 @@ export function buildOilServiceRequestRowsFromAsset(asset) {
         .filter((s) => vehicleServiceTypeKey(s) === 'Oil Service')
         .filter((s) => isOilServiceRequestTableRow(s, asset))
         .map((s) => buildOilServiceScheduleRowFromAsset(asset, { service: s }))
-        .sort((a, b) => {
-            const ta = a.sortDate ? new Date(a.sortDate).getTime() : 0;
-            const tb = b.sortDate ? new Date(b.sortDate).getTime() : 0;
-            return tb - ta;
-        });
+        .sort(compareVehicleServiceListRows);
 }
 
 export function findOpenOilServiceDraft(asset) {
@@ -466,6 +517,7 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
         amount: service?.value != null ? Number(service.value) : null,
         status: statusInfo.label,
         statusTone: statusInfo.tone,
+        sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
         serviceRecord: service || null,
     };
@@ -478,11 +530,7 @@ export function buildCarWashRequestRowsFromAsset(asset) {
         .filter((s) => vehicleServiceTypeKey(s) === 'Car Wash')
         .filter((s) => isCarWashRequestTableRow(s, asset))
         .map((s) => buildCarWashRequestRowFromAsset(asset, { service: s }))
-        .sort((a, b) => {
-            const ta = a.sortDate ? new Date(a.sortDate).getTime() : 0;
-            const tb = b.sortDate ? new Date(b.sortDate).getTime() : 0;
-            return tb - ta;
-        });
+        .sort(compareVehicleServiceListRows);
 }
 
 function isVehicleServiceTabRequestTableRow(service, asset) {
@@ -524,6 +572,7 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
         currentKm: remark?.currentKm ?? service?.currentKm ?? asset?.currentKilometer ?? '—',
         status: statusInfo.label,
         statusTone: statusInfo.tone,
+        sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
         serviceRecord: service || null,
     };
@@ -536,11 +585,7 @@ export function buildVehicleServiceTabRequestRowsFromAsset(asset, serviceType) {
         .filter((s) => vehicleServiceTypeKey(s) === serviceType)
         .filter((s) => isVehicleServiceTabRequestTableRow(s, asset))
         .map((s) => buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { service: s }))
-        .sort((a, b) => {
-            const ta = a.sortDate ? new Date(a.sortDate).getTime() : 0;
-            const tb = b.sortDate ? new Date(b.sortDate).getTime() : 0;
-            return tb - ta;
-        });
+        .sort(compareVehicleServiceListRows);
 }
 
 export function findOpenVehicleServiceTabDraft(asset, serviceType) {

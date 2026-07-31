@@ -17,7 +17,7 @@ const { card, timeline, steps, header, list, text, connector, spread } =
 const TIRE_SUBTITLE =
     'Service created, updated, submitted, quotation review, garage, accounts, and completion';
 const OIL_SUBTITLE =
-    'Initiate, Schedule, HR Approval, On Service, Complete Service, Make Payment, and Billed';
+    'Initiate, Schedule + HR Approval (together), Accounts, On Service, Complete Service, and Make Payment';
 const OIL_WARRANTY_SUBTITLE = 'Initiate, Schedule, On Service, and Complete Service';
 
 export default function VehicleOilServiceWorkflowPanel({ asset, service, className = '' }) {

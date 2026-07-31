@@ -18,7 +18,7 @@ export const OIL_SERVICE_WORKFLOW_STEPS = [
     { id: 4, label: 'Complete Service', role: 'Admin Officer' },
 ];
 
-/** Cash — Initiate → Schedule → HR → Accounts → On Service → Complete → Make Payment → Billed. */
+/** Cash — Initiate → Schedule + HR (parallel) → Accounts → On Service → Complete → Make Payment. */
 export const OIL_SERVICE_CASH_WORKFLOW_STEPS = [
     { id: 1, label: 'Initiate Service', role: 'Creator' },
     { id: 2, label: 'Schedule and Reschedule', role: 'Admin Officer' },
@@ -27,7 +27,6 @@ export const OIL_SERVICE_CASH_WORKFLOW_STEPS = [
     { id: 5, label: 'On Service', role: 'Service' },
     { id: 6, label: 'Complete Service', role: 'Admin Officer' },
     { id: 7, label: 'Make Payment', role: 'Accounts' },
-    { id: 8, label: 'Billed', role: 'Zoho' },
 ];
 
 export function isOilServiceCashAmountMode(remark = {}) {
@@ -425,17 +424,18 @@ function resolveActiveStepId(activities, stage, service, asset, isCash = false) 
     const waiting = isOilServiceScheduledWaiting(service, asset);
     const remark = parseVehicleServiceRemark(service) || {};
     const quoteApproved = Boolean(String(remark.accountsQuoteApprovedAt || '').trim());
+    const initiated = Boolean(String(remark.oilServiceInitiatedAt || '').trim());
 
     if (isCash) {
-        // 1 Initiate 2 Schedule 3 HR 4 Accounts Approve 5 On Service 6 Complete 7 Make Payment 8 Billed
-        if (stage === 'billed' || hasAccountsPay) return 9;
+        // 1 Initiate 2 Schedule 3 HR (parallel after initiate) 4 Accounts 5 On Service 6 Complete 7 Make Payment
+        if (stage === 'billed' || hasAccountsPay) return 8; // past Make Payment — all done
         if (stage === 'pending_accounts') return 7;
         if (hasCompleted) return 7;
         if (hasOnService || live || waiting || quoteApproved || hasAccountsQuote) return 6;
-        if (hasHr || stage === 'scheduled_service') return 4;
-        if (stage === 'pending_hr') return 3;
-        if (hasScheduled) return 3;
-        if (hasUpdated) return 2;
+        if (hasHr && hasScheduled) return 4;
+        if (hasHr && !hasScheduled) return 2; // HR done, Schedule still needed
+        if (hasScheduled && !hasHr) return 3; // Schedule done, HR still open
+        if (stage === 'pending_hr' || initiated || hasUpdated) return 2; // Schedule + HR open together
         return 1;
     }
 
@@ -724,11 +724,8 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
             if (step.id === 7) {
                 detail =
                     currentActiveStepId === 7
-                        ? 'Flowchart Accounts — Zoho bill'
-                        : 'Accounts submitted → Zoho bill';
-            }
-            if (step.id === 8) {
-                detail = 'Billed in Zoho';
+                        ? 'Flowchart Accounts — Make Payment (Zoho)'
+                        : 'Accounts submitted Make Payment (Zoho)';
             }
         } else {
             if (step.id === 3 && serviceStartDate) {
@@ -787,7 +784,7 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
         ].filter(Boolean);
     }
 
-    // Cash: Initiate → Schedule → HR → Accounts Approve → On Service → Complete → Make Payment → Billed
+    // Cash: Initiate → Schedule + HR (parallel) → Accounts → On Service → Complete → Make Payment
     const [
         initiateStep,
         scheduledStep,
@@ -796,11 +793,16 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
         onServiceStep,
         endServiceStep,
         accountsStep,
-        billedStep,
     ] = workflowEvents;
 
+    // Parallel open: show HR as pending when Schedule is active and HR not done yet.
+    if (hrStep && currentActiveStepId === 2 && !hrApproved) {
+        hrStep.badge = 'Pending';
+        hrStep.badgeVariant = 'pending';
+    }
+
     if (hrStep) {
-        hrStep.connectorGreen = currentActiveStepId > 3;
+        hrStep.connectorGreen = currentActiveStepId > 3 || Boolean(hrApproved);
         hrStep.isLast = false;
     }
     if (accountsQuoteStep) {
@@ -817,11 +819,7 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
     }
     if (accountsStep) {
         accountsStep.connectorGreen = currentActiveStepId > 7;
-        accountsStep.isLast = false;
-    }
-    if (billedStep) {
-        billedStep.connectorGreen = currentActiveStepId > 8;
-        billedStep.isLast = true;
+        accountsStep.isLast = true;
     }
 
     return [
@@ -834,6 +832,5 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
         ...decorateDateEvents(dateEventsAfterOnService),
         endServiceStep,
         accountsStep,
-        billedStep,
     ].filter(Boolean);
 }

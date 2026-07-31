@@ -567,7 +567,8 @@ export default function VehicleOilServiceDetailForm({
             const { data } = await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
             toast({
                 title: 'Service initiated',
-                description: 'Complete Schedule and Reschedule Service below, then click OK.',
+                description:
+                    'Admin was emailed. Schedule/Reschedule and HR Approval are open together — Admin can change dates anytime; HR approves once.',
             });
             if (typeof onSaved === 'function') {
                 onSaved(data?.asset || data || null);
