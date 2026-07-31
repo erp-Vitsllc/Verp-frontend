@@ -84,11 +84,16 @@ function VehicleAccidentRepairDetailPageContent() {
         });
     }, []);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async ({ silent = false, light = false, deferServiceSigning = false } = {}) => {
         if (!vehicleId) return;
-        setLoading(true);
+        if (!silent) setLoading(true);
         try {
-            const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`);
+            const params = {};
+            if (light) params.light = 1;
+            if (deferServiceSigning) params.deferServiceSigning = 1;
+            const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
+                params: Object.keys(params).length ? params : undefined,
+            });
             setAsset(response.data || null);
         } catch (error) {
             toast({
@@ -96,14 +101,22 @@ function VehicleAccidentRepairDetailPageContent() {
                 title: 'Could not load accident repair details',
                 description: error.response?.data?.message || 'Try again in a moment.',
             });
-            setAsset(null);
+            if (!silent) setAsset(null);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, [toast, vehicleId]);
 
     useEffect(() => {
-        void load();
+        let cancelled = false;
+        (async () => {
+            await load({ light: true });
+            if (cancelled) return;
+            await load({ silent: true, deferServiceSigning: true });
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [load]);
 
     const service = useMemo(() => {
@@ -285,7 +298,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
                                 onSaved={() => {
-                                    void load();
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}
@@ -302,7 +315,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                     workflowStage={accidentRepairflowStage}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
-                                        void load();
+                                        void load({ silent: true, deferServiceSigning: true });
                                     }}
                                     className="w-full shrink-0"
                                 />
@@ -315,7 +328,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                 workflowStage={accidentRepairflowStage}
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
-                                    void load();
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                                 className="w-full shrink-0"
                             />
@@ -329,7 +342,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                     workflowStage={accidentRepairflowStage}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
-                                        void load();
+                                        void load({ silent: true, deferServiceSigning: true });
                                     }}
                                     className="w-full shrink-0"
                                 />
@@ -343,7 +356,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                 serviceTypeLabel="Accident Repair"
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
-                                    void load();
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                                 className="w-full shrink-0"
                             />

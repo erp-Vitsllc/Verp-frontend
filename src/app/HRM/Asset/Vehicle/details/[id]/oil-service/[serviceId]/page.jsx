@@ -81,12 +81,15 @@ function VehicleOilServiceDetailPageContent() {
         });
     }, []);
 
-    const load = useCallback(async ({ silent = false, light = false } = {}) => {
+    const load = useCallback(async ({ silent = false, light = false, deferServiceSigning = false } = {}) => {
         if (!vehicleId) return;
         if (!silent) setLoading(true);
         try {
+            const params = {};
+            if (light) params.light = 1;
+            if (deferServiceSigning) params.deferServiceSigning = 1;
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
-                params: light ? { light: 1 } : undefined,
+                params: Object.keys(params).length ? params : undefined,
             });
             setAsset(response.data || null);
         } catch (error) {
@@ -104,10 +107,10 @@ function VehicleOilServiceDetailPageContent() {
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            // Fast first paint (skip heal writes + shrink attachment blobs), then upgrade.
+            // Fast first paint, then upgrade without blocking on oil heal / full S3 service signing.
             await load({ light: true });
             if (cancelled) return;
-            await load({ silent: true, light: false });
+            await load({ silent: true, deferServiceSigning: true });
         })();
         return () => {
             cancelled = true;
@@ -323,7 +326,7 @@ function VehicleOilServiceDetailPageContent() {
                                         if (updatedAsset) {
                                             setAsset(updatedAsset);
                                         }
-                                        void load({ silent: true });
+                                        void load({ silent: true, deferServiceSigning: true });
                                     }}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}
@@ -338,7 +341,7 @@ function VehicleOilServiceDetailPageContent() {
                                 canManage={canAdminOilSteps}
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
-                                    void load({ silent: true });
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                                 className="w-full shrink-0"
                             />
@@ -355,7 +358,7 @@ function VehicleOilServiceDetailPageContent() {
                                 workflowStage={oilWorkflowStage}
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
-                                    void load({ silent: true });
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                                 className="w-full shrink-0"
                             />
@@ -370,7 +373,7 @@ function VehicleOilServiceDetailPageContent() {
                                     if (updatedAsset) {
                                         setAsset(updatedAsset);
                                     }
-                                    void load({ silent: true });
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                             />
 
@@ -386,7 +389,7 @@ function VehicleOilServiceDetailPageContent() {
                                 workflowStage={oilWorkflowStage}
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
-                                    void load({ silent: true });
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                                 className="w-full shrink-0"
                             />

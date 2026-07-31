@@ -50,11 +50,33 @@ function toLocalDateOnly(value) {
     return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function isHandOverOnOrAfterServiceEnd(handOverDate, serviceEndDate) {
-    const hand = toLocalDateOnly(handOverDate);
+function isOnOrAfterServiceEnd(dateValue, serviceEndDate) {
+    const day = toLocalDateOnly(dateValue);
     const end = toLocalDateOnly(serviceEndDate);
-    if (!hand || !end) return false;
-    return hand.getTime() >= end.getTime();
+    if (!day || !end) return false;
+    return day.getTime() >= end.getTime();
+}
+
+/** Next service date must be strictly after the current service end date. */
+function isAfterServiceEnd(dateValue, serviceEndDate) {
+    const day = toLocalDateOnly(dateValue);
+    const end = toLocalDateOnly(serviceEndDate);
+    if (!day || !end) return false;
+    return day.getTime() > end.getTime();
+}
+
+function dayAfterServiceEnd(serviceEndDate) {
+    const end = toLocalDateOnly(serviceEndDate);
+    if (!end) return null;
+    return new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+}
+
+function toDateInputKey(date) {
+    if (!date || Number.isNaN(date.getTime())) return '';
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
 }
 
 async function readUploadFile(file, toast) {
@@ -89,6 +111,17 @@ function buildInitialForm(service, workflow = null) {
             : service?.value != null && service?.value !== ''
               ? String(service.value)
               : '';
+    const serviceEndDate = monthToDateInput(
+        remark.serviceEndDate ||
+            remark.nextChangeMonth ||
+            workflow?.serviceWindowEndDate ||
+            '',
+    );
+    let nextServiceDate = monthToDateInput(remark.nextServiceDate || remark.nextChangeMonth || '');
+    // Next service must always be after current service end — default / correct if needed.
+    if (serviceEndDate && (!nextServiceDate || !isAfterServiceEnd(nextServiceDate, serviceEndDate))) {
+        nextServiceDate = toDateInputKey(dayAfterServiceEnd(serviceEndDate)) || '';
+    }
     return {
         garageInvoice: { ...EMPTY_FILE },
         otherDocument: { ...EMPTY_FILE },
@@ -96,15 +129,10 @@ function buildInitialForm(service, workflow = null) {
         serviceStartDate: monthToDateInput(
             remark.serviceStartDate || remark.scheduledServiceDate || workflow?.scheduledServiceDate || '',
         ),
-        serviceEndDate: monthToDateInput(
-            remark.serviceEndDate ||
-                remark.nextChangeMonth ||
-                workflow?.serviceWindowEndDate ||
-                '',
-        ),
+        serviceEndDate,
         returnDate: remark.returnDate || '',
         nextServiceKm: remark.nextChangeKm != null ? String(remark.nextChangeKm) : '',
-        nextServiceDate: monthToDateInput(remark.nextChangeMonth || remark.nextServiceDate || ''),
+        nextServiceDate,
         handOverDate: remark.handOverDate || '',
     };
 }
@@ -136,10 +164,12 @@ function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false) {
     return (
         hasGarageInvoice(form, hasPersistedGarageInvoice) &&
         String(form.handOverDate || '').trim() !== '' &&
-        isHandOverOnOrAfterServiceEnd(form.handOverDate, form.serviceEndDate) &&
+        isOnOrAfterServiceEnd(form.handOverDate, form.serviceEndDate) &&
         String(form.returnDate || '').trim() !== '' &&
+        isOnOrAfterServiceEnd(form.returnDate, form.serviceEndDate) &&
         String(form.nextServiceKm ?? '').trim() !== '' &&
-        String(form.nextServiceDate || '').trim() !== ''
+        String(form.nextServiceDate || '').trim() !== '' &&
+        isAfterServiceEnd(form.nextServiceDate, form.serviceEndDate)
     );
 }
 
@@ -150,13 +180,27 @@ function getServiceDetailsMissingFields(form, hasPersistedGarageInvoice = false)
         missing.push('Hand over date');
     } else if (
         form.serviceEndDate &&
-        !isHandOverOnOrAfterServiceEnd(form.handOverDate, form.serviceEndDate)
+        !isOnOrAfterServiceEnd(form.handOverDate, form.serviceEndDate)
     ) {
         missing.push('Hand over date (must be on or after service end date)');
     }
-    if (!String(form.returnDate || '').trim()) missing.push('Return date');
+    if (!String(form.returnDate || '').trim()) {
+        missing.push('Return date');
+    } else if (
+        form.serviceEndDate &&
+        !isOnOrAfterServiceEnd(form.returnDate, form.serviceEndDate)
+    ) {
+        missing.push('Return date (must be on or after service end date)');
+    }
     if (!String(form.nextServiceKm ?? '').trim()) missing.push('Next service KM');
-    if (!String(form.nextServiceDate || '').trim()) missing.push('Next service date');
+    if (!String(form.nextServiceDate || '').trim()) {
+        missing.push('Next service date');
+    } else if (
+        form.serviceEndDate &&
+        !isAfterServiceEnd(form.nextServiceDate, form.serviceEndDate)
+    ) {
+        missing.push('Next service date (must be after service end date)');
+    }
     return missing;
 }
 
@@ -197,6 +241,12 @@ export default function VehicleOilServiceDetailsForm({
         [form.serviceEndDate],
     );
     const handOverDisabledDays = serviceEndMinDate ? { before: serviceEndMinDate } : undefined;
+    const returnDisabledDays = serviceEndMinDate ? { before: serviceEndMinDate } : undefined;
+    const nextServiceMinDate = useMemo(
+        () => dayAfterServiceEnd(form.serviceEndDate),
+        [form.serviceEndDate],
+    );
+    const nextServiceDisabledDays = nextServiceMinDate ? { before: nextServiceMinDate } : undefined;
 
     const { toast } = useToast();
     const [viewingKey, setViewingKey] = useState('');
@@ -320,7 +370,13 @@ export default function VehicleOilServiceDetailsForm({
                         placeholder="dd/mm/yyyy"
                         className={datePickerClass}
                         disabled={fieldsDisabled || !canAct}
+                        disabledDays={returnDisabledDays}
                     />
+                    {serviceEndMinDate ? (
+                        <p className="mt-1 text-[10px] font-medium text-gray-400">
+                            On or after service end date
+                        </p>
+                    ) : null}
                 </FieldCard>
             </div>
 
@@ -342,7 +398,13 @@ export default function VehicleOilServiceDetailsForm({
                         placeholder="dd/mm/yyyy"
                         className={datePickerClass}
                         disabled={fieldsDisabled || !canAct}
+                        disabledDays={nextServiceDisabledDays}
                     />
+                    {nextServiceMinDate ? (
+                        <p className="mt-1 text-[10px] font-medium text-gray-400">
+                            Must be after service end date
+                        </p>
+                    ) : null}
                 </FieldCard>
             </div>
 

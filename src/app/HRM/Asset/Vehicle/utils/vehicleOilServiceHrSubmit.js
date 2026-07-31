@@ -25,7 +25,11 @@ export function buildOilServiceHrServiceUpdates(service, formPayload) {
         returnDate: String(formPayload.returnDate || '').trim() || undefined,
         handOverDate: String(formPayload.handOverDate || '').trim() || undefined,
         nextChangeKm: Number.isFinite(nextKm) ? nextKm : undefined,
-        nextChangeMonth: String(formPayload.nextServiceMonth || '').trim() || undefined,
+        nextServiceDate: String(formPayload.nextServiceDate || '').trim().slice(0, 10) || undefined,
+        nextChangeMonth:
+            String(formPayload.nextServiceMonth || formPayload.nextServiceDate || '')
+                .trim()
+                .slice(0, 7) || undefined,
         totalServiceCharge: Number.isFinite(totalCharge) ? totalCharge : undefined,
         garageInvoiceName: garagePayload?.name || existing.garageInvoiceName,
         returnOtherDocName: otherDocPayload?.name || existing.returnOtherDocName,

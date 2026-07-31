@@ -83,11 +83,16 @@ function VehicleTireChangeDetailPageContent() {
         });
     }, []);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async ({ silent = false, light = false, deferServiceSigning = false } = {}) => {
         if (!vehicleId) return;
-        setLoading(true);
+        if (!silent) setLoading(true);
         try {
-            const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`);
+            const params = {};
+            if (light) params.light = 1;
+            if (deferServiceSigning) params.deferServiceSigning = 1;
+            const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
+                params: Object.keys(params).length ? params : undefined,
+            });
             setAsset(response.data || null);
         } catch (error) {
             toast({
@@ -95,14 +100,22 @@ function VehicleTireChangeDetailPageContent() {
                 title: 'Could not load tire change details',
                 description: error.response?.data?.message || 'Try again in a moment.',
             });
-            setAsset(null);
+            if (!silent) setAsset(null);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, [toast, vehicleId]);
 
     useEffect(() => {
-        void load();
+        let cancelled = false;
+        (async () => {
+            await load({ light: true });
+            if (cancelled) return;
+            await load({ silent: true, deferServiceSigning: true });
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [load]);
 
     const service = useMemo(() => {
@@ -287,7 +300,7 @@ function VehicleTireChangeDetailPageContent() {
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
                                 onSaved={() => {
-                                    void load();
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}
@@ -307,7 +320,7 @@ function VehicleTireChangeDetailPageContent() {
                                         if (updatedAsset) {
                                             setAsset(updatedAsset);
                                         }
-                                        void load();
+                                        void load({ silent: true, deferServiceSigning: true });
                                     }}
                                     className="w-full shrink-0"
                                 />
@@ -323,7 +336,7 @@ function VehicleTireChangeDetailPageContent() {
                                     workflowStage={tireWorkflowStage}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
-                                        void load();
+                                        void load({ silent: true, deferServiceSigning: true });
                                     }}
                                     className="w-full shrink-0"
                                 />
@@ -338,7 +351,7 @@ function VehicleTireChangeDetailPageContent() {
                                     workflowStage={tireWorkflowStage}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
-                                        void load();
+                                        void load({ silent: true, deferServiceSigning: true });
                                     }}
                                     className="w-full shrink-0"
                                 />
@@ -352,7 +365,7 @@ function VehicleTireChangeDetailPageContent() {
                                 serviceTypeLabel="Tire Change"
                                 onUpdated={(updatedAsset) => {
                                     if (updatedAsset) setAsset(updatedAsset);
-                                    void load();
+                                    void load({ silent: true, deferServiceSigning: true });
                                 }}
                                 className="w-full shrink-0"
                             />
