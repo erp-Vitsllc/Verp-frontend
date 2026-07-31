@@ -13,7 +13,7 @@ import {
     getMonthlyRentalAmount,
 } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsStorage';
 import { fetchUtilityEntries, fetchUtilityEntry } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillsApi';
-import { billDisplayStatus, formatBillMoney } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillStats';
+import { formatBillMoney } from '@/app/HRM/Asset/UtilityBills/utils/utilityBillStats';
 import ViewBillModal from '@/app/HRM/Asset/UtilityBills/components/ViewBillModal';
 import FineCompanyRefundModal from '@/app/HRM/Fine/components/FineCompanyRefundModal';
 import { isAccountsFinanceUser } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
@@ -65,12 +65,18 @@ function billSortTime(bill) {
 
 function billStatusBadgeClass(status) {
     const s = String(status || '');
-    if (s === 'Pending Accounts') return 'bg-sky-50 text-sky-700 border-sky-200';
-    if (s === 'Pending HR') return 'bg-amber-50 text-amber-700 border-amber-200';
-    if (s === 'Approved') return 'bg-orange-50 text-orange-700 border-orange-200';
     if (s === 'Paid') return 'bg-teal-50 text-teal-800 border-teal-200';
     if (s === 'Rejected') return 'bg-red-50 text-red-700 border-red-200';
-    return 'bg-gray-50 text-gray-600 border-gray-200';
+    // Approved / Pending Accounts / Pending HR → Not Paid
+    return 'bg-orange-50 text-orange-700 border-orange-200';
+}
+
+/** Employee Utility Bills: Paid / Not Paid only (no workflow labels). */
+function employeeUtilityBillStatusLabel(bill) {
+    if (!bill) return '';
+    if (String(bill.status || '') === 'Paid') return 'Paid';
+    if (String(bill.status || '') === 'Rejected') return 'Rejected';
+    return 'Not Paid';
 }
 
 function employeeIdCandidates(employee) {
@@ -865,7 +871,7 @@ export default function EmployeeSalaryVehicleUtilityPanel({
                                                                     <span
                                                                         className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${billStatusBadgeClass(bill.status)}`}
                                                                     >
-                                                                        {billDisplayStatus(bill)}
+                                                                        {employeeUtilityBillStatusLabel(bill)}
                                                                     </span>
                                                                     {myShare > 0.009 ? (
                                                                         <span className="inline-flex items-center rounded-md border border-purple-100 bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700 tabular-nums">
