@@ -414,6 +414,13 @@ export const buildDashboardNotificationPath = (item) => {
         return empKey ? `/emp/${encodeURIComponent(String(empKey))}?tab=work-details` : '';
     }
 
+    if (type.includes('left user')) {
+        const empKey = item.targetEmployeeId || item.subjectEmployeeId || item.id;
+        return empKey
+            ? `/emp/${encodeURIComponent(String(empKey))}?tab=work&subTab=work-details`
+            : '';
+    }
+
     if (type.includes('notice')) {
         const empKey = item.targetEmployeeId || item.employeeId || item.id;
         return empKey ? `/emp/${encodeURIComponent(String(empKey))}?tab=work-details` : '';

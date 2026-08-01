@@ -559,6 +559,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Profile Incomplete',
         'Employee Document Expiry Reminder',
         'Probation Change',
+        'Left User Request',
         'Employee Document Not Renew',
         'Fine',
         'Group Fine Request',

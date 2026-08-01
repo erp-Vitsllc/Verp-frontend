@@ -148,6 +148,8 @@ export function resolveNotificationIconVariant(typeOrItem) {
             return 'incomplete-settings';
         case 'Probation Change':
             return 'probation-settings';
+        case 'Left User Request':
+            return 'activation-profile';
         case 'Payment Approval':
             return 'payment-card';
         case 'Fine':

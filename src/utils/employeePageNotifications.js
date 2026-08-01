@@ -21,6 +21,7 @@ export const EMPLOYEE_NOTIFICATION_TYPES = new Set([
     PROFILE_INCOMPLETE_TYPE,
     'Employee Document Expiry Reminder',
     'Probation Change',
+    'Left User Request',
     'Employee Document Not Renew',
 ]);
 

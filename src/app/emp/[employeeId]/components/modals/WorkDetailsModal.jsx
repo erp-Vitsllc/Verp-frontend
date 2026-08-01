@@ -196,9 +196,9 @@ export default function WorkDetailsModal({
                 res.data?.queuedForHrApproval === true ||
                 String(res.data?.message || '').toLowerCase().includes('queued for hr');
             toast({
-                title: isQueued ? 'Queued for HR approval' : 'Marked as Left User',
+                title: isQueued ? 'Sent to HR for approval' : 'Marked as Left User',
                 description: isQueued
-                    ? 'HR has been notified by email and a dashboard task was created. Submit for activation when ready so HR can approve.'
+                    ? 'HR will see this on the Employees bell and can Accept or Reject on the employee profile.'
                     : res.data?.message || 'Employee work status updated.',
             });
             if (typeof onEmployeeRefresh === 'function') {

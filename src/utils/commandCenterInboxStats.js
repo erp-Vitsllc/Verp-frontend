@@ -44,6 +44,7 @@ export const employeeTaskBelongsInInbox = (item) => {
         type === 'Profile Incomplete' ||
         type === 'Employee Document Expiry Reminder' ||
         type === 'Probation Change' ||
+        type === 'Left User Request' ||
         type === 'Employee Document Not Renew'
     );
 };

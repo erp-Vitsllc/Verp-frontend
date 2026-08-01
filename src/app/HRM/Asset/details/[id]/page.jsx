@@ -281,6 +281,14 @@ const assetRefId = (ref) => {
 const getAssetApproverDisplayName = (asset) => {
     if (!asset) return '';
 
+    // Backend-computed waiting actor (user account → assignee; else primary reportee).
+    if (
+        isAssetAssignmentAcknowledgmentPending(asset) &&
+        asset.assignmentAck?.waitingForName
+    ) {
+        return asset.assignmentAck.waitingForName;
+    }
+
     const arName = empDisplayName(asset.actionRequiredBy);
     const reporteeName = empDisplayName(asset.assignedTo?.primaryReportee);
     const assigneeName = empDisplayName(asset.assignedTo);
@@ -297,8 +305,10 @@ const getAssetApproverDisplayName = (asset) => {
             return 'Company coordinator';
         }
         // Has user account → Waiting {assignee}. No account → Waiting {primary reportee}.
-        // Prefer resolved names: match actionRequiredBy id to reportee/assignee when AR lacks name fields.
         if (arIsReportee && reporteeName) return reporteeName;
+        if (asset.assignmentAck?.assigneeCanSelfAcknowledge === false && reporteeName) {
+            return reporteeName;
+        }
         if (arName) return arName;
         if (arIsAssignee && assigneeName) return assigneeName;
         if (reporteeName && arId && !arIsAssignee) return reporteeName;
@@ -2693,7 +2703,8 @@ function AssetDetailsPageContent() {
                                 if (!currentUserEmployeeId) return null;
 
                                 // Assignment Acknowledgment Banner - Only show for actual assignments, not for other workflows
-                                const isActionRequiredByMe = (asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString()) === currentUserEmployeeId?.toString();
+                                const meId = currentUserEmployeeId?.toString();
+                                const isActionRequiredByMe = (asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString()) === meId;
                                 const isAssignmentPending = asset.acceptanceStatus === 'Pending' &&
                                     !asset.pendingAction &&
                                     (asset.status === 'Pending' || asset.status === 'Assigned');
@@ -2705,11 +2716,30 @@ function AssetDetailsPageContent() {
                                     isAssignmentPending &&
                                     (isActionRequiredByMe || effectiveIsHR);
 
-                                // Only actionRequiredBy may Accept — user account → assignee; else primary reportee.
+                                const ack = asset.assignmentAck;
+                                const waitingForMe =
+                                    !!meId &&
+                                    !!ack?.waitingForId &&
+                                    String(ack.waitingForId) === meId;
+                                const primaryReporteeId =
+                                    assetRefId(asset.assignedTo?.primaryReportee) ||
+                                    (ack?.primaryReporteeId ? String(ack.primaryReporteeId) : '');
+                                const isPrimaryReporteeOfAssignee =
+                                    !!meId && !!primaryReporteeId && primaryReporteeId === meId;
+                                // No user account on assignee → primary reportee must see Accept (API already allows this).
+                                const canAckAsPrimaryReportee =
+                                    isPrimaryReporteeOfAssignee &&
+                                    isAssignmentPending &&
+                                    (ack?.assigneeCanSelfAcknowledge === false ||
+                                        (!!ack?.waitingForId &&
+                                            String(ack.waitingForId) === primaryReporteeId));
+
+                                // Accept for: waiting actor, OR primary reportee when assignee has no login.
                                 const shouldShowAssignmentAck =
                                     isCompanyAsset
                                         ? isCompanyApprover
-                                        : (isActionRequiredByMe && isAssignmentPending);
+                                        : (isAssignmentPending &&
+                                            (isActionRequiredByMe || waitingForMe || canAckAsPrimaryReportee));
 
                                 if (shouldShowAssignmentAck) {
                                     return (
