@@ -103,6 +103,7 @@ export function isEmployeeProfileApprovalSubmitted(employee) {
 /**
  * Pending queue UI (badges, proposed overlays, hold modal): draft = submitter/subject only;
  * after Send for Activation, HR reviewers and admins may also see.
+ * Left User pending: HR/admin may see the queue before Send for Activation.
  */
 export function canViewerSeeEmployeePendingActivationQueue(
     employee,
@@ -112,9 +113,19 @@ export function canViewerSeeEmployeePendingActivationQueue(
     if (!employee || !currentUser) return false;
     const isSubmitter = viewerIsProfileActivationSubmitter(employee, currentUser);
     const isSubject = viewerIsEmployeeProfileSubject(employee, currentUser);
+    const isHrOrAdmin = canReviewProfileActivation || isAdmin();
     if (isEmployeeProfileApprovalSubmitted(employee)) {
-        return canReviewProfileActivation || isAdmin() || isSubmitter || isSubject;
+        return isHrOrAdmin || isSubmitter || isSubject;
     }
+    const hasLeftUserPending = (Array.isArray(employee?.pendingReactivationChanges)
+        ? employee.pendingReactivationChanges
+        : []
+    ).some(
+        (change) =>
+            String(change?.section || '').toLowerCase() === 'workdetails' &&
+            String(change?.proposedData?.status || '').trim() === 'Left User',
+    );
+    if (isHrOrAdmin && hasLeftUserPending) return true;
     return isSubmitter || isSubject || viewerIsProfileActivationDraftEditor(employee, currentUser);
 }
 

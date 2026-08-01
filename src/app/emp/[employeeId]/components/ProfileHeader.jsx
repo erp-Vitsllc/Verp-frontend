@@ -30,6 +30,14 @@ import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { buildActivationHoldPayload } from '@/utils/buildActivationHoldPayload';
 
+function pendingQueueIncludesLeftUser(pendingChanges = []) {
+    return (Array.isArray(pendingChanges) ? pendingChanges : []).some(
+        (change) =>
+            String(change?.section || '').toLowerCase() === 'workdetails' &&
+            String(change?.proposedData?.status || '').trim() === 'Left User',
+    );
+}
+
 function ModalPortal({ children }) {
     if (typeof document === 'undefined') return null;
     return createPortal(children, document.body);
@@ -107,13 +115,21 @@ function ProfileHeader({
     }, [employeeImageKey, setImageErrorProp]);
 
     const { toast } = useToast();
-    const canActOnProfileActivation = canViewerReviewEmployeeActivationAsHr(employee, {
-        canReviewProfileActivation:
-            canReviewProfileActivation || viewerIsDesignatedFlowchartHr || isAdmin(),
-    });
+    const hasLeftUserPending = useMemo(
+        () => pendingQueueIncludesLeftUser(employee?.pendingReactivationChanges),
+        [employee?.pendingReactivationChanges],
+    );
+    const canActOnProfileActivation =
+        canViewerReviewEmployeeActivationAsHr(employee, {
+            canReviewProfileActivation:
+                canReviewProfileActivation || viewerIsDesignatedFlowchartHr || isAdmin(),
+        }) ||
+        // Left User pending: flowchart HR / admin may review without Send for Activation.
+        (hasLeftUserPending &&
+            Boolean(canReviewProfileActivation || viewerIsDesignatedFlowchartHr || isAdmin()));
     const visiblePendingChanges = useMemo(
-        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
-        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
+        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue || hasLeftUserPending),
+        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue, hasLeftUserPending],
     );
     const profileActivated = useMemo(
         () => profileApproved || isEmployeeProfileActivated(employee),
@@ -124,7 +140,7 @@ function ProfileHeader({
         isEmployeeProfileApprovalSubmitted(employee) &&
         String(employee?.profileStatus || 'inactive').toLowerCase() === 'inactive';
     const showHrActivationReviewButton =
-        canActOnProfileActivation && (hasPendingActivationChanges || isFirstActivationAwaitingHr);
+        canActOnProfileActivation && (hasPendingActivationChanges || isFirstActivationAwaitingHr || hasLeftUserPending);
     const showSubmitActivationButton =
         canSendForApproval &&
         (!canActOnProfileActivation || !isEmployeeProfileApprovalSubmitted(employee));
@@ -159,7 +175,7 @@ function ProfileHeader({
 
     /** Rows in the current HR submission (excludes local drafts not sent this time). */
     const scopedReviewEntries = useMemo(() => {
-        if (isDirectHrAction) return pendingReactivationEntries;
+        if (isDirectHrAction || hasLeftUserPending) return pendingReactivationEntries;
         const status = String(employee?.profileApprovalStatus || 'draft').toLowerCase();
         if (status !== 'submitted') return pendingReactivationEntries;
         return filterProfilePendingInCurrentSubmission(
@@ -171,6 +187,7 @@ function ProfileHeader({
         employee?.profileWorkflow,
         employee?.profileApprovalStatus,
         isDirectHrAction,
+        hasLeftUserPending,
     ]);
 
     /** Matches ActivationHoldReviewModal: every held queue row has been re-saved after hold. */
@@ -384,7 +401,9 @@ function ProfileHeader({
             }
 
             const idsForActivate = scopeIds.filter((id) => selectedSet.has(String(id)));
-            const ok = await handleActivateProfile(idsForActivate, { directHr: isDirectHrAction });
+            const ok = await handleActivateProfile(idsForActivate, {
+                directHr: isDirectHrAction || hasLeftUserPending,
+            });
             if (ok) {
                 setShowActivationModal(false);
                 setActivationHoldRowNotesByGroup({});
@@ -782,16 +801,18 @@ function ProfileHeader({
                                                                 : 'Send for Activation'}
                                                 </button>
                                             )}
-                                        {awaitingApproval &&
+                                        {(awaitingApproval || (hasLeftUserPending && showHrActivationReviewButton)) &&
                                             (hasPendingActivationChanges ||
                                                 hasProfileActivationHoldPending ||
+                                                hasLeftUserPending ||
                                                 !profileActivated) && (
                                             <>
                                                 {showHrActivationReviewButton ? (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            openActivationReview(false);
+                                                            // Left User: open as direct HR so Accept applies without Send for Activation gate.
+                                                            openActivationReview(hasLeftUserPending);
                                                         }}
                                                         disabled={activatingProfile}
                                                         className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
@@ -802,7 +823,9 @@ function ProfileHeader({
                                                                 ? 'Review pendings · on hold'
                                                                 : isFirstActivationAwaitingHr && !hasPendingActivationChanges
                                                                   ? 'Review activation'
-                                                                  : 'Review pendings'}
+                                                                  : hasLeftUserPending
+                                                                    ? 'Review Left User'
+                                                                    : 'Review pendings'}
                                                     </button>
                                                 ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview && canViewActivation && hasPendingActivationChanges ? (
                                                     <button

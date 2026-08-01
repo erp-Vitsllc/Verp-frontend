@@ -6788,12 +6788,20 @@ function EmployeeProfilePageContent() {
 
     const handleActivateProfile = async (approvedChangeIds = [], options = {}) => {
         const { directHr = false } = options || {};
-        const approvalStatus = employee?.profileApprovalStatus || 'draft';
+        const approvalStatus = String(employee?.profileApprovalStatus || 'draft').toLowerCase();
+        const hasLeftUserPending = (Array.isArray(employee?.pendingReactivationChanges)
+            ? employee.pendingReactivationChanges
+            : []
+        ).some(
+            (change) =>
+                String(change?.section || '').toLowerCase() === 'workdetails' &&
+                String(change?.proposedData?.status || '').trim() === 'Left User',
+        );
 
         if (activatingProfile || !employee) return false;
 
-        // Normal path: only after employee “Send for Activation”. HR direct path skips this.
-        if (!directHr && approvalStatus !== 'submitted') {
+        // Normal path: only after employee “Send for Activation”. HR direct / Left User path skips this.
+        if (!directHr && !hasLeftUserPending && approvalStatus !== 'submitted') {
             toast({
                 variant: 'destructive',
                 title: 'Cannot activate',
@@ -6808,13 +6816,15 @@ function EmployeeProfilePageContent() {
             await axiosInstance.post(`/Employee/${employeeId}/approve-profile`, {
                 approvedChangeIds: ids,
                 selectionProvided: ids.length > 0,
-                directHrBypass: Boolean(directHr),
+                directHrBypass: Boolean(directHr || hasLeftUserPending),
             });
             await fetchEmployee();
             toast({
                 variant: "default",
                 title: "Profile activated",
-                description: "The employee profile has been activated."
+                description: hasLeftUserPending
+                    ? "Left User change was applied."
+                    : "The employee profile has been activated."
             });
             return true;
         } catch (error) {
