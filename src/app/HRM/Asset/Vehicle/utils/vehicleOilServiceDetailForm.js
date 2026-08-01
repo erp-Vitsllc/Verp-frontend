@@ -208,14 +208,8 @@ export function validateOilServiceDetailCreateForm(formData) {
     ) {
         errors.lastChangeKm = 'Last change KM cannot be more than current KM';
     }
-    if (String(formData.nextChangeKm ?? '').trim() !== '') {
-        const nextKmNum = Number(formData.nextChangeKm);
-        if (!Number.isFinite(nextKmNum) || nextKmNum < 0) {
-            errors.nextChangeKm = 'Next service KM must be a valid number';
-        } else if (Number.isFinite(currentKmNum) && nextKmNum < currentKmNum) {
-            errors.nextChangeKm = 'Next service KM must be equal to or more than current KM';
-        }
-    }
+    // Next service KM is collected on Complete Service — not on Initiate.
+    delete errors.nextChangeKm;
     if (!String(formData.carDrivenByEmployeeId ?? '').trim()) {
         errors.carDrivenByEmployeeId = 'Car driven by is required';
     }
