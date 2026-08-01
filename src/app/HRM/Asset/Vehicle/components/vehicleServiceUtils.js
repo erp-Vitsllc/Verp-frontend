@@ -71,11 +71,12 @@ export function mongoIdsEqual(a, b) {
 /** Same list as the Service tab on vehicle details. */
 export const VEHICLE_SERVICE_TYPES = [
     'Oil Service',
-    'Tire Change',
-    'Mechanical Work',
-    'Body Work',
-    'Accident Repair',
-    'Car Wash',
+    // Temporarily hidden — only Oil Service tab shown on vehicle details
+    // 'Tire Change',
+    // 'Mechanical Work',
+    // 'Body Work',
+    // 'Accident Repair',
+    // 'Car Wash',
 ];
 
 /** Service tab types that use the same pending-request flow as Oil Service (not Car Wash). */

@@ -986,14 +986,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
             });
             return;
         }
-        if (!String(accidentStatusForm.description || '').trim()) {
-            toast({
-                variant: 'destructive',
-                title: 'Description required',
-                description: 'Please enter description.',
-            });
-            return;
-        }
+        // Description is optional for complete / return submit.
         if (!String(accidentStatusForm.returnStatus || '').trim()) {
             toast({
                 variant: 'destructive',
@@ -2129,7 +2122,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 </div>
 
                                 <div className="mb-4">
-                                    <span className={fieldLabel}>Description:-</span>
+                                    <span className={fieldLabel}>Description (optional):-</span>
                                     <textarea
                                         className={`${fieldInput} resize-y min-h-[88px]`}
                                         value={accidentStatusForm.description}
@@ -2887,7 +2880,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 </div>
 
                                 <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] xl:col-span-3 md:col-span-2">
-                                    <label className="text-xs font-medium text-slate-700">Description</label>
+                                    <label className="text-xs font-medium text-slate-700">Description (optional)</label>
                                     <textarea
                                         rows={3}
                                         value={accidentStatusForm.description}
@@ -3165,7 +3158,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 {schedModal === 'extend'
                                     ? 'Add whole calendar days to the end of the current window.'
                                     : schedModal === 'live'
-                                        ? 'Upload completion report and shop invoice (required), add description, then complete.'
+                                        ? 'Upload completion report and shop invoice (required). Description is optional.'
                                         : 'This will reject this scheduled service request and restore vehicle status.'}
                             </p>
                         </div>
@@ -3283,14 +3276,14 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     ) : null}
                                     <div>
                                         <label className="text-xs font-semibold text-slate-700">
-                                            Description {schedModal === 'live' ? <span className="text-red-500">*</span> : null}
+                                            Description {schedModal === 'live' ? <span className="text-slate-400 font-normal">(optional)</span> : null}
                                         </label>
                                         <textarea
                                             className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-y min-h-[72px]"
                                             value={liveNote}
                                             onChange={(e) => setLiveNote(e.target.value)}
                                             rows={2}
-                                            placeholder={schedModal === 'live' ? 'Enter description (required)' : 'Enter note (optional)'}
+                                            placeholder={schedModal === 'live' ? 'Enter description (optional)' : 'Enter note (optional)'}
                                         />
                                     </div>
                                 </>
@@ -3327,8 +3320,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     disabled={
                                         loading ||
                                         (schedModal === 'live' &&
-                                            (!liveNote.trim() ||
-                                                !liveInvoice.data ||
+                                            (!liveInvoice.data ||
                                                 !liveShopInvoice.data))
                                     }
                                     onClick={() => {

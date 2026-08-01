@@ -53,9 +53,7 @@ export function validateBodyWorkReturnForm(formData) {
         errors.newConditionImages = 'New condition photos are required';
     }
 
-    if (!String(formData.returnDescription || '').trim()) {
-        errors.returnDescription = 'Description is required';
-    }
+    // Description is optional on Complete / return.
 
     return errors;
 }

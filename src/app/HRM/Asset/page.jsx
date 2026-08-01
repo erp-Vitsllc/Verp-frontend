@@ -704,13 +704,18 @@ function getAssetListWaitingLabel(item) {
     }
 
     // Assignment Accept: show who has the inbox task (actionRequiredBy).
-    // Company email + user account → assignee. No user account → primary reportee.
+    // User account → assignee. No user account → primary reportee (show reportee name).
     if (isAssignmentAcknowledgmentOnly(item)) {
         if (item.assignedCompany) {
             if (fromAr) return fromAr;
             return resolveAssetCompanyLabel(item);
         }
+        const arId = assetRefId(item.actionRequiredBy);
+        const reporteeId = assetRefId(assignee?.primaryReportee);
+        const assigneeId = assetRefId(item.assignedTo);
+        if (arId && reporteeId && arId === reporteeId && fromReportee) return fromReportee;
         if (fromAr) return fromAr;
+        if (arId && assigneeId && arId === assigneeId && assigneeLabel) return assigneeLabel;
         if (fromReportee) return fromReportee;
         if (assigneeLabel) return assigneeLabel;
         return 'Acknowledgment';

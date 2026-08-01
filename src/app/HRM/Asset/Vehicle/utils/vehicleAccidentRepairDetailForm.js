@@ -236,6 +236,9 @@ export function validateAccidentRepairDetailForm(formData, asset = null) {
         e.accidentImages = 'Accident photos are required';
     }
 
+    // Description is optional on Accident Repair details.
+    delete e.serviceIssue;
+
     return e;
 }
 

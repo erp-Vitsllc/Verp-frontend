@@ -136,6 +136,7 @@ import {
     resolveLiveInsuranceDoc,
     resolveLiveWarrantyDoc,
     resolveVehicleExpirySources,
+    isVehicleExpiryDatePast,
 } from '../../utils/vehicleExpirySources';
 import VehicleServiceModal from '../../components/VehicleServiceModal';
 import VehicleCarWashRequestModal from '../../components/VehicleCarWashRequestModal';
@@ -465,7 +466,8 @@ function VehicleDetailsPageContent() {
     const [serviceInnerTab, setServiceInnerTab] = useState(() => {
         const fromUrl = String(searchParams.get('serviceTab') || '').trim();
         if (fromUrl && VEHICLE_SERVICE_TYPES.includes(fromUrl)) return fromUrl;
-        if (searchParams.get('carWashServiceId')) return 'Car Wash';
+        // Car Wash / other service tabs temporarily hidden — keep Oil Service only
+        // if (searchParams.get('carWashServiceId')) return 'Car Wash';
         if (searchParams.get('focusCard') === 'vehicleService') return 'Oil Service';
         return VEHICLE_SERVICE_TYPES[0];
     });
@@ -554,8 +556,9 @@ function VehicleDetailsPageContent() {
             const serviceTab = String(searchParams.get('serviceTab') || '').trim();
             if (serviceTab && VEHICLE_SERVICE_TYPES.includes(serviceTab)) {
                 setServiceInnerTab((prev) => (prev === serviceTab ? prev : serviceTab));
-            } else if (searchParams.get('carWashServiceId')) {
-                setServiceInnerTab((prev) => (prev === 'Car Wash' ? prev : 'Car Wash'));
+            // Car Wash / other service tabs temporarily hidden — keep Oil Service only
+            // } else if (searchParams.get('carWashServiceId')) {
+            //     setServiceInnerTab((prev) => (prev === 'Car Wash' ? prev : 'Car Wash'));
             } else if (searchParams.get('focusCard') === 'vehicleService') {
                 setServiceInnerTab((prev) => (prev === 'Oil Service' ? prev : 'Oil Service'));
             }
@@ -2091,6 +2094,15 @@ function VehicleDetailsPageContent() {
             cardEndKm !== null &&
             cardEndKm !== undefined &&
             String(cardEndKm).trim() !== '';
+        const currentKmNum = hasCardCurrentKm ? Number(cardCurrentKm) : NaN;
+        const endKmNum = hasCardEndKm ? Number(cardEndKm) : NaN;
+        const kmExpired =
+            Number.isFinite(currentKmNum) &&
+            Number.isFinite(endKmNum) &&
+            endKmNum > 0 &&
+            currentKmNum >= endKmNum;
+        const dateExpired = isVehicleExpiryDatePast(cardEnd);
+        const isExpired = dateExpired || kmExpired;
         const coveredLabel = Array.isArray(meta.warrantyCovered)
             ? meta.warrantyCovered.join(', ')
             : meta.warrantyCovered;
@@ -2122,13 +2134,26 @@ function VehicleDetailsPageContent() {
                         openWarrantyOldDocuments();
                     }
                 }}
-                className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0 cursor-pointer hover:border-teal-200 hover:shadow-md transition-all"
+                className={`rounded-2xl border shadow-sm overflow-hidden px-2 py-0 cursor-pointer hover:shadow-md transition-all ${
+                    isExpired
+                        ? 'bg-rose-50 border-rose-300 hover:border-rose-400'
+                        : 'bg-white border-slate-100 hover:border-teal-200'
+                }`}
                 title="Open Old Documents"
             >
-                <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between gap-3">
-                    <h3 className="text-base font-bold text-slate-800">
+                <div
+                    className={`px-5 py-4 flex items-center justify-between gap-3 ${
+                        isExpired ? 'border-b border-rose-200' : 'border-b border-slate-50'
+                    }`}
+                >
+                    <h3 className={`text-base font-bold ${isExpired ? 'text-rose-700' : 'text-slate-800'}`}>
                         Warranty Details
                         {warrantyCards.length > 1 ? ` #${cardIdx + 1}` : ''}
+                        {isExpired ? (
+                            <span className="ml-2 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                                Expired
+                            </span>
+                        ) : null}
                     </h3>
                     <div
                         className="flex items-center gap-2 shrink-0"
@@ -2216,19 +2241,25 @@ function VehicleDetailsPageContent() {
                                 ? `${Number(cardEndKm).toLocaleString()} KM`
                                 : '-',
                         },
-                    ].map((row, idx, arr) => (
+                    ].map((row, idx, arr) => {
+                        const isEndDateRow = row.label === 'End Date';
+                        const isEndKmRow = row.label === 'End KM';
+                        const highlightExpired =
+                            (isEndDateRow && dateExpired) || (isEndKmRow && kmExpired);
+                        return (
                         <div
                             key={row.label}
-                            className={`flex items-center justify-between gap-3 py-3 ${idx !== arr.length - 1 || doc?.attachment || cardAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                            className={`flex items-center justify-between gap-3 py-3 ${idx !== arr.length - 1 || doc?.attachment || cardAttachments.length > 0 ? (isExpired ? 'border-b border-rose-100' : 'border-b border-slate-100') : ''}`}
                         >
-                            <span className="text-[13px] text-slate-500 shrink-0">{row.label}</span>
-                            <span className="text-[13px] font-semibold text-slate-700 text-right break-words ml-auto">{row.value}</span>
+                            <span className={`text-[13px] shrink-0 ${highlightExpired ? 'text-rose-600' : 'text-slate-500'}`}>{row.label}</span>
+                            <span className={`text-[13px] font-semibold text-right break-words ml-auto ${highlightExpired ? 'text-rose-700' : 'text-slate-700'}`}>{row.value}</span>
                         </div>
-                    ))}
+                        );
+                    })}
 
                     {(doc?.attachment || cardAttachments.length > 0) && (
                         <div
-                            className="mt-4 pt-4 border-t border-slate-50"
+                            className={`mt-4 pt-4 ${isExpired ? 'border-t border-rose-100' : 'border-t border-slate-50'}`}
                             onClick={(e) => e.stopPropagation()}
                         >
                             <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Warranty Documents</h4>
@@ -2370,6 +2401,9 @@ function VehicleDetailsPageContent() {
         insuranceMeta?.excessCharge != null ||
         (insuranceAttachments && insuranceAttachments.length > 0)
     );
+
+    const isRegistrationExpired = isVehicleExpiryDatePast(registrationDoc?.expiryDate);
+    const isInsuranceExpired = isVehicleExpiryDatePast(insuranceDoc?.expiryDate);
 
     const vehicleGpsInfoRows = buildVehicleGpsInfoRows(asset);
     const hasLocatorGpsInfo = Boolean(
@@ -3949,9 +3983,27 @@ function VehicleDetailsPageContent() {
                                             </div>
 
                                             {hasInsuranceCardData && (
-                                                <div id="asset-focus-vehicleInsurance" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                        <h3 className="text-base font-bold text-slate-800">Insurance Details</h3>
+                                                <div
+                                                    id="asset-focus-vehicleInsurance"
+                                                    className={`rounded-2xl border shadow-sm overflow-hidden px-2 py-0 ${
+                                                        isInsuranceExpired
+                                                            ? 'bg-rose-50 border-rose-300'
+                                                            : 'bg-white border-slate-100'
+                                                    }`}
+                                                >
+                                                    <div
+                                                        className={`px-5 py-4 flex items-center justify-between ${
+                                                            isInsuranceExpired ? 'border-b border-rose-200' : 'border-b border-slate-50'
+                                                        }`}
+                                                    >
+                                                        <h3 className={`text-base font-bold ${isInsuranceExpired ? 'text-rose-700' : 'text-slate-800'}`}>
+                                                            Insurance Details
+                                                            {isInsuranceExpired ? (
+                                                                <span className="ml-2 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                                                                    Expired
+                                                                </span>
+                                                            ) : null}
+                                                        </h3>
                                                         <div className="flex items-center gap-2">
                                                             {vehicleCardActionFlags('insurance').showRenew && (
                                                                 <button
@@ -4007,18 +4059,21 @@ function VehicleDetailsPageContent() {
                                                             { label: 'End Date', value: insuranceDoc?.expiryDate ? formatDate(insuranceDoc.expiryDate) : null },
                                                             { label: 'Premium Amount', value: insuranceMeta.premiumAmount ? `AED ${Number(insuranceMeta.premiumAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : null },
                                                             { label: 'Excess Charge', value: insuranceMeta.excessCharge ? `AED ${Number(insuranceMeta.excessCharge).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : null },
-                                                        ].filter(r => r.value).map((row, idx, arr) => (
+                                                        ].filter(r => r.value).map((row, idx, arr) => {
+                                                            const highlightExpired = isInsuranceExpired && row.label === 'End Date';
+                                                            return (
                                                             <div
                                                                 key={row.label}
-                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || insuranceAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || insuranceAttachments.length > 0 ? (isInsuranceExpired ? 'border-b border-rose-100' : 'border-b border-slate-100') : ''}`}
                                                             >
-                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                                <span className={`text-[13px] ${highlightExpired ? 'text-rose-600' : 'text-slate-500'}`}>{row.label}</span>
+                                                                <span className={`text-[13px] font-semibold max-w-[60%] text-right break-words ${highlightExpired ? 'text-rose-700' : 'text-slate-700'}`}>{row.value}</span>
                                                             </div>
-                                                        ))}
+                                                            );
+                                                        })}
 
                                                         {insuranceAttachments.length > 0 && (
-                                                            <div className="mt-4 pt-4 border-t border-slate-50">
+                                                            <div className={`mt-4 pt-4 ${isInsuranceExpired ? 'border-t border-rose-100' : 'border-t border-slate-50'}`}>
                                                                 <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Insurance Documents</h4>
                                                                 <div className="space-y-2">
                                                                     {insuranceAttachments.map((att, idx) => (
@@ -4179,9 +4234,27 @@ function VehicleDetailsPageContent() {
                                             )}
 
                                             {hasRegistrationCardData && (
-                                                <div id="asset-focus-vehicleRegistration" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                        <h3 className="text-base font-bold text-slate-800">Mulkia (Registration)</h3>
+                                                <div
+                                                    id="asset-focus-vehicleRegistration"
+                                                    className={`rounded-2xl border shadow-sm overflow-hidden px-2 py-0 ${
+                                                        isRegistrationExpired
+                                                            ? 'bg-rose-50 border-rose-300'
+                                                            : 'bg-white border-slate-100'
+                                                    }`}
+                                                >
+                                                    <div
+                                                        className={`px-5 py-4 flex items-center justify-between ${
+                                                            isRegistrationExpired ? 'border-b border-rose-200' : 'border-b border-slate-50'
+                                                        }`}
+                                                    >
+                                                        <h3 className={`text-base font-bold ${isRegistrationExpired ? 'text-rose-700' : 'text-slate-800'}`}>
+                                                            Mulkia (Registration)
+                                                            {isRegistrationExpired ? (
+                                                                <span className="ml-2 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                                                                    Expired
+                                                                </span>
+                                                            ) : null}
+                                                        </h3>
                                                         <div className="flex items-center gap-2">
                                                             {vehicleCardActionFlags('mulkia').showRenew && (
                                                                 <button
@@ -4242,20 +4315,23 @@ function VehicleDetailsPageContent() {
                                                             { label: 'Registration Date', value: formatDate(registrationDoc?.issueDate) },
                                                             { label: 'Expiry Date', value: formatDate(registrationDoc?.expiryDate) },
                                                             { label: 'Registration Value', value: registrationMeta.fee ? `AED ${Number(registrationMeta.fee).toLocaleString()}` : null },
-                                                        ].map((row, idx, arr) => (
+                                                        ].map((row, idx, arr) => {
+                                                            const highlightExpired = isRegistrationExpired && row.label === 'Expiry Date';
+                                                            return (
                                                             <div
                                                                 key={row.label}
-                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || registrationDoc?.attachment || registrationAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || registrationDoc?.attachment || registrationAttachments.length > 0 ? (isRegistrationExpired ? 'border-b border-rose-100' : 'border-b border-slate-100') : ''}`}
                                                             >
-                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                <span className={`text-[13px] ${highlightExpired ? 'text-rose-600' : 'text-slate-500'}`}>{row.label}</span>
+                                                                <span className={`text-[13px] font-semibold max-w-[60%] text-right break-words ${highlightExpired ? 'text-rose-700' : 'text-slate-700'}`}>
                                                                     {row.value || <span className="text-slate-300 font-semibold">—</span>}
                                                                 </span>
                                                             </div>
-                                                        ))}
+                                                            );
+                                                        })}
 
                                                         {(registrationDoc?.attachment || registrationAttachments.length > 0) && (
-                                                            <div className="mt-4 pt-4 border-t border-slate-50">
+                                                            <div className={`mt-4 pt-4 ${isRegistrationExpired ? 'border-t border-rose-100' : 'border-t border-slate-50'}`}>
                                                                 <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Registration Documents</h4>
                                                                 <div className="space-y-2">
                                                                     {registrationDoc?.attachment && (

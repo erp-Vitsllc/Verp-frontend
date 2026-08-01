@@ -490,7 +490,7 @@ export default function VehicleAccidentRepairForm({
                 </div>
 
                 <div className="mb-4">
-                    <span className={fieldLabel}>{showCreatorActions ? 'Note' : 'Accident Description:-'}</span>
+                    <span className={fieldLabel}>{showCreatorActions ? 'Note (optional)' : 'Accident Description (optional):-'}</span>
                     <textarea
                         value={formData.serviceIssue}
                         onChange={(e) => set('serviceIssue', e.target.value)}
@@ -706,7 +706,7 @@ export default function VehicleAccidentRepairForm({
                     />
                 </div>
                 <div className="mb-4">
-                    <span className={fieldLabel}>Description:-</span>
+                    <span className={fieldLabel}>Description (optional):-</span>
                     <textarea
                         value={formData.returnDescription || ''}
                         onChange={(e) => set('returnDescription', e.target.value)}

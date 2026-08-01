@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
+import { isVehicleExpiryDatePast } from '../utils/vehicleExpirySources';
 import { computeVehicleProfileCompletionPercent, getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 import {
@@ -272,7 +273,8 @@ export default function VehicleAssetProfileHeader({
             label: 'Warranty',
             value: warrantyRequired
                 ? (warrantyLineParts.length ? warrantyLineParts.join(' - ') : 'Pending')
-                : 'No'
+                : 'No',
+            expired: warrantyRequired && isVehicleExpiryDatePast(warrantyExpirySrc),
         },
         {
             label: 'Assignee',
@@ -398,8 +400,20 @@ export default function VehicleAssetProfileHeader({
                     <div className="flex flex-col gap-0.5 sm:gap-1 mt-0">
                         {rows.map((row) => (
                             <div key={row.label} className="flex items-baseline gap-1.5 min-w-0">
-                                <span className="text-[10px] sm:text-[11px] lg:text-xs font-black text-black uppercase whitespace-nowrap shrink-0">{row.label} :</span>
-                                <span className="text-[10px] sm:text-[11px] lg:text-xs font-bold text-black leading-snug break-words min-w-0">{row.value}</span>
+                                <span
+                                    className={`text-[10px] sm:text-[11px] lg:text-xs font-black uppercase whitespace-nowrap shrink-0 ${
+                                        row.expired ? 'text-rose-700' : 'text-black'
+                                    }`}
+                                >
+                                    {row.label} :
+                                </span>
+                                <span
+                                    className={`text-[10px] sm:text-[11px] lg:text-xs font-bold leading-snug break-words min-w-0 ${
+                                        row.expired ? 'text-rose-700' : 'text-black'
+                                    }`}
+                                >
+                                    {row.value}
+                                </span>
                             </div>
                         ))}
                         <div className="pt-1 flex flex-wrap items-center gap-1.5">

@@ -1592,7 +1592,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <AlignLeft size={11} /> Description
+                                <AlignLeft size={11} /> Description <span className="font-semibold normal-case tracking-normal text-gray-400">(optional)</span>
                             </label>
                             <textarea
                                 value={formData.serviceIssue}
@@ -1642,7 +1642,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                     <>
                         <div className="space-y-1.5 order-1">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <AlignLeft size={11} /> Description
+                                <AlignLeft size={11} /> Description <span className="font-semibold normal-case tracking-normal text-gray-400">(optional)</span>
                             </label>
                             <textarea
                                 value={formData.serviceIssue}

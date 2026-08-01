@@ -1030,7 +1030,7 @@ export default function VehicleBodyWorkDetailForm({
 
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                            Body Work Description
+                            Body Work Description (optional)
                         </span>
                         <textarea
                             className={`${tireFieldSelect} mt-1.5 resize-y min-h-[88px] font-medium`}

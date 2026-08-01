@@ -436,9 +436,8 @@ export function validateBodyWorkDetailForm(formData, asset = null) {
         e.bodyWorkImages = 'Rectification area photos are required';
     }
 
-    if (!String(formData.serviceIssue || '').trim()) {
-        e.serviceIssue = 'Description is required';
-    }
+    // Description is optional on Body Work details (initiate / schedule / HR / complete).
+    delete e.serviceIssue;
 
     if (paymentByMode === 'person') {
         delete e.companyPayPercent;

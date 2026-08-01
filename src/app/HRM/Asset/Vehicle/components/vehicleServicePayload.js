@@ -261,9 +261,7 @@ export function validateVehicleServiceForm(formData, options = {}) {
         e.vendorName = 'Supplier is required when warranty is selected';
     }
     if (!formData.date) e.date = 'Date is required';
-    if (!formData.serviceIssue) {
-        e.serviceIssue = isAccidentRepair ? 'Accident description is required' : 'Service issue is required';
-    }
+    // Description is optional across vehicle service details / create flows.
     if (
         !isAccidentRepair &&
         formData.amountMode !== 'warranty' &&

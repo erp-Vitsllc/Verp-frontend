@@ -901,7 +901,7 @@ export default function VehicleAccidentRepairDetailForm({
 
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                            Accident Description
+                            Accident Description (optional)
                         </span>
                         <textarea
                             className={`${tireFieldSelect} mt-1.5 resize-y min-h-[88px] font-medium`}

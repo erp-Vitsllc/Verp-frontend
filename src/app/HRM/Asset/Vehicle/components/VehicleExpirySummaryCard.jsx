@@ -1,7 +1,10 @@
 'use client';
 
 import { ACTION_BTN_BASE } from '../utils/evaluateVehicleFleetHeaderActions';
-import { formatVehicleExpiryCountdown } from '../utils/vehicleExpirySources';
+import {
+    formatVehicleExpiryCountdown,
+    isVehicleExpiryDatePast,
+} from '../utils/vehicleExpirySources';
 
 /**
  * Blue fleet summary: expiry countdowns on the left, assignment actions on the right
@@ -26,6 +29,7 @@ export default function VehicleExpirySummaryCard({
         label,
         value: formatVehicleExpiryCountdown(date),
         hasDate: date != null && String(date).trim() !== '',
+        expired: isVehicleExpiryDatePast(date),
     }));
 
     const hasActions = actionButtons.length > 0;
@@ -52,14 +56,22 @@ export default function VehicleExpirySummaryCard({
                                 : 'flex flex-col justify-center gap-1.5 sm:gap-2'
                         }
                     >
-                        {rows.map(({ label, value, hasDate }) => (
+                        {rows.map(({ label, value, hasDate, expired }) => (
                             <div key={label} className="flex flex-col gap-0 sm:flex-row sm:items-baseline sm:gap-1.5 min-w-0">
-                                <span className="text-[11px] sm:text-xs lg:text-[13px] font-black text-white whitespace-nowrap tracking-tight">
+                                <span
+                                    className={`text-[11px] sm:text-xs lg:text-[13px] font-black whitespace-nowrap tracking-tight ${
+                                        expired ? 'text-red-100' : 'text-white'
+                                    }`}
+                                >
                                     {label} :
                                 </span>
                                 <span
                                     className={`text-[10px] sm:text-[11px] lg:text-xs font-black tracking-tight leading-snug break-words min-w-0 ${
-                                        hasDate ? 'text-white' : 'text-white/70'
+                                        expired
+                                            ? 'text-red-100 bg-red-700/45 px-1.5 py-0.5 rounded'
+                                            : hasDate
+                                              ? 'text-white'
+                                              : 'text-white/70'
                                     }`}
                                 >
                                     {value}

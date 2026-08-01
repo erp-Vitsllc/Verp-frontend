@@ -65,6 +65,13 @@ export function resolveVehicleExpirySources(asset, liveBuckets) {
     };
 }
 
+/** True when the calendar expiry date is before today (same rule as countdown). */
+export function isVehicleExpiryDatePast(expiryDate) {
+    if (expiryDate == null || String(expiryDate).trim() === '') return false;
+    const parts = decomposeCalendarDurationUntil(expiryDate);
+    return Boolean(parts?.expired);
+}
+
 /** Blue card value: "Expires in …" / "Expired … ago" / "Not on file". */
 export function formatVehicleExpiryCountdown(expiryDate) {
     if (expiryDate == null || String(expiryDate).trim() === '') return 'Not on file';

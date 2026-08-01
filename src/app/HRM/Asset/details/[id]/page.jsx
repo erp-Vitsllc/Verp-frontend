@@ -284,9 +284,11 @@ const getAssetApproverDisplayName = (asset) => {
     const arName = empDisplayName(asset.actionRequiredBy);
     const reporteeName = empDisplayName(asset.assignedTo?.primaryReportee);
     const assigneeName = empDisplayName(asset.assignedTo);
-    const arIsAssignee =
-        Boolean(assetRefId(asset.actionRequiredBy) && assetRefId(asset.assignedTo)) &&
-        assetRefId(asset.actionRequiredBy) === assetRefId(asset.assignedTo);
+    const arId = assetRefId(asset.actionRequiredBy);
+    const assigneeId = assetRefId(asset.assignedTo);
+    const reporteeId = assetRefId(asset.assignedTo?.primaryReportee);
+    const arIsAssignee = Boolean(arId && assigneeId) && arId === assigneeId;
+    const arIsReportee = Boolean(arId && reporteeId) && arId === reporteeId;
 
     if (isAssetAssignmentAcknowledgmentPending(asset)) {
         // Company acceptors
@@ -294,9 +296,13 @@ const getAssetApproverDisplayName = (asset) => {
             if (arName) return arName;
             return 'Company coordinator';
         }
-        // Trust actionRequiredBy: assignee (has portal) or HOD/reportee (no portal) — never prefer HOD over AR.
+        // Has user account → Waiting {assignee}. No account → Waiting {primary reportee}.
+        // Prefer resolved names: match actionRequiredBy id to reportee/assignee when AR lacks name fields.
+        if (arIsReportee && reporteeName) return reporteeName;
         if (arName) return arName;
-        if (reporteeName) return reporteeName;
+        if (arIsAssignee && assigneeName) return assigneeName;
+        if (reporteeName && arId && !arIsAssignee) return reporteeName;
+        if (reporteeName && !arId) return reporteeName;
         if (assigneeName) return assigneeName;
         return 'Acknowledgment';
     }
@@ -2699,7 +2705,7 @@ function AssetDetailsPageContent() {
                                     isAssignmentPending &&
                                     (isActionRequiredByMe || effectiveIsHR);
 
-                                // Only actionRequiredBy may Accept — company email + user account → assignee; else primary reportee.
+                                // Only actionRequiredBy may Accept — user account → assignee; else primary reportee.
                                 const shouldShowAssignmentAck =
                                     isCompanyAsset
                                         ? isCompanyApprover
