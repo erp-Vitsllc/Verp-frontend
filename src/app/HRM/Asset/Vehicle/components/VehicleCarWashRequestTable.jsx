@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronRight, ClipboardList, Trash2 } from 'lucide-react';
-import { formatNextChangeMonthDisplay } from './vehicleServiceUtils';
+import { formatNextChangeMonthDisplay, serviceAmountStatusBadgeClass } from './vehicleServiceUtils';
 
 function formatAmount(value) {
     if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) return '—';
@@ -40,7 +40,7 @@ export default function VehicleCarWashRequestTable({
 
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse min-w-[860px]">
+            <table className="w-full text-sm border-collapse min-w-[1040px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
                         <th className="px-4 py-3 whitespace-nowrap">VSR-No</th>
@@ -49,6 +49,8 @@ export default function VehicleCarWashRequestTable({
                         <th className="px-4 py-3 whitespace-nowrap">Car Wash Month</th>
                         <th className="px-4 py-3 whitespace-nowrap">Car Wash Type</th>
                         <th className="px-4 py-3 whitespace-nowrap">Amount</th>
+                        <th className="px-4 py-3 whitespace-nowrap">Amount type</th>
+                        <th className="px-4 py-3 whitespace-nowrap">Amount status</th>
                         <th className="px-4 py-3 whitespace-nowrap">Status</th>
                         {showActions ? (
                             <th className="px-4 py-3 whitespace-nowrap text-right w-24">Actions</th>
@@ -95,6 +97,16 @@ export default function VehicleCarWashRequestTable({
                             <td className="px-4 py-2.5 text-slate-700">{row.carWashType || '—'}</td>
                             <td className="px-4 py-2.5 text-slate-700 tabular-nums">
                                 {formatAmount(row.amount)}
+                            </td>
+                            <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-xs">
+                                {row.amountType || '—'}
+                            </td>
+                            <td className="px-4 py-2.5">
+                                <span
+                                    className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${serviceAmountStatusBadgeClass(row.amountStatusTone)}`}
+                                >
+                                    {row.amountStatus || '—'}
+                                </span>
                             </td>
                             <td className="px-4 py-2.5">
                                 <span

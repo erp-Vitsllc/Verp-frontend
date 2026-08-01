@@ -159,8 +159,31 @@ function hasValidServiceCharge(form) {
     return Number.isFinite(charge) && charge > 0;
 }
 
+function resolveCurrentServiceKm(service) {
+    const remark = parseVehicleServiceRemark(service) || {};
+    const candidates = [
+        remark.currentKm,
+        service?.currentKm,
+        service?.kilometer,
+        service?.odometer,
+        remark.lastChangeKm,
+    ];
+    for (const raw of candidates) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n >= 0) return n;
+    }
+    return null;
+}
+
+function isNextServiceKmValid(nextServiceKm, currentKm) {
+    if (currentKm == null || !Number.isFinite(Number(currentKm))) return true;
+    const next = Number(nextServiceKm);
+    if (!Number.isFinite(next)) return false;
+    return next >= Number(currentKm);
+}
+
 /** Mandatory fields shown on the Complete Service form. Total charge is seeded from Schedule and hidden. */
-function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false) {
+function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false, currentKm = null) {
     return (
         hasGarageInvoice(form, hasPersistedGarageInvoice) &&
         String(form.handOverDate || '').trim() !== '' &&
@@ -168,12 +191,13 @@ function isServiceDetailsComplete(form, hasPersistedGarageInvoice = false) {
         String(form.returnDate || '').trim() !== '' &&
         isOnOrAfterServiceEnd(form.returnDate, form.serviceEndDate) &&
         String(form.nextServiceKm ?? '').trim() !== '' &&
+        isNextServiceKmValid(form.nextServiceKm, currentKm) &&
         String(form.nextServiceDate || '').trim() !== '' &&
         isAfterServiceEnd(form.nextServiceDate, form.serviceEndDate)
     );
 }
 
-function getServiceDetailsMissingFields(form, hasPersistedGarageInvoice = false) {
+function getServiceDetailsMissingFields(form, hasPersistedGarageInvoice = false, currentKm = null) {
     const missing = [];
     if (!hasGarageInvoice(form, hasPersistedGarageInvoice)) missing.push('Garage invoice');
     if (!String(form.handOverDate || '').trim()) {
@@ -192,7 +216,13 @@ function getServiceDetailsMissingFields(form, hasPersistedGarageInvoice = false)
     ) {
         missing.push('Return date (must be on or after service end date)');
     }
-    if (!String(form.nextServiceKm ?? '').trim()) missing.push('Next service KM');
+    if (!String(form.nextServiceKm ?? '').trim()) {
+        missing.push('Next service KM');
+    } else if (!isNextServiceKmValid(form.nextServiceKm, currentKm)) {
+        missing.push(
+            `Next service KM (must be ≥ current KM${currentKm != null ? ` ${Number(currentKm).toLocaleString()}` : ''})`,
+        );
+    }
     if (!String(form.nextServiceDate || '').trim()) {
         missing.push('Next service date');
     } else if (
@@ -215,6 +245,7 @@ export default function VehicleOilServiceDetailsForm({
     onSubmit,
 }) {
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
+    const currentKm = useMemo(() => resolveCurrentServiceKm(service), [service]);
     const [form, setForm] = useState(() => buildInitialForm(service, workflow));
 
     useEffect(() => {
@@ -231,8 +262,8 @@ export default function VehicleOilServiceDetailsForm({
     const showActions = !locked && canAct;
     const { fieldMinHeightPx, gapClass } = OIL_SERVICE_DETAIL_GRID_LAYOUT;
     const accent = (index) => OIL_SERVICE_DETAIL_GRID_ACCENTS[index % OIL_SERVICE_DETAIL_GRID_ACCENTS.length];
-    const formComplete = isServiceDetailsComplete(form, hasPersistedGarageInvoice);
-    const missingFields = getServiceDetailsMissingFields(form, hasPersistedGarageInvoice);
+    const formComplete = isServiceDetailsComplete(form, hasPersistedGarageInvoice, currentKm);
+    const missingFields = getServiceDetailsMissingFields(form, hasPersistedGarageInvoice, currentKm);
     const chargeMissing = !hasValidServiceCharge(form);
     const canSaveDraft = showActions && !saving && !submitting;
     const canSend = showActions && !saving && !submitting && formComplete;
@@ -385,11 +416,23 @@ export default function VehicleOilServiceDetailsForm({
                     <input
                         className={fieldInput}
                         type="number"
-                        min="0"
+                        min={currentKm != null ? String(currentKm) : '0'}
                         value={form.nextServiceKm}
                         onChange={(e) => setForm((prev) => ({ ...prev, nextServiceKm: e.target.value }))}
                         disabled={fieldsDisabled || !canAct}
+                        placeholder={currentKm != null ? `≥ ${Number(currentKm).toLocaleString()} KM` : 'KM'}
                     />
+                    {currentKm != null ? (
+                        <p className="mt-1 text-[10px] font-medium text-gray-400">
+                            Must be equal to or more than current KM ({Number(currentKm).toLocaleString()})
+                        </p>
+                    ) : null}
+                    {String(form.nextServiceKm ?? '').trim() &&
+                    !isNextServiceKmValid(form.nextServiceKm, currentKm) ? (
+                        <p className="mt-1 text-[10px] font-semibold text-rose-600">
+                            Next service KM must be ≥ current KM
+                        </p>
+                    ) : null}
                 </FieldCard>
                 <FieldCard label="Next Service Date" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
                     <DatePicker

@@ -1,6 +1,57 @@
 /** Compare Mongo ObjectIds / $oid / populated shapes from JSON APIs. */
 import { parseServiceRemark } from './vehicleServicePayload';
 import { resolveOilServiceTableStatusLabel } from '../utils/vehicleOilServiceAccess';
+import { oilPaymentTypeLabel, normalizeOilPaymentType } from '../utils/vehicleOilServiceDetailForm';
+
+/**
+ * Amount Type + Amount Status for Service tab tables (Zoho-linked Cash path).
+ * - Amount Type: Cash / Warranty (from remark.amountMode)
+ * - Amount Status: Pending | Not Paid | Paid
+ *   Pending  = Cash path, Zoho bill not created yet
+ *   Not Paid = Zoho bill created (open), vendor payment outstanding
+ *   Paid     = Zoho vendor payment settled (remark.zohoPaymentStatus=paid or Zoho bill paid)
+ *   Warranty = "—" (no Zoho payment)
+ */
+export function resolveServiceAmountTypeAndStatus(serviceOrRemark) {
+    const remark =
+        serviceOrRemark && typeof serviceOrRemark === 'object' && !serviceOrRemark.remark
+            ? serviceOrRemark
+            : parseVehicleServiceRemark(serviceOrRemark) || {};
+    const amountMode = normalizeOilPaymentType(remark.amountMode) || String(remark.amountMode || '').toLowerCase();
+    const amountType = amountMode === 'warranty' ? 'Warranty' : oilPaymentTypeLabel(amountMode || 'amount') || 'Cash';
+
+    if (amountMode === 'warranty') {
+        return { amountType: 'Warranty', amountStatus: '—', amountStatusTone: 'na' };
+    }
+
+    const zohoBillId = String(remark.zohoBillId || '').trim();
+    const billingStatus = String(remark.billingStatus || '').toLowerCase();
+    const zohoPaymentStatus = String(remark.zohoPaymentStatus || '').toLowerCase();
+    const zohoBillStatus = String(remark.zohoBillStatus || '').toLowerCase();
+    const carWashPay = String(remark.carWashPaymentStatus || '').toLowerCase();
+
+    if (
+        zohoPaymentStatus === 'paid' ||
+        zohoBillStatus === 'paid' ||
+        carWashPay === 'paid' ||
+        billingStatus === 'paid'
+    ) {
+        return { amountType, amountStatus: 'Paid', amountStatusTone: 'paid' };
+    }
+
+    if (zohoBillId || billingStatus === 'billed' || carWashPay === 'billed') {
+        return { amountType, amountStatus: 'Not Paid', amountStatusTone: 'not_paid' };
+    }
+
+    return { amountType, amountStatus: 'Pending', amountStatusTone: 'pending' };
+}
+
+export function serviceAmountStatusBadgeClass(tone) {
+    if (tone === 'paid') return 'bg-emerald-100 text-emerald-800';
+    if (tone === 'not_paid') return 'bg-amber-100 text-amber-900';
+    if (tone === 'pending') return 'bg-slate-100 text-slate-700';
+    return 'bg-transparent text-slate-400';
+}
 
 export function normalizeMongoId(v) {
     if (v == null || v === '') return '';
@@ -372,6 +423,7 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
     const statusInfo = service
         ? oilServiceRequestTableStatus(service, asset)
         : { label: 'Draft', tone: 'draft' };
+    const amountInfo = resolveServiceAmountTypeAndStatus(requestMeta || service);
 
     return {
         id: serviceId || id || `oil-pending-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -384,6 +436,9 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
             service?.date || service?.createdAt || asset?.oilChangeDate || latestCompleted?.date || null,
         nextOilServiceKm,
         nextOilServiceDate,
+        amountType: amountInfo.amountType,
+        amountStatus: amountInfo.amountStatus,
+        amountStatusTone: amountInfo.amountStatusTone,
         status: statusInfo.label,
         statusTone: statusInfo.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : nextOilServiceDate || null,
@@ -505,6 +560,7 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
               return { label: 'Pending', tone: 'pending' };
           })()
         : { label: 'Pending', tone: 'pending' };
+    const amountInfo = resolveServiceAmountTypeAndStatus(remark || service);
 
     return {
         id: serviceId || `car-wash-${Date.now()}`,
@@ -515,6 +571,9 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
         carWashMonth: remark?.carWashMonth || '',
         carWashType: remark?.carWashType || '—',
         amount: service?.value != null ? Number(service.value) : null,
+        amountType: amountInfo.amountType,
+        amountStatus: amountInfo.amountStatus,
+        amountStatusTone: amountInfo.amountStatusTone,
         status: statusInfo.label,
         statusTone: statusInfo.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
@@ -561,6 +620,7 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
     const statusInfo = service
         ? resolveOilServiceTableStatusLabel(service, asset)
         : { label: 'Draft', tone: 'draft' };
+    const amountInfo = resolveServiceAmountTypeAndStatus(remark || service);
 
     return {
         id: serviceId || `${serviceType}-pending-${Date.now()}`,
@@ -570,6 +630,9 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
         vehicleNo,
         requestDate: service?.date || service?.createdAt || null,
         currentKm: remark?.currentKm ?? service?.currentKm ?? asset?.currentKilometer ?? '—',
+        amountType: amountInfo.amountType,
+        amountStatus: amountInfo.amountStatus,
+        amountStatusTone: amountInfo.amountStatusTone,
         status: statusInfo.label,
         statusTone: statusInfo.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,

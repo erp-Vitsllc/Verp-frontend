@@ -199,6 +199,23 @@ export function validateOilServiceDetailCreateForm(formData) {
     if (!String(formData.lastChangeKm ?? '').trim()) {
         errors.lastChangeKm = 'Last change KM is required';
     }
+    const currentKmNum = Number(formData.currentKm);
+    const lastKmNum = Number(formData.lastChangeKm);
+    if (
+        Number.isFinite(currentKmNum) &&
+        Number.isFinite(lastKmNum) &&
+        lastKmNum > currentKmNum
+    ) {
+        errors.lastChangeKm = 'Last change KM cannot be more than current KM';
+    }
+    if (String(formData.nextChangeKm ?? '').trim() !== '') {
+        const nextKmNum = Number(formData.nextChangeKm);
+        if (!Number.isFinite(nextKmNum) || nextKmNum < 0) {
+            errors.nextChangeKm = 'Next service KM must be a valid number';
+        } else if (Number.isFinite(currentKmNum) && nextKmNum < currentKmNum) {
+            errors.nextChangeKm = 'Next service KM must be equal to or more than current KM';
+        }
+    }
     if (!String(formData.carDrivenByEmployeeId ?? '').trim()) {
         errors.carDrivenByEmployeeId = 'Car driven by is required';
     }
