@@ -470,13 +470,28 @@ export default function DocumentsTab({
                 ...(isSignatureDoc ? { moduleId: 'hrm_employees_view_work' } : {}),
             };
         }
-        const storageKey =
+        let storageKey =
             doc.publicId ||
             (typeof doc.url === 'string' && doc.url.trim() && !doc.url.startsWith('http') ? doc.url.trim() : null);
+        // Recover durable key from signed/http storage URLs when publicId was never stored
+        if (!storageKey && typeof doc.url === 'string' && doc.url.startsWith('http')) {
+            const u = doc.url;
+            for (const folder of ['employee-documents', 'company-documents', 'profile-pictures', 'signatures']) {
+                const idx = u.indexOf(folder);
+                if (idx !== -1) {
+                    try {
+                        storageKey = decodeURIComponent(u.substring(idx).split('?')[0]);
+                    } catch {
+                        storageKey = u.substring(idx).split('?')[0];
+                    }
+                    break;
+                }
+            }
+        }
         return {
             name: doc.name || name || 'Document.pdf',
             data: doc.data || doc.url,
-            url: doc.url || doc.data,
+            url: doc.url || doc.data || storageKey,
             publicId: storageKey || doc.publicId,
             mimeType: doc.mimeType || (isSignatureDoc ? 'image/png' : 'application/pdf'),
             type: label,

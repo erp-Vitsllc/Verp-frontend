@@ -326,8 +326,21 @@ const companyNotRenewPendingMatches = (r, t) => {
 };
 
 /** Strip signed-URL noise so two copies of the same S3 object dedupe correctly. */
+const companyDocumentAttachmentRef = (doc) => {
+    if (!doc || typeof doc !== 'object') return '';
+    const fromDoc =
+        doc.document?.url ||
+        doc.document?.publicId ||
+        doc.document?.data ||
+        '';
+    const legacy = typeof doc.attachment === 'string' ? doc.attachment : '';
+    return String(fromDoc || legacy || '').trim();
+};
+
+const companyDocumentHasAttachment = (doc) => !!companyDocumentAttachmentRef(doc);
+
 const companyDocumentUrlFingerprint = (doc) => {
-    const raw = String(doc?.document?.url || doc?.attachment || '').trim();
+    const raw = companyDocumentAttachmentRef(doc);
     if (!raw) return '';
     const noQuery = raw.split('?')[0].trim().toLowerCase();
     for (const m of ['company-documents', 'employee-documents']) {
@@ -626,17 +639,20 @@ function CompanyProfilePageContent() {
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
             label = raw.type || raw.name || name;
             const legacyAttachment = typeof raw.attachment === 'string' ? raw.attachment : null;
-            if (raw.document && (raw.document.url != null || raw.document.publicId != null || raw.document.data != null || legacyAttachment)) {
-                raw = {
-                    url: raw.document.url || legacyAttachment || undefined,
-                    mimeType: raw.document.mimeType,
-                    name: raw.document.name,
-                    publicId: raw.document.publicId || legacyAttachment || undefined,
-                    data: raw.document.data,
-                };
-                mime = raw.mimeType || mimeType;
-            } else if (raw.attachment != null) {
-                raw = raw.attachment;
+            const fileRef = companyDocumentAttachmentRef(raw);
+            if (raw.document || legacyAttachment || fileRef) {
+                if (!fileRef && raw.document?.data == null && raw.url == null && raw.publicId == null) {
+                    raw = null;
+                } else if (raw.document || legacyAttachment) {
+                    raw = {
+                        url: raw.document?.url || legacyAttachment || fileRef || undefined,
+                        mimeType: raw.document?.mimeType,
+                        name: raw.document?.name,
+                        publicId: raw.document?.publicId || legacyAttachment || fileRef || undefined,
+                        data: raw.document?.data,
+                    };
+                    mime = raw.mimeType || mimeType;
+                }
             } else if (raw.url == null && raw.data == null && raw.publicId == null) {
                 raw = null;
             }
@@ -2153,7 +2169,7 @@ function CompanyProfilePageContent() {
                     hasValue: !(valueRaw === '' || valueRaw === null || valueRaw === undefined),
                     value: valueRaw,
                     context: 'ejari',
-                    attachment: isRenewal ? null : (doc.document?.url || null),
+                    attachment: isRenewal ? null : (companyDocumentAttachmentRef(doc) || null),
                     fileName: isRenewal ? '' : (doc.document?.name || ''),
                     mimeType: 'application/pdf',
                     provider: doc.provider || '',
@@ -2177,7 +2193,7 @@ function CompanyProfilePageContent() {
                 hasValue: isRenewal ? false : !(valueRaw === '' || valueRaw === null || valueRaw === undefined),
                 value: isRenewal ? '' : valueRaw,
                 context: currentTab,
-                attachment: isRenewal ? null : (doc.document?.url || null),
+                attachment: isRenewal ? null : (companyDocumentAttachmentRef(doc) || null),
                 fileName: isRenewal ? '' : (doc.document?.name || ''),
                 mimeType: isRenewal ? 'application/pdf' : (doc.document?.mimeType || 'application/pdf'),
                 provider: doc.provider || '',
@@ -6584,7 +6600,7 @@ function CompanyProfilePageContent() {
 
                                     {ejariCanView && (company.ejari || []).map((ej, ejIdx) => {
                                         if (!ej || typeof ej !== 'object') return null;
-                                        const attachUrl = ej?.document?.url || ej?.attachment;
+                                        const attachUrl = companyDocumentAttachmentRef(ej);
                                         const issueRaw = ej?.issueDate || ej?.startDate;
                                         const expiryRaw = ej?.expiryDate;
                                         return (
@@ -8075,8 +8091,8 @@ function CompanyProfilePageContent() {
                                                      description: d.description || '—',
                                                      issueDate: d.issueDate || d.startDate,
                                                      expiryDate: d.expiryDate,
-                                                     attachment: d?.document?.url || d?.attachment,
-                                                     onView: (d?.document?.url || d?.attachment)
+                                                     attachment: companyDocumentAttachmentRef(d),
+                                                     onView: (companyDocumentAttachmentRef(d))
                                                          ? () => openAttachment(d, label)
                                                          : null,
                                                      onDelete: () => setDocumentToDelete({
@@ -8203,7 +8219,7 @@ function CompanyProfilePageContent() {
                                                 documentNumber: '',
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 sourceKind: doc.sourceKind,
                                                 sourceIndex: doc.sourceIndex,
                                                 _id: doc._id || doc.id,
@@ -8412,7 +8428,7 @@ function CompanyProfilePageContent() {
                                                 expiryDate: doc?.expiryDate,
                                                 description: doc?.description || '',
                                                 amount: doc?.value,
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 onView: () => openAttachment(doc, doc?.type || 'Insurance'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance'); },
                                                 onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance', true); },
@@ -8434,7 +8450,7 @@ function CompanyProfilePageContent() {
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
                                                 description: doc?.description || '',
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 onView: () => openAttachment(doc, doc?.type || 'Ejari'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari'); },
                                                 onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari', true); },
@@ -8505,7 +8521,7 @@ function CompanyProfilePageContent() {
                                                 isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 onView: () => openAttachment(doc, 'MOA'),
                                                 onEdit: (isLiveView && !isCompanyActivationComplete) ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa'); } : null,
                                                 onDelete: !isCompanyActivationComplete ? () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }) : null,
@@ -8525,7 +8541,7 @@ function CompanyProfilePageContent() {
                                                 isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
                                                 description: doc.description || '',
                                                 issueDate: doc.issueDate || doc.startDate,
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
@@ -8547,7 +8563,7 @@ function CompanyProfilePageContent() {
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
                                                 category: memoCategory,
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 onView: () => openAttachment(doc, doc.type || 'Memo'),
                                                 onEdit: !isArchivedMemo
                                                     ? () => {
@@ -8559,7 +8575,7 @@ function CompanyProfilePageContent() {
                                                             description: doc.description || '',
                                                             issueDate: rawIssue ? new Date(rawIssue).toISOString().split('T')[0] : '',
                                                             memoCategory: memoCategory,
-                                                            attachment: doc?.document?.url || doc?.attachment,
+                                                            attachment: companyDocumentAttachmentRef(doc),
                                                             fileName: doc?.document?.name || doc.type || '',
                                                             mimeType: doc?.document?.mimeType || 'application/pdf'
                                                         });
@@ -8583,7 +8599,7 @@ function CompanyProfilePageContent() {
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 expiryDate: doc.expiryDate,
                                                 hasExpiry: doc.expiryDate ? 'Yes' : 'No',
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 onView: () => openAttachment(doc, doc.type || 'Certificate'),
                                                 onEdit: sourceKind === 'documents' ? () => {
                                                     if (!isAdmin() && !companyPerms.certificate.edit) {
@@ -8621,7 +8637,7 @@ function CompanyProfilePageContent() {
                                                 expiryDate: doc.expiryDate,
                                                 description: doc.description || '',
                                                 amount: doc.value,
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry'); } : null,
                                                 onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry', true); } : null,
@@ -8655,7 +8671,7 @@ function CompanyProfilePageContent() {
                                                 isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
                                                 description: doc.description || '',
                                                 issueDate: doc.issueDate || doc.startDate,
-                                                attachment: doc?.document?.url || doc?.attachment,
+                                                attachment: companyDocumentAttachmentRef(doc),
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),

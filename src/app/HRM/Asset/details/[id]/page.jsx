@@ -54,6 +54,7 @@ import {
 } from '@/utils/uploadFileTypes';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard } from '@/utils/assetNotificationRouting';
+import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach, isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
@@ -1078,6 +1079,7 @@ function AssetDetailsPageContent() {
                 { action },
                 { skipToast: true, timeout: 30000 },
             );
+            invalidateAssetPendingInbox('tools');
             if (action === 'Reject') {
                 toast({
                     title: 'Rejected successfully',
@@ -1096,6 +1098,7 @@ function AssetDetailsPageContent() {
         } catch (err) {
             const status = err?.response?.status;
             if (status === 409) {
+                invalidateAssetPendingInbox('tools');
                 toast({
                     title: 'Already processed',
                     description: 'This request was already actioned.',
@@ -1175,6 +1178,7 @@ function AssetDetailsPageContent() {
                 assetIds: bulkCreationSelectedIds,
                 action
             });
+            invalidateAssetPendingInbox('tools');
             if (action === 'Reject') {
                 toast({
                     title: 'Rejected successfully',
@@ -1736,6 +1740,7 @@ function AssetDetailsPageContent() {
                 comments: responseComment,
                 file: responseFile
             });
+            invalidateAssetPendingInbox('tools');
             toast({
                 title: "Success",
                 description: `Asset assignment ${action === 'Accept' || action === 'AcceptWithComments' ? 'accepted' : 'rejected'} successfully.`
@@ -1766,6 +1771,7 @@ function AssetDetailsPageContent() {
                 action: 'Accept',
                 comments: ''
             });
+            invalidateAssetPendingInbox('tools');
             toast({ title: "Success", description: "Asset accepted successfully." });
             fetchAssetDetails();
         } catch (err) {

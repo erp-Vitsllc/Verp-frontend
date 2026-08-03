@@ -261,7 +261,8 @@ export default function PendingAssetRequestsModal({
                 row={bulkRow}
                 onClose={() => setBulkRow(null)}
                 onSuccess={() => {
-                    load();
+                    invalidateAssetPendingInbox(inboxScope === 'vehicle' ? 'vehicle' : inboxScope === 'tools' ? 'tools' : 'all');
+                    load({ force: true });
                     onRefreshParent?.();
                 }}
             />
@@ -273,7 +274,8 @@ export default function PendingAssetRequestsModal({
                 }}
                 onCompleted={() => {
                     setOwnerOnDutyRow(null);
-                    load();
+                    invalidateAssetPendingInbox(inboxScope === 'vehicle' ? 'vehicle' : inboxScope === 'tools' ? 'tools' : 'all');
+                    load({ force: true });
                     onRefreshParent?.();
                 }}
             />

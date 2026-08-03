@@ -58,6 +58,7 @@ import BulkHolderActionModal from './components/BulkHolderActionModal';
 import PendingAssetRequestsModal from './components/PendingAssetRequestsModal';
 import OwnerOnDutyReviewModal from './components/OwnerOnDutyReviewModal';
 import {
+    ASSET_PENDING_INBOX_CHANGED,
     countVisibleAssetPendingInbox,
     notifyAssetPendingInboxChanged,
 } from './utils/assetPendingInboxCount';
@@ -1116,6 +1117,15 @@ function AssetPageContent() {
         const intervalId = setInterval(fetchPendingInboxCount, 5 * 60 * 1000);
         return () => clearInterval(intervalId);
     }, [mounted, activeTab, fetchPendingInboxCount]);
+
+    useEffect(() => {
+        if (!mounted || typeof window === 'undefined') return;
+        const onInboxChanged = () => {
+            fetchPendingInboxCount({ force: true });
+        };
+        window.addEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+        return () => window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+    }, [mounted, fetchPendingInboxCount]);
 
 
 
