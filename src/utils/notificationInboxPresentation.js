@@ -86,6 +86,55 @@ export function formatNotificationPendingSince(requestedDate, raw, status) {
     return `${days}d`;
 }
 
+/** Absolute calendar date (notification received / created). */
+export function formatNotificationDateShort(value) {
+    const d = asDate(value);
+    if (!d) return '';
+    return d.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    });
+}
+
+/**
+ * Timeline dates for inbox bars: when the notification arrived, plus optional start/end.
+ * Does not remove or replace existing relative/expiry formatters.
+ */
+export function getNotificationTimelineDates(row) {
+    const raw = row?.raw ?? row;
+    const meta = parseExtra3(raw?.extra3);
+    const received =
+        asDate(row?.requestedDate) ||
+        asDate(raw?.requestedDate) ||
+        asDate(raw?.createdAt) ||
+        asDate(raw?.updatedAt) ||
+        null;
+    const start =
+        asDate(meta?.startDate) ||
+        asDate(meta?.fromDate) ||
+        asDate(raw?.startDate) ||
+        asDate(raw?.fromDate) ||
+        null;
+    const end =
+        asDate(meta?.endDate) ||
+        asDate(meta?.expiryDate) ||
+        asDate(raw?.endDate) ||
+        asDate(raw?.expiryDate) ||
+        parseExpiryLabelToDate(extractExpLabelFromExtra1(raw?.extra1)) ||
+        null;
+    return { received, start, end };
+}
+
+/** Day bounds for date-range filtering (inclusive). */
+export function notificationReceivedDayMs(row) {
+    const { received } = getNotificationTimelineDates(row);
+    if (!received) return null;
+    const day = new Date(received);
+    day.setHours(0, 0, 0, 0);
+    return day.getTime();
+}
+
 export function notificationStatusClass(status) {
     const s = String(status || '').toLowerCase();
     if (s === 'approved' || s === 'paid' || s === 'completed') {
@@ -239,9 +288,17 @@ export function buildExpiryReminderTitle(item = {}) {
 function baseRow(item = {}, index = 0) {
     const type = String(item.requestType || item.type || '').trim();
     const meta = parseExtra3(item.extra3);
-    const key =
-        String(item.dashboardActionId || item._id || item.id || item.requestId || index) +
-        `:${type}`;
+    // Prefer DashboardAction _id (actionId / dashboardActionId). Falling back to request
+    // subject id alone collides when one employee has multiple expiry reminders.
+    const stableActionId =
+        item.dashboardActionId || item.actionId || item._id || null;
+    const subjectId = item.id || item.requestId || item.requestObjectId || '';
+    const extraHint = String(item.extra1 || item.extra2 || '')
+        .trim()
+        .slice(0, 96);
+    const key = stableActionId
+        ? `${String(stableActionId)}:${type}`
+        : `${String(subjectId || 'row')}:${type}:${extraHint}:${index}`;
     const requestedDate =
         item.requestedDate || item.createdAt || item.updatedAt || item.actionedDate || null;
 

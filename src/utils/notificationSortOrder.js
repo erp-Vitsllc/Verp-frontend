@@ -56,3 +56,15 @@ export function sortNotificationPresentationRows(rows = []) {
         compareNotificationItems(a?.raw ?? a, b?.raw ?? b),
     );
 }
+
+/**
+ * Same as sortNotificationPresentationRows, with optional direction.
+ * @param {'newest'|'oldest'} direction
+ */
+export function sortNotificationPresentationRowsByDirection(rows = [], direction = 'newest') {
+    const sorted = sortNotificationPresentationRows(rows);
+    if (String(direction || '').toLowerCase() === 'oldest') {
+        return sorted.slice().reverse();
+    }
+    return sorted;
+}

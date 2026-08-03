@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
     Award,
+    ArrowDownAZ,
+    ArrowUpAZ,
     BadgeCheck,
     Bell,
     BookUser,
+    CalendarDays,
+    CalendarRange,
     CheckCheck,
     ChevronRight,
     Clock,
@@ -18,13 +22,16 @@ import {
     X,
 } from 'lucide-react';
 import {
+    formatNotificationDateShort,
     formatNotificationExpiryRelative,
     formatNotificationPendingSince,
     formatNotificationTime,
+    getNotificationTimelineDates,
     groupNotificationsByDate,
+    notificationReceivedDayMs,
     notificationStatusClass,
 } from '@/utils/notificationInboxPresentation';
-import { sortNotificationPresentationRows } from '@/utils/notificationSortOrder';
+import { sortNotificationPresentationRowsByDirection } from '@/utils/notificationSortOrder';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import { useRouter } from 'next/navigation';
 import {
@@ -144,7 +151,7 @@ const NOTIFICATION_ICON_STYLES = {
     },
     'asset-badge-approve': {
         Icon: BadgeCheck,
-        shell: 'bg-gradient-to-br from-blue-50 via-indigo-50 to-violet-50 border-blue-200/80 text-indigo-700 shadow-sm shadow-blue-100/60',
+        shell: 'bg-gradient-to-br from-blue-50 via-indigo-50 to-violet-50 border-blue-200/80 text-indigo-700 shadow-sm shadow-indigo-100/60',
     },
     'asset-badge-accessory': {
         Icon: BadgeCheck,
@@ -152,7 +159,7 @@ const NOTIFICATION_ICON_STYLES = {
     },
     'asset-badge-vehicle': {
         Icon: BadgeCheck,
-        shell: 'bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 border-cyan-200/80 text-sky-700 shadow-sm shadow-cyan-100/60',
+        shell: 'bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 border-cyan-200/80 text-sky-700 shadow-sm shadow-sky-100/60',
     },
     'asset-plane': {
         Icon: Plane,
@@ -194,6 +201,18 @@ function NotificationIcon({ variant }) {
     );
 }
 
+function parseFilterDayStart(value) {
+    if (!value) return null;
+    const d = new Date(`${value}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+function parseFilterDayEnd(value) {
+    if (!value) return null;
+    const d = new Date(`${value}T23:59:59.999`);
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
 /** Shared compact inbox width — matches Company / expiry notification modal sizing across all pages. */
 export const NOTIFICATION_INBOX_MODAL_CLASS =
     'w-full max-w-xl max-h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col';
@@ -215,6 +234,10 @@ export default function NotificationInboxModal({
 }) {
     const router = useRouter();
     const [unreadKeys, setUnreadKeys] = useState(() => new Set());
+    const [sortDirection, setSortDirection] = useState('newest');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [showDateFilter, setShowDateFilter] = useState(false);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -255,9 +278,26 @@ export default function NotificationInboxModal({
         if (vehicleId) void warmVehicleDetailLight(vehicleId);
     };
 
-    const sortedItems = useMemo(() => sortNotificationPresentationRows(items), [items]);
+    const filteredItems = useMemo(() => {
+        const fromMs = parseFilterDayStart(dateFrom);
+        const toMs = parseFilterDayEnd(dateTo);
+        if (fromMs == null && toMs == null) return items;
+        return (items || []).filter((row) => {
+            const dayMs = notificationReceivedDayMs(row);
+            if (dayMs == null) return false;
+            if (fromMs != null && dayMs < fromMs) return false;
+            if (toMs != null && dayMs > toMs) return false;
+            return true;
+        });
+    }, [items, dateFrom, dateTo]);
+
+    const sortedItems = useMemo(
+        () => sortNotificationPresentationRowsByDirection(filteredItems, sortDirection),
+        [filteredItems, sortDirection],
+    );
     const groupedItems = useMemo(() => groupNotificationsByDate(sortedItems), [sortedItems]);
     const scrollMaxHeight = listMaxHeight || 'min(28rem, calc(90vh - 11rem))';
+    const hasActiveDateFilter = Boolean(dateFrom || dateTo);
 
     const markRead = (key) => {
         setUnreadKeys((prev) => {
@@ -272,7 +312,7 @@ export default function NotificationInboxModal({
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm">
             <div className={NOTIFICATION_INBOX_MODAL_CLASS}>
-                <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0">
+                <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2 shrink-0">
                     <div className="flex items-center gap-2.5 min-w-0">
                         <div className="relative shrink-0">
                             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 border border-sky-200/80 flex items-center justify-center text-sky-600 shadow-sm shadow-sky-100/70">
@@ -291,15 +331,97 @@ export default function NotificationInboxModal({
                             ) : null}
                         </h2>
                     </div>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 shrink-0"
-                        aria-label="Close"
-                    >
-                        <X size={18} />
-                    </button>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                            <button
+                                type="button"
+                                onClick={() => setSortDirection('newest')}
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                                    sortDirection === 'newest'
+                                        ? 'bg-white text-sky-700 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                                title="Newest first"
+                            >
+                                <ArrowDownAZ size={12} />
+                                New
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setSortDirection('oldest')}
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                                    sortDirection === 'oldest'
+                                        ? 'bg-white text-sky-700 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                                title="Oldest first"
+                            >
+                                <ArrowUpAZ size={12} />
+                                Old
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowDateFilter((v) => !v)}
+                            className={`p-2 rounded-lg transition-colors ${
+                                showDateFilter || hasActiveDateFilter
+                                    ? 'text-sky-700 bg-sky-50'
+                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                            }`}
+                            aria-label="Date filter"
+                            title="Filter by date"
+                        >
+                            <CalendarRange size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 shrink-0"
+                            aria-label="Close"
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
                 </div>
+
+                {showDateFilter ? (
+                    <div className="px-5 py-2.5 border-b border-slate-100 bg-slate-50/60 flex flex-wrap items-center gap-2 shrink-0">
+                        <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                            <CalendarDays size={13} className="text-sky-600" />
+                            <span className="sr-only">From</span>
+                            <input
+                                type="date"
+                                value={dateFrom}
+                                onChange={(e) => setDateFrom(e.target.value)}
+                                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700"
+                            />
+                        </label>
+                        <span className="text-[11px] text-slate-400">to</span>
+                        <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                            <CalendarDays size={13} className="text-rose-500" />
+                            <span className="sr-only">To</span>
+                            <input
+                                type="date"
+                                value={dateTo}
+                                onChange={(e) => setDateTo(e.target.value)}
+                                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700"
+                            />
+                        </label>
+                        {hasActiveDateFilter ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDateFrom('');
+                                    setDateTo('');
+                                }}
+                                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline"
+                            >
+                                Clear
+                            </button>
+                        ) : null}
+                    </div>
+                ) : null}
 
                 <div
                     className="overflow-y-auto min-h-0 flex-1"
@@ -315,7 +437,9 @@ export default function NotificationInboxModal({
                             {error}
                         </div>
                     ) : sortedItems.length === 0 ? (
-                        <div className="py-16 text-center text-sm text-slate-500 px-6">{emptyMessage}</div>
+                        <div className="py-16 text-center text-sm text-slate-500 px-6">
+                            {hasActiveDateFilter ? 'No notifications in this date range.' : emptyMessage}
+                        </div>
                     ) : (
                         <div className="py-2">
                             {groupedItems.map((group) => (
@@ -342,6 +466,10 @@ export default function NotificationInboxModal({
                                                       row.requestedDate,
                                                       row.raw,
                                                   );
+                                            const timeline = getNotificationTimelineDates(row);
+                                            const receivedLabel = formatNotificationDateShort(timeline.received);
+                                            const startLabel = formatNotificationDateShort(timeline.start);
+                                            const endLabel = formatNotificationDateShort(timeline.end);
                                             const itemHref =
                                                 row.href ||
                                                 (typeof getItemHref === 'function'
@@ -424,7 +552,36 @@ export default function NotificationInboxModal({
                                                                         </span>
                                                                     </div>
                                                                 )}
-                                                                <div className="flex justify-end mt-2">
+                                                                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 mt-2">
+                                                                    <div className="inline-flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                                                        {receivedLabel ? (
+                                                                            <span
+                                                                                className="inline-flex items-center gap-1"
+                                                                                title="Notification date"
+                                                                            >
+                                                                                <CalendarDays size={12} className="text-sky-600" />
+                                                                                {receivedLabel}
+                                                                            </span>
+                                                                        ) : null}
+                                                                        {startLabel ? (
+                                                                            <span
+                                                                                className="inline-flex items-center gap-1"
+                                                                                title="Start date"
+                                                                            >
+                                                                                <CalendarRange size={12} className="text-emerald-600" />
+                                                                                Start {startLabel}
+                                                                            </span>
+                                                                        ) : null}
+                                                                        {endLabel ? (
+                                                                            <span
+                                                                                className="inline-flex items-center gap-1"
+                                                                                title="End / expiry date"
+                                                                            >
+                                                                                <CalendarDays size={12} className="text-rose-500" />
+                                                                                End {endLabel}
+                                                                            </span>
+                                                                        ) : null}
+                                                                    </div>
                                                                     <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
                                                                         {pendingSince ? (
                                                                             <span className="text-slate-500">{pendingSince}</span>
@@ -471,6 +628,9 @@ export default function NotificationInboxModal({
                 <div className="px-5 py-2.5 border-t border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50 shrink-0">
                     <span className="text-xs text-slate-500 font-medium">
                         {sortedItems.length} item{sortedItems.length === 1 ? '' : 's'}
+                        {hasActiveDateFilter && items.length !== sortedItems.length
+                            ? ` of ${items.length}`
+                            : ''}
                     </span>
                     <button
                         type="button"

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { Fingerprint, PenTool, ShieldCheck, Eye, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
@@ -16,8 +16,17 @@ import {
     resolveEmployeeCardCanCreate,
     resolveEmployeeCardCanEdit,
 } from '@/utils/employeeWorkStatus';
+import {
+    extractStorageReference,
+    loadStorageFileBlob,
+} from '@/utils/attachmentPreview';
 
 const WORK_PERM = 'hrm_employees_view_work';
+
+function signatureHasFile(sig) {
+    if (!sig) return false;
+    return !!(sig.url || sig.publicId || sig.data);
+}
 
 export default function SignatureCard({
     employee,
@@ -39,7 +48,66 @@ export default function SignatureCard({
     const [isUploading, setIsUploading] = useState(false);
     const [signedDate, setSignedDate] = useState(() => new Date().toISOString().split('T')[0]);
     const [uploadErrors, setUploadErrors] = useState({});
+    const [previewSrc, setPreviewSrc] = useState(null);
     const fileInputRef = useRef(null);
+    const previewObjectUrlRef = useRef(null);
+
+    const signature = employee?.signature;
+
+    // Signature.url is often an S3 key (draw + upload). Load via API proxy for <img>.
+    useEffect(() => {
+        let cancelled = false;
+
+        const revokePreview = () => {
+            if (previewObjectUrlRef.current) {
+                URL.revokeObjectURL(previewObjectUrlRef.current);
+                previewObjectUrlRef.current = null;
+            }
+        };
+
+        const run = async () => {
+            revokePreview();
+            if (!signatureHasFile(signature)) {
+                if (!cancelled) setPreviewSrc(null);
+                return;
+            }
+
+            const raw = signature.data || signature.url || signature.publicId;
+            if (typeof raw === 'string' && raw.startsWith('data:')) {
+                if (!cancelled) setPreviewSrc(raw);
+                return;
+            }
+
+            const ref = extractStorageReference(signature) || extractStorageReference(raw);
+            if (ref?.key) {
+                try {
+                    const blob = await loadStorageFileBlob(ref.key, {
+                        expectedMime: signature.mimeType || 'image/png',
+                    });
+                    if (cancelled) return;
+                    const objectUrl = URL.createObjectURL(blob);
+                    previewObjectUrlRef.current = objectUrl;
+                    setPreviewSrc(objectUrl);
+                    return;
+                } catch (err) {
+                    console.warn('[SignatureCard] storage preview failed', err?.message || err);
+                }
+            }
+
+            if (typeof raw === 'string' && (raw.startsWith('http://') || raw.startsWith('https://'))) {
+                if (!cancelled) setPreviewSrc(raw);
+                return;
+            }
+
+            if (!cancelled) setPreviewSrc(null);
+        };
+
+        void run();
+        return () => {
+            cancelled = true;
+            revokePreview();
+        };
+    }, [signature?.url, signature?.publicId, signature?.data, signature?.mimeType]);
 
     const handleSaveSignature = async ({ signatureData, signedDate: signedDateValue, fileName = undefined }) => {
         try {
@@ -68,12 +136,12 @@ export default function SignatureCard({
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (employee.signature?.url && !canEdit) {
+        if (signatureHasFile(signature) && !canEdit) {
             toast({ variant: 'destructive', title: 'Access denied', description: 'You do not have permission to replace the signature.' });
             e.target.value = null;
             return;
         }
-        if (!employee.signature?.url && !canCreate && !canEdit) {
+        if (!signatureHasFile(signature) && !canCreate && !canEdit) {
             toast({ variant: 'destructive', title: 'Access denied', description: 'You do not have permission to add a signature.' });
             e.target.value = null;
             return;
@@ -127,6 +195,7 @@ export default function SignatureCard({
     );
 
     const canAddOrReplaceSignature = canCreate || canEdit;
+    const hasSignature = signatureHasFile(signature);
 
     if (!access.view) {
         return null;
@@ -148,7 +217,7 @@ export default function SignatureCard({
                     <ShieldCheck className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="flex items-center gap-2">
-                    {canDeleteSignature && employee.signature?.url && (
+                    {canDeleteSignature && hasSignature && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700 transition-colors"
@@ -168,16 +237,22 @@ export default function SignatureCard({
             </div>
 
             <div className="p-8 flex-grow flex flex-col items-center justify-center min-h-[400px]">
-                {employee.signature?.url ? (
+                {hasSignature ? (
                     <div className="w-full flex flex-col items-center gap-4">
                         <div
                             className="relative group bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all w-full max-w-[280px]"
                         >
-                            <img
-                                src={employee.signature.url}
-                                alt="Employee Signature"
-                                className="h-48 w-full object-contain mix-blend-multiply"
-                            />
+                            {previewSrc ? (
+                                <img
+                                    src={previewSrc}
+                                    alt="Employee Signature"
+                                    className="h-48 w-full object-contain mix-blend-multiply"
+                                />
+                            ) : (
+                                <div className="h-48 w-full flex items-center justify-center text-xs font-bold text-slate-400">
+                                    Loading signature…
+                                </div>
+                            )}
 
                             {/* Overlay Actions */}
                             <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-3 rounded-2xl transition-all duration-200 backdrop-blur-[1px]">
@@ -185,9 +260,11 @@ export default function SignatureCard({
                                     onClick={() => onViewDocument?.({
                                         moduleId: isCompanyProfile ? 'hrm_company_view_owner' : WORK_PERM,
                                         allowDownload: access.download,
-                                        data: employee.signature.url,
-                                        name: employee.signature.name || 'Employee Signature Document',
-                                        mimeType: employee.signature.mimeType || 'image/png'
+                                        data: signature.url || signature.data,
+                                        publicId: signature.publicId || signature.url,
+                                        url: signature.url,
+                                        name: signature.name || 'Employee Signature Document',
+                                        mimeType: signature.mimeType || 'image/png'
                                     })}
                                     className="bg-white p-2.5 rounded-full shadow-lg scale-90 hover:scale-110 active:scale-95 transition-transform text-slate-900 hover:text-blue-600"
                                     title="View Document"
@@ -216,7 +293,7 @@ export default function SignatureCard({
                         </div>
                         <div className="text-center">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authenticated Signature</p>
-                            <p className="text-xs font-bold text-slate-600 mt-1">Signed on {formatDate(employee.signature.signedAt)}</p>
+                            <p className="text-xs font-bold text-slate-600 mt-1">Signed on {formatDate(signature.signedAt)}</p>
                         </div>
                     </div>
                 ) : (
