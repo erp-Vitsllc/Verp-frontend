@@ -1,12 +1,21 @@
+import { isVehicleDocumentOld, parseVehicleDocumentMeta } from '../utils/vehicleDocumentLifecycle';
+import { isVehicleExpiryDatePast } from '../utils/vehicleExpirySources';
+
 const normDocType = (t) => String(t || '').toLowerCase().trim();
 
-function parseDocDescription(doc) {
-    if (!doc?.description) return {};
-    try {
-        return JSON.parse(doc.description);
-    } catch {
-        return {};
-    }
+function liveDocsOfType(asset, type) {
+    const docs = Array.isArray(asset?.documents) ? asset.documents : [];
+    const want = normDocType(type);
+    return docs.filter((d) => normDocType(d.type) === want && !isVehicleDocumentOld(d));
+}
+
+function pickPrimaryLiveDoc(docs) {
+    if (!docs?.length) return null;
+    return [...docs].sort((a, b) => {
+        const ta = new Date(a.issueDate || a.expiryDate || a.createdAt || 0).getTime();
+        const tb = new Date(b.issueDate || b.expiryDate || b.createdAt || 0).getTime();
+        return tb - ta;
+    })[0];
 }
 
 export function getVehicleBrandLabel(asset) {
@@ -22,12 +31,24 @@ export function isVehicleBasicDetailsComplete(asset) {
     return Boolean(brand && model && hasModelYear && plateDigits.length >= 1);
 }
 
+/**
+ * Mulkia (Registration) — live doc only; expired / missing reduces progress.
+ */
 export function isVehicleRegistrationCardComplete(asset) {
-    const docs = Array.isArray(asset?.documents) ? asset.documents : [];
-    const registrationDoc = docs.find((d) => normDocType(d.type) === 'registration') || null;
-    const registrationAttachments = docs.filter((d) => normDocType(d.type) === 'registration attachment');
-    const registrationMeta = parseDocDescription(registrationDoc);
+    const registrationDocs = liveDocsOfType(asset, 'registration');
+    const registrationAttachments = liveDocsOfType(asset, 'registration attachment');
+    const registrationDoc = pickPrimaryLiveDoc(registrationDocs);
+    if (!registrationDoc && registrationAttachments.length === 0) {
+        // Fall back to top-level expiry only when a date is still on file and not expired.
+        const topExpiry = asset?.registrationExpiryDate;
+        return Boolean(topExpiry && !isVehicleExpiryDatePast(topExpiry));
+    }
 
+    if (registrationDoc && isVehicleExpiryDatePast(registrationDoc.expiryDate || asset?.registrationExpiryDate)) {
+        return false;
+    }
+
+    const registrationMeta = parseVehicleDocumentMeta(registrationDoc);
     return Boolean(
         registrationDoc?.issueDate ||
             registrationDoc?.expiryDate ||
@@ -37,12 +58,23 @@ export function isVehicleRegistrationCardComplete(asset) {
     );
 }
 
+/**
+ * Insurance Details — live doc only; expired / missing reduces progress.
+ */
 export function isVehicleInsuranceCardComplete(asset) {
-    const docs = Array.isArray(asset?.documents) ? asset.documents : [];
-    const insuranceDoc = docs.find((d) => normDocType(d.type) === 'insurance') || null;
-    const insuranceAttachments = docs.filter((d) => normDocType(d.type) === 'insurance attachment');
-    const insuranceMeta = parseDocDescription(insuranceDoc);
+    const insuranceDocs = liveDocsOfType(asset, 'insurance');
+    const insuranceAttachments = liveDocsOfType(asset, 'insurance attachment');
+    const insuranceDoc = pickPrimaryLiveDoc(insuranceDocs);
+    if (!insuranceDoc && insuranceAttachments.length === 0) {
+        const topExpiry = asset?.insuranceExpiryDate;
+        return Boolean(topExpiry && !isVehicleExpiryDatePast(topExpiry));
+    }
 
+    if (insuranceDoc && isVehicleExpiryDatePast(insuranceDoc.expiryDate || asset?.insuranceExpiryDate)) {
+        return false;
+    }
+
+    const insuranceMeta = parseVehicleDocumentMeta(insuranceDoc);
     return Boolean(
         insuranceDoc?.issueDate ||
             insuranceDoc?.expiryDate ||
@@ -59,21 +91,21 @@ export function isVehicleProfilePictureComplete(asset) {
     return Boolean(asset?.imagePreview || asset?.photo || asset?.images?.[0]?.url);
 }
 
+/**
+ * Inspection counts only when HR-approved / active — draft & pending_hr reduce progress.
+ */
 export function isVehicleInspectionComplete(asset) {
     const status = String(asset?.vehicleInspectionStatus || '').toLowerCase();
-    if (status === 'active') return true;
-    return (asset?.documents || []).some(
-        (doc) => String(doc?.type || '').trim().toLowerCase() === 'vehicle inspection',
-    );
+    return status === 'active';
 }
 
 const PROFILE_EDIT_SECTION_TO_CHECK = {
     basic: 'Basic Details',
-    registration: 'Registration Card',
-    insurance: 'Insurance Card',
+    registration: 'Mulkia (Registration)',
+    insurance: 'Insurance Details',
     profile_picture: 'Profile Picture',
-    warranty: 'Warranty Card',
-    permit: 'Permit Card',
+    warranty: 'Warranty',
+    permit: 'Permit',
     petrol: 'Petrol Card',
     toll: 'Toll Card',
     documents: 'Documents',
@@ -109,7 +141,11 @@ function getQueuedProfileEditSectionLabels(asset) {
     return labels;
 }
 
-/** Mandatory sections for fleet profile progress bar (100% = all five complete). */
+/**
+ * Progress bar sections (equal weight). Missing / expired / pending-HR inspection reduce %.
+ * After profile is active, adding/editing a section queues HR approval and keeps that
+ * section incomplete until HR approves.
+ */
 export function buildVehicleProfileCompletionChecks(asset) {
     const queuedEditLabels = getQueuedProfileEditSectionLabels(asset);
 
@@ -124,18 +160,21 @@ export function buildVehicleProfileCompletionChecks(asset) {
             completed: markComplete('Basic Details', isVehicleBasicDetailsComplete(asset)),
         },
         {
-            label: 'Registration Card',
-            completed: markComplete('Registration Card', isVehicleRegistrationCardComplete(asset)),
+            label: 'Mulkia (Registration)',
+            completed: markComplete('Mulkia (Registration)', isVehicleRegistrationCardComplete(asset)),
         },
         {
-            label: 'Insurance Card',
-            completed: markComplete('Insurance Card', isVehicleInsuranceCardComplete(asset)),
+            label: 'Insurance Details',
+            completed: markComplete('Insurance Details', isVehicleInsuranceCardComplete(asset)),
         },
         {
             label: 'Profile Picture',
             completed: markComplete('Profile Picture', isVehicleProfilePictureComplete(asset)),
         },
-        { label: 'Vehicle Inspection', completed: isVehicleInspectionComplete(asset) },
+        {
+            label: 'Vehicle Inspection',
+            completed: isVehicleInspectionComplete(asset),
+        },
     ];
 }
 

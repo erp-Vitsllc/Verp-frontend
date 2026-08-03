@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
@@ -35,9 +35,11 @@ function UserPageContent() {
     const [total, setTotal] = useState(0);
     const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'Active');
     const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+    const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('search') || '');
     const [deletingUserId, setDeletingUserId] = useState(null);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [userToDelete, setUserToDelete] = useState(null);
+    const fetchAbortRef = useRef(null);
 
     const listReturnParams = useMemo(() => ({
         page,
@@ -60,26 +62,50 @@ function UserPageContent() {
     }, [searchParams]);
 
     useEffect(() => {
+        const t = setTimeout(() => setDebouncedSearch(searchTerm), 350);
+        return () => clearTimeout(t);
+    }, [searchTerm]);
+
+    useEffect(() => {
         fetchUsers();
-    }, [page, limit, statusFilter, searchTerm]);
+        return () => {
+            if (fetchAbortRef.current) {
+                fetchAbortRef.current.abort();
+                fetchAbortRef.current = null;
+            }
+        };
+    }, [page, limit, statusFilter, debouncedSearch]);
 
     const fetchUsers = async () => {
+        if (fetchAbortRef.current) {
+            fetchAbortRef.current.abort();
+        }
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        fetchAbortRef.current = controller;
         try {
             setLoading(true);
             const params = new URLSearchParams({
                 page: page.toString(),
                 limit: limit.toString(),
                 status: statusFilter,
-                ...(searchTerm && { search: searchTerm })
+                ...(debouncedSearch && { search: debouncedSearch })
             });
 
-            const response = await axiosInstance.get(`/User?${params}`);
+            const response = await axiosInstance.get(`/User?${params}`, {
+                signal: controller?.signal,
+            });
             setUsers(response.data.users || []);
             setTotal(response.data.pagination?.total || 0);
         } catch (err) {
+            if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || err?.name === 'AbortError') {
+                return;
+            }
             console.error('Error fetching users:', err);
             setError(err.response?.data?.message || 'Failed to fetch users');
         } finally {
+            if (fetchAbortRef.current === controller) {
+                fetchAbortRef.current = null;
+            }
             setLoading(false);
         }
     };

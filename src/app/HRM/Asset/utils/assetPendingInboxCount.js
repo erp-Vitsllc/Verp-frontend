@@ -44,9 +44,11 @@ export function countVisibleAssetPendingInbox(items) {
 }
 
 export function notifyAssetPendingInboxChanged() {
-    if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent(ASSET_PENDING_INBOX_CHANGED));
-    }
+    if (typeof window === 'undefined') return;
+    // Match Fine/Payment/Reward: both targets so Sidebar (document) + pages (window) refresh.
+    const event = new CustomEvent(ASSET_PENDING_INBOX_CHANGED);
+    window.dispatchEvent(event);
+    document.dispatchEvent(event);
 }
 
 /** Clear cached inbox rows and notify listeners (sidebar + vehicle bell) to refetch. */

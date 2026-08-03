@@ -8,7 +8,6 @@ import { buildFineNotificationPath, normalizeFineNotificationItem } from '@/util
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import {
     countVisibleFinePendingInbox,
-    notifyFinePendingInboxChanged,
 } from '../utils/finePendingInboxCount';
 import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
 import {
@@ -59,7 +58,6 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(count);
             }
-            notifyFinePendingInboxChanged();
         } catch (e) {
             console.error(e);
             toast({
@@ -71,7 +69,6 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
                 setItems([]);
             }
             if (typeof onPendingInboxCount === 'function') onPendingInboxCount(0);
-            notifyFinePendingInboxChanged();
         } finally {
             setLoading(false);
             setRefreshing(false);

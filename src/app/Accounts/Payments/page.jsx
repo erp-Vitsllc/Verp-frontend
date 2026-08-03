@@ -129,16 +129,14 @@ function PaymentsPageContent() {
     const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
         if (!isAccountsResp) {
             setPendingInboxCount(0);
-            notifyPaymentPendingInboxChanged();
             return;
         }
         try {
             const items = await fetchPaymentPendingInbox(axiosInstance, { skipToast: true, force });
             setPendingInboxCount(countVisiblePaymentPendingInbox(items));
-            notifyPaymentPendingInboxChanged();
+            // Do NOT notify on warm/poll — mutations call notifyPaymentPendingInboxChanged().
         } catch {
             setPendingInboxCount(0);
-            notifyPaymentPendingInboxChanged();
         }
     }, [isAccountsResp]);
 
@@ -225,7 +223,8 @@ function PaymentsPageContent() {
 
     const handlePaymentSuccess = () => {
         fetchPayments();
-        fetchPendingInboxCount();
+        notifyPaymentPendingInboxChanged();
+        fetchPendingInboxCount({ force: true });
         if (paymentPrefill?.returnTo) {
             const returnTo = paymentPrefill.returnTo;
             setPaymentPrefill(null);
@@ -282,7 +281,8 @@ function PaymentsPageContent() {
                 variant: "success",
             });
             fetchPayments();
-            fetchPendingInboxCount();
+            notifyPaymentPendingInboxChanged();
+            fetchPendingInboxCount({ force: true });
         } catch (err) {
             console.error('Error responding to payment:', err);
             toast({

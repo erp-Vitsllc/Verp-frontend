@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import {
     countVisiblePaymentPendingInbox,
-    notifyPaymentPendingInboxChanged,
 } from '../utils/paymentPendingInboxCount';
 import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
 import {
@@ -63,7 +62,6 @@ export default function PendingPaymentRequestsModal({
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(count);
             }
-            notifyPaymentPendingInboxChanged();
         } catch (e) {
             console.error(e);
             toast({
@@ -75,7 +73,6 @@ export default function PendingPaymentRequestsModal({
                 setItems([]);
             }
             if (typeof onPendingInboxCount === 'function') onPendingInboxCount(0);
-            notifyPaymentPendingInboxChanged();
         } finally {
             setLoading(false);
             setRefreshing(false);

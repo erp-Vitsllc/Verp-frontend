@@ -2,6 +2,8 @@ import { normalizeMongoId, parseVehicleServiceRemark } from '../components/vehic
 import {
     isOilServiceLive,
     isOilServiceScheduledWaiting,
+    isOilServiceInitiated,
+    isOilServiceScheduleStepComplete,
 } from './vehicleOilServiceAccess';
 import {
     formatEmployeeName,
@@ -234,7 +236,8 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
         updates.length === 0 &&
         (stage === 'scheduled_service' ||
             remark.assignmentSubmittedAt ||
-            String(remark.requestStatus || '').toLowerCase() === 'submitted')
+            String(remark.requestStatus || '').toLowerCase() === 'submitted') &&
+        isOilServiceScheduleStepComplete(remark)
     ) {
         legacy.push({
             type: 'service_updated',
@@ -245,14 +248,16 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
 
     const scheduledEntry =
         history.find((h) => h.action === 'scheduled') ||
-        (remark.oilServiceScheduledAt || remark.assignmentSubmittedAt
+        (isOilServiceScheduleStepComplete(remark) &&
+        (remark.oilServiceScheduledAt || remark.assignmentSubmittedAt)
             ? {
                   at: remark.oilServiceScheduledAt || remark.assignmentSubmittedAt,
                   byName: requester,
               }
             : null);
 
-    if (scheduledEntry || waiting || live || stage === 'scheduled_service' || remark.assignmentSubmittedAt) {
+    // Only treat Schedule as done when Admin actually submitted complete garage/dates.
+    if (scheduledEntry || isOilServiceScheduleStepComplete(remark)) {
         legacy.push({
             type: 'service_scheduled',
             at: scheduledEntry?.at || remark.oilServiceScheduledAt || remark.assignmentSubmittedAt || service?.updatedAt,
@@ -324,11 +329,7 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
         });
     }
 
-    const hrDone =
-        Boolean(remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt) ||
-        (isCash &&
-            ['scheduled_service', 'pending_accounts', 'billed', 'complete'].includes(stage) &&
-            (Boolean(remark.assignmentSubmittedAt) || waiting || live || endServiceDone));
+    const hrDone = Boolean(remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt);
 
     if (hrDone && isCash) {
         legacy.push({
@@ -390,8 +391,20 @@ function getOilActivityLog(service, asset, flowchartActors = {}, flowchartRows =
 
     if (!fromRemark.length) return legacy;
 
-    const normalized = fromRemark.map((entry) => {
-        if (entry.type === 'on_service' && !isOilServiceLive(service, asset) && remark.assignmentSubmittedAt) {
+    const normalized = fromRemark
+        .filter((entry) => {
+            // Never invent a Schedule Done tick from a stale activity if garage fields are incomplete.
+            if (entry.type === 'service_scheduled' && !isOilServiceScheduleStepComplete(remark)) {
+                return false;
+            }
+            return true;
+        })
+        .map((entry) => {
+        if (
+            entry.type === 'on_service' &&
+            !isOilServiceLive(service, asset) &&
+            isOilServiceScheduleStepComplete(remark)
+        ) {
             return { ...entry, type: 'service_scheduled', note: entry.note || 'Oil service scheduled' };
         }
         return {
@@ -411,46 +424,41 @@ function getOilActivityLog(service, asset, flowchartActors = {}, flowchartRows =
 }
 
 function resolveActiveStepId(activities, stage, service, asset, isCash = false) {
+    const remark = parseVehicleServiceRemark(service) || {};
     const hasUpdated = activities.some((a) => a.type === 'service_updated');
-    const hasScheduled = activities.some((a) => a.type === 'service_scheduled');
+    const hasScheduled = isOilServiceScheduleStepComplete(remark);
     const hasOnService = activities.some((a) => a.type === 'on_service');
     const hasCompleted = activities.some((a) => a.type === 'service_completed');
-    const hasHr = activities.some((a) => a.type === 'hr_approved');
-    const hasAccountsQuote = activities.some((a) => a.type === 'accounts_quote_approved');
+    const hasHr = Boolean(String(remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt || '').trim());
+    const hasAccountsQuote = Boolean(String(remark.accountsQuoteApprovedAt || '').trim());
     const hasAccountsPay = activities.some(
         (a) => a.type === 'accounts_approved' || a.type === 'zoho_bill_created',
     );
     const live = isOilServiceLive(service, asset);
     const waiting = isOilServiceScheduledWaiting(service, asset);
-    const remark = parseVehicleServiceRemark(service) || {};
-    const quoteApproved = Boolean(String(remark.accountsQuoteApprovedAt || '').trim());
-    const initiated = Boolean(String(remark.oilServiceInitiatedAt || '').trim());
+    const initiated = isOilServiceInitiated(remark) || hasUpdated;
 
     if (isCash) {
-        // 1 Initiate 2 Schedule 3 HR (parallel after initiate) 4 Accounts 5 On Service 6 Complete 7 Make Payment
-        if (stage === 'billed' || hasAccountsPay) return 8; // past Make Payment — all done
-        if (stage === 'pending_accounts') return 7;
-        if (hasCompleted) return 7;
-        if (hasOnService || live || waiting || quoteApproved || hasAccountsQuote) return 6;
-        if (hasHr && hasScheduled) return 4;
-        if (hasHr && !hasScheduled) return 2; // HR done, Schedule still needed
-        if (hasScheduled && !hasHr) return 3; // Schedule done, HR still open
-        if (stage === 'pending_hr' || initiated || hasUpdated) return 2; // Schedule + HR open together
-        return 1;
+        // Tick only when that step is truly done — never skip past incomplete Schedule.
+        if (stage === 'billed' || hasAccountsPay) return 8;
+        if (stage === 'pending_accounts' || hasCompleted) return 7;
+        if (!initiated) return 1;
+        if (!hasScheduled) return 2;
+        if (!hasHr) return 3;
+        if (!hasAccountsQuote) return 4;
+        if (!(hasOnService || live || waiting)) return 5;
+        return 6;
     }
 
     // 1 Initiate 2 Schedule 3 On Service 4 Complete
     if (hasCompleted || stage === 'complete' || stage === 'billed') return 5;
-    if (hasOnService || live || waiting) return 4;
-    if (hasScheduled || stage === 'scheduled_service') return 3;
-    if (hasUpdated) return 2;
-    return 1;
+    if (!initiated && !hasUpdated) return 1;
+    if (!hasScheduled) return 2;
+    if (!(hasOnService || live || waiting)) return 3;
+    return 4;
 }
 
-function buildStepEvent(step, { currentActiveStepId, isRejected, actor, date, detail }) {
-    const approved = step.id < currentActiveStepId;
-    const isStepRejected = isRejected && currentActiveStepId === step.id;
-    const isStepPending = currentActiveStepId === step.id && !isRejected;
+function buildStepEvent(step, { isDone, isActive, isRejected, actor, date, detail }) {
     const actorFirst =
         String(formatTrackerActorName(actor) || '')
             .split(/\s+/)
@@ -462,25 +470,25 @@ function buildStepEvent(step, { currentActiveStepId, isRejected, actor, date, de
         kind: 'workflow',
         stepNumber: step.id,
         label: labelWithActor,
-        badge: approved
+        badge: isDone
             ? 'Done'
-            : isStepRejected
+            : isRejected
               ? 'Rejected'
-              : isStepPending
+              : isActive
                 ? 'Pending'
                 : 'Scheduled',
-        badgeVariant: approved
+        badgeVariant: isDone
             ? 'approved'
-            : isStepRejected
+            : isRejected
               ? 'rejected'
-              : isStepPending
+              : isActive
                 ? 'pending'
                 : 'scheduled',
         // Name is already in the step label ("Initiate Service by John").
         actor: '',
-        date,
+        date: isDone || isActive ? date : null,
         detail,
-        connectorGreen: step.id < currentActiveStepId,
+        connectorGreen: isDone,
         isLast: false,
     };
 }
@@ -691,7 +699,9 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
         if (step.id === 2 && serviceStartDate) {
             const waiting = isOilServiceScheduledWaiting(service, asset);
             const live = isOilServiceLive(service, asset);
-            if (waiting && stage === 'pending_hr') {
+            if (!isOilServiceScheduleStepComplete(remark)) {
+                detail = 'Admin must complete garage details and dates';
+            } else if (waiting && stage === 'pending_hr') {
                 detail = `Awaiting HR · start ${formatOilDate(serviceStartDate)}`;
             } else if (waiting) {
                 detail = `Waiting for start date · ${formatOilDate(serviceStartDate)}`;
@@ -740,9 +750,40 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
             }
         }
 
+        const scheduleDone = isOilServiceScheduleStepComplete(remark);
+        const hrDoneStamp = Boolean(
+            String(remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt || '').trim(),
+        );
+        const accountsQuoteDone = Boolean(String(remark.accountsQuoteApprovedAt || '').trim());
+        const onServiceDone = live || ready || Boolean(onService);
+        const completeDone = Boolean(completed) || stage === 'pending_accounts' || stage === 'billed' || stage === 'complete';
+        const paymentDone =
+            stage === 'billed' ||
+            Boolean(accountsApproved) ||
+            String(remark.billingStatus || '').toLowerCase() === 'billed';
+        const initiateDone = Boolean(initiateDate) || isOilServiceInitiated(remark);
+
+        const stepDoneMap = isCash
+            ? {
+                  1: initiateDone,
+                  2: scheduleDone,
+                  3: hrDoneStamp,
+                  4: accountsQuoteDone,
+                  5: onServiceDone && scheduleDone,
+                  6: completeDone,
+                  7: paymentDone,
+              }
+            : {
+                  1: initiateDone,
+                  2: scheduleDone,
+                  3: onServiceDone && scheduleDone,
+                  4: completeDone,
+              };
+
         return buildStepEvent(step, {
-            currentActiveStepId,
-            isRejected: stage === 'rejected',
+            isDone: Boolean(stepDoneMap[step.id]),
+            isActive: currentActiveStepId === step.id && stage !== 'rejected',
+            isRejected: stage === 'rejected' && currentActiveStepId === step.id,
             actor: stepActors[step.id],
             date: stepDates[step.id],
             detail,

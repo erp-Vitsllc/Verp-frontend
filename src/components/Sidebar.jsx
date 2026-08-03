@@ -377,6 +377,17 @@ export default function Sidebar() {
             }, 3000);
         };
 
+        /** Coalesce inbox mutation events so one approve doesn't stampede 7 APIs repeatedly. */
+        let inboxRefreshTimer = null;
+        const scheduleInboxRefresh = () => {
+            if (inboxRefreshTimer) clearTimeout(inboxRefreshTimer);
+            inboxRefreshTimer = setTimeout(() => {
+                inboxRefreshTimer = null;
+                clearModuleNotificationFeedsCache();
+                loadSidebarCounts();
+            }, 600);
+        };
+
         let cancelInitialIdle = scheduleWhenIdle(() => {
             loadSidebarCounts();
         }, 2500);
@@ -391,24 +402,19 @@ export default function Sidebar() {
             window.addEventListener('focus', handleFocus);
         }
         const handleAssetInboxChanged = () => {
-            clearModuleNotificationFeedsCache();
-            loadSidebarCounts();
+            scheduleInboxRefresh();
         };
         const handleFineInboxChanged = () => {
-            clearModuleNotificationFeedsCache();
-            loadSidebarCounts();
+            scheduleInboxRefresh();
         };
         const handlePaymentInboxChanged = () => {
-            clearModuleNotificationFeedsCache();
-            loadSidebarCounts();
+            scheduleInboxRefresh();
         };
         const handleRewardInboxChanged = () => {
-            clearModuleNotificationFeedsCache();
-            loadSidebarCounts();
+            scheduleInboxRefresh();
         };
         const handleLoanInboxChanged = () => {
-            clearModuleNotificationFeedsCache();
-            loadSidebarCounts();
+            scheduleInboxRefresh();
         };
         const handleModuleNotificationsUpdated = (event) => {
             const counts = event?.detail?.counts;
@@ -416,7 +422,7 @@ export default function Sidebar() {
                 applySidebarCounts(counts);
                 return;
             }
-            loadSidebarCounts();
+            scheduleInboxRefresh();
         };
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', handleVisibility);
@@ -428,15 +434,25 @@ export default function Sidebar() {
         }
         if (typeof window !== 'undefined') {
             window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
+            // Asset/Fine/etc also fire on window — listen once so badges update even if document missed.
+            window.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
+            window.addEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
+            window.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
+            window.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
             window.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
         }
         return () => {
             if (cancelInitialIdle) cancelInitialIdle();
             clearInterval(intervalId);
             if (debounceTimer) clearTimeout(debounceTimer);
+            if (inboxRefreshTimer) clearTimeout(inboxRefreshTimer);
             if (typeof window !== 'undefined') {
                 window.removeEventListener('focus', handleFocus);
                 window.removeEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
+                window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
+                window.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
+                window.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
+                window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
                 window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
             }
             if (typeof document !== 'undefined') {

@@ -169,10 +169,9 @@ function RewardContent() {
         try {
             const items = await fetchRewardPendingInbox(axiosInstance, { skipToast: true, force });
             setPendingInboxCount(countVisibleRewardPendingInbox(items));
-            notifyRewardPendingInboxChanged();
+            // Do NOT notify on warm/poll — mutations/modals call notifyRewardPendingInboxChanged().
         } catch {
             setPendingInboxCount(0);
-            notifyRewardPendingInboxChanged();
         }
     }, []);
 
@@ -190,6 +189,7 @@ function RewardContent() {
 
     const handleModalSuccess = () => {
         fetchRewards();
+        notifyRewardPendingInboxChanged();
         fetchPendingInboxCount({ force: true });
     };
 

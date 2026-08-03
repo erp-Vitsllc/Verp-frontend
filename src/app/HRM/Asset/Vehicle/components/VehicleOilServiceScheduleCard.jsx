@@ -86,8 +86,11 @@ export default function VehicleOilServiceScheduleCard({
     const cashPaymentMode = formData.amountMode !== 'warranty';
 
     const missingFields = useMemo(
-        () => (awaitingSchedule && canManage ? getOilServiceScheduleMissingFields(formData) : []),
-        [formData, awaitingSchedule, canManage],
+        () =>
+            canManage && !isOilServiceScheduleFormComplete(formData)
+                ? getOilServiceScheduleMissingFields(formData)
+                : [],
+        [formData, canManage],
     );
     const canSubmitSchedule =
         awaitingSchedule && canManage && !saving && isOilServiceScheduleFormComplete(formData);

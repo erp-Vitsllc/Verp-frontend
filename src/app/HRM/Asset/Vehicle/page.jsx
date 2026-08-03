@@ -444,7 +444,11 @@ export default function VehicleAssetPage() {
         if (statusFilter && statusFilter !== 'All') params.set('status', statusFilter);
         if (fleetListTab === 'sold_total_loss') params.set('view', SOLD_TOTAL_LOSS_VIEW);
         const qs = params.toString();
-        rememberListFilterStep(qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle');
+        const href = qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle';
+        const timer = setTimeout(() => {
+            rememberListFilterStep(href);
+        }, 350);
+        return () => clearTimeout(timer);
     }, [mounted, searchQuery, statusFilter, fleetListTab]);
 
     useEffect(() => {

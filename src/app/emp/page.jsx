@@ -25,7 +25,7 @@ import {
 } from '@/utils/employeeDashboardStatsFetch';
 import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import { navigateFromList, navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { canDeleteEmployeeFromList } from '@/utils/employeeListPermissions';
@@ -346,36 +346,7 @@ function EmployeeContent() {
         return () => window.removeEventListener('popstate', syncFromAddressBar);
     }, [mounted]);
 
-    // Keep list URL in sync (page + filters) so back from profile restores the same view.
-    useEffect(() => {
-        if (!mounted) return;
-
-        const params = new URLSearchParams();
-        if (selectedCompany) params.set('company', selectedCompany);
-        if (searchQuery) params.set('search', searchQuery);
-        if (department) params.set('dept', department);
-        if (designation) params.set('desig', designation);
-        if (jobStatus) params.set('job', jobStatus);
-        if (profileStatus) params.set('profile', profileStatus);
-        if (gender) params.set('gender', gender);
-        if (currentPage > 1) params.set('page', String(currentPage));
-        if (itemsPerPage !== 10) params.set('perPage', String(itemsPerPage));
-
-        const qs = params.toString();
-        const newUrl = qs ? `/emp?${qs}` : '/emp';
-        rememberListFilterStep(newUrl);
-    }, [
-        mounted,
-        selectedCompany,
-        searchQuery,
-        department,
-        designation,
-        jobStatus,
-        profileStatus,
-        gender,
-        currentPage,
-        itemsPerPage,
-    ]);
+    // URL sync handled by usePersistListReturnState (debounced) — avoid duplicate history writes.
 
     useEffect(() => {
         loadMyRequestCount();

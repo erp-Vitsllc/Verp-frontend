@@ -529,19 +529,40 @@ export function getHandoverEndDate(entry, vehicle = null) {
     return null;
 }
 
-/** Latest handover first, oldest last (by start date / createdAt). */
+/** Oldest handover first, latest last (by start date / createdAt). */
 export function sortHandoverHistoryEntries(entries = []) {
     return [...entries].sort((a, b) => {
+        const startA = new Date(getHandoverStartDate(a) || a?.createdAt || 0).getTime();
+        const startB = new Date(getHandoverStartDate(b) || b?.createdAt || 0).getTime();
+        if (startA !== startB) return startA - startB;
+
         const timeA = new Date(a?.createdAt || a?.date || 0).getTime();
         const timeB = new Date(b?.createdAt || b?.date || 0).getTime();
-        if (timeA !== timeB) return timeB - timeA;
+        if (timeA !== timeB) return timeA - timeB;
 
-        const startA = new Date(getHandoverStartDate(a) || 0).getTime();
-        const startB = new Date(getHandoverStartDate(b) || 0).getTime();
-        if (startA !== startB) return startB - startA;
-
-        return String(b?._id || '').localeCompare(String(a?._id || ''));
+        return String(a?._id || '').localeCompare(String(b?._id || ''));
     });
+}
+
+/**
+ * Admin may only delete an end row (top or bottom). Middle rows require
+ * deleting neighboring end rows first until this row sits at either end.
+ */
+export function getHandoverListDeleteBlockReason(rows = [], rowIndex) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) {
+        return 'No handover rows to delete.';
+    }
+    if (rowIndex < 0 || rowIndex >= list.length) {
+        return 'This handover row is not in the list.';
+    }
+    if (list.length === 1) return null;
+    if (rowIndex === 0 || rowIndex === list.length - 1) return null;
+    return 'Cannot delete a handover in the middle of the list. Delete the previous end rows first (top or bottom) until this row is at either end.';
+}
+
+export function canDeleteHandoverHistoryListRow(rows = [], rowIndex) {
+    return !getHandoverListDeleteBlockReason(rows, rowIndex);
 }
 
 function assigneeKey(entry) {

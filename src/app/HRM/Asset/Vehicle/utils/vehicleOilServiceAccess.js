@@ -261,6 +261,21 @@ export function isOilServiceAssignmentSubmitted(remark = {}) {
     return String(remark?.requestStatus || '').toLowerCase() === 'submitted';
 }
 
+/** Garage + dates must be filled before Schedule is considered complete (tracker tick). */
+export function isOilServiceScheduleFieldsComplete(remark = {}) {
+    const garage = String(remark?.garageName || remark?.vendorName || '').trim();
+    const location = String(remark?.garageLocation || '').trim();
+    const contact = String(remark?.garageContact || '').trim();
+    const start = String(remark?.serviceStartDate || remark?.scheduledServiceDate || '').trim();
+    const end = String(remark?.serviceEndDate || remark?.nextChangeMonth || '').trim();
+    return Boolean(garage && location && contact && start && end);
+}
+
+/** Admin Schedule OK + all required schedule fields. */
+export function isOilServiceScheduleStepComplete(remark = {}) {
+    return isOilServiceAssignmentSubmitted(remark) && isOilServiceScheduleFieldsComplete(remark);
+}
+
 /** Initiate Service Send completed (before Schedule OK / submit-request). */
 export function isOilServiceInitiated(remark = {}) {
     if (isOilServiceAssignmentSubmitted(remark)) return true;
@@ -279,7 +294,7 @@ export function isOilServiceCompleteUnlocked(service, asset) {
     if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live') return true;
 
     if (!isOilServiceLive(service, asset)) return false;
-    if (!isOilServiceAssignmentSubmitted(remark)) return false;
+    if (!isOilServiceScheduleStepComplete(remark)) return false;
     const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
     if (isCash && !String(remark.accountsQuoteApprovedAt || '').trim()) return false;
     return true;
@@ -310,10 +325,8 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
     const stage = resolveOilServiceWorkflowStage(service, asset);
     const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
     const initiated = isOilServiceInitiated(remark);
-    const submitted = isOilServiceAssignmentSubmitted(remark);
-    const hrDone =
-        Boolean(String(remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt || '').trim()) ||
-        (submitted && Boolean(stage) && stage !== 'pending_hr' && stage !== 'rejected' && stage !== '');
+    const scheduleComplete = isOilServiceScheduleStepComplete(remark);
+    const hrDone = Boolean(String(remark.hrScheduleApprovedAt || remark.hrPaymentApprovedAt || '').trim());
     const accountsDone =
         !isCash || Boolean(String(remark.accountsQuoteApprovedAt || '').trim());
     const workComplete =
@@ -339,7 +352,7 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
                 };
             }
             // Admin Officer can edit anytime after initiate until Complete Service.
-            return { locked: false, message: '', active: true, done: submitted };
+            return { locked: false, message: '', active: true, done: scheduleComplete };
         }
         case OIL_SERVICE_CARD.HR: {
             if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
@@ -347,6 +360,13 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
                 return {
                     locked: true,
                     message: 'Complete Initiate Service first — Schedule and HR open together',
+                };
+            }
+            if (!scheduleComplete) {
+                return {
+                    locked: true,
+                    message: 'Admin must complete Schedule and Reschedule first',
+                    done: false,
                 };
             }
             return {
@@ -358,6 +378,13 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
         }
         case OIL_SERVICE_CARD.ACCOUNTS: {
             if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
+            if (!scheduleComplete) {
+                return {
+                    locked: true,
+                    message: 'Admin must complete Schedule and Reschedule first',
+                    done: false,
+                };
+            }
             if (!hrDone) {
                 return { locked: true, message: 'Complete HR Approval first (HR once)' };
             }
@@ -369,7 +396,7 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
             };
         }
         case OIL_SERVICE_CARD.EXTEND: {
-            if (!submitted) {
+            if (!scheduleComplete) {
                 return { locked: true, message: 'Complete Schedule and Reschedule Service first' };
             }
             if (workComplete || isBilled || stage === 'rejected') {
@@ -381,7 +408,7 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
             return { locked: false, message: '', active: true, done: false };
         }
         case OIL_SERVICE_CARD.COMPLETE: {
-            if (!submitted) {
+            if (!scheduleComplete) {
                 return {
                     locked: true,
                     message: 'Admin must complete Schedule and Reschedule at least once',

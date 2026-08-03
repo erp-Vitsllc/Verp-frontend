@@ -156,9 +156,16 @@ function parseVehicleServiceTypeFromNotification(item = {}, meta = null) {
     return match ? match[1].trim() : '';
 }
 
-function buildOilServiceNotificationPath(vehicleId, serviceRecordId) {
+function buildOilServiceNotificationPath(vehicleId, serviceRecordId, { focus = '', oilStage = '' } = {}) {
     if (!vehicleId || !serviceRecordId) return '';
-    return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/oil-service/${encodeURIComponent(String(serviceRecordId))}`;
+    const base = `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/oil-service/${encodeURIComponent(String(serviceRecordId))}`;
+    const focusKey = String(focus || oilStage || '')
+        .trim()
+        .toLowerCase();
+    if (focusKey === 'payment' || focusKey === 'accounts_payment') {
+        return `${base}?focus=payment`;
+    }
+    return base;
 }
 
 function buildTireChangeNotificationPath(vehicleId, serviceRecordId) {
@@ -246,7 +253,10 @@ export function buildAssetNotificationPath(rawItem) {
                 serviceRecordId &&
                 normalized.includes('/service-requests/details/')
             ) {
-                return buildOilServiceNotificationPath(vehicleId, serviceRecordId);
+                return buildOilServiceNotificationPath(vehicleId, serviceRecordId, {
+                    focus: meta?.focus,
+                    oilStage: meta?.oilStage,
+                });
             }
             if (
                 serviceType === 'Tire Change' &&
@@ -256,6 +266,20 @@ export function buildAssetNotificationPath(rawItem) {
                     normalized.includes('/tire-change/'))
             ) {
                 return buildTireChangeNotificationPath(vehicleId, serviceRecordId);
+            }
+            // Ensure Accounts Make Payment inbox rows land on Zoho Make Payment card.
+            if (
+                serviceType === 'Oil Service' &&
+                vehicleId &&
+                serviceRecordId &&
+                (String(meta?.oilStage || '').toLowerCase() === 'accounts_payment' ||
+                    String(meta?.focus || '').toLowerCase() === 'payment') &&
+                !normalized.includes('focus=payment')
+            ) {
+                return buildOilServiceNotificationPath(vehicleId, serviceRecordId, {
+                    focus: 'payment',
+                    oilStage: 'accounts_payment',
+                });
             }
             return normalized;
         }
@@ -268,7 +292,10 @@ export function buildAssetNotificationPath(rawItem) {
                 });
             }
             if (serviceType === 'Oil Service') {
-                return buildOilServiceNotificationPath(vehicleId, serviceRecordId);
+                return buildOilServiceNotificationPath(vehicleId, serviceRecordId, {
+                    focus: meta?.focus,
+                    oilStage: meta?.oilStage,
+                });
             }
             if (serviceType === 'Tire Change') {
                 return buildTireChangeNotificationPath(vehicleId, serviceRecordId);

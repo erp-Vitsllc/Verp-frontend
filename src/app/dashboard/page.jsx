@@ -663,9 +663,13 @@ function DashboardContent() {
 
                     setTeamStats({});
 
-                    // Exact dashboard Inbox counts for every person in the tree (no team-stats mix-in).
-                    flattenHierarchyNodes(tree).forEach((person) => {
-                        fetchEmployeeStats(person._id, person.employeeId, { force: true });
+                    // Only warm the visible top-level row(s). Children load on expand
+                    // (TeamTableRow) — avoid N× module-feed fan-out for the whole tree.
+                    const roots = Array.isArray(tree) ? tree : [tree];
+                    roots.forEach((person) => {
+                        if (person?._id) {
+                            fetchEmployeeStats(person._id, person.employeeId);
+                        }
                     });
 
                 } else {

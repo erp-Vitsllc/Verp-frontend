@@ -107,6 +107,14 @@ function LoanPageContent() {
         setMounted(true);
         fetchEmployees();
         fetchLoans();
+        (async () => {
+            try {
+                const items = await fetchLoanPendingInbox(axiosInstance, { skipToast: true });
+                setPendingInboxCount(countVisibleLoanPendingInbox(items));
+            } catch {
+                setPendingInboxCount(0);
+            }
+        })();
     }, []);
 
     useEffect(() => {
@@ -144,6 +152,15 @@ function LoanPageContent() {
 
     const handleModalSuccess = () => {
         fetchLoans();
+        notifyLoanPendingInboxChanged();
+        (async () => {
+            try {
+                const items = await fetchLoanPendingInbox(axiosInstance, { force: true, skipToast: true });
+                setPendingInboxCount(countVisibleLoanPendingInbox(items));
+            } catch {
+                setPendingInboxCount(0);
+            }
+        })();
     };
 
     const handleDeleteClick = (record) => {

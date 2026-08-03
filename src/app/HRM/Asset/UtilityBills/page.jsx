@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import ListTableRowLink from '@/components/ListTableRowLink';
-import { Bell, Pencil, Plus, Trash2, UserPlus } from 'lucide-react';
+import { Bell, Pencil, Plus, Search, Trash2, UserPlus } from 'lucide-react';
 import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_CARD_DASHBOARD_FILTER, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import AddUtilityModal, { UTILITY_TOGGLE_FIELDS } from './components/AddUtilityModal';
 import CreateUtilityEntryModal from './components/CreateUtilityEntryModal';
@@ -271,6 +271,8 @@ function UtilityBillsPageContent() {
     const [activeTypeTab, setActiveTypeTab] = useState('');
     /** Sub-tabs under type tabs: Active | Deactivated */
     const [listStatusTab, setListStatusTab] = useState('active');
+    /** Search within the active utility type tab rows. */
+    const [tabSearchQuery, setTabSearchQuery] = useState('');
     const [typeBills, setTypeBills] = useState([]);
     /** Bills across every utility type — powers the overview amounts. */
     const [allTypeBills, setAllTypeBills] = useState([]);
@@ -441,6 +443,42 @@ function UtilityBillsPageContent() {
         }
         return cols;
     }, [activeUtility]);
+
+    const displayedEntries = useMemo(() => {
+        const q = String(tabSearchQuery || '').trim().toLowerCase();
+        if (!q) return statusFilteredEntries;
+
+        return statusFilteredEntries.filter((entry) => {
+            const values = entry?.values || {};
+            const assignedName =
+                entry?.assignedToType === 'company'
+                    ? entry?.assignedCompanyName || entry?.assignedCompany?.name || ''
+                    : entry?.assignedEmployeeName ||
+                      [entry?.assignedEmployee?.firstName, entry?.assignedEmployee?.lastName]
+                          .filter(Boolean)
+                          .join(' ') ||
+                      '';
+            const haystack = [
+                entry?.accountNo,
+                entry?.id,
+                values.accountNo,
+                values.provider,
+                values.planDetails,
+                values.location,
+                values.paymentDetails,
+                values.monthlyRental,
+                values.contractStart,
+                values.contractEnd,
+                assignedName,
+                entry?.status,
+                ...tableColumns.map((col) => formatCellValue(col.key, values)),
+            ]
+                .filter((v) => v != null && v !== '—')
+                .map((v) => String(v).toLowerCase())
+                .join(' ');
+            return haystack.includes(q);
+        });
+    }, [statusFilteredEntries, tabSearchQuery, tableColumns]);
 
     const showAssignColumn = activeUtility?.fields?.assignment === 'yes';
 
@@ -876,7 +914,11 @@ function UtilityBillsPageContent() {
                             <UtilityTypeOverviewCard
                                 cards={typeOverviewCards}
                                 activeType={activeTypeTab}
-                                onSelectType={setActiveTypeTab}
+                                onSelectType={(type) => {
+                                    setActiveTypeTab(type);
+                                    setListStatusTab('active');
+                                    setTabSearchQuery('');
+                                }}
                                 month={overviewMonth}
                                 year={overviewYear}
                                 yearOptions={overviewYearOptions}
@@ -919,6 +961,7 @@ function UtilityBillsPageContent() {
                                                     onClick={() => {
                                                         setActiveTypeTab(tab.type);
                                                         setListStatusTab('active');
+                                                        setTabSearchQuery('');
                                                     }}
                                                     className={`pb-2 sm:pb-3 pt-2 text-xs sm:text-sm font-semibold transition-all relative whitespace-nowrap ${
                                                         active
@@ -1037,7 +1080,21 @@ function UtilityBillsPageContent() {
                                                 <h2 className="text-base sm:text-lg font-bold text-gray-800">
                                                     {activeUtility.type} Directory
                                                 </h2>
-                                                <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                                                <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto w-full sm:w-auto">
+                                                    <div className="relative flex-1 sm:flex-initial sm:min-w-[220px]">
+                                                        <Search
+                                                            size={16}
+                                                            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                                                        />
+                                                        <input
+                                                            type="search"
+                                                            value={tabSearchQuery}
+                                                            onChange={(e) => setTabSearchQuery(e.target.value)}
+                                                            placeholder={`Search ${activeUtility.type}…`}
+                                                            className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-xs sm:text-sm text-gray-800 placeholder:text-gray-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                                                            aria-label={`Search ${activeUtility.type} rows`}
+                                                        />
+                                                    </div>
                                                     {listStatusTab === 'active' ? (
                                                         <button
                                                             type="button"
@@ -1068,6 +1125,10 @@ function UtilityBillsPageContent() {
                                                         ? `No deactivated ${activeUtility.type} records.`
                                                         : `No active records yet. Create a ${activeUtility.type} to get started.`}
                                                 </div>
+                                            ) : displayedEntries.length === 0 ? (
+                                                <div className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                    No {activeUtility.type} rows match “{tabSearchQuery.trim()}”.
+                                                </div>
                                             ) : (
                                                 <div className="overflow-x-auto rounded-lg border border-gray-200">
                                                     <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
@@ -1097,7 +1158,7 @@ function UtilityBillsPageContent() {
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-100">
-                                                            {statusFilteredEntries.map((entry) => {
+                                                            {displayedEntries.map((entry) => {
                                                                 const entryHref = `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entry.id)}`;
                                                                 return (
                                                                 <ListTableRowLink

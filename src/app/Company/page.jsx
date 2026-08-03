@@ -23,7 +23,7 @@ import { COMPANY_LIST_MODULE, COMPANY_ADD_MODULE, notifyNoPermission } from '@/u
 import PermissionGuard from '@/components/PermissionGuard';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell, Edit } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import { navigateFromList, navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import ErpPageHeader from '@/components/ErpPageHeader';
@@ -161,16 +161,6 @@ function CompanyContent() {
     useEffect(() => {
         setClientMounted(true);
     }, []);
-
-    useEffect(() => {
-        if (!clientMounted) return;
-        if (isSyncingFromUrlRef.current) return;
-        const params = new URLSearchParams();
-        if (searchQuery) params.set('search', searchQuery);
-        const qs = params.toString();
-        const newUrl = qs ? `/Company?${qs}` : '/Company';
-        rememberListFilterStep(newUrl);
-    }, [clientMounted, searchQuery]);
 
     useEffect(() => {
         if (!clientMounted || typeof window === 'undefined') return;

@@ -7,9 +7,11 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
     buildHandoverHistoryRows,
+    canDeleteHandoverHistoryListRow,
     getHandoverByLabel,
     getHandoverEndDate,
     getHandoverHistoryStatus,
+    getHandoverListDeleteBlockReason,
     getHandoverStartDate,
     getHandoverToLabel,
     getHandoverTypeLabel,
@@ -64,9 +66,19 @@ export default function VehicleHandoverHistoryTable({
         router.push(`/HRM/Asset/Vehicle/details/${vehicleId}/assign/${assignId}`);
     };
 
-    const handleDelete = async (entry, event) => {
+    const handleDelete = async (entry, index, event) => {
         event.stopPropagation();
         event.preventDefault();
+
+        const middleBlock = getHandoverListDeleteBlockReason(rows, index);
+        if (middleBlock) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot delete',
+                description: middleBlock,
+            });
+            return;
+        }
 
         const historyId = resolveHandoverDeleteHistoryId(entry, asset, assetHistory);
         if (!historyId || deletingId) {
@@ -165,7 +177,8 @@ export default function VehicleHandoverHistoryTable({
                                 asset,
                                 assetHistory,
                             );
-                            const canDeleteRow = Boolean(deleteHistoryId);
+                            const isEndRow = canDeleteHandoverHistoryListRow(rows, index);
+                            const endBlockReason = getHandoverListDeleteBlockReason(rows, index);
                             const isDeleting =
                                 deletingId === String(entry._id) ||
                                 (deleteHistoryId && deletingId === String(deleteHistoryId));
@@ -209,14 +222,28 @@ export default function VehicleHandoverHistoryTable({
                                     </td>
                                     {showActionsColumn ? (
                                         <td className="px-4 py-3 text-center">
-                                            {canDeleteRow ? (
+                                            {deleteHistoryId ? (
                                                 <button
                                                     type="button"
-                                                    onClick={(event) => handleDelete(entry, event)}
+                                                    onClick={(event) =>
+                                                        handleDelete(entry, index, event)
+                                                    }
                                                     disabled={isDeleting}
-                                                    className="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                                    title="Delete handover record"
-                                                    aria-label="Delete handover record"
+                                                    className={`inline-flex items-center justify-center rounded-lg p-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                                        isEndRow
+                                                            ? 'text-slate-400 hover:bg-rose-50 hover:text-rose-600'
+                                                            : 'text-slate-300 hover:bg-amber-50 hover:text-amber-700'
+                                                    }`}
+                                                    title={
+                                                        isEndRow
+                                                            ? 'Delete handover record'
+                                                            : endBlockReason
+                                                    }
+                                                    aria-label={
+                                                        isEndRow
+                                                            ? 'Delete handover record'
+                                                            : 'Cannot delete middle handover row'
+                                                    }
                                                 >
                                                     {isDeleting ? (
                                                         <Loader2 size={16} className="animate-spin" />

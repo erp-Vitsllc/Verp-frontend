@@ -264,7 +264,9 @@ axiosInstance.interceptors.response.use(
                 }
             } else if (error.response.status === 401) {
                 // Session missing or invalid; storage clear + redirect already applied above.
-            } else if (error.response.status === 429 && error.config?.skipToast) {
+            } else if (error.response.status === 429) {
+                // Align with commonLimiter window — stop badge polls from burning the IP bucket further.
+                pauseSidebarPolling(2 * 60 * 1000);
                 // Background polls (sidebar, etc.) — avoid console spam when rate-limited.
             } else if (error.config?.skipToast) {
                 // Background permission / meta checks — caller handles failure.

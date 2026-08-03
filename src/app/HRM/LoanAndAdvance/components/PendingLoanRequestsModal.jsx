@@ -16,7 +16,6 @@ import {
 } from '@/utils/pendingInboxFetch';
 import {
     countVisibleLoanPendingInbox,
-    notifyLoanPendingInboxChanged,
 } from '../utils/loanPendingInboxCount';
 
 function loanHref(row) {
@@ -68,7 +67,6 @@ export default function PendingLoanRequestsModal({
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(count);
             }
-            notifyLoanPendingInboxChanged();
         } catch (e) {
             console.error(e);
             toast({
@@ -78,7 +76,6 @@ export default function PendingLoanRequestsModal({
             });
             if (itemsRef.current.length === 0) setItems([]);
             if (typeof onPendingInboxCount === 'function') onPendingInboxCount(0);
-            notifyLoanPendingInboxChanged();
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -86,13 +83,8 @@ export default function PendingLoanRequestsModal({
     }, [toast, onPendingInboxCount]);
 
     useEffect(() => {
-        // Warm count for page bell + sidebar/dashboard on mount
-        load({ force: true });
-    }, [load]);
-
-    useEffect(() => {
         if (!isOpen) return;
-        load({ force: true });
+        load();
     }, [isOpen, load]);
 
     const handleRowActivate = (row) => {

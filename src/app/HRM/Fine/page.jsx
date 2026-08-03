@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
-import { navigateFromList, rememberListFilterStep, syncBrowserUrl } from '@/utils/listReturnNavigation';
+import { navigateFromList } from '@/utils/listReturnNavigation';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
@@ -116,8 +116,6 @@ function FinePageContent() {
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const fetchingRef = useRef(false);
-    const searchParamsRef = useRef(searchParams);
-    searchParamsRef.current = searchParams;
 
     const listReturnParams = useMemo(() => ({
         search: searchQuery,
@@ -138,26 +136,6 @@ function FinePageContent() {
         const search = searchParams.get('search');
         if (search !== null) setSearchQuery((prev) => (prev === search ? prev : search));
     }, [searchParams]);
-
-    useEffect(() => {
-        const params = new URLSearchParams(searchParamsRef.current.toString());
-        if (searchQuery) params.set('search', searchQuery);
-        else params.delete('search');
-        if (selectedFineType) params.set('fineType', selectedFineType);
-        else params.delete('fineType');
-        if (selectedStatus && selectedStatus !== 'Pending') params.set('status', selectedStatus);
-        else if (selectedStatus === 'Pending') params.set('status', 'Pending');
-        else params.delete('status');
-        if (activeTab && activeTab !== 'group') params.set('tab', activeTab);
-        else params.delete('tab');
-        const queryString = params.toString();
-        const newUrl = queryString ? `/HRM/Fine?${queryString}` : '/HRM/Fine';
-        const currentFull = `${window.location.pathname}${window.location.search}`;
-        if (newUrl !== currentFull) {
-            rememberListFilterStep(newUrl);
-            syncBrowserUrl(newUrl);
-        }
-    }, [searchQuery, selectedFineType, selectedStatus, activeTab]);
 
     useEffect(() => {
         setMounted(true);
@@ -300,10 +278,10 @@ function FinePageContent() {
         try {
             const items = await fetchFinePendingInbox(axiosInstance, { skipToast: true, force });
             setPendingInboxCount(countVisibleFinePendingInbox(items));
-            notifyFinePendingInboxChanged();
+            // Do NOT notify on warm/poll — clears cache + forces Sidebar to refetch all modules.
+            // Mutations / modals call notifyFinePendingInboxChanged() so badges still update.
         } catch {
             setPendingInboxCount(0);
-            notifyFinePendingInboxChanged();
         }
     }, []);
 
@@ -321,7 +299,8 @@ function FinePageContent() {
 
     const handleModalSuccess = () => {
         fetchFines();
-        fetchPendingInboxCount();
+        notifyFinePendingInboxChanged();
+        fetchPendingInboxCount({ force: true });
     };
 
     const handleDeleteClick = (fine) => {

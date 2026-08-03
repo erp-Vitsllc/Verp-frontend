@@ -30,7 +30,7 @@ import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import { navigateFromList, navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { navHrefProps } from '@/utils/linkContextMenu';
@@ -60,7 +60,6 @@ import OwnerOnDutyReviewModal from './components/OwnerOnDutyReviewModal';
 import {
     ASSET_PENDING_INBOX_CHANGED,
     countVisibleAssetPendingInbox,
-    notifyAssetPendingInboxChanged,
 } from './utils/assetPendingInboxCount';
 import { filterToolsAssetInboxRows } from '@/utils/assetInboxScope';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
@@ -834,6 +833,7 @@ function AssetPageContent() {
 
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const toolsInboxWarmRef = useRef(false);
+    const toolsInboxInFlightRef = useRef(false);
 
     const [bulkInitialAssetIds, setBulkInitialAssetIds] = useState(null);
 
@@ -992,51 +992,6 @@ function AssetPageContent() {
         }
     }, [searchParams]);
 
-    // Write filters to URL so back-button preserves them (other params e.g. bulkAssignmentGroup preserved)
-
-    useEffect(() => {
-
-        const params = new URLSearchParams(searchParamsRef.current.toString());
-
-        if (searchQuery) params.set('search', searchQuery);
-        else params.delete('search');
-
-        if (statusFilter) params.set('status', statusFilter);
-        else params.delete('status');
-
-        if (statusFilter === 'Assigned' && assignedToEmployeeFilter) {
-            params.set('assignedTo', normalizeAssignedToFilterValue(assignedToEmployeeFilter));
-        } else {
-            params.delete('assignedTo');
-        }
-
-        if (activeTab && activeTab !== 'asset') params.set('tab', activeTab);
-        else params.delete('tab');
-
-        if (viewMode && viewMode !== 'grid') params.set('view', viewMode);
-        else params.delete('view');
-
-        if (lossDamageStatusFilter && lossDamageStatusFilter !== 'All') params.set('lossDamageStatus', lossDamageStatusFilter);
-        else params.delete('lossDamageStatus');
-
-        if (assetListPage > 1) params.set('page', String(assetListPage));
-        else params.delete('page');
-
-        if (assetListPerPage !== 10) params.set('perPage', String(assetListPerPage));
-        else params.delete('perPage');
-
-        const queryString = params.toString();
-
-        const newUrl = queryString ? `/HRM/Asset?${queryString}` : '/HRM/Asset';
-
-        const currentFull = `${window.location.pathname}${window.location.search}`;
-
-        if (newUrl === currentFull) return;
-
-        rememberListFilterStep(newUrl);
-
-    }, [searchQuery, statusFilter, assignedToEmployeeFilter, activeTab, viewMode, lossDamageStatusFilter, assetListPage, assetListPerPage]);
-
     useEffect(() => {
         if (statusFilter !== 'Assigned' && assignedToEmployeeFilter) {
             setAssignedToEmployeeFilter('');
@@ -1090,6 +1045,8 @@ function AssetPageContent() {
     }, []);
 
     const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
+        if (toolsInboxInFlightRef.current) return;
+        toolsInboxInFlightRef.current = true;
         try {
             const items = await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope: 'tools',
@@ -1098,10 +1055,12 @@ function AssetPageContent() {
                 force,
             });
             setPendingInboxCount(countVisibleAssetPendingInbox(filterToolsAssetInboxRows(items)));
-            notifyAssetPendingInboxChanged();
+            // Do NOT notify here — that re-enters this listener and storms the API.
+            // Mutations call invalidateAssetPendingInbox() so Sidebar/Vehicle still update.
         } catch {
             setPendingInboxCount(0);
-            notifyAssetPendingInboxChanged();
+        } finally {
+            toolsInboxInFlightRef.current = false;
         }
     }, []);
 

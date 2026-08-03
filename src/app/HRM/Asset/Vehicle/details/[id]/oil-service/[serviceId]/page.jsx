@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
@@ -50,9 +50,11 @@ const { page: oilServicePageLayout } = VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_
 function VehicleOilServiceDetailPageContent() {
     const params = useParams();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { toast } = useToast();
     const vehicleId = normalizeMongoId(params?.id);
     const serviceId = normalizeMongoId(params?.serviceId);
+    const focusPayment = String(searchParams?.get('focus') || '').trim().toLowerCase() === 'payment';
 
     const [asset, setAsset] = useState(() => readWarmVehicleDetail(vehicleId) || null);
     const [loading, setLoading] = useState(() => !readWarmVehicleDetail(vehicleId));
@@ -238,6 +240,17 @@ function VehicleOilServiceDetailPageContent() {
         }
     }, []);
 
+    useEffect(() => {
+        if (!focusPayment || loading) return;
+        const t = setTimeout(() => {
+            const el = document.getElementById('oil-service-make-payment-panel');
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 350);
+        return () => clearTimeout(t);
+    }, [focusPayment, loading, serviceId, vehicleId]);
+
     const handleBack = useListReturnBack(
         useCallback(() => {
             if (vehicleId) {
@@ -394,21 +407,30 @@ function VehicleOilServiceDetailPageContent() {
                             />
 
                             {/* Make Payment: Accounts Zoho bill (unlocks at pending_accounts) */}
-                            <VehicleOilCashPaymentApprovalCard
-                                mode="payment"
-                                asset={asset}
-                                service={service}
-                                vehicleId={vehicleId}
-                                serviceId={serviceId}
-                                canActHr={isFlowchartHr}
-                                canActAccounts={isFlowchartAccounts}
-                                workflowStage={oilWorkflowStage}
-                                onUpdated={(updatedAsset) => {
-                                    if (updatedAsset) setAsset(updatedAsset);
-                                    void load({ silent: true, deferServiceSigning: true });
-                                }}
-                                className="w-full shrink-0"
-                            />
+                            <div
+                                id="oil-service-make-payment-panel"
+                                className={
+                                    focusPayment
+                                        ? 'w-full shrink-0 scroll-mt-24 rounded-xl ring-2 ring-blue-400/70 ring-offset-2'
+                                        : 'w-full shrink-0 scroll-mt-24'
+                                }
+                            >
+                                <VehicleOilCashPaymentApprovalCard
+                                    mode="payment"
+                                    asset={asset}
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canActHr={isFlowchartHr}
+                                    canActAccounts={isFlowchartAccounts}
+                                    workflowStage={oilWorkflowStage}
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load({ silent: true, deferServiceSigning: true });
+                                    }}
+                                    className="w-full shrink-0"
+                                />
+                            </div>
                         </div>
 
                         <div className={oilServicePageLayout.sideColumnClassName}>

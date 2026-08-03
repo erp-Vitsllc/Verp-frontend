@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, AlertCircle } from 'lucide-react';
+import Select from 'react-select';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
@@ -198,6 +199,84 @@ export default function AddLoanModal({
     }, [isOpen, initialData, formData.type, allowLoanType, allowAdvanceType]);
 
     // Handle Employee Selection & Eligibility Logic
+    const employeeSelectOptions = useMemo(
+        () =>
+            (employees || []).map((emp) => ({
+                value: emp.employeeId,
+                label: `${emp.employeeId} - ${emp.name || ''}`.trim(),
+                employee: emp,
+            })),
+        [employees],
+    );
+
+    const selectedEmployeeOption =
+        employeeSelectOptions.find((opt) => opt.value === formData.employeeId) || null;
+
+    const employeeSelectStyles = useMemo(
+        () => ({
+            control: (base, state) => ({
+                ...base,
+                minHeight: 40,
+                height: 40,
+                borderRadius: 12,
+                borderColor: errors.employeeId
+                    ? '#ef4444'
+                    : state.isFocused
+                      ? '#3b82f6'
+                      : '#e5e7eb',
+                backgroundColor: '#f9fafb',
+                boxShadow: state.isFocused ? '0 0 0 2px rgba(59, 130, 246, 0.45)' : 'none',
+                '&:hover': {
+                    borderColor: errors.employeeId ? '#ef4444' : '#d1d5db',
+                },
+            }),
+            valueContainer: (base) => ({
+                ...base,
+                padding: '0 12px',
+            }),
+            input: (base) => ({
+                ...base,
+                margin: 0,
+                padding: 0,
+            }),
+            indicatorsContainer: (base) => ({
+                ...base,
+                height: 38,
+            }),
+            menu: (base) => ({
+                ...base,
+                borderRadius: 12,
+                overflow: 'hidden',
+                zIndex: 60,
+            }),
+            menuPortal: (base) => ({
+                ...base,
+                zIndex: 70,
+            }),
+            option: (base, state) => ({
+                ...base,
+                fontSize: 14,
+                backgroundColor: state.isSelected
+                    ? '#3b82f6'
+                    : state.isFocused
+                      ? '#eff6ff'
+                      : 'white',
+                color: state.isSelected ? 'white' : '#111827',
+            }),
+            singleValue: (base) => ({
+                ...base,
+                fontSize: 14,
+                color: '#374151',
+            }),
+            placeholder: (base) => ({
+                ...base,
+                fontSize: 14,
+                color: '#9ca3af',
+            }),
+        }),
+        [errors.employeeId],
+    );
+
     const handleEmployeeChange = (empId) => {
         if (scheduleOnlyEdit) return;
         const employee = employees.find(e => e.employeeId === empId);
@@ -594,22 +673,42 @@ export default function AddLoanModal({
                         ) : null}
                     </div>
 
-                    {/* Employee Select */}
+                    {/* Employee Select — searchable by ID or name */}
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-gray-700">Select Employee <span className="text-red-500">*</span></label>
-                        <select
-                            value={formData.employeeId}
-                            onChange={(e) => handleEmployeeChange(e.target.value)}
-                            disabled={identityLocked}
-                            className={`w-full h-10 px-3 rounded-xl border ${errors.employeeId ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-70 disabled:cursor-not-allowed`}
-                        >
-                            <option value="">Select Employee</option>
-                            {employees.map(emp => (
-                                <option key={emp.employeeId} value={emp.employeeId}>
-                                    {emp.employeeId} - {emp.name}
-                                </option>
-                            ))}
-                        </select>
+                        <Select
+                            instanceId="add-loan-employee-select"
+                            options={employeeSelectOptions}
+                            value={selectedEmployeeOption}
+                            onChange={(opt) => handleEmployeeChange(opt?.value || '')}
+                            isDisabled={identityLocked}
+                            isClearable={!identityLocked}
+                            isSearchable
+                            placeholder="Search employee ID or name…"
+                            noOptionsMessage={({ inputValue }) =>
+                                inputValue ? `No employee matching “${inputValue}”` : 'No employees'
+                            }
+                            filterOption={(option, input) => {
+                                const q = String(input || '').trim().toLowerCase();
+                                if (!q) return true;
+                                const emp = option.data?.employee || {};
+                                const hay = [
+                                    option.label,
+                                    emp.employeeId,
+                                    emp.name,
+                                    emp.firstName,
+                                    emp.lastName,
+                                ]
+                                    .filter(Boolean)
+                                    .join(' ')
+                                    .toLowerCase();
+                                return hay.includes(q);
+                            }}
+                            styles={employeeSelectStyles}
+                            menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                            menuPosition="fixed"
+                            classNamePrefix="loan-emp-select"
+                        />
                         {errors.employeeId && <p className="text-xs text-red-500">{errors.employeeId}</p>}
                     </div>
 

@@ -11,7 +11,6 @@ import {
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import {
     countVisibleRewardPendingInbox,
-    notifyRewardPendingInboxChanged,
 } from '../utils/rewardPendingInboxCount';
 import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
 import {
@@ -67,7 +66,6 @@ export default function PendingRewardRequestsModal({
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(count);
             }
-            notifyRewardPendingInboxChanged();
         } catch (e) {
             console.error(e);
             toast({
@@ -79,7 +77,6 @@ export default function PendingRewardRequestsModal({
                 setItems([]);
             }
             if (typeof onPendingInboxCount === 'function') onPendingInboxCount(0);
-            notifyRewardPendingInboxChanged();
         } finally {
             setLoading(false);
             setRefreshing(false);
