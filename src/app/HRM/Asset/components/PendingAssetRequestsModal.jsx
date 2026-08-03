@@ -130,10 +130,10 @@ export default function PendingAssetRequestsModal({
                 inboxScope === 'utility'
                     ? deduped.filter(isUtilityBillInboxRow)
                     : inboxScope === 'tools'
-                      ? filterToolsAssetInboxRows(deduped)
-                      : inboxScope === 'vehicle'
-                        ? filterVehicleAssetInboxRows(deduped)
-                        : deduped;
+                        ? filterToolsAssetInboxRows(deduped)
+                        : inboxScope === 'vehicle'
+                            ? filterVehicleAssetInboxRows(deduped)
+                            : deduped;
             setItems(partitioned);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(countVisibleAssetPendingInbox(partitioned));
@@ -223,8 +223,8 @@ export default function PendingAssetRequestsModal({
         inboxScope === 'vehicle'
             ? 'Vehicle pending'
             : inboxScope === 'tools'
-              ? 'Tools & equipment pending'
-              : 'Pending requests';
+                ? 'Tools & equipment pending'
+                : 'Pending requests';
 
     if (!isOpen) return null;
 

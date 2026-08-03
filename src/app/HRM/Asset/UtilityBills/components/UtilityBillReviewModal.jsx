@@ -839,6 +839,16 @@ export default function UtilityBillReviewModal({
                     return;
                 }
                 const contract = Number(row.contractAmount || 0);
+                const lineTotals = sumLinePartyPayTotals(
+                    Array.isArray(row.lineItems)
+                        ? row.lineItems
+                        : Array.isArray(row.zohoLineItems)
+                          ? row.zohoLineItems
+                          : [],
+                );
+                // Payable To on bill lines already covers difference parties — skip Contract Paid By.
+                if (lineTotals.hasParty) continue;
+
                 const rawPayBy = actual < contract ? PAY_BY_COMPANY : row.payBy;
                 const payBy =
                     rawPayBy === PAY_BY_COMPANY || rawPayBy === PAY_BY_EMPLOYEE
@@ -846,7 +856,7 @@ export default function UtilityBillReviewModal({
                         : '';
                 if (!payBy) {
                     setError(
-                        `Select Contract Paid By (Company or Employee) for account ${row.accountNo}.`,
+                        `Select Contract Paid By (Company or Employee) for account ${row.accountNo}, or set Payable to on bill lines.`,
                     );
                     return;
                 }
@@ -1267,7 +1277,7 @@ export default function UtilityBillReviewModal({
 
                             <div className="overflow-auto flex-1 min-h-0 px-4 sm:px-5 pb-3">
                                 <div className="rounded-xl border border-gray-200 overflow-x-auto">
-                                    <table className="min-w-[92rem] w-full text-sm">
+                                    <table className="min-w-[80rem] w-full text-sm">
                                         <thead className="sticky top-0 z-10 bg-gray-50">
                                             <tr className="border-b border-gray-200 text-[10px] uppercase tracking-wider text-gray-400">
                                                 <th className="w-12 px-3 py-3 text-center font-bold">
@@ -1312,12 +1322,6 @@ export default function UtilityBillReviewModal({
                                                 </th>
                                                 <th className="px-3 py-3 text-center font-bold whitespace-nowrap">
                                                     Difference
-                                                </th>
-                                                <th className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[10rem]">
-                                                    Account
-                                                    <span className="block text-[10px] font-normal text-gray-400 normal-case">
-                                                        difference pay here
-                                                    </span>
                                                 </th>
                                                 <th className="px-2 py-3 text-center font-bold whitespace-nowrap min-w-[8rem]">
                                                     Company name
@@ -1563,24 +1567,6 @@ export default function UtilityBillReviewModal({
                                                             {hasActual
                                                                 ? formatMoney(difference)
                                                                 : '—'}
-                                                        </td>
-                                                        <td
-                                                            className="px-2 py-3.5 text-left align-middle text-gray-700 text-xs max-w-[12rem]"
-                                                            title={
-                                                                row.partyAccountName ||
-                                                                row.partyAccountCode ||
-                                                                ''
-                                                            }
-                                                        >
-                                                            {difference > 0.009 ? (
-                                                                <span className="block truncate font-medium">
-                                                                    {row.partyAccountName ||
-                                                                        row.partyAccountCode ||
-                                                                        '—'}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-gray-400">—</span>
-                                                            )}
                                                         </td>
                                                         <td
                                                             className="px-2 py-3.5 text-center align-middle text-gray-700 text-xs max-w-[10rem]"

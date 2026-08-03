@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import PayByPartySelects from './PayByPartySelects';
+import { sumLinePartyPayTotals } from './UtilityBillTotalsBar';
 
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
@@ -34,8 +35,31 @@ export function resolveRowPayBy(row, { isUnder = false } = {}) {
     return payBy;
 }
 
-/** True when Contract Paid By + required party are filled (Company or Employee only). */
+/** True when Contract Paid By + required party are filled, or Payable To on bill lines covers it. */
 export function isPayByComplete(row, { isUnder = false } = {}) {
+    const lineTotals = sumLinePartyPayTotals(
+        Array.isArray(row?.lineItems)
+            ? row.lineItems
+            : Array.isArray(row?.zohoLineItems)
+              ? row.zohoLineItems
+              : [],
+    );
+    if (lineTotals.hasParty) {
+        if (
+            (lineTotals.payBy === 'employee' || lineTotals.payBy === 'employee_and_company') &&
+            !(lineTotals.payByEmployeeId || lineTotals.payByEmployeeName)
+        ) {
+            return false;
+        }
+        if (
+            (lineTotals.payBy === 'company' || lineTotals.payBy === 'employee_and_company') &&
+            !(lineTotals.payByCompanyId || lineTotals.payByCompanyName)
+        ) {
+            return false;
+        }
+        return true;
+    }
+
     const payBy = resolveRowPayBy(row, { isUnder });
     if (!payBy) return false;
     if (payBy === PAY_BY_COMPANY) {
@@ -137,6 +161,27 @@ function partyDisplayName(name, fallback) {
 
 /** Short party name for the Contract Paid By table cell. */
 export function payByPartyLabel(row = {}) {
+    const lineTotals = sumLinePartyPayTotals(
+        Array.isArray(row?.lineItems)
+            ? row.lineItems
+            : Array.isArray(row?.zohoLineItems)
+              ? row.zohoLineItems
+              : [],
+    );
+    if (lineTotals.hasParty) {
+        if (lineTotals.payBy === 'employee_and_company') {
+            const co = partyDisplayName(lineTotals.payByCompanyName, '');
+            const emp = partyDisplayName(lineTotals.payByEmployeeName, '');
+            return [co, emp].filter(Boolean).join(' + ') || 'Lines';
+        }
+        if (lineTotals.payBy === 'employee') {
+            return partyDisplayName(lineTotals.payByEmployeeName, '') || 'Employee';
+        }
+        if (lineTotals.payBy === 'company') {
+            return partyDisplayName(lineTotals.payByCompanyName, '') || 'Company';
+        }
+    }
+
     const payBy = String(row?.payBy || '').trim();
     if (payBy === PAY_BY_COMPANY) {
         return partyDisplayName(
