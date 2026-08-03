@@ -1,10 +1,11 @@
 'use client';
 
-import { useMemo, useRef, useState, useCallback } from 'react';
+import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import { Camera, CheckCircle2, User, UserX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
+import axiosInstance from '@/utils/axios';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
 import { isVehicleExpiryDatePast } from '../utils/vehicleExpirySources';
@@ -16,6 +17,26 @@ import {
 } from '../lib/vehicleProfileEditSnapshots';
 import { collectVehicleProfilePendingItems } from '../utils/resolveVehicleProfilePendingItems';
 import VehicleProfilePendingStatusBadge from './VehicleProfilePendingStatusBadge';
+
+function isUsableImageSrc(value) {
+    const s = String(value || '').trim();
+    if (!s) return false;
+    return (
+        s.startsWith('http://') ||
+        s.startsWith('https://') ||
+        s.startsWith('data:') ||
+        s.startsWith('blob:')
+    );
+}
+
+function pickRawVehiclePhotoRef(asset) {
+    return (
+        String(asset?.imagePreview || '').trim() ||
+        String(asset?.photo || '').trim() ||
+        String(asset?.images?.[0]?.url || '').trim() ||
+        ''
+    );
+}
 
 function formatHdrDate(date) {
     if (!date) return '';
@@ -77,9 +98,44 @@ export default function VehicleAssetProfileHeader({
     const [error, setError] = useState('');
     const [showProgressTooltip, setShowProgressTooltip] = useState(false);
     const [isTooltipLocked, setIsTooltipLocked] = useState(false);
+    const [resolvedPhotoSrc, setResolvedPhotoSrc] = useState('');
     const progressBarRef = useRef(null);
     const tooltipRef = useRef(null);
     const avatarEditorRef = useRef(null);
+
+    const rawPhotoRef = pickRawVehiclePhotoRef(asset);
+
+    useEffect(() => {
+        let cancelled = false;
+        const raw = rawPhotoRef;
+        if (!raw) {
+            setResolvedPhotoSrc('');
+            return undefined;
+        }
+        if (isUsableImageSrc(raw)) {
+            setResolvedPhotoSrc(raw);
+            return undefined;
+        }
+
+        setResolvedPhotoSrc('');
+        void axiosInstance
+            .get('/storage/signed-url', {
+                params: { key: raw },
+                skipToast: true,
+            })
+            .then((res) => {
+                if (cancelled) return;
+                const url = String(res?.data?.url || '').trim();
+                if (isUsableImageSrc(url)) setResolvedPhotoSrc(url);
+            })
+            .catch(() => {
+                if (!cancelled) setResolvedPhotoSrc('');
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [rawPhotoRef]);
 
     const handleFileSelect = (e) => {
         const file = e.target.files?.[0];
@@ -284,7 +340,7 @@ export default function VehicleAssetProfileHeader({
         },
     ];
 
-    const photoSrc = asset?.imagePreview || asset?.photo || asset?.images?.[0]?.url || '';
+    const photoSrc = resolvedPhotoSrc || (isUsableImageSrc(rawPhotoRef) ? rawPhotoRef : '');
 
     const { profilePct, completionChecks, pendingChecks } = computeVehicleProfileCompletionPercent(asset);
     const headerProgressPct = isDisposedFleet ? 100 : profilePct;
@@ -319,7 +375,12 @@ export default function VehicleAssetProfileHeader({
                 }}>
                     {photoSrc ? (
                         <div className={`${photoFrameClass} bg-slate-100`}>
-                            <img src={photoSrc} alt="" className="w-full h-full object-cover object-center" />
+                            <img
+                                src={photoSrc}
+                                alt=""
+                                className="w-full h-full object-cover object-center"
+                                onError={() => setResolvedPhotoSrc('')}
+                            />
                         </div>
                     ) : (
                         <div

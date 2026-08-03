@@ -32,16 +32,14 @@ export function isVehicleBasicDetailsComplete(asset) {
 }
 
 /**
- * Mulkia (Registration) — live doc only; expired / missing reduces progress.
+ * Mulkia (Registration) — live doc/card required; expired or deleted reduces progress.
  */
 export function isVehicleRegistrationCardComplete(asset) {
     const registrationDocs = liveDocsOfType(asset, 'registration');
     const registrationAttachments = liveDocsOfType(asset, 'registration attachment');
     const registrationDoc = pickPrimaryLiveDoc(registrationDocs);
     if (!registrationDoc && registrationAttachments.length === 0) {
-        // Fall back to top-level expiry only when a date is still on file and not expired.
-        const topExpiry = asset?.registrationExpiryDate;
-        return Boolean(topExpiry && !isVehicleExpiryDatePast(topExpiry));
+        return false;
     }
 
     if (registrationDoc && isVehicleExpiryDatePast(registrationDoc.expiryDate || asset?.registrationExpiryDate)) {
@@ -59,15 +57,14 @@ export function isVehicleRegistrationCardComplete(asset) {
 }
 
 /**
- * Insurance Details — live doc only; expired / missing reduces progress.
+ * Insurance Details — live doc/card required; expired or deleted reduces progress.
  */
 export function isVehicleInsuranceCardComplete(asset) {
     const insuranceDocs = liveDocsOfType(asset, 'insurance');
     const insuranceAttachments = liveDocsOfType(asset, 'insurance attachment');
     const insuranceDoc = pickPrimaryLiveDoc(insuranceDocs);
     if (!insuranceDoc && insuranceAttachments.length === 0) {
-        const topExpiry = asset?.insuranceExpiryDate;
-        return Boolean(topExpiry && !isVehicleExpiryDatePast(topExpiry));
+        return false;
     }
 
     if (insuranceDoc && isVehicleExpiryDatePast(insuranceDoc.expiryDate || asset?.insuranceExpiryDate)) {

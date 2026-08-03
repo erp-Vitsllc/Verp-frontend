@@ -1321,7 +1321,18 @@ function VehicleDetailsPageContent() {
                 const nextDocs = (prev.documents || []).filter(
                     (d) => !deletedIds.has(resolveAssetDocMongoId(d) || ''),
                 );
-                return { ...prev, documents: nextDocs };
+                const norm = (t) => String(t || '').toLowerCase().trim();
+                const hasLive = (type) =>
+                    nextDocs.some((d) => {
+                        const t = norm(d?.type);
+                        if (t !== type && t !== `${type} attachment`) return false;
+                        const status = String(d?.status || d?.documentStatus || '').toLowerCase();
+                        return status !== 'old' && status !== 'archived' && status !== 'not renew';
+                    });
+                const patch = { ...prev, documents: nextDocs };
+                if (!hasLive('registration')) patch.registrationExpiryDate = null;
+                if (!hasLive('insurance')) patch.insuranceExpiryDate = null;
+                return patch;
             });
             const count = res.data?.deletedCount ?? deletedIds.size;
             toast({

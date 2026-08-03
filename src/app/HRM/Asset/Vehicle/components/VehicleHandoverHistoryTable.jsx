@@ -70,12 +70,12 @@ export default function VehicleHandoverHistoryTable({
         event.stopPropagation();
         event.preventDefault();
 
-        const middleBlock = getHandoverListDeleteBlockReason(rows, index);
-        if (middleBlock) {
+        const deleteBlock = getHandoverListDeleteBlockReason(rows, index);
+        if (deleteBlock) {
             toast({
                 variant: 'destructive',
                 title: 'Cannot delete',
-                description: middleBlock,
+                description: deleteBlock,
             });
             return;
         }
@@ -177,8 +177,8 @@ export default function VehicleHandoverHistoryTable({
                                 asset,
                                 assetHistory,
                             );
-                            const isEndRow = canDeleteHandoverHistoryListRow(rows, index);
-                            const endBlockReason = getHandoverListDeleteBlockReason(rows, index);
+                            const isOldestRow = canDeleteHandoverHistoryListRow(rows, index);
+                            const deleteBlockReason = getHandoverListDeleteBlockReason(rows, index);
                             const isDeleting =
                                 deletingId === String(entry._id) ||
                                 (deleteHistoryId && deletingId === String(deleteHistoryId));
@@ -230,19 +230,19 @@ export default function VehicleHandoverHistoryTable({
                                                     }
                                                     disabled={isDeleting}
                                                     className={`inline-flex items-center justify-center rounded-lg p-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                                        isEndRow
+                                                        isOldestRow
                                                             ? 'text-slate-400 hover:bg-rose-50 hover:text-rose-600'
                                                             : 'text-slate-300 hover:bg-amber-50 hover:text-amber-700'
                                                     }`}
                                                     title={
-                                                        isEndRow
+                                                        isOldestRow
                                                             ? 'Delete handover record'
-                                                            : endBlockReason
+                                                            : deleteBlockReason
                                                     }
                                                     aria-label={
-                                                        isEndRow
+                                                        isOldestRow
                                                             ? 'Delete handover record'
-                                                            : 'Cannot delete middle handover row'
+                                                            : 'Delete past handover rows first'
                                                     }
                                                 >
                                                     {isDeleting ? (
