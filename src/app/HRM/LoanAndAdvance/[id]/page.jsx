@@ -545,15 +545,15 @@ export default function LoanRequestDetails() {
     };
 
     const canShowEdit =
-        !isApprovedLoan &&
-        (canPerformAction() ||
-            isAdmin() ||
-            (loan.status === 'Rejected' && canResubmit));
+        isAdmin() ||
+        (!isApprovedLoan &&
+            (canPerformAction() || (loan.status === 'Rejected' && canResubmit)));
 
     const approvedEditTabLabel = isLoanType ? 'Edit Loan' : 'Edit Adv';
 
     const handleEdit = async ({ scheduleOnly = false } = {}) => {
-        setScheduleOnlyEdit(scheduleOnly);
+        // Super User always gets full edit (any stage including Paid / Completed).
+        setScheduleOnlyEdit(isAdmin() ? false : scheduleOnly);
         try {
             // We need full employee details for the AddLoanModal validation
             // loan.employeeObjectId only has limited fields.
@@ -834,7 +834,7 @@ export default function LoanRequestDetails() {
         setIsProcessing(true);
         const loadingToast = toast({
             title: 'Recording payment…',
-            description: 'Creating payment and Zoho Expense from Loan Parties accounts.',
+            description: 'Creating Zoho Expense first. Paid to Employee completes only after Zoho accepts.',
             className: 'bg-amber-50 border-amber-200 text-amber-900',
             duration: 120000,
         });
@@ -859,17 +859,29 @@ export default function LoanRequestDetails() {
                 paidThroughAccountName,
             });
 
+            if (res?.data?.zohoSync?.ok === false || res?.data?.success === false) {
+                loadingToast.update({
+                    id: loadingToast.id,
+                    title: 'Zoho failed — not paid',
+                    description:
+                        res?.data?.message ||
+                        'Zoho Expense failed. Paid to Employee was not completed. Fix accounts and try Pay again.',
+                    variant: 'destructive',
+                    className: undefined,
+                    duration: 10000,
+                });
+                await fetchLoanDetails();
+                return;
+            }
+
             loadingToast.update({
                 id: loadingToast.id,
-                title: res?.data?.zohoSync?.ok === false ? 'Paid in ERP — Zoho failed' : 'Paid',
+                title: 'Paid',
                 description:
                     res?.data?.message ||
-                    `${typeLabel} marked paid. Zoho Expense uses Expense Account + Paid Through from Loan Parties.`,
-                className:
-                    res?.data?.zohoSync?.ok === false
-                        ? 'bg-amber-50 border-amber-200 text-amber-900'
-                        : 'bg-green-50 border-green-200 text-green-800',
-                duration: res?.data?.zohoSync?.ok === false ? 10000 : 6000,
+                    `${typeLabel} marked paid. Zoho Expense created — Paid to Employee complete.`,
+                className: 'bg-green-50 border-green-200 text-green-800',
+                duration: 6000,
             });
             clearModuleNotificationFeedsCache();
             notifyLoanPendingInboxChanged();
@@ -878,15 +890,16 @@ export default function LoanRequestDetails() {
             console.error('Loan mark paid failed:', err);
             loadingToast.update({
                 id: loadingToast.id,
-                title: 'Payment failed',
+                title: 'Zoho failed — not paid',
                 description:
                     err?.response?.data?.message ||
                     err?.message ||
-                    'Could not create payment / Zoho Expense.',
+                    'Zoho Expense failed. Loan was not marked Paid — fix accounts and try Pay again.',
                 variant: 'destructive',
                 className: undefined,
-                duration: 8000,
+                duration: 10000,
             });
+            await fetchLoanDetails();
         } finally {
             setIsProcessing(false);
         }
@@ -1095,7 +1108,7 @@ export default function LoanRequestDetails() {
                                     {editTabLabel}
                                 </button>
                             )}
-                            {canShowApprovedHrEdit && (
+                            {canShowApprovedHrEdit && !isAdmin() && (
                                 <button
                                     type="button"
                                     onClick={() => handleEdit({ scheduleOnly: true })}
@@ -1136,6 +1149,8 @@ export default function LoanRequestDetails() {
                                 employeeOwnerId={employeeOwnerId}
                                 canEditPartyPayables={(() => {
                                     if (!loan || !currentUser) return false;
+                                    // Portal Super User may edit party accounts at any stage.
+                                    if (isAdmin()) return true;
                                     const status = String(loan.approvalStatus || loan.status || '');
                                     const hasZoho = Boolean(String(loan.zohoExpenseId || '').trim());
                                     const syncErr = Boolean(String(loan.zohoSyncError || '').trim());
@@ -1146,7 +1161,6 @@ export default function LoanRequestDetails() {
                                     const dept = String(currentUser.department || '').toLowerCase();
                                     const desig = String(currentUser.designation || '').toLowerCase();
                                     const isFinanceUser =
-                                        isAdmin() ||
                                         dept.includes('finance') ||
                                         dept.includes('account') ||
                                         dept.includes('payroll') ||
@@ -1165,14 +1179,15 @@ export default function LoanRequestDetails() {
                                             (status === 'Approved' && unpaid)) &&
                                         canAccountsPayLoan(loan, currentUser);
 
-                                    // 3) Disbursed but Zoho failed — allow Accounts to fix COA + retry
+                                    // 3) Zoho failed / live Paid without Zoho — allow fix COA + Retry Zoho
                                     const fixFailedZoho =
                                         !hasZoho &&
-                                        syncErr &&
                                         isFinanceUser &&
-                                        (status === 'Paid' ||
+                                        (Boolean(syncErr) ||
+                                            status === 'Paid' ||
                                             (Number(loan?.amount) > 0 &&
-                                                Number(loan?.paidAmount) >= Number(loan?.amount) - 0.01));
+                                                Number(loan?.paidAmount) >=
+                                                    Number(loan?.amount) - 0.01));
 
                                     return atAccountsStage || atPayToEmployee || fixFailedZoho;
                                 })()}

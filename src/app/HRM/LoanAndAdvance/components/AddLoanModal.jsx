@@ -377,7 +377,11 @@ export default function AddLoanModal({
 
         if (!formData.employeeId) newErrors.employeeId = 'Please select an employee';
         if (!formData.type) newErrors.type = 'Please select a type';
-        if (!formData.reason) newErrors.reason = 'Reason is mandatory';
+        if (!formData.reason) {
+            newErrors.reason = 'Reason is mandatory';
+        } else if (String(formData.reason).trim().length > 50) {
+            newErrors.reason = 'Reason must be 50 characters or less';
+        }
 
         if (!formData.amount) {
             newErrors.amount = 'Amount is required';
@@ -727,14 +731,25 @@ export default function AddLoanModal({
                         <textarea
                             value={formData.reason}
                             onChange={(e) => {
-                                setFormData({ ...formData, reason: e.target.value });
+                                const next = e.target.value.slice(0, 50);
+                                setFormData({ ...formData, reason: next });
                                 if (errors.reason) setErrors({ ...errors, reason: '' });
                             }}
+                            maxLength={50}
                             className={`w-full h-24 px-3 py-2 rounded-xl border ${errors.reason ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-all`}
-                            placeholder="Reason for loan..."
+                            placeholder="Reason for loan (max 50 characters)..."
                             disabled={identityLocked}
                         />
-                        {errors.reason && <p className="text-xs text-red-500">{errors.reason}</p>}
+                        <div className="flex items-center justify-between gap-2">
+                            {errors.reason ? (
+                                <p className="text-xs text-red-500">{errors.reason}</p>
+                            ) : (
+                                <p className="text-xs text-gray-400">Max 50 characters</p>
+                            )}
+                            <p className="text-xs text-gray-400 shrink-0">
+                                {String(formData.reason || '').length}/50
+                            </p>
+                        </div>
                     </div>
 
                     {/* Footer */}

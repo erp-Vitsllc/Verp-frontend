@@ -8043,7 +8043,26 @@ function CompanyProfilePageContent() {
                                             }]
                                                 : []),
                                         ]
-                                            .filter((r) => r.issueDate || r.expiryDate || r.attachment)
+                                            .filter((r) => {
+                                                // Align with Basic tab cards: show when number exists even without dates/file
+                                                if (r.documentType === 'Trade License') {
+                                                    return Boolean(
+                                                        String(company.tradeLicenseNumber || '').trim() ||
+                                                            r.issueDate ||
+                                                            r.expiryDate ||
+                                                            r.attachment,
+                                                    );
+                                                }
+                                                if (r.documentType === 'Establishment Card') {
+                                                    return Boolean(
+                                                        String(company.establishmentCardNumber || '').trim() ||
+                                                            r.issueDate ||
+                                                            r.expiryDate ||
+                                                            r.attachment,
+                                                    );
+                                                }
+                                                return Boolean(r.issueDate || r.expiryDate || r.attachment);
+                                            })
                                             .map((r) =>
                                                 rowWithPerms(
                                                     r,

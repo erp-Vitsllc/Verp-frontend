@@ -452,6 +452,20 @@ export default function DocumentsTab({
         return !!(doc.url || doc.data || doc.publicId || doc.base64);
     };
 
+    /** Match Basic Details cards: show Live Documents rows when card fields exist, even if attachment is missing. */
+    const systemCardHasLiveDetails = (details) => {
+        if (!details || typeof details !== 'object') return false;
+        return Boolean(
+            String(details.number || '').trim() ||
+                String(details.idNumber || '').trim() ||
+                String(details.provider || '').trim() ||
+                details.issueDate ||
+                details.expiryDate ||
+                details.startDate ||
+                details.lastUpdated,
+        );
+    };
+
     const getDocObj = (doc, name, typeOverride) => {
         if (!doc) return null;
         const label = typeOverride || name || 'Document';
@@ -526,17 +540,27 @@ export default function DocumentsTab({
             });
         };
 
-        // Basic Details
-        if (hasDoc(employee.passportDetails?.document)) add({ type: 'Passport', description: employee.passportDetails?.number, expiryDate: employee.passportDetails?.expiryDate, issueDate: employee.passportDetails?.issueDate, document: employee.passportDetails.document, isSystem: true, deleteTarget: { kind: 'passport' } }, SECTIONS.BASIC, 'Passport');
+        // Basic Details — same visibility as Basic tab cards (fields OR attachment)
+        if (systemCardHasLiveDetails(employee.passportDetails) || hasDoc(employee.passportDetails?.document)) {
+            add({ type: 'Passport', description: employee.passportDetails?.number, expiryDate: employee.passportDetails?.expiryDate, issueDate: employee.passportDetails?.issueDate, document: employee.passportDetails?.document || null, isSystem: true, deleteTarget: { kind: 'passport' } }, SECTIONS.BASIC, 'Passport');
+        }
         if (employee.visaDetails) {
             ['visit', 'employment', 'spouse'].forEach(t => {
                 const v = employee.visaDetails[t];
-                if (hasDoc(v?.document)) add({ type: `${t.charAt(0).toUpperCase() + t.slice(1)} Visa`, description: v?.number, expiryDate: v?.expiryDate, issueDate: v?.issueDate, document: v.document, isSystem: true, deleteTarget: { kind: 'visa', visaType: t } }, SECTIONS.BASIC, 'Visa');
+                if (systemCardHasLiveDetails(v) || hasDoc(v?.document)) {
+                    add({ type: `${t.charAt(0).toUpperCase() + t.slice(1)} Visa`, description: v?.number, expiryDate: v?.expiryDate, issueDate: v?.issueDate, document: v?.document || null, isSystem: true, deleteTarget: { kind: 'visa', visaType: t } }, SECTIONS.BASIC, 'Visa');
+                }
             });
         }
-        if (hasDoc(employee.emiratesIdDetails?.document)) add({ type: 'Emirates ID', description: employee.emiratesIdDetails?.number, expiryDate: employee.emiratesIdDetails?.expiryDate, issueDate: employee.emiratesIdDetails?.issueDate, document: employee.emiratesIdDetails.document, isSystem: true, deleteTarget: { kind: 'emirates' } }, SECTIONS.BASIC, 'EmiratesId');
-        if (hasDoc(employee.medicalInsuranceDetails?.document)) add({ type: 'Medical Insurance', description: employee.medicalInsuranceDetails?.provider, expiryDate: employee.medicalInsuranceDetails?.expiryDate, issueDate: employee.medicalInsuranceDetails?.issueDate, document: employee.medicalInsuranceDetails.document, isSystem: true, deleteTarget: { kind: 'medicalInsurance' } }, SECTIONS.BASIC, 'MedicalInsurance');
-        if (hasDoc(employee.drivingLicenceDetails?.document)) add({ type: 'Driving License', description: employee.drivingLicenceDetails?.number, expiryDate: employee.drivingLicenceDetails?.expiryDate, issueDate: employee.drivingLicenceDetails?.issueDate, document: employee.drivingLicenceDetails.document, isSystem: true, deleteTarget: { kind: 'drivingLicense' } }, SECTIONS.BASIC, 'DrivingLicense');
+        if (systemCardHasLiveDetails(employee.emiratesIdDetails) || hasDoc(employee.emiratesIdDetails?.document)) {
+            add({ type: 'Emirates ID', description: employee.emiratesIdDetails?.number, expiryDate: employee.emiratesIdDetails?.expiryDate, issueDate: employee.emiratesIdDetails?.issueDate, document: employee.emiratesIdDetails?.document || null, isSystem: true, deleteTarget: { kind: 'emirates' } }, SECTIONS.BASIC, 'EmiratesId');
+        }
+        if (systemCardHasLiveDetails(employee.medicalInsuranceDetails) || hasDoc(employee.medicalInsuranceDetails?.document)) {
+            add({ type: 'Medical Insurance', description: employee.medicalInsuranceDetails?.provider, expiryDate: employee.medicalInsuranceDetails?.expiryDate, issueDate: employee.medicalInsuranceDetails?.issueDate, document: employee.medicalInsuranceDetails?.document || null, isSystem: true, deleteTarget: { kind: 'medicalInsurance' } }, SECTIONS.BASIC, 'MedicalInsurance');
+        }
+        if (systemCardHasLiveDetails(employee.drivingLicenceDetails) || hasDoc(employee.drivingLicenceDetails?.document)) {
+            add({ type: 'Driving License', description: employee.drivingLicenceDetails?.number, expiryDate: employee.drivingLicenceDetails?.expiryDate, issueDate: employee.drivingLicenceDetails?.issueDate, document: employee.drivingLicenceDetails?.document || null, isSystem: true, deleteTarget: { kind: 'drivingLicense' } }, SECTIONS.BASIC, 'DrivingLicense');
+        }
 
         // Personal Information
         (employee.educationDetails || []).forEach((edu, i) => {
@@ -569,13 +593,13 @@ export default function DocumentsTab({
         });
         if (hasDoc(employee.signature)) add({ type: 'Digital Signature', issueDate: employee.signature?.signedAt, document: employee.signature, isSystem: true, deleteTarget: { kind: 'signature' } }, SECTIONS.OTHER, 'Signature');
 
-        if (hasDoc(employee.labourCardDetails?.document)) {
+        if (systemCardHasLiveDetails(employee.labourCardDetails) || hasDoc(employee.labourCardDetails?.document)) {
             add({
                 type: 'Labour Card',
                 description: employee.labourCardDetails?.number,
                 expiryDate: employee.labourCardDetails?.expiryDate,
                 issueDate: employee.labourCardDetails?.issueDate || employee.labourCardDetails?.lastUpdated,
-                document: employee.labourCardDetails.document,
+                document: employee.labourCardDetails?.document || null,
                 isSystem: true,
                 deleteTarget: { kind: 'labourCard' }
             }, SECTIONS.BASIC, 'LabourCard');

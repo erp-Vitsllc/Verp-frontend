@@ -95,8 +95,13 @@ export function ownerDocHasContent(docObj) {
     }
     const att = docObj.attachment;
     if (!att) return false;
-    const url = typeof att === 'string' ? att : att?.url;
-    return Boolean(url && String(url).trim());
+    if (typeof att === 'string') return Boolean(att.trim());
+    return Boolean(
+        String(att.url || '').trim() ||
+            String(att.publicId || '').trim() ||
+            String(att.data || '').trim() ||
+            String(att.base64 || '').trim(),
+    );
 }
 
 export function ownerDocAccessByKey(docKey, access = getCompanyProfileAccess()) {

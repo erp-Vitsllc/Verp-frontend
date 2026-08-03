@@ -171,10 +171,16 @@ export default function LoanFormCardParties({
     const companyId = resolveCompanyId(employee, loan);
     const zohoSyncError = String(loan?.zohoSyncError || '').trim();
     const hasZohoExpense = Boolean(String(loan?.zohoExpenseId || '').trim());
+    const loanStatus = String(loan?.approvalStatus || loan?.status || '');
+    const amountNum = Number(loan?.amount) || 0;
+    const paidNum = Number(loan?.paidAmount) || 0;
+    const fullyDisbursed = amountNum > 0 && paidNum >= amountNum - 0.01;
+    const postManagement = ['Paid', 'Approved', 'Pending Payment to Employee'].includes(loanStatus);
+    // Show Retry for failed Zoho sync, live Paid without Zoho, or fully disbursed without Zoho expense.
     const needsZohoRetry =
-        String(loan?.approvalStatus || loan?.status || '') === 'Paid' &&
         !hasZohoExpense &&
-        Boolean(zohoSyncError);
+        postManagement &&
+        (Boolean(zohoSyncError) || loanStatus === 'Paid' || fullyDisbursed);
     const dropdownsEnabled = Boolean(canEditPartyPayables || needsZohoRetry);
     const typeLabel = loan?.type === 'Advance' ? 'Advance' : 'Loan';
     const partyName =
@@ -529,13 +535,19 @@ export default function LoanFormCardParties({
         const syncErr = String(loan.zohoSyncError || '').trim();
 
         if (hasExpense) {
-            return { label: status === 'Paid' ? 'Paid / Posted to Zoho' : 'Posted to Zoho (not paid)', className: 'text-emerald-700' };
+            return { label: status === 'Paid' || (total > 0 && paid >= total - 0.01) ? 'Paid / Posted to Zoho' : 'Posted to Zoho', className: 'text-emerald-700' };
         }
-        if ((status === 'Paid' || (total > 0 && paid >= total - 0.01)) && syncErr) {
-            return { label: 'Paid — Zoho failed', className: 'text-red-700' };
+        if (syncErr && !hasExpense) {
+            return {
+                label:
+                    status === 'Paid' || (total > 0 && paid >= total - 0.01)
+                        ? 'Paid — Zoho failed'
+                        : 'Zoho failed — retry',
+                className: 'text-red-700',
+            };
         }
         if (status === 'Paid' || (total > 0 && paid >= total - 0.01)) {
-            return { label: 'Paid / Posted', className: 'text-emerald-700' };
+            return { label: 'Paid — Zoho missing (retry)', className: 'text-amber-700' };
         }
 
         const atOrAfterAccounts = [
@@ -841,8 +853,10 @@ export default function LoanFormCardParties({
             {needsZohoRetry ? (
                 <div className="mb-3 text-[10px] text-red-800 bg-red-50 rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-2">
                     <span>
-                        <strong>Zoho Expense not created.</strong> {zohoSyncError} Fix Expense
-                        Account / Paid Through, then retry.
+                        <strong>Zoho Expense not created.</strong>{' '}
+                        {zohoSyncError ||
+                            'This loan is paid / ready but has no Zoho Expense yet (e.g. live data).'}{' '}
+                        Fix Expense Account / Paid Through, then retry.
                     </span>
                     <button
                         type="button"
