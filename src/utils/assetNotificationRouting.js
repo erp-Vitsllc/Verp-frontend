@@ -392,6 +392,9 @@ export function buildAssetNotificationPath(rawItem) {
     if (typeRaw === 'Asset Assignment') {
         const historyId = meta?.historyId;
         const vehicleId = meta?.vehicleMongoId || assetId;
+        if (meta?.assignmentOutcome) {
+            return buildAssetDetailPath(assetId, { tab: 'document' });
+        }
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
         if (meta?.isFleetVehicle && vehicleId && historyId) {
             return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/assign/${encodeURIComponent(String(historyId))}`;

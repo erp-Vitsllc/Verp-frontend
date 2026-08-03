@@ -112,7 +112,7 @@ export default function WorkDetailsModal({
     reportingAuthorityLoading,
     reportingAuthorityError,
     onEmployeeRefresh,
-
+    viewerIsDesignatedFlowchartHr = false,
 }) {
     const router = useRouter();
     const { toast } = useToast();
@@ -135,6 +135,7 @@ export default function WorkDetailsModal({
     const [leftUserEligibility, setLeftUserEligibility] = useState(null);
     const [leftUserEligibilityLoading, setLeftUserEligibilityLoading] = useState(false);
     const [markingLeftUser, setMarkingLeftUser] = useState(false);
+    const [showLeftUserConfirm, setShowLeftUserConfirm] = useState(false);
     const [departments, setDepartments] = useState([]);
     const [designations, setDesignations] = useState([]);
     const [assignedEmployees, setAssignedEmployees] = useState([]);
@@ -185,27 +186,45 @@ export default function WorkDetailsModal({
         employee?.noticeRequest?.exitDate,
     ]);
 
+    const canEditWorkStatus = isAdmin() || Boolean(viewerIsDesignatedFlowchartHr);
+    const willApplyLeftUserImmediately = Boolean(viewerIsDesignatedFlowchartHr);
+
     const handleMarkLeftUser = async () => {
         const employeeKey = employee?._id || employee?.id || employee?.employeeId;
         if (!employeeKey) return;
 
         setMarkingLeftUser(true);
+        setShowLeftUserConfirm(false);
         try {
             const res = await axiosInstance.post(`/Employee/${employeeKey}/mark-left-user`);
             const isQueued =
                 res.data?.queuedForHrApproval === true ||
                 String(res.data?.message || '').toLowerCase().includes('queued for hr');
+
+            if (isQueued) {
+                toast({
+                    title: 'Sent to HR for approval',
+                    description:
+                        'HR has been notified by email and a dashboard task was created. Work status stays unchanged until HR accepts.',
+                });
+                if (typeof onEmployeeRefresh === 'function') {
+                    await onEmployeeRefresh(true);
+                }
+                onClose();
+                return;
+            }
+
             toast({
-                title: isQueued ? 'Sent to HR for approval' : 'Marked as Left User',
-                description: isQueued
-                    ? 'HR will see this on the Employees bell and can Accept or Reject on the employee profile.'
-                    : res.data?.message || 'Employee work status updated.',
+                title: 'Marked as Left User',
+                description: res.data?.message || 'Employee work status updated. Reloading page…',
             });
+            onClose();
+            if (typeof window !== 'undefined') {
+                window.location.reload();
+                return;
+            }
             if (typeof onEmployeeRefresh === 'function') {
                 await onEmployeeRefresh(true);
-            }
-            if (!isQueued) {
-                onClose();
             }
         } catch (error) {
             const blockers = error.response?.data?.blockers;
@@ -228,7 +247,15 @@ export default function WorkDetailsModal({
 
     const handleWorkStatusChange = async (value) => {
         if (value === 'Left User') {
-            await handleMarkLeftUser();
+            if (!leftUserEligibility?.eligible) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot mark as Left User',
+                    description: 'Clear assets, fines, loans, and flowchart assignment first.',
+                });
+                return;
+            }
+            setShowLeftUserConfirm(true);
             return;
         }
         if (value === 'Termination' || value === 'Resignation') {
@@ -249,13 +276,12 @@ export default function WorkDetailsModal({
             leftUserEligible: Boolean(leftUserEligibility?.eligible),
             leftUserLoading: leftUserEligibilityLoading,
             isAlreadyLeftUser: employee?.status === 'Left User',
-            isAdmin: isAdmin(),
+            isAdmin: canEditWorkStatus,
         }),
-        [leftUserEligibility?.eligible, leftUserEligibilityLoading, employee?.status],
+        [leftUserEligibility?.eligible, leftUserEligibilityLoading, employee?.status, canEditWorkStatus],
     );
 
     const workStatusDropdownValue = resolveWorkStatusDropdownValue(employee, form.status);
-    const canEditWorkStatus = isAdmin();
     const workStatusDropdownDisabled =
         !canEditWorkStatus ||
         submitting ||
@@ -1023,6 +1049,48 @@ export default function WorkDetailsModal({
                             className="bg-red-600 hover:bg-red-700"
                         >
                             Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={showLeftUserConfirm}
+                onOpenChange={(open) => {
+                    if (!open && !markingLeftUser) setShowLeftUserConfirm(false);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Set as Left User?</AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-sm text-muted-foreground">
+                                <p>
+                                    This employee has no blocking assets, fines, loans, or flowchart
+                                    assignment.
+                                </p>
+                                <p>
+                                    Are you sure you want to set this user as Left User?
+                                </p>
+                                <p className="text-xs">
+                                    {willApplyLeftUserImmediately
+                                        ? 'As HR, this applies immediately and the page will reload.'
+                                        : 'HR will be notified by email and a dashboard task for approval.'}
+                                </p>
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={markingLeftUser}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={markingLeftUser}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                void handleMarkLeftUser();
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-700"
+                        >
+                            {markingLeftUser ? 'Updating…' : 'Yes, set Left User'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

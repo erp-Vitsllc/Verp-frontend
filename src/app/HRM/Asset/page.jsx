@@ -703,9 +703,14 @@ function getAssetListWaitingLabel(item) {
         return 'Action required';
     }
 
-    // Assignment Accept: show who has the inbox task (actionRequiredBy).
-    // User account → assignee. No user account → primary reportee (show reportee name).
+    // Assignment Accept: show who has the inbox task (same person as asset details).
+    // Prefer primary reportee when actionRequiredBy still points at assignee but assignee
+    // cannot self-ack (no portal / enablePortalAccess false) — matches details assignmentAck.
     if (isAssignmentAcknowledgmentOnly(item)) {
+        if (item.assignmentAck?.waitingForName) {
+            const ackName = String(item.assignmentAck.waitingForName).trim();
+            if (ackName) return ackName;
+        }
         if (item.assignedCompany) {
             if (fromAr) return fromAr;
             return resolveAssetCompanyLabel(item);
@@ -713,7 +718,17 @@ function getAssetListWaitingLabel(item) {
         const arId = assetRefId(item.actionRequiredBy);
         const reporteeId = assetRefId(assignee?.primaryReportee);
         const assigneeId = assetRefId(item.assignedTo);
+        const assigneeLikelyCannotSelfAck = assignee?.enablePortalAccess === false;
         if (arId && reporteeId && arId === reporteeId && fromReportee) return fromReportee;
+        if (
+            arId &&
+            assigneeId &&
+            arId === assigneeId &&
+            fromReportee &&
+            assigneeLikelyCannotSelfAck
+        ) {
+            return fromReportee;
+        }
         if (fromAr) return fromAr;
         if (arId && assigneeId && arId === assigneeId && assigneeLabel) return assigneeLabel;
         if (fromReportee) return fromReportee;

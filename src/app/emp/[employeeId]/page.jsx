@@ -6690,6 +6690,52 @@ function EmployeeProfilePageContent() {
             }
 
             if (isPortalAdminUser) {
+                const pendingList = Array.isArray(employee?.pendingReactivationChanges)
+                    ? employee.pendingReactivationChanges
+                    : [];
+                const selectedLeftUserIds = pendingList
+                    .filter((change) => {
+                        const id = String(change?._id || change?.id || '');
+                        if (!id || !selectedIds.includes(id)) return false;
+                        return (
+                            String(change?.section || '').toLowerCase() === 'workdetails' &&
+                            String(change?.proposedData?.status || '').trim() === 'Left User'
+                        );
+                    })
+                    .map((change) => String(change?._id || change?.id));
+
+                // Admin must not apply Left User (and must not clear it via approve-profile).
+                if (selectedLeftUserIds.length > 0 && !viewerIsDesignatedFlowchartHr) {
+                    const approvalStatus = String(employee?.profileApprovalStatus || '').toLowerCase();
+                    if (approvalStatus !== 'submitted') {
+                        await axiosInstance.post(
+                            `/Employee/${employeeId}/send-approval-email`,
+                            {
+                                reason: 'Left User status requested',
+                                description: 'Mark as Left User submitted for HR approval',
+                                selectionProvided: true,
+                                includedChangeEntryIds: selectedLeftUserIds,
+                            },
+                            { skipActionDedupe: true },
+                        );
+                    }
+
+                    await fetchEmployee(true, true, true);
+                    setApprovalSubmitViewingChange(null);
+                    setShowDocumentViewer(false);
+                    setShowApprovalSubmitModal(false);
+                    const otherSelectedCount = selectedIds.filter((id) => !selectedLeftUserIds.includes(id)).length;
+                    toast({
+                        variant: 'default',
+                        title: 'Left User sent to HR',
+                        description:
+                            otherSelectedCount > 0
+                                ? 'Left User needs HR approval (email + dashboard). Uncheck Left User and submit again to apply your other selected changes.'
+                                : 'Left User requires HR approval. HR has been notified by email and a dashboard task.',
+                    });
+                    return;
+                }
+
                 await axiosInstance.post(`/Employee/${employeeId}/approve-profile`, {
                     approvedChangeIds: selectedIds,
                     selectionProvided: approvalSubmitAllEntryIds.length > 0,
@@ -6800,6 +6846,15 @@ function EmployeeProfilePageContent() {
 
         if (activatingProfile || !employee) return false;
 
+        if (hasLeftUserPending && !viewerIsDesignatedFlowchartHr) {
+            toast({
+                variant: 'destructive',
+                title: 'HR approval required',
+                description: 'Only Flowchart HR can accept Left User. HR has been notified by email and dashboard.',
+            });
+            return false;
+        }
+
         // Normal path: only after employee “Send for Activation”. HR direct / Left User path skips this.
         if (!directHr && !hasLeftUserPending && approvalStatus !== 'submitted') {
             toast({
@@ -6818,7 +6873,7 @@ function EmployeeProfilePageContent() {
                 selectionProvided: ids.length > 0,
                 directHrBypass: Boolean(directHr || hasLeftUserPending),
             });
-            await fetchEmployee();
+            await fetchEmployee(true, true, true);
             toast({
                 variant: "default",
                 title: "Profile activated",
@@ -6826,6 +6881,9 @@ function EmployeeProfilePageContent() {
                     ? "Left User change was applied."
                     : "The employee profile has been activated."
             });
+            if (hasLeftUserPending && typeof window !== 'undefined') {
+                window.location.reload();
+            }
             return true;
         } catch (error) {
             console.error('Failed to activate profile', error);
@@ -10091,7 +10149,8 @@ function EmployeeProfilePageContent() {
                     reportingAuthorityOptions={reportingAuthorityOptions}
                     reportingAuthorityLoading={reportingAuthorityLoading}
                     reportingAuthorityError={reportingAuthorityError}
-                    onEmployeeRefresh={() => fetchEmployee(true, false, true)}
+                    onEmployeeRefresh={() => fetchEmployee(true, true, true)}
+                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                 />
             )}
 

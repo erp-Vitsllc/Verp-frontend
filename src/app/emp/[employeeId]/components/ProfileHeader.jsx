@@ -119,14 +119,15 @@ function ProfileHeader({
         () => pendingQueueIncludesLeftUser(employee?.pendingReactivationChanges),
         [employee?.pendingReactivationChanges],
     );
+    const canReviewLeftUserAsFlowchartHr =
+        hasLeftUserPending && Boolean(canReviewProfileActivation || viewerIsDesignatedFlowchartHr);
     const canActOnProfileActivation =
         canViewerReviewEmployeeActivationAsHr(employee, {
             canReviewProfileActivation:
                 canReviewProfileActivation || viewerIsDesignatedFlowchartHr || isAdmin(),
         }) ||
-        // Left User pending: flowchart HR / admin may review without Send for Activation.
-        (hasLeftUserPending &&
-            Boolean(canReviewProfileActivation || viewerIsDesignatedFlowchartHr || isAdmin()));
+        // Left User pending: only flowchart HR may Accept (admin requests; HR approves).
+        canReviewLeftUserAsFlowchartHr;
     const visiblePendingChanges = useMemo(
         () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue || hasLeftUserPending),
         [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue, hasLeftUserPending],
@@ -140,10 +141,16 @@ function ProfileHeader({
         isEmployeeProfileApprovalSubmitted(employee) &&
         String(employee?.profileStatus || 'inactive').toLowerCase() === 'inactive';
     const showHrActivationReviewButton =
-        canActOnProfileActivation && (hasPendingActivationChanges || isFirstActivationAwaitingHr || hasLeftUserPending);
+        (canReviewLeftUserAsFlowchartHr &&
+            (hasPendingActivationChanges || isFirstActivationAwaitingHr || hasLeftUserPending)) ||
+        (canActOnProfileActivation &&
+            !hasLeftUserPending &&
+            (hasPendingActivationChanges || isFirstActivationAwaitingHr));
     const showSubmitActivationButton =
         canSendForApproval &&
-        (!canActOnProfileActivation || !isEmployeeProfileApprovalSubmitted(employee));
+        (!canActOnProfileActivation || !isEmployeeProfileApprovalSubmitted(employee)) &&
+        // Left User already auto-submitted to HR — admin should not re-submit/apply it.
+        !(hasLeftUserPending && isEmployeeProfileApprovalSubmitted(employee) && !canReviewLeftUserAsFlowchartHr);
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
     const [showRejectAllConfirm, setShowRejectAllConfirm] = useState(false);

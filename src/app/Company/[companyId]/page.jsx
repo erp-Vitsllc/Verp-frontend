@@ -625,12 +625,14 @@ function CompanyProfilePageContent() {
 
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
             label = raw.type || raw.name || name;
-            if (raw.document?.url != null) {
+            const legacyAttachment = typeof raw.attachment === 'string' ? raw.attachment : null;
+            if (raw.document && (raw.document.url != null || raw.document.publicId != null || raw.document.data != null || legacyAttachment)) {
                 raw = {
-                    url: raw.document.url,
+                    url: raw.document.url || legacyAttachment || undefined,
                     mimeType: raw.document.mimeType,
                     name: raw.document.name,
-                    publicId: raw.document.publicId,
+                    publicId: raw.document.publicId || legacyAttachment || undefined,
+                    data: raw.document.data,
                 };
                 mime = raw.mimeType || mimeType;
             } else if (raw.attachment != null) {

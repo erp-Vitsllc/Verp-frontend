@@ -295,8 +295,36 @@ export function employeeDocumentViewerPayload(document, { moduleId, defaultName,
     };
 }
 
+/** Parse API error when axios used responseType: 'blob' (JSON body arrives as Blob). */
+async function messageFromAxiosBlobError(err) {
+    const data = err?.response?.data;
+    if (typeof data?.message === 'string' && data.message) return data.message;
+    if (typeof Blob !== 'undefined' && data instanceof Blob) {
+        try {
+            const text = await data.text();
+            const parsed = JSON.parse(text);
+            if (typeof parsed?.message === 'string' && parsed.message) return parsed.message;
+        } catch {
+            /* ignore */
+        }
+    }
+    return null;
+}
+
+async function loadStorageFileBlobViaSignedUrl(storageKey, expectedMime) {
+    const { data } = await axiosInstance.get('/storage/signed-url', {
+        params: { key: storageKey },
+        skipToast: true,
+    });
+    const signedUrl = data?.url;
+    if (!signedUrl || typeof signedUrl !== 'string') {
+        throw new Error('Could not load file from storage.');
+    }
+    return fetchVerifiedAttachmentBlob(signedUrl, { expectedMime });
+}
+
 /** Load file bytes via authenticated API proxy (no presigned URL in the browser). */
-export async function loadStorageFileBlob(storageKey) {
+export async function loadStorageFileBlob(storageKey, { expectedMime } = {}) {
     try {
         const response = await axiosInstance.get('/storage/file', {
             params: { key: storageKey },
@@ -306,16 +334,28 @@ export async function loadStorageFileBlob(storageKey) {
         const blob = response.data;
         const type = (blob?.type || '').toLowerCase();
         if (isNonDocumentResponseContentType(type)) {
-            throw new Error('File not found in storage or access denied.');
+            // Proxy returned JSON/HTML error as a blob — try signed-URL fallback
+            try {
+                return await loadStorageFileBlobViaSignedUrl(storageKey, expectedMime);
+            } catch {
+                throw new Error('File not found in storage or access denied.');
+            }
         }
         return blob;
     } catch (err) {
-        if (err.response?.status === 404) {
-            throw new Error('File not found in storage.');
+        const status = err.response?.status;
+        // Auth/CORS issues won't be fixed by signed URL; missing object / proxy quirks may
+        if (status !== 401 && status !== 403) {
+            try {
+                return await loadStorageFileBlobViaSignedUrl(storageKey, expectedMime);
+            } catch {
+                /* fall through to original error */
+            }
         }
-        const apiMsg = err.response?.data?.message;
-        if (typeof apiMsg === 'string' && apiMsg) {
-            throw new Error(apiMsg);
+        const apiMsg = await messageFromAxiosBlobError(err);
+        if (apiMsg) throw new Error(apiMsg);
+        if (status === 404) {
+            throw new Error('File not found in storage.');
         }
         throw err;
     }

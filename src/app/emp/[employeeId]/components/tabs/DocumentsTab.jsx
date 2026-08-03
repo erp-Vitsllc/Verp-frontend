@@ -444,8 +444,12 @@ export default function DocumentsTab({
 
     const hasDoc = (doc) => {
         if (!doc) return false;
-        if (typeof doc === 'string') return doc.startsWith('http') || doc.length > 20;
-        return !!(doc.url || doc.data || doc.name || doc.publicId);
+        if (typeof doc === 'string') {
+            const s = doc.trim();
+            return s.startsWith('http') || s.startsWith('data:') || s.length > 20;
+        }
+        // Name alone is not a file — require real storage / inline payload
+        return !!(doc.url || doc.data || doc.publicId || doc.base64);
     };
 
     const getDocObj = (doc, name, typeOverride) => {

@@ -13,9 +13,15 @@ const inter = Inter({
 });
 
 export const metadata = {
+    title: 'VeRP',
+    description: 'VEGA Digital ERP Portal',
     icons: {
-        icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
-        shortcut: '/favicon.svg',
+        icon: [
+            { url: '/favicon.png', type: 'image/png', sizes: 'any' },
+            { url: '/assets/employee/sidebar-logo.png', type: 'image/png' },
+        ],
+        shortcut: '/favicon.png',
+        apple: [{ url: '/apple-icon.png', type: 'image/png' }],
     },
 };
 

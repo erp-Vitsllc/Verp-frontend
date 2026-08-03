@@ -53,6 +53,11 @@ export function isActivationNotificationActionable(item) {
     }
     if (item.status === 'Pending') return true;
     if (item.status === 'Rejected') {
+        // Only real submitter follow-up rows — not HR assignee rows marked Rejected.
+        const meta = parseExtra3Meta(item.extra3);
+        if (item.type === 'Profile Activation') {
+            return meta?.activationViewerRole === 'submitter' || item.scope === 'outgoing';
+        }
         return item.scope === 'outgoing' || item.requestedBy === 'Me';
     }
     return false;
@@ -92,7 +97,12 @@ export function isDashboardPendingItem(item) {
 /** Rejected activation for the submitter — still needs follow-up, not "completed" in dashboard totals. */
 export function isSubmitterRejectedActivationFollowup(item) {
     if (!item || !ACTIVATION_NOTIFICATION_TYPES.has(item.type)) return false;
-    return item.status === 'Rejected' && item.scope === 'outgoing';
+    if (item.status !== 'Rejected' || item.scope !== 'outgoing') return false;
+    if (item.type === 'Profile Activation') {
+        const meta = parseExtra3Meta(item.extra3);
+        return meta?.activationViewerRole === 'submitter' || item.scope === 'outgoing';
+    }
+    return true;
 }
 
 /** Rejected creation or activation for submitter — still needs follow-up. */
