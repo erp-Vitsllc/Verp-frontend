@@ -542,16 +542,12 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
 
     const { fieldMinHeightPx, gapClass } = MECHANICAL_WORK_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
-    const hrGate = useMemo(
-        () =>
-            resolveShopServiceCardGate({
-                assignmentPending,
-                workflowStage: String(workflowStage || '').toLowerCase(),
-                service,
-                cardKey: SHOP_SERVICE_CARD.HR,
-            }),
-        [assignmentPending, workflowStage, service],
-    );
+    const hrGate = resolveShopServiceCardGate({
+        assignmentPending,
+        workflowStage: String(workflowStage || '').toLowerCase(),
+        service,
+        cardKey: SHOP_SERVICE_CARD.HR,
+    });
 
     return (
         <div className={`w-full ${className}`.trim()}>

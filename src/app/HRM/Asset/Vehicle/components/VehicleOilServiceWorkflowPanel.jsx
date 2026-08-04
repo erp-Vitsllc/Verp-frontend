@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import axiosInstance from '@/utils/axios';
 import WorkflowHistoryTimeline from '@/app/HRM/shared/workflowHistory/WorkflowHistoryTimeline';
 import {
     buildOilServiceDetailWorkflowEvents,
@@ -11,6 +10,7 @@ import { buildTireChangeDetailWorkflowEvents } from '../utils/vehicleTireChangeD
 import { SHOP_SERVICE_WORKFLOW_SUBTITLE } from '../utils/vehicleShopServiceDetailWorkflow';
 import { parseVehicleServiceRemark, vehicleServiceTypeKey } from '../components/vehicleServiceUtils';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../utils/vehicleHandoverAssignWorkflowTrackerConfig';
+import { fetchFlowchartRows } from '@/utils/flowchartRowsCache';
 
 const { card, timeline, steps, header, list, text, connector, spread } =
     VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
@@ -18,24 +18,39 @@ const { card, timeline, steps, header, list, text, connector, spread } =
 const OIL_SUBTITLE = SHOP_SERVICE_WORKFLOW_SUBTITLE;
 const OIL_WARRANTY_SUBTITLE = 'Initiate, Schedule, On Service, and Complete Service';
 
-export default function VehicleOilServiceWorkflowPanel({ asset, service, className = '' }) {
+export default function VehicleOilServiceWorkflowPanel({
+    asset,
+    service,
+    flowchartRows: flowchartRowsProp,
+    className = '',
+}) {
     const isTireChange = vehicleServiceTypeKey(service) === 'Tire Change';
-    const [flowchartRows, setFlowchartRows] = useState([]);
+    const [flowchartRowsLocal, setFlowchartRowsLocal] = useState(() =>
+        Array.isArray(flowchartRowsProp) ? flowchartRowsProp : [],
+    );
 
     useEffect(() => {
+        if (Array.isArray(flowchartRowsProp) && flowchartRowsProp.length > 0) {
+            setFlowchartRowsLocal(flowchartRowsProp);
+            return undefined;
+        }
         let cancelled = false;
-        axiosInstance
-            .get('/Flowchart', { skipToast: true })
-            .then(({ data }) => {
-                if (!cancelled) setFlowchartRows(Array.isArray(data) ? data : []);
+        fetchFlowchartRows()
+            .then((rows) => {
+                if (!cancelled) setFlowchartRowsLocal(rows);
             })
             .catch(() => {
-                if (!cancelled) setFlowchartRows([]);
+                if (!cancelled) setFlowchartRowsLocal([]);
             });
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [flowchartRowsProp]);
+
+    const flowchartRows =
+        Array.isArray(flowchartRowsProp) && flowchartRowsProp.length > 0
+            ? flowchartRowsProp
+            : flowchartRowsLocal;
 
     const isOilCash = useMemo(() => {
         if (isTireChange) return false;

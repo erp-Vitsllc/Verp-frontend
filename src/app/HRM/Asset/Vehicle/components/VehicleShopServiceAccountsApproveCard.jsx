@@ -32,6 +32,7 @@ function quoteLabelFromRemark(remark) {
  * Shows approved quote summary; Approve runs at pending_accounts (legacy garage Accounts step).
  */
 export default function VehicleShopServiceAccountsApproveCard({
+    asset,
     service,
     vehicleId,
     serviceId,
@@ -47,16 +48,12 @@ export default function VehicleShopServiceAccountsApproveCard({
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const stage = String(workflowStage || '').toLowerCase();
 
-    const gate = useMemo(
-        () =>
-            resolveShopServiceCardGate({
-                assignmentPending,
-                workflowStage: stage,
-                service,
-                cardKey: SHOP_SERVICE_CARD.ACCOUNTS,
-            }),
-        [assignmentPending, stage, service],
-    );
+    const gate = resolveShopServiceCardGate({
+        assignmentPending,
+        workflowStage: stage,
+        service,
+        cardKey: SHOP_SERVICE_CARD.ACCOUNTS,
+    });
 
     const amount =
         Number(remark.hrReviewApprovedAmount) ||

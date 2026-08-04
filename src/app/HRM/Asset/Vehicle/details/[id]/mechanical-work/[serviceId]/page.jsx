@@ -92,8 +92,8 @@ function VehicleMechanicalWorkDetailPageContent() {
             if (light) params.light = 1;
             if (deferServiceSigning) {
                 params.deferServiceSigning = 1;
-                if (serviceId) params.serviceId = serviceId;
             }
+            if (serviceId) params.serviceId = serviceId;
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
                 params: Object.keys(params).length ? params : undefined,
             });

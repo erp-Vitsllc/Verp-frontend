@@ -51,9 +51,10 @@ import {
 const PHOTO_SLOTS = 8;
 
 function directConditionImageSrc(img) {
-    const url = String(img?.url || '').trim();
+    const url = String(img?.url || img?.data || '').trim();
     if (!url) return '';
-    if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) return url;
+    // Only inline/blob URLs in <img>. Wasabi signed URLs fail on many office networks (DNS).
+    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
     return '';
 }
 
@@ -320,22 +321,16 @@ export default function VehicleTireChangeReturnCard({
         }
     };
 
-    if (!stage && !isComplete) return null;
-
     const missingFields = !fieldsDisabled && !isTireChangeReturnFormComplete(formData)
         ? Object.values(validateTireChangeReturnForm(formData))
         : [];
 
-    const completeGate = useMemo(
-        () =>
-            resolveShopServiceCardGate({
-                assignmentPending,
-                workflowStage: stage,
-                service,
-                cardKey: SHOP_SERVICE_CARD.COMPLETE,
-            }),
-        [assignmentPending, stage, service],
-    );
+    const completeGate = resolveShopServiceCardGate({
+        assignmentPending,
+        workflowStage: stage,
+        service,
+        cardKey: SHOP_SERVICE_CARD.COMPLETE,
+    });
 
     return (
         <>

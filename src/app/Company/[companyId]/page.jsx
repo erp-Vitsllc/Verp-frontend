@@ -7400,49 +7400,49 @@ function CompanyProfilePageContent() {
                                     {companyAssetsCanManage && (
                                     <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
                                         {selectedCompanyAssetIds.length > 0 && (
-                                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700 border border-blue-200">
-                                                {selectedCompanyAssetIds.length} selected
-                                            </span>
+                                            <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                                {selectedCompanyAssetIds.length} Selected
+                                            </div>
                                         )}
                                         <button
                                             type="button"
                                             onClick={handleCompanyBulkReturn}
                                             disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
-                                            className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className="px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black hover:bg-rose-600 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Bulk return"
                                         >
                                             <Undo2 size={14} />
-                                            <span>Bulk Return</span>
+                                            BULK RETURN
                                         </button>
                                         <button
                                             type="button"
                                             onClick={handleCompanyTransferAsset}
                                             disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
-                                            className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Transfer asset"
                                         >
                                             <ArrowRightLeft size={14} />
-                                            <span>Transfer Asset</span>
+                                            TRANSFER ASSET
                                         </button>
                                         <button
                                             type="button"
                                             onClick={handleCompanyBulkTransfer}
                                             disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
-                                            className="bg-white hover:bg-sky-50 text-sky-800 border border-sky-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Bulk transfer"
                                         >
                                             <ArrowRightLeft size={14} />
-                                            <span>Bulk Transfer</span>
+                                            BULK TRANSFER
                                         </button>
                                         <button
                                             type="button"
                                             onClick={handleCompanyBulkEndOfServices}
                                             disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
-                                            className="bg-white hover:bg-rose-50 text-rose-800 border border-rose-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className="px-4 py-2 bg-slate-700 text-white rounded-xl text-[10px] font-black hover:bg-slate-800 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Bulk end of services"
                                         >
                                             <PackageX size={14} />
-                                            <span>Bulk End Of Services</span>
+                                            BULK END OF SERVICES
                                         </button>
                                     </div>
                                     )}

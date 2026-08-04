@@ -6,6 +6,7 @@ import { Camera, CheckCircle2, User, UserX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import axiosInstance from '@/utils/axios';
+import { ensureAbsoluteHttpUrl } from '@/utils/attachmentPreview';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
 import { isVehicleExpiryDatePast } from '../utils/vehicleExpirySources';
@@ -18,8 +19,12 @@ import {
 import { collectVehicleProfilePendingItems } from '../utils/resolveVehicleProfilePendingItems';
 import VehicleProfilePendingStatusBadge from './VehicleProfilePendingStatusBadge';
 
+function normalizePhotoSrc(value) {
+    return ensureAbsoluteHttpUrl(String(value || '').trim());
+}
+
 function isUsableImageSrc(value) {
-    const s = String(value || '').trim();
+    const s = normalizePhotoSrc(value);
     if (!s) return false;
     return (
         s.startsWith('http://') ||
@@ -113,7 +118,7 @@ export default function VehicleAssetProfileHeader({
             return undefined;
         }
         if (isUsableImageSrc(raw)) {
-            setResolvedPhotoSrc(raw);
+            setResolvedPhotoSrc(normalizePhotoSrc(raw));
             return undefined;
         }
 
@@ -125,7 +130,7 @@ export default function VehicleAssetProfileHeader({
             })
             .then((res) => {
                 if (cancelled) return;
-                const url = String(res?.data?.url || '').trim();
+                const url = normalizePhotoSrc(res?.data?.url || '');
                 if (isUsableImageSrc(url)) setResolvedPhotoSrc(url);
             })
             .catch(() => {
@@ -340,7 +345,8 @@ export default function VehicleAssetProfileHeader({
         },
     ];
 
-    const photoSrc = resolvedPhotoSrc || (isUsableImageSrc(rawPhotoRef) ? rawPhotoRef : '');
+    const photoSrc =
+        resolvedPhotoSrc || (isUsableImageSrc(rawPhotoRef) ? normalizePhotoSrc(rawPhotoRef) : '');
 
     const { profilePct, completionChecks, pendingChecks } = computeVehicleProfileCompletionPercent(asset);
     const headerProgressPct = isDisposedFleet ? 100 : profilePct;

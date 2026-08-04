@@ -54,9 +54,9 @@ import {
 } from '@/utils/uploadFileTypes';
 
 function directBodyWorkImageSrc(img) {
-    const url = String(img?.url || '').trim();
+    const url = String(img?.url || img?.data || '').trim();
     if (!url) return '';
-    if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
     return '';
 }
 

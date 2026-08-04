@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Loader2 } from 'lucide-react';
@@ -53,16 +53,12 @@ export default function VehicleBodyWorkGarageCard({
     const isComplete = stage === BODY_WORK_WORKFLOW_STAGES.COMPLETE;
 
     const canEditGarage = canEditBodyWorkGarage(stage, canManage, { asset, service });
-    const scheduleGate = useMemo(
-        () =>
-            resolveShopServiceCardGate({
-                assignmentPending,
-                workflowStage: stage,
-                service,
-                cardKey: SHOP_SERVICE_CARD.SCHEDULE,
-            }),
-        [assignmentPending, stage, service],
-    );
+    const scheduleGate = resolveShopServiceCardGate({
+        assignmentPending,
+        workflowStage: stage,
+        service,
+        cardKey: SHOP_SERVICE_CARD.SCHEDULE,
+    });
     const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked;
 
     const { fieldMinHeightPx, gapClass } = BODY_WORK_DETAIL_GRID_LAYOUT;
@@ -127,9 +123,9 @@ export default function VehicleBodyWorkGarageCard({
         : !canManage
           ? 'Waiting for flowchart Admin Officer to schedule / reschedule'
           : stage === BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER
-            ? 'Garage and dates are required — then click OK'
+            ? 'Garage and dates are required â€” then click OK'
             : isComplete || stage === 'billed'
-              ? 'Schedule locked — service is complete'
+              ? 'Schedule locked â€” service is complete'
               : 'Admin Officer can update garage or dates until Complete Service';
 
     const card = (
@@ -207,7 +203,7 @@ export default function VehicleBodyWorkGarageCard({
                                           minimumFractionDigits: 0,
                                           maximumFractionDigits: 2,
                                       })
-                                    : '—'
+                                    : 'â€”'
                             }
                             disabled
                         />
@@ -274,3 +270,4 @@ export default function VehicleBodyWorkGarageCard({
         </div>
     );
 }
+

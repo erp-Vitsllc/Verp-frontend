@@ -24,8 +24,8 @@ const COMPANY_NOTIFICATION_TYPES = new Set([
 export const COMPANY_EXPIRY_SYNC_TS_KEY = 'verp:company-expiry-sync-at';
 export const COMPANY_EXPIRY_SYNC_TTL_MS = 10 * 60 * 1000;
 
-const BUNDLE_CACHE_TTL_MS = 2 * 60 * 1000;
-const COMPANY_LIST_CACHE_TTL_MS = 2 * 60 * 1000;
+const BUNDLE_CACHE_TTL_MS = 3 * 60 * 1000;
+const COMPANY_LIST_CACHE_TTL_MS = 10 * 60 * 1000;
 
 let inFlightBundle = null;
 let cachedBundle = null;

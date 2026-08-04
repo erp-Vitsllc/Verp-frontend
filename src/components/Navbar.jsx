@@ -21,6 +21,17 @@ export default function Navbar() {
     const { remainingMs, isIdleTrackingActive } = useIdleSession();
     const [isMounted, setIsMounted] = useState(false);
     const [greeting, setGreeting] = useState('Good Day');
+    const [displayRemainingMs, setDisplayRemainingMs] = useState(remainingMs);
+
+    // Paint countdown locally so IdleSession context can tick less often for the rest of the tree.
+    useEffect(() => {
+        setDisplayRemainingMs(remainingMs);
+        if (!isIdleTrackingActive) return undefined;
+        const id = window.setInterval(() => {
+            setDisplayRemainingMs((prev) => Math.max(0, prev - 1000));
+        }, 1000);
+        return () => window.clearInterval(id);
+    }, [remainingMs, isIdleTrackingActive]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -46,11 +57,11 @@ export default function Navbar() {
         performLogout({ reason: 'manual' });
     };
 
-    const countdownLabel = formatIdleCountdown(remainingMs);
+    const countdownLabel = formatIdleCountdown(displayRemainingMs);
     const countdownTone =
-        remainingMs <= 5 * 60 * 1000
+        displayRemainingMs <= 5 * 60 * 1000
             ? 'text-red-600 bg-red-50 border-red-200'
-            : remainingMs <= 10 * 60 * 1000
+            : displayRemainingMs <= 10 * 60 * 1000
               ? 'text-amber-700 bg-amber-50 border-amber-200'
               : 'text-emerald-700 bg-emerald-50 border-emerald-200';
 

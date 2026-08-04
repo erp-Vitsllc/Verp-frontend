@@ -354,7 +354,6 @@ export default function VehicleOilServiceDetailForm({
     className = '',
 }) {
     const { toast } = useToast();
-    const [employees, setEmployees] = useState([]);
     const [oilTypes, setOilTypes] = useState([DEFAULT_OIL_SERVICE_TYPE]);
     const [saving, setSaving] = useState(false);
     const [mounted, setMounted] = useState(false);
@@ -371,7 +370,7 @@ export default function VehicleOilServiceDetailForm({
 
     useEffect(() => {
         setFormData(buildOilServiceDetailFormState(service, asset, scheduleRow));
-    }, [service?._id, service?.updatedAt, service?.remark, asset, scheduleRow]);
+    }, [service?._id, service?.updatedAt, service?.remark, asset?._id, asset?.assignedTo, scheduleRow]);
 
     const cashPaymentMode = isOilPayablePaymentMode(formData.amountMode);
 
@@ -397,29 +396,11 @@ export default function VehicleOilServiceDetailForm({
         };
     }, []);
 
-    // Only needed while Initiate is still editable — skip after send to avoid lag.
-    useEffect(() => {
-        if (initiateDone || !canEditAssignment) return undefined;
-        let active = true;
-        axiosInstance
-            .get('/employee')
-            .then(({ data }) => {
-                if (!active) return;
-                const list = Array.isArray(data) ? data : data?.employees || [];
-                setEmployees(list);
-            })
-            .catch(() => {
-                if (active) setEmployees([]);
-            });
-        return () => {
-            active = false;
-        };
-    }, [initiateDone, canEditAssignment]);
-
+    // License-holders endpoint is enough for Initiate — skip full /employee list (heavy).
     const licensedEmployees = useDrivingLicenseHolders({
         enabled: !initiateDone && canEditAssignment,
         preserveEmployeeId: formData.carDrivenByEmployeeId,
-        sourceEmployees: employees,
+        sourceEmployees: [],
     });
 
     const set = useCallback((key, value) => {
@@ -447,16 +428,20 @@ export default function VehicleOilServiceDetailForm({
 
     const vehicleAssignedLabel = useMemo(() => {
         const id = formData.vehicleOwnerEmployeeId;
-        const fromList = employees.find((e) => String(e._id) === String(id));
-        if (fromList) {
-            return `${fromList.firstName || ''} ${fromList.lastName || ''}`.trim() || fromList.employeeId || '—';
+        const fromLicensed = licensedEmployees.find((e) => String(e._id) === String(id));
+        if (fromLicensed) {
+            return (
+                `${fromLicensed.firstName || ''} ${fromLicensed.lastName || ''}`.trim() ||
+                fromLicensed.employeeId ||
+                '—'
+            );
         }
         const assignee = asset?.assignedTo;
         if (assignee && typeof assignee === 'object') {
             return `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim() || assignee.employeeId || '—';
         }
         return '—';
-    }, [asset?.assignedTo, employees, formData.vehicleOwnerEmployeeId]);
+    }, [asset?.assignedTo, licensedEmployees, formData.vehicleOwnerEmployeeId]);
 
     const oilTypeOptions = useMemo(() => {
         const set = new Set(oilTypes);

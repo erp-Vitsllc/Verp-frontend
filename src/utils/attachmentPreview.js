@@ -15,8 +15,34 @@ function pickMimeFromName(fileName, fallback = 'application/pdf') {
     return fallback;
 }
 
+/**
+ * Prefix https:// on protocol-less S3/Wasabi host URLs.
+ * Browsers treat `s3.…` / `….wasabisys.com/…` as relative paths (ERR_NAME_NOT_RESOLVED).
+ */
+export function ensureAbsoluteHttpUrl(value) {
+    if (typeof value !== 'string') return '';
+    const s = value.trim();
+    if (!s) return '';
+    if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:') || s.startsWith('blob:')) {
+        return s;
+    }
+    if (s.startsWith('//') && (/wasabisys\.com/i.test(s) || /\.amazonaws\.com/i.test(s) || /^\/\/s3[.-]/i.test(s))) {
+        return `https:${s}`;
+    }
+    if (
+        /^s3\./i.test(s) ||
+        /(?:^|\.)wasabisys\.com(?:[/:?]|$)/i.test(s) ||
+        /\.amazonaws\.com(?:[/:?]|$)/i.test(s)
+    ) {
+        return `https://${s.replace(/^\/+/, '')}`;
+    }
+    return s;
+}
+
 function isHttpUrl(value) {
-    return typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'));
+    if (typeof value !== 'string') return false;
+    const s = ensureAbsoluteHttpUrl(value);
+    return s.startsWith('http://') || s.startsWith('https://');
 }
 
 const S3_STORAGE_FOLDER_PREFIXES = [
@@ -150,7 +176,7 @@ export function extractStorageReference(attachment) {
     if (typeof input === 'object' && !Array.isArray(input)) {
         const publicId = input.publicId ? String(input.publicId).trim() : '';
         const url = input.url || input.href;
-        const urlStr = url ? String(url).trim() : '';
+        const urlStr = url ? ensureAbsoluteHttpUrl(String(url).trim()) : '';
         if (publicId) {
             const key = toKey(publicId) || publicId;
             return { key, url: urlStr || publicId, name: input.name || input.fileName };
@@ -164,8 +190,9 @@ export function extractStorageReference(attachment) {
 
     const s = String(input).trim();
     if (!s || s.startsWith('data:')) return null;
-    const key = toKey(s) || s;
-    return { key, url: s, name: null };
+    const normalized = ensureAbsoluteHttpUrl(s);
+    const key = toKey(normalized) || toKey(s) || s;
+    return { key, url: normalized, name: null };
 }
 
 /**

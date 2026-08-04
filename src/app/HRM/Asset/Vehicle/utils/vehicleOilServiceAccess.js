@@ -356,17 +356,11 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
         }
         case OIL_SERVICE_CARD.HR: {
             if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
+            // Cash: Schedule + HR unlock together right after Initiate (parallel).
             if (!initiated) {
                 return {
                     locked: true,
                     message: 'Complete Initiate Service first — Schedule and HR open together',
-                };
-            }
-            if (!scheduleComplete) {
-                return {
-                    locked: true,
-                    message: 'Admin must complete Schedule and Reschedule first',
-                    done: false,
                 };
             }
             return {
@@ -378,13 +372,14 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
         }
         case OIL_SERVICE_CARD.ACCOUNTS: {
             if (!isCash) return { locked: true, message: CASH_ONLY_MESSAGE };
-            if (!scheduleComplete) {
+            if (!initiated) {
                 return {
                     locked: true,
-                    message: 'Admin must complete Schedule and Reschedule first',
+                    message: 'Complete Initiate Service first',
                     done: false,
                 };
             }
+            // Accounts opens after HR once — does not wait on Schedule (parallel with Admin).
             if (!hrDone) {
                 return { locked: true, message: 'Complete HR Approval first (HR once)' };
             }

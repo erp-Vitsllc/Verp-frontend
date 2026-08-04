@@ -53,16 +53,12 @@ export default function VehicleTireChangeGarageCard({
     const isComplete = stage === TIRE_CHANGE_WORKFLOW_STAGES.COMPLETE;
 
     const canEditGarage = canEditTireChangeGarage(stage, canManage, { asset, service });
-    const scheduleGate = useMemo(
-        () =>
-            resolveShopServiceCardGate({
-                assignmentPending,
-                workflowStage: stage,
-                service,
-                cardKey: SHOP_SERVICE_CARD.SCHEDULE,
-            }),
-        [assignmentPending, stage, service],
-    );
+    const scheduleGate = resolveShopServiceCardGate({
+        assignmentPending,
+        workflowStage: stage,
+        service,
+        cardKey: SHOP_SERVICE_CARD.SCHEDULE,
+    });
     const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked;
 
     const { fieldMinHeightPx, gapClass } = TIRE_CHANGE_DETAIL_GRID_LAYOUT;

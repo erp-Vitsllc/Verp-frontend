@@ -831,7 +831,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                         title="HR Approval"
                         subtitle={
                             hrLocked
-                                ? 'Locked until Initiate Service is sent'
+                                ? hrLockMessage || 'Locked until Initiate Service is sent'
                                 : hrActiveStage
                                   ? 'Open with Schedule — select quotation, then approve once'
                                   : hrDone

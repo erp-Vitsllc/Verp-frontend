@@ -67,9 +67,19 @@ function formatShortDate(isoOrDate) {
 }
 
 function directAccidentImageSrc(img) {
-    const url = String(img?.url || '').trim();
-    if (!url) return '';
-    if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) return url;
+    const raw = String(img?.url || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    // Protocol-less Wasabi/S3 hosts → https:// (avoid relative-path DNS failures)
+    let url = raw;
+    if (
+        !url.startsWith('http://') &&
+        !url.startsWith('https://') &&
+        (/^s3\./i.test(url) || /wasabisys\.com/i.test(url) || /\.amazonaws\.com/i.test(url))
+    ) {
+        url = `https://${url.replace(/^\/+/, '')}`;
+    }
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
     return '';
 }
 

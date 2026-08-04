@@ -86,9 +86,15 @@ export function IdleSessionProvider({ children }) {
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
+        // Sync context every 15s when plenty of time left; every 1s in the last 10 minutes.
+        // Logout still triggers as soon as remaining hits 0 on a tick.
         const tick = window.setInterval(() => {
             const remaining = getRemainingIdleMs();
-            setRemainingMs(remaining);
+            setRemainingMs((prev) => {
+                const urgent = remaining <= 10 * 60 * 1000;
+                if (!urgent && Math.abs(prev - remaining) < 14_000) return prev;
+                return remaining;
+            });
 
             if (remaining <= 0 && !logoutTriggeredRef.current) {
                 logoutTriggeredRef.current = true;

@@ -53,16 +53,12 @@ export default function VehicleMechanicalWorkGarageCard({
     const isComplete = stage === MECHANICAL_WORK_WORKFLOW_STAGES.COMPLETE;
 
     const canEditGarage = canEditMechanicalWorkGarage(stage, canManage, { asset, service });
-    const scheduleGate = useMemo(
-        () =>
-            resolveShopServiceCardGate({
-                assignmentPending,
-                workflowStage: stage,
-                service,
-                cardKey: SHOP_SERVICE_CARD.SCHEDULE,
-            }),
-        [assignmentPending, stage, service],
-    );
+    const scheduleGate = resolveShopServiceCardGate({
+        assignmentPending,
+        workflowStage: stage,
+        service,
+        cardKey: SHOP_SERVICE_CARD.SCHEDULE,
+    });
     const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked;
 
     const { fieldMinHeightPx, gapClass } = MECHANICAL_WORK_DETAIL_GRID_LAYOUT;

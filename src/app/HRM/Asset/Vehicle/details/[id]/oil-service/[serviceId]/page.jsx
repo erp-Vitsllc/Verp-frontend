@@ -31,6 +31,7 @@ import {
     readWarmVehicleDetail,
     writeWarmVehicleDetail,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleDetailWarmCache';
+import { fetchFlowchartRows } from '@/utils/flowchartRowsCache';
 import {
     buildOilServiceScheduleRowFromAsset,
     normalizeMongoId,
@@ -72,9 +73,8 @@ function VehicleOilServiceDetailPageContent() {
         setCurrentUserEmployeeId(
             String(parsed?.employeeObjectId || parsed?._id || parsed?.id || '').trim() || null,
         );
-        axiosInstance
-            .get('/Flowchart')
-            .then(({ data }) => setFlowchartRows(Array.isArray(data) ? data : []))
+        fetchFlowchartRows()
+            .then((rows) => setFlowchartRows(rows))
             .catch(() => setFlowchartRows([]));
     }, []);
 
@@ -95,8 +95,9 @@ function VehicleOilServiceDetailPageContent() {
             if (light) params.light = 1;
             if (deferServiceSigning) {
                 params.deferServiceSigning = 1;
-                if (serviceId) params.serviceId = serviceId;
             }
+            // Always pass serviceId so backend can slim payload / focus signing.
+            if (serviceId) params.serviceId = serviceId;
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
                 params: Object.keys(params).length ? params : undefined,
             });
@@ -134,6 +135,18 @@ function VehicleOilServiceDetailPageContent() {
             cancelled = true;
         };
     }, [load, vehicleId]);
+
+    const refreshAfterMutation = useCallback(
+        (updatedAsset) => {
+            if (updatedAsset?._id) {
+                writeWarmVehicleDetail(vehicleId, updatedAsset);
+                setAsset(updatedAsset);
+                return;
+            }
+            void load({ silent: true, deferServiceSigning: true });
+        },
+        [load, vehicleId],
+    );
 
     const service = useMemo(() => {
         const services = Array.isArray(asset?.services) ? asset.services : [];
@@ -351,12 +364,7 @@ function VehicleOilServiceDetailPageContent() {
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
                                 canEditServiceDates={canEditServiceDates}
-                                    onSaved={(updatedAsset) => {
-                                        if (updatedAsset) {
-                                            setAsset(updatedAsset);
-                                        }
-                                        void load({ silent: true, deferServiceSigning: true });
-                                    }}
+                                    onSaved={refreshAfterMutation}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}
                                 className="w-full shrink-0"
@@ -368,10 +376,7 @@ function VehicleOilServiceDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canManage={canAdminOilSteps}
-                                onUpdated={(updatedAsset) => {
-                                    if (updatedAsset) setAsset(updatedAsset);
-                                    void load({ silent: true, deferServiceSigning: true });
-                                }}
+                                onUpdated={refreshAfterMutation}
                                 className="w-full shrink-0"
                             />
 
@@ -385,10 +390,7 @@ function VehicleOilServiceDetailPageContent() {
                                 canActHr={isFlowchartHr}
                                 canActAccounts={isFlowchartAccounts}
                                 workflowStage={oilWorkflowStage}
-                                onUpdated={(updatedAsset) => {
-                                    if (updatedAsset) setAsset(updatedAsset);
-                                    void load({ silent: true, deferServiceSigning: true });
-                                }}
+                                onUpdated={refreshAfterMutation}
                                 className="w-full shrink-0"
                             />
 
@@ -398,12 +400,7 @@ function VehicleOilServiceDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canManage={canAdminOilSteps}
-                                onUpdated={(updatedAsset) => {
-                                    if (updatedAsset) {
-                                        setAsset(updatedAsset);
-                                    }
-                                    void load({ silent: true, deferServiceSigning: true });
-                                }}
+                                onUpdated={refreshAfterMutation}
                             />
 
                             {/* Make Payment: Accounts Zoho bill (unlocks at pending_accounts) */}
@@ -424,10 +421,7 @@ function VehicleOilServiceDetailPageContent() {
                                     canActHr={isFlowchartHr}
                                     canActAccounts={isFlowchartAccounts}
                                     workflowStage={oilWorkflowStage}
-                                    onUpdated={(updatedAsset) => {
-                                        if (updatedAsset) setAsset(updatedAsset);
-                                        void load({ silent: true, deferServiceSigning: true });
-                                    }}
+                                    onUpdated={refreshAfterMutation}
                                     className="w-full shrink-0"
                                 />
                             </div>
@@ -443,6 +437,7 @@ function VehicleOilServiceDetailPageContent() {
                             <VehicleOilServiceWorkflowPanel
                                 asset={asset}
                                 service={service}
+                                flowchartRows={flowchartRows}
                                 className="min-h-[320px] flex-1"
                             />
                         </div>
