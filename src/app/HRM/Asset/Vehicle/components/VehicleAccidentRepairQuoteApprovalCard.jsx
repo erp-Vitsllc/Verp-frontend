@@ -647,14 +647,6 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                                     Rejected
                                 </button>
                             </div>
-                            <input
-                                type="text"
-                                className={tireFieldSelect}
-                                value={quoteState[approvedQuoteKey]?.comment || ''}
-                                onChange={(e) => setQuoteField(approvedQuoteKey, 'comment', e.target.value)}
-                                disabled={!canEdit}
-                                placeholder="Comment"
-                            />
                             {canEdit ? (
                                 <p className="text-[10px] text-gray-400">
                                     Drag another quote from the assignment card to replace this selection.
@@ -705,20 +697,6 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                             onChange={(e) => setReviewField('companyPay', e.target.value)}
                         />
                     </VehicleAccidentRepairFormFieldCell>
-                </div>
-
-                <div className="mt-4 border-t border-gray-100 pt-4">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                        Description (optional)
-                    </span>
-                    <textarea
-                        className={`${tireFieldSelect} mt-1.5 resize-y min-h-[88px] font-medium`}
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        disabled={!canEdit}
-                        placeholder="Enter review notes..."
-                        rows={3}
-                    />
                 </div>
 
                 {canEdit ? (

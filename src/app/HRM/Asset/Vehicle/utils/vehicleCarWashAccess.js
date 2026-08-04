@@ -33,10 +33,10 @@ export function resolveCarWashTableStatusLabel(service, asset) {
         return { label: 'Rejected', tone: 'rejected' };
     }
     if (stage === 'billed' || billingStatus === 'billed' || paymentStatus === 'billed') {
-        return { label: 'Billed', tone: 'complete' };
+        return { label: 'Complete', tone: 'complete' };
     }
     if (stage === 'pending_billing' || stage === 'pending_accounts') {
-        return { label: 'Complete — Waiting for Bill', tone: 'pending' };
+        return { label: 'Incomplete — Waiting for Expense', tone: 'pending' };
     }
     if (paymentStatus === 'not_paid' || (stage === 'complete' && paymentStatus !== 'paid')) {
         return { label: 'Not paid', tone: 'complete' };
@@ -77,5 +77,9 @@ export function canUserValidateCarWashAccounts(service, asset, isFlowchartAccoun
 
 export function isCarWashAccountsReviewOpen(service, asset) {
     const { label } = resolveCarWashTableStatusLabel(service, asset);
-    return label === 'Complete — Waiting for Bill' || label === 'Pending';
+    return (
+        label === 'Incomplete — Waiting for Expense' ||
+        label === 'Complete — Waiting for Bill' ||
+        label === 'Pending'
+    );
 }

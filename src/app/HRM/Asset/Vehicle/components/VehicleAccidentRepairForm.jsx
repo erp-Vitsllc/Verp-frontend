@@ -489,21 +489,6 @@ export default function VehicleAccidentRepairForm({
                     />
                 </div>
 
-                <div className="mb-4">
-                    <span className={fieldLabel}>{showCreatorActions ? 'Note (optional)' : 'Accident Description (optional):-'}</span>
-                    <textarea
-                        value={formData.serviceIssue}
-                        onChange={(e) => set('serviceIssue', e.target.value)}
-                        disabled={fieldDisabled}
-                        rows={4}
-                        placeholder={showCreatorActions ? 'Describe the accident and any details HR should know…' : ''}
-                        className={`${fieldInput} resize-y min-h-[88px]`}
-                    />
-                    {errors.serviceIssue ? (
-                        <p className="text-[10px] text-red-600 font-bold">{errors.serviceIssue}</p>
-                    ) : null}
-                </div>
-
                 {showCreatorActions ? (
                     <div className="flex flex-wrap items-center justify-end gap-3 pt-2 border-t border-black/10">
                         <button
@@ -703,15 +688,6 @@ export default function VehicleAccidentRepairForm({
                             }
                             e.target.value = '';
                         }}
-                    />
-                </div>
-                <div className="mb-4">
-                    <span className={fieldLabel}>Description (optional):-</span>
-                    <textarea
-                        value={formData.returnDescription || ''}
-                        onChange={(e) => set('returnDescription', e.target.value)}
-                        rows={4}
-                        className={`${fieldInput} resize-y min-h-[88px]`}
                     />
                 </div>
                 {showReturnActions ? (

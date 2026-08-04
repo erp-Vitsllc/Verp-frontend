@@ -1,15 +1,20 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileCheck, GripVertical } from 'lucide-react';
+import { GripVertical, ShieldCheck } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { parseVehicleServiceRemark, normalizeMongoId } from './vehicleServiceUtils';
 import VehicleMechanicalWorkFormFieldCell from './VehicleMechanicalWorkFormFieldCell';
+import VehicleServiceLockedSection from './VehicleServiceLockedSection';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import { canEditMechanicalWorkQuoteCard, canEditMechanicalWorkQuoteEmployeeRows } from '../utils/vehicleMechanicalWorkWorkflow';
+import {
+    SHOP_SERVICE_CARD,
+    resolveShopServiceCardGate,
+} from '../utils/vehicleShopServiceCardGates';
 import {
     MECHANICAL_WORK_DETAIL_GRID_LAYOUT,
     tireAccent,
@@ -537,24 +542,37 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
 
     const { fieldMinHeightPx, gapClass } = MECHANICAL_WORK_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
+    const hrGate = useMemo(
+        () =>
+            resolveShopServiceCardGate({
+                assignmentPending,
+                workflowStage: String(workflowStage || '').toLowerCase(),
+                service,
+                cardKey: SHOP_SERVICE_CARD.HR,
+            }),
+        [assignmentPending, workflowStage, service],
+    );
 
     return (
         <div className={`w-full ${className}`.trim()}>
+            <VehicleServiceLockedSection locked={hrGate.locked} message={hrGate.message} className="h-full">
             <FineFormCard
-                title="Quotation Review"
+                title="HR Approval"
                 subtitle={
-                    assignmentPending
-                        ? 'Available after the assignment is sent'
+                    hrGate.locked
+                        ? 'Locked until Initiate Service is sent'
                         : canEdit
-                          ? 'Drag a quote from assignment details into Approved Quote for HR review'
+                          ? 'Select / drag a quote into Approved Quote, then approve once'
                           : canEditEmployeeRows
-                            ? 'Submitted quotation review — edit employee rows below; approved totals stay fixed'
-                            : 'Submitted quotation review — view only'
+                            ? 'HR approved — employee rows may still be adjusted'
+                            : hrGate.done
+                              ? 'HR approved this quotation'
+                              : 'Waiting for HR'
                 }
-                icon={FileCheck}
+                icon={ShieldCheck}
                 iconBg="bg-emerald-50"
-                iconColor="text-emerald-600"
-                className="w-full"
+                iconColor="text-emerald-700"
+                className="h-full w-full"
             >
                 {assignmentPending ? (
                     <p className="mb-4 text-sm text-gray-500">
@@ -638,14 +656,6 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                                     Rejected
                                 </button>
                             </div>
-                            <input
-                                type="text"
-                                className={tireFieldSelect}
-                                value={quoteState[approvedQuoteKey]?.comment || ''}
-                                onChange={(e) => setQuoteField(approvedQuoteKey, 'comment', e.target.value)}
-                                disabled={!canEdit}
-                                placeholder="Comment"
-                            />
                             {canEdit ? (
                                 <p className="text-[10px] text-gray-400">
                                     Drag another quote from the assignment card to replace this selection.
@@ -818,20 +828,6 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                     ) : null}
                 </div>
 
-                <div className="mt-4 border-t border-gray-100 pt-4">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                        Description (optional)
-                    </span>
-                    <textarea
-                        className={`${tireFieldSelect} mt-1.5 resize-y min-h-[88px] font-medium`}
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        disabled={!canEdit}
-                        placeholder="Enter review notes..."
-                        rows={3}
-                    />
-                </div>
-
                 {canEdit ? (
                     <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
                         <button
@@ -861,6 +857,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                     </div>
                 ) : null}
             </FineFormCard>
+            </VehicleServiceLockedSection>
         </div>
     );
 }

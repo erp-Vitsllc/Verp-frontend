@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -7,6 +7,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
+import VehicleServiceLockedSection from './VehicleServiceLockedSection';
 import { openAttachmentInNewTab, extractStorageReference, loadStorageFileBlob } from '@/utils/attachmentPreview';
 import { parseVehicleServiceRemark, normalizeMongoId } from './vehicleServiceUtils';
 import VehicleAccidentRepairFormFieldCell from './VehicleAccidentRepairFormFieldCell';
@@ -16,6 +17,7 @@ import {
 } from '../utils/vehicleOilServiceAccess';
 import {
     canEditAccidentRepairReturn,
+    isAccidentRepairGarageSubmitted,
     ACCIDENT_REPAIR_WORKFLOW_STAGES,
 } from '../utils/vehicleAccidentRepairWorkflow';
 import {
@@ -313,28 +315,41 @@ export default function VehicleAccidentRepairReturnCard({
         }
     };
 
-    if (!stage && !isComplete) return null;
-
     const missingFields = !fieldsDisabled && !isAccidentRepairReturnFormComplete(formData)
         ? Object.values(validateAccidentRepairReturnForm(formData))
         : [];
 
+    const garageDone = isAccidentRepairGarageSubmitted(asset, service);
+    const completeLocked =
+        assignmentPending ||
+        (!garageDone &&
+            !['pending_admin_return', 'scheduled_service', 'pending_billing', 'billed', 'complete'].includes(
+                stage,
+            ) &&
+            !isComplete);
+    const completeLockMessage = assignmentPending
+        ? 'Complete Initiate Service and click Send first'
+        : 'Complete Schedule and HR Approval first';
+
     return (
         <>
             <div className={`w-full ${className}`.trim()}>
+                <VehicleServiceLockedSection locked={completeLocked} message={completeLockMessage}>
                 <FineFormCard
-                    title="Service Completed"
+                    title="Complete Service"
                     subtitle={
-                        isComplete
-                            ? 'Accident repair completed'
-                            : canEditReturn
-                              ? 'Admin Officer — upload completion documents, then click Done'
-                              : 'Service completion — extend date or view return details below'
+                        completeLocked
+                            ? 'Locked until previous steps are done'
+                            : isComplete
+                              ? 'Service record completed'
+                              : canEditReturn
+                                ? 'Fill required fields — then Complete to close this service'
+                                : 'Service completion — extend date or view return details below'
                     }
                     icon={ClipboardCheck}
                     iconBg="bg-teal-50"
                     iconColor="text-teal-600"
-                    className={`w-full ${!canEditReturn ? 'opacity-[0.97]' : ''}`}
+                    className="w-full"
                 >
                     <VehicleShopServiceExtendDateSection
                         asset={asset}
@@ -441,20 +456,6 @@ export default function VehicleAccidentRepairReturnCard({
                         </div>
                     </div>
 
-                    <div className="mt-4 border-t border-gray-100 pt-4">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                            Description (optional)
-                        </span>
-                        <textarea
-                            className={`${tireFieldSelect} mt-1.5 resize-y min-h-[88px] font-medium`}
-                            rows={4}
-                            value={formData.returnDescription || ''}
-                            onChange={(e) => set('returnDescription', e.target.value)}
-                            disabled={fieldsDisabled}
-                            placeholder="Enter review notes..."
-                        />
-                    </div>
-
                     {missingFields.length > 0 ? (
                         <p className="mt-4 text-xs text-amber-700">
                             Still required: {missingFields.join(', ')}
@@ -484,6 +485,7 @@ export default function VehicleAccidentRepairReturnCard({
                         </div>
                     ) : null}
                 </FineFormCard>
+                </VehicleServiceLockedSection>
             </div>
 
             {lightboxSrc ? (

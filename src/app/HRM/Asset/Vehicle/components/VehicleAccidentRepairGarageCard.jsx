@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Upload, Wrench } from 'lucide-react';
+import { CalendarClock, Loader2, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
@@ -191,11 +191,11 @@ export default function VehicleAccidentRepairGarageCard({
     return (
         <div className={`w-full ${className}`.trim()}>
             <FineFormCard
-                title="Garage / Service Details"
+                title="Schedule and Reschedule Service"
                 subtitle={subtitle}
-                icon={Wrench}
-                iconBg="bg-emerald-50"
-                iconColor="text-emerald-600"
+                icon={CalendarClock}
+                iconBg="bg-violet-50"
+                iconColor="text-violet-600"
                 className={`w-full ${fieldsDisabled && !canApproveAccounts ? 'opacity-[0.97]' : ''}`}
             >
                 <VehicleGarageZohoBillRetry

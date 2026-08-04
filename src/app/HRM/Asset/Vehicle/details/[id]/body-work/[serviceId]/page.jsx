@@ -15,6 +15,7 @@ import VehicleBodyWorkDetailForm from '@/app/HRM/Asset/Vehicle/components/Vehicl
 import VehicleBodyWorkQuoteApprovalCard from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkQuoteApprovalCard';
 import VehicleBodyWorkGarageCard from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkGarageCard';
 import VehicleBodyWorkReturnCard from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkReturnCard';
+import VehicleShopServiceAccountsApproveCard from '@/app/HRM/Asset/Vehicle/components/VehicleShopServiceAccountsApproveCard';
 import VehicleServiceAccountsZohoBillingCard from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAccountsZohoBillingCard';
 import VehicleBodyWorkPreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkPreviousHistoryPanel';
 import VehicleBodyWorkDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkDriverHistoryPanel';
@@ -309,25 +310,6 @@ function VehicleBodyWorkDetailPageContent() {
                                 onDraftStateChange={handleDraftStateChange}
                                 className="w-full shrink-0"
                             />
-                            {!assignmentPending && showBodyWorkQuoteCard(assignmentPending) ? (
-                                <VehicleBodyWorkQuoteApprovalCard
-                                    asset={asset}
-                                    service={service}
-                                    vehicleId={vehicleId}
-                                    serviceId={serviceId}
-                                    canActHr={isFlowchartHr}
-                                    canRespondToWorkflow={canRespondToBodyWorkflow}
-                                    canManageBodyWork={canManageBodyWork}
-                                    workflowStage={bodyWorkflowStage}
-                                    onUpdated={(updatedAsset) => {
-                                        if (updatedAsset) {
-                                            setAsset(updatedAsset);
-                                        }
-                                        void load({ silent: true, deferServiceSigning: true });
-                                    }}
-                                    className="w-full shrink-0"
-                                />
-                            ) : null}
                             {showBodyWorkGarageCard(assignmentPending, bodyWorkflowStage) ? (
                                 <VehicleBodyWorkGarageCard
                                     asset={asset}
@@ -335,7 +317,6 @@ function VehicleBodyWorkDetailPageContent() {
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
                                     canManage={canManageBodyWork}
-                                    canActAccounts={isFlowchartAccounts}
                                     workflowStage={bodyWorkflowStage}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
@@ -344,6 +325,42 @@ function VehicleBodyWorkDetailPageContent() {
                                     className="w-full shrink-0"
                                 />
                             ) : null}
+                            <div className="grid w-full shrink-0 grid-cols-1 gap-4 lg:grid-cols-2">
+                                {showBodyWorkQuoteCard(assignmentPending) ? (
+                                    <VehicleBodyWorkQuoteApprovalCard
+                                        asset={asset}
+                                        service={service}
+                                        vehicleId={vehicleId}
+                                        serviceId={serviceId}
+                                        canActHr={isFlowchartHr}
+                                        canRespondToWorkflow={canRespondToBodyWorkflow}
+                                        canManageBodyWork={canManageBodyWork}
+                                        workflowStage={bodyWorkflowStage}
+                                        onUpdated={(updatedAsset) => {
+                                            if (updatedAsset) {
+                                                setAsset(updatedAsset);
+                                            }
+                                            void load({ silent: true, deferServiceSigning: true });
+                                        }}
+                                        className="w-full min-w-0"
+                                    />
+                                ) : null}
+                                <VehicleShopServiceAccountsApproveCard
+                                    asset={asset}
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canActAccounts={isFlowchartAccounts}
+                                    assignmentPending={assignmentPending}
+                                    workflowStage={bodyWorkflowStage}
+                                    serviceTypeLabel="Body Work"
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load({ silent: true, deferServiceSigning: true });
+                                    }}
+                                    className="w-full min-w-0"
+                                />
+                            </div>
                             {showBodyWorkReturnCard(assignmentPending, bodyWorkflowStage) ? (
                                 <VehicleBodyWorkReturnCard
                                     asset={asset}

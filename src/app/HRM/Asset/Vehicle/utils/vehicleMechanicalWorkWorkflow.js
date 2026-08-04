@@ -1,5 +1,5 @@
-﻿import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
-import { isShopServiceLiveOnAsset, shouldShowShopServiceReturnCard } from './vehicleShopWorkStatus';
+import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
+import { isShopServiceLiveOnAsset } from './vehicleShopWorkStatus';
 import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
@@ -24,30 +24,16 @@ export function isMechanicalWorkWorkflowRecord(asset, serviceId, service = null)
     return isShopServiceWorkflowRecord(asset, serviceId, service, 'Mechanical Work');
 }
 
-export function showMechanicalWorkQuoteCard(assignmentPending) {
-    return !assignmentPending;
+export function showMechanicalWorkQuoteCard(_assignmentPending) {
+    return true;
 }
 
-export function showMechanicalWorkGarageCard(assignmentPending, stage) {
-    if (assignmentPending) return false;
-    if (!stage || stage === MECHANICAL_WORK_WORKFLOW_STAGES.REJECTED) return false;
-    if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.HR) return false;
-    return [
-        MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_OFFICER,
-        MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS,
-        MECHANICAL_WORK_WORKFLOW_STAGES.SCHEDULED,
-        MECHANICAL_WORK_WORKFLOW_STAGES.PENDING_BILLING,
-        'billed',
-        MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_RETURN,
-        MECHANICAL_WORK_WORKFLOW_STAGES.COMPLETE,
-    ].includes(stage);
+export function showMechanicalWorkGarageCard(_assignmentPending, stage) {
+    return true;
 }
 
-export function showMechanicalWorkReturnCard(assignmentPending, stage) {
-    if (assignmentPending) return false;
-    if (!stage || stage === MECHANICAL_WORK_WORKFLOW_STAGES.REJECTED) return false;
-    if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.COMPLETE) return true;
-    return shouldShowShopServiceReturnCard(stage);
+export function showMechanicalWorkReturnCard(_assignmentPending, stage) {
+    return true;
 }
 
 export function isMechanicalWorkGarageSubmitted(asset, service) {

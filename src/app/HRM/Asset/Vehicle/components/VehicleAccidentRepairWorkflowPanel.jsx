@@ -1,16 +1,14 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import WorkflowHistoryTimeline from '@/app/HRM/shared/workflowHistory/WorkflowHistoryTimeline';
 import { buildAccidentRepairDetailWorkflowEvents } from '../utils/vehicleAccidentRepairDetailWorkflow';
+import { SHOP_SERVICE_WORKFLOW_SUBTITLE } from '../utils/vehicleShopServiceDetailWorkflow';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../utils/vehicleHandoverAssignWorkflowTrackerConfig';
 
 const { card, timeline, steps, header, list, text, connector, spread } =
     VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
-
-const ACCIDENT_REPAIR_SUBTITLE =
-    'Service created, updated, submitted, garage, HR On Service, complete, and Accounts Zoho billing';
 
 export default function VehicleAccidentRepairWorkflowPanel({ asset, service, className = '' }) {
     const [flowchartRows, setFlowchartRows] = useState([]);
@@ -47,7 +45,7 @@ export default function VehicleAccidentRepairWorkflowPanel({ asset, service, cla
         >
             <WorkflowHistoryTimeline
                 title="Service Workflow History"
-                subtitle={ACCIDENT_REPAIR_SUBTITLE}
+                subtitle={SHOP_SERVICE_WORKFLOW_SUBTITLE}
                 emptyMessage="No workflow activity recorded yet."
                 size={timeline.size}
                 verticalSpread={timeline.verticalSpread}

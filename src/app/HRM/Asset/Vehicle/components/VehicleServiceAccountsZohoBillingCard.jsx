@@ -9,7 +9,13 @@ import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 import ZohoPayAccountSelect from './ZohoPayAccountSelect';
+import VehicleServiceLockedSection from './VehicleServiceLockedSection';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
+import {
+    SHOP_SERVICE_CARD,
+    resolveShopServiceCardGate,
+} from '../utils/vehicleShopServiceCardGates';
+import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 
 function money(value) {
     const n = Number(value);
@@ -119,11 +125,16 @@ export default function VehicleServiceAccountsZohoBillingCard({
             String(remark.billingStatus || '').toLowerCase() === 'billed' ||
             Boolean(String(remark.zohoBillId || '').trim()));
 
-    // Only show while awaiting Accounts Zoho billing (hide after billed).
-    if (isBilled) return null;
-    if (!awaitingBilling) return null;
+    const canAct = Boolean(canActAccounts) && awaitingBilling && !isBilled;
 
-    const canAct = Boolean(canActAccounts);
+    // Always show the card shell; actions stay locked until Accounts billing stage.
+    const assignmentPending = isOilServiceAssignmentPending(remark);
+    const paymentGate = resolveShopServiceCardGate({
+        assignmentPending,
+        workflowStage: stage,
+        service,
+        cardKey: SHOP_SERVICE_CARD.PAYMENT,
+    });
 
     const setLine = (index, patch) => {
         setBilling((prev) => {
@@ -294,12 +305,24 @@ export default function VehicleServiceAccountsZohoBillingCard({
     };
 
     return (
+        <div className={`w-full ${className}`.trim()}>
+            <VehicleServiceLockedSection
+                locked={paymentGate.locked}
+                message={paymentGate.message || 'Complete Service first — then Make Payment unlocks'}
+            >
         <FineFormCard
-            title="Accounts — Billing (Zoho → Billed)"
+            title="Make Payment"
             icon={Wallet}
-            iconBg="bg-sky-50"
-            iconColor="text-sky-700"
-            className={className}
+            iconBg="bg-emerald-50"
+            iconColor="text-emerald-700"
+            className="w-full"
+            subtitle={
+                isBilled
+                    ? 'Zoho bill already created — payment done'
+                    : awaitingBilling
+                      ? 'Edit billing below and submit to Zoho'
+                      : 'Complete Service first — then Make Payment unlocks'
+            }
         >
             <VehicleGarageZohoBillRetry
                 vehicleId={vehicleId}
@@ -310,13 +333,28 @@ export default function VehicleServiceAccountsZohoBillingCard({
             />
 
             <div className="space-y-4">
+                {isBilled ? (
+                    <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                        Zoho billing is complete for this {serviceTypeLabel.toLowerCase()}.
+                        {remark.zohoBillId ? (
+                            <span className="font-semibold"> Bill ID: {remark.zohoBillId}</span>
+                        ) : null}
+                    </p>
+                ) : !awaitingBilling ? (
+                    <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                        Accounts billing unlocks after garage / return steps reach the Accounts billing stage.
+                    </p>
+                ) : (
                 <p className="text-sm text-gray-600">
                     {serviceTypeLabel} work is{' '}
                     <span className="font-semibold text-gray-800">complete</span>. Edit billing below and
                     submit — status becomes <span className="font-semibold text-gray-800">Billed</span> only
                     if Zoho bill create succeeds.
                 </p>
+                )}
 
+                {awaitingBilling || isBilled ? (
+                <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="block text-xs font-semibold text-gray-500">
                         Garage vendor
@@ -433,6 +471,8 @@ export default function VehicleServiceAccountsZohoBillingCard({
                         </span>
                     </div>
                 </div>
+                </>
+                ) : null}
             </div>
 
             {canAct ? (
@@ -447,11 +487,13 @@ export default function VehicleServiceAccountsZohoBillingCard({
                         {busy ? 'Working…' : 'Submit to Zoho (Billed)'}
                     </button>
                 </div>
-            ) : (
+            ) : awaitingBilling ? (
                 <p className="mt-3 text-xs text-amber-800">
                     Waiting for flowchart Accounts to submit billing to Zoho.
                 </p>
-            )}
+            ) : null}
         </FineFormCard>
+            </VehicleServiceLockedSection>
+        </div>
     );
 }

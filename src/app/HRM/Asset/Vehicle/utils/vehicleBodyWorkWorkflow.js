@@ -1,5 +1,5 @@
-﻿import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
-import { isShopServiceLiveOnAsset, shouldShowShopServiceReturnCard } from './vehicleShopWorkStatus';
+import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
+import { isShopServiceLiveOnAsset } from './vehicleShopWorkStatus';
 import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
@@ -24,30 +24,16 @@ export function isBodyWorkWorkflowRecord(asset, serviceId, service = null) {
     return isShopServiceWorkflowRecord(asset, serviceId, service, 'Body Work');
 }
 
-export function showBodyWorkQuoteCard(assignmentPending) {
-    return !assignmentPending;
+export function showBodyWorkQuoteCard(_assignmentPending) {
+    return true;
 }
 
-export function showBodyWorkGarageCard(assignmentPending, stage) {
-    if (assignmentPending) return false;
-    if (!stage || stage === BODY_WORK_WORKFLOW_STAGES.REJECTED) return false;
-    if (stage === BODY_WORK_WORKFLOW_STAGES.HR) return false;
-    return [
-        BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER,
-        BODY_WORK_WORKFLOW_STAGES.ACCOUNTS,
-        BODY_WORK_WORKFLOW_STAGES.SCHEDULED,
-        BODY_WORK_WORKFLOW_STAGES.PENDING_BILLING,
-        'billed',
-        BODY_WORK_WORKFLOW_STAGES.ADMIN_RETURN,
-        BODY_WORK_WORKFLOW_STAGES.COMPLETE,
-    ].includes(stage);
+export function showBodyWorkGarageCard(_assignmentPending, stage) {
+    return true;
 }
 
-export function showBodyWorkReturnCard(assignmentPending, stage) {
-    if (assignmentPending) return false;
-    if (!stage || stage === BODY_WORK_WORKFLOW_STAGES.REJECTED) return false;
-    if (stage === BODY_WORK_WORKFLOW_STAGES.COMPLETE) return true;
-    return shouldShowShopServiceReturnCard(stage);
+export function showBodyWorkReturnCard(_assignmentPending, stage) {
+    return true;
 }
 
 export function isBodyWorkGarageSubmitted(asset, service) {

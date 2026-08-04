@@ -8,16 +8,14 @@ import {
     isOilServiceCashAmountMode,
 } from '../utils/vehicleOilServiceDetailWorkflow';
 import { buildTireChangeDetailWorkflowEvents } from '../utils/vehicleTireChangeDetailWorkflow';
+import { SHOP_SERVICE_WORKFLOW_SUBTITLE } from '../utils/vehicleShopServiceDetailWorkflow';
 import { parseVehicleServiceRemark, vehicleServiceTypeKey } from '../components/vehicleServiceUtils';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../utils/vehicleHandoverAssignWorkflowTrackerConfig';
 
 const { card, timeline, steps, header, list, text, connector, spread } =
     VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
 
-const TIRE_SUBTITLE =
-    'Service created, updated, submitted, quotation review, garage, accounts, and completion';
-const OIL_SUBTITLE =
-    'Initiate, Schedule + HR Approval (together), Accounts, On Service, Complete Service, and Make Payment';
+const OIL_SUBTITLE = SHOP_SERVICE_WORKFLOW_SUBTITLE;
 const OIL_WARRANTY_SUBTITLE = 'Initiate, Schedule, On Service, and Complete Service';
 
 export default function VehicleOilServiceWorkflowPanel({ asset, service, className = '' }) {
@@ -63,7 +61,7 @@ export default function VehicleOilServiceWorkflowPanel({ asset, service, classNa
         >
             <WorkflowHistoryTimeline
                 title="Service Workflow History"
-                subtitle={isTireChange ? TIRE_SUBTITLE : isOilCash ? OIL_SUBTITLE : OIL_WARRANTY_SUBTITLE}
+                subtitle={isTireChange ? OIL_SUBTITLE : isOilCash ? OIL_SUBTITLE : OIL_WARRANTY_SUBTITLE}
                 emptyMessage="No workflow activity recorded yet."
                 size={timeline.size}
                 verticalSpread={timeline.verticalSpread}
@@ -82,3 +80,4 @@ export default function VehicleOilServiceWorkflowPanel({ asset, service, classNa
         </div>
     );
 }
+

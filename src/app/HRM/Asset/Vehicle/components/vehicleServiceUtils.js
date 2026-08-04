@@ -549,10 +549,10 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
               ).toLowerCase();
               if (stage === 'rejected') return { label: 'Rejected', tone: 'rejected' };
               if (stage === 'billed' || billingStatus === 'billed' || paymentStatus === 'billed') {
-                  return { label: 'Billed', tone: 'complete' };
+                  return { label: 'Complete', tone: 'complete' };
               }
               if (stage === 'pending_billing' || stage === 'pending_accounts') {
-                  return { label: 'Complete — Waiting for Bill', tone: 'pending' };
+                  return { label: 'Incomplete — Waiting for Expense', tone: 'pending' };
               }
               if (paymentStatus === 'not_paid' || stage === 'complete') {
                   return { label: 'Not paid', tone: 'complete' };

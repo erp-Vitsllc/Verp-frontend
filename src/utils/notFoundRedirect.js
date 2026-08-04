@@ -1,4 +1,4 @@
-export const NOT_FOUND_PATH = '/404';
+export const NOT_FOUND_PATH = '/system-unavailable';
 
 const PUBLIC_PATH_PREFIXES = ['/login', '/print'];
 
@@ -9,12 +9,16 @@ export function isPublicPath(pathname) {
 
 export function isOnNotFoundPage() {
     if (typeof window === 'undefined') return false;
-    return window.location.pathname === NOT_FOUND_PATH;
+    const path = window.location.pathname;
+    return path === NOT_FOUND_PATH || path === '/404';
 }
 
 /**
- * Only true server / connectivity failures should send users to the 404 page.
+ * Only true server / connectivity failures should send users to the unavailable page.
  * Validation and business errors (400, 409, etc.) must stay on the current form.
+ *
+ * Note: transient 503 (e.g. brief Mongo reconnect) must NOT redirect — that causes
+ * "Oops" + console `GET /404 404` noise while the user is mid-form.
  */
 export function shouldApiErrorRedirectToNotFound(error) {
     if (!error || typeof window === 'undefined') return false;
@@ -41,8 +45,8 @@ export function shouldApiErrorRedirectToNotFound(error) {
     // 4xx = client/validation/permission — show message on the page, do not redirect.
     if (status >= 400 && status < 500) return false;
 
-    // Only redirect on GET when the server is clearly down (gateway errors).
-    return status === 502 || status === 503 || status === 504;
+    // Gateway hard-down only (not flaky 503 reconnects).
+    return status === 502 || status === 504;
 }
 
 export function redirectToNotFound() {

@@ -15,6 +15,7 @@ import VehicleAccidentRepairDetailForm from '@/app/HRM/Asset/Vehicle/components/
 import VehicleAccidentRepairGarageCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairGarageCard';
 import VehicleAccidentRepairHrOnServiceCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairHrOnServiceCard';
 import VehicleAccidentRepairReturnCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairReturnCard';
+import VehicleShopServiceAccountsApproveCard from '@/app/HRM/Asset/Vehicle/components/VehicleShopServiceAccountsApproveCard';
 import VehicleServiceAccountsZohoBillingCard from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAccountsZohoBillingCard';
 import VehicleAccidentRepairPreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairPreviousHistoryPanel';
 import VehicleAccidentRepairDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairDriverHistoryPanel';
@@ -323,18 +324,35 @@ function VehicleAccidentRepairDetailPageContent() {
                                     className="w-full shrink-0"
                                 />
                             ) : null}
-                            <VehicleAccidentRepairHrOnServiceCard
-                                vehicleId={vehicleId}
-                                serviceId={serviceId}
-                                service={service}
-                                canActHr={isFlowchartHr}
-                                workflowStage={accidentRepairflowStage}
-                                onUpdated={(updatedAsset) => {
-                                    if (updatedAsset) setAsset(updatedAsset);
-                                    void load({ silent: true, deferServiceSigning: true });
-                                }}
-                                className="w-full shrink-0"
-                            />
+                            <div className="grid w-full shrink-0 grid-cols-1 gap-4 lg:grid-cols-2">
+                                <VehicleAccidentRepairHrOnServiceCard
+                                    asset={asset}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    service={service}
+                                    canActHr={isFlowchartHr}
+                                    workflowStage={accidentRepairflowStage}
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load({ silent: true, deferServiceSigning: true });
+                                    }}
+                                    className="w-full min-w-0"
+                                />
+                                <VehicleShopServiceAccountsApproveCard
+                                    service={service}
+                                    vehicleId={vehicleId}
+                                    serviceId={serviceId}
+                                    canActAccounts={isFlowchartAccounts}
+                                    assignmentPending={assignmentPending}
+                                    workflowStage={accidentRepairflowStage}
+                                    serviceTypeLabel="Accident Repair"
+                                    onUpdated={(updatedAsset) => {
+                                        if (updatedAsset) setAsset(updatedAsset);
+                                        void load({ silent: true, deferServiceSigning: true });
+                                    }}
+                                    className="w-full min-w-0"
+                                />
+                            </div>
                             {showAccidentRepairReturnCard(assignmentPending, accidentRepairflowStage) ? (
                                 <VehicleAccidentRepairReturnCard
                                     asset={asset}

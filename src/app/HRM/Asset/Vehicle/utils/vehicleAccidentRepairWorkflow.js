@@ -1,5 +1,5 @@
-﻿import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
-import { isShopServiceLiveOnAsset, shouldShowShopServiceReturnCard } from './vehicleShopWorkStatus';
+import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
+import { isShopServiceLiveOnAsset } from './vehicleShopWorkStatus';
 import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
@@ -24,32 +24,16 @@ export function isAccidentRepairWorkflowRecord(asset, serviceId, service = null)
     return isShopServiceWorkflowRecord(asset, serviceId, service, 'Accident Repair');
 }
 
-export function showAccidentRepairQuoteCard(assignmentPending) {
-    return !assignmentPending;
+export function showAccidentRepairQuoteCard(_assignmentPending) {
+    return true;
 }
 
-export function showAccidentRepairGarageCard(assignmentPending, stage) {
-    if (assignmentPending) return false;
-    if (!stage || stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.REJECTED) return false;
-    return [
-        ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER,
-        ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS,
-        ACCIDENT_REPAIR_WORKFLOW_STAGES.HR,
-        ACCIDENT_REPAIR_WORKFLOW_STAGES.SCHEDULED,
-        ACCIDENT_REPAIR_WORKFLOW_STAGES.PENDING_BILLING,
-        'billed',
-        ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_RETURN,
-        ACCIDENT_REPAIR_WORKFLOW_STAGES.COMPLETE,
-    ].includes(stage);
+export function showAccidentRepairGarageCard(_assignmentPending, stage) {
+    return true;
 }
 
-export function showAccidentRepairReturnCard(assignmentPending, stage) {
-    if (assignmentPending) return false;
-    if (!stage || stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.REJECTED) return false;
-    // Return / End Service only after HR has moved the job to scheduled / live.
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return false;
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER) return false;
-    return shouldShowShopServiceReturnCard(stage);
+export function showAccidentRepairReturnCard(_assignmentPending, stage) {
+    return true;
 }
 
 export function isAccidentRepairGarageSubmitted(asset, service) {

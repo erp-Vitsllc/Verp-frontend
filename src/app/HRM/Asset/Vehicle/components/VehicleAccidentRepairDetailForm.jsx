@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -571,11 +571,11 @@ export default function VehicleAccidentRepairDetailForm({
         <>
             <div className={`flex w-full ${className}`.trim()}>
                 <FineFormCard
-                    title="Vehicle Accident Form"
+                    title="Initiate Service"
                     subtitle={
                         assignmentPending
                             ? `Dated: ${headerDateLabel || '—'} · Complete all fields, then click Send`
-                            : `Dated: ${headerDateLabel || '—'} · Submitted assignment`
+                            : `Dated: ${headerDateLabel || '—'} · Submitted — continue Schedule / HR below`
                     }
                     icon={ClipboardList}
                     iconBg="bg-blue-50"
@@ -896,23 +896,6 @@ export default function VehicleAccidentRepairDetailForm({
                         </div>
                         {errors.accidentImages ? (
                             <p className="text-[10px] text-red-500 font-bold mt-1">{errors.accidentImages}</p>
-                        ) : null}
-                    </div>
-
-                    <div className="mt-4 border-t border-gray-100 pt-4">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                            Accident Description (optional)
-                        </span>
-                        <textarea
-                            className={`${tireFieldSelect} mt-1.5 resize-y min-h-[88px] font-medium`}
-                            value={formData.serviceIssue || ''}
-                            onChange={(e) => set('serviceIssue', e.target.value)}
-                            disabled={fieldsDisabled}
-                            rows={4}
-                            placeholder="Describe the accident and any details HR should know…"
-                        />
-                        {errors.serviceIssue ? (
-                            <p className="text-[10px] text-red-500 font-bold mt-1">{errors.serviceIssue}</p>
                         ) : null}
                     </div>
                     </>

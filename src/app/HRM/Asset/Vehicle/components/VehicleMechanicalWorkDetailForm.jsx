@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -576,11 +576,11 @@ export default function VehicleMechanicalWorkDetailForm({
         <>
             <div className={`flex w-full ${className}`.trim()}>
                 <FineFormCard
-                    title="Mechanical Work Assignment Details"
+                    title="Initiate Service"
                     subtitle={
                         assignmentPending
-                            ? 'Complete all fields, then click Submit for Approval'
-                            : 'Submitted assignment — drag Quote 1, 2, or 3 below into Quotation Review'
+                            ? 'Complete all fields, then click Send / Submit for Approval'
+                            : 'Submitted — drag Quote 1, 2, or 3 below into HR Approval'
                     }
                     icon={ClipboardList}
                     iconBg="bg-blue-50"
@@ -1026,20 +1026,6 @@ export default function VehicleMechanicalWorkDetailForm({
                                 </>
                             ) : null}
                         </div>
-                    </div>
-
-                    <div className="mt-4 border-t border-gray-100 pt-4">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                            Mechanical Work Description (optional)
-                        </span>
-                        <textarea
-                            className={`${tireFieldSelect} mt-1.5 resize-y min-h-[88px] font-medium`}
-                            value={formData.serviceIssue || ''}
-                            onChange={(e) => set('serviceIssue', e.target.value)}
-                            disabled={fieldsDisabled}
-                            rows={4}
-                            placeholder="Enter work description"
-                        />
                     </div>
 
                     {assignmentPending && canEditAssignment && missingFields.length > 0 ? (

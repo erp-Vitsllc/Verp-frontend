@@ -2121,17 +2121,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     </div>
                                 </div>
 
-                                <div className="mb-4">
-                                    <span className={fieldLabel}>Description (optional):-</span>
-                                    <textarea
-                                        className={`${fieldInput} resize-y min-h-[88px]`}
-                                        value={accidentStatusForm.description}
-                                        onChange={(e) => setAccidentStatusForm(prev => ({ ...prev, description: e.target.value }))}
-                                        disabled={statusFormFieldsLocked}
-                                        placeholder="Enter comments..."
-                                    />
-                                </div>
-
                                 {!statusFormFieldsLocked && (
                                     <div className="flex justify-end pt-2">
                                         <button
@@ -2877,17 +2866,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                             Saved invoice: {accidentMeta?.shopInvoiceName || 'On file'} — choose a file above to replace.
                                         </p>
                                     ) : null}
-                                </div>
-
-                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] xl:col-span-3 md:col-span-2">
-                                    <label className="text-xs font-medium text-slate-700">Description (optional)</label>
-                                    <textarea
-                                        rows={3}
-                                        value={accidentStatusForm.description}
-                                        onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, description: e.target.value }))}
-                                        disabled={statusFormFieldsLocked}
-                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white resize-y disabled:bg-slate-50 disabled:text-slate-500"
-                                    />
                                 </div>
 
                                 <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">

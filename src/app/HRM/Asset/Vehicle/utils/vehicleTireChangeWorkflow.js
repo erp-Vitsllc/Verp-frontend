@@ -1,5 +1,5 @@
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
-import { isShopServiceLiveOnAsset, shouldShowShopServiceReturnCard } from './vehicleShopWorkStatus';
+import { isShopServiceLiveOnAsset } from './vehicleShopWorkStatus';
 import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
@@ -24,30 +24,17 @@ export function isTireChangeWorkflowRecord(asset, serviceId, service = null) {
     return isShopServiceWorkflowRecord(asset, serviceId, service, 'Tire Change');
 }
 
-export function showTireChangeQuoteCard(assignmentPending) {
-    return !assignmentPending;
+export function showTireChangeQuoteCard(_assignmentPending) {
+    return true;
 }
 
-export function showTireChangeGarageCard(assignmentPending, stage) {
-    if (assignmentPending) return false;
-    if (!stage || stage === TIRE_CHANGE_WORKFLOW_STAGES.REJECTED) return false;
-    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.HR) return false;
-    return [
-        TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_OFFICER,
-        TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS,
-        TIRE_CHANGE_WORKFLOW_STAGES.SCHEDULED,
-        TIRE_CHANGE_WORKFLOW_STAGES.PENDING_BILLING,
-        'billed',
-        TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_RETURN,
-        TIRE_CHANGE_WORKFLOW_STAGES.COMPLETE,
-    ].includes(stage);
+export function showTireChangeGarageCard(_assignmentPending, stage) {
+    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.REJECTED) return true;
+    return true;
 }
 
-export function showTireChangeReturnCard(assignmentPending, stage) {
-    if (assignmentPending) return false;
-    if (!stage || stage === TIRE_CHANGE_WORKFLOW_STAGES.REJECTED) return false;
-    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.COMPLETE) return true;
-    return shouldShowShopServiceReturnCard(stage);
+export function showTireChangeReturnCard(_assignmentPending, stage) {
+    return true;
 }
 
 export function canEditTireChangeGarage(stage, canManageTireChange, { asset, service } = {}) {
