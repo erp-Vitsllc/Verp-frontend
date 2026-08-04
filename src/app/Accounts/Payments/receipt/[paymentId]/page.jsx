@@ -8,8 +8,8 @@ import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 import { readCachedPaymentReceipt } from '@/app/HRM/LoanAndAdvance/utils/loanPaymentReceipts';
 
 /**
- * Standalone payment receipt for new-tab open from loan/advance Document dropdown.
- * Prefers session-cached payment (from the row click), then loads via API search.
+ * Standalone payment receipt / invoice (same PaymentReceipt view as Payments & invoice modal).
+ * Prefers session-cached payment, then loads by id via GET /Payment/:id.
  */
 export default function PaymentReceiptPage() {
     const params = useParams();
@@ -38,15 +38,10 @@ export default function PaymentReceiptPage() {
             }
 
             try {
-                const res = await axiosInstance.get('/Payment', {
-                    params: { search: paymentKey, limit: 25 },
-                });
-                const list = res.data?.payments || (Array.isArray(res.data) ? res.data : []);
-                const match = list.find(
-                    (p) =>
-                        String(p._id) === paymentKey ||
-                        String(p.paymentId || '') === paymentKey,
+                const res = await axiosInstance.get(
+                    `/Payment/${encodeURIComponent(paymentKey)}`,
                 );
+                const match = res.data?.payment || null;
                 if (!match) {
                     if (!cancelled) setError('Payment receipt not found.');
                 } else if (!cancelled) {
@@ -54,7 +49,9 @@ export default function PaymentReceiptPage() {
                 }
             } catch (e) {
                 if (!cancelled) {
-                    setError(e?.response?.data?.message || 'Unable to load this receipt.');
+                    setError(
+                        e?.response?.data?.message || 'Unable to load this receipt.',
+                    );
                 }
             } finally {
                 if (!cancelled) setLoading(false);
@@ -72,7 +69,7 @@ export default function PaymentReceiptPage() {
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-white border-b border-gray-200 print:hidden">
                 <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                        Payment receipt
+                        Payment Invoice
                     </p>
                     <p className="text-sm font-bold text-gray-800">
                         {payment?.paymentId || paymentKey || '—'}
@@ -92,7 +89,7 @@ export default function PaymentReceiptPage() {
                 {loading ? (
                     <div className="flex items-center justify-center gap-2 py-24 text-gray-400">
                         <Loader2 className="animate-spin" size={22} />
-                        Loading receipt…
+                        Loading invoice…
                     </div>
                 ) : error ? (
                     <div className="rounded-2xl border border-rose-200 bg-rose-50 px-6 py-10 text-center text-sm font-semibold text-rose-700">
