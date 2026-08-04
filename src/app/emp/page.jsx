@@ -11,6 +11,9 @@ import { hasAnyPermission, isAdmin, hasPermission, canAccessAddEmployee } from '
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc } from '@/utils/dashboardNotificationRouting';
+import { resolveBulkAssignmentGroupId } from '@/utils/assetNotificationRouting';
+import BulkAssignmentAcknowledgeModal from '@/app/HRM/Asset/components/BulkAssignmentAcknowledgeModal';
+import { ASSET_PENDING_INBOX_CHANGED } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { buildEmployeeListBellFromStats, buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
@@ -216,6 +219,7 @@ function EmployeeContent() {
     const isSyncingFromUrlRef = useRef(false);
     const [myRequestCount, setMyRequestCount] = useState(0);
     const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+    const [bulkAssignmentGroupId, setBulkAssignmentGroupId] = useState(null);
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsRefreshing, setNotificationsRefreshing] = useState(false);
@@ -2108,7 +2112,7 @@ function EmployeeContent() {
             </div>
 
             <NotificationInboxModal
-                isOpen={showNotificationsModal}
+                isOpen={showNotificationsModal && !bulkAssignmentGroupId}
                 onClose={() => setShowNotificationsModal(false)}
                 subtitle="Profile activations, company activations, and pending items."
                 items={notificationRows}
@@ -2116,14 +2120,35 @@ function EmployeeContent() {
                 refreshing={notificationsRefreshing}
                 error={notificationsError}
                 onItemClick={(item) => {
+                    const bulkGroupId = resolveBulkAssignmentGroupId(item);
+                    if (bulkGroupId) {
+                        setBulkAssignmentGroupId(bulkGroupId);
+                        return;
+                    }
                     const path = buildDashboardNotificationPath(item);
                     if (path) {
                         navigateFromNotificationClick(router, path);
                         setShowNotificationsModal(false);
                     }
                 }}
-                getItemHref={(item) => buildDashboardNotificationPath(item) || ''}
+                getItemHref={(item) => {
+                    if (resolveBulkAssignmentGroupId(item)) return '';
+                    return buildDashboardNotificationPath(item) || '';
+                }}
                 onDelete={isAdmin() ? handleDeleteNotification : undefined}
+            />
+            <BulkAssignmentAcknowledgeModal
+                isOpen={!!bulkAssignmentGroupId}
+                groupId={bulkAssignmentGroupId || ''}
+                onClose={() => setBulkAssignmentGroupId(null)}
+                onSuccess={() => {
+                    setBulkAssignmentGroupId(null);
+                    try {
+                        window.dispatchEvent(new Event(ASSET_PENDING_INBOX_CHANGED));
+                    } catch {
+                        /* ignore */
+                    }
+                }}
             />
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

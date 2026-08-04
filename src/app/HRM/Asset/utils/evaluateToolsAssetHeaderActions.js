@@ -8,7 +8,8 @@ import { canPerformAssetAction, mapHeaderLabelToAssetAction } from './canPerform
 function shouldIncludeHeaderAction(action, asset) {
     if (action.label === 'TRANSFER ASSET') {
         if (isLeaveActive(asset)) return false;
-        return asset?.status === 'Assigned' || !asset?.assignedTo;
+        // Reassign menu — available when assigned, or Assign when in pool.
+        return true;
     }
     if (action.label.startsWith('Reassign') || action.label === 'Assign') {
         return !isLeaveActive(asset);
@@ -140,7 +141,10 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
                     : null;
 
             let hasPermission = false;
-            if (centralizedPermission != null) {
+            if (isTransferReassignBtn || action.label === 'Transfer') {
+                // Reassign / Bulk Reassign — Asset Controller (authorized) or asset owner (assignee) only.
+                hasPermission = isAuthorized || isAssignedUser;
+            } else if (centralizedPermission != null) {
                 hasPermission = centralizedPermission;
             } else if (isEditBtn) {
                 if (isSubmittedForApprovalState) {
@@ -180,8 +184,6 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
                 hasPermission = isUnassigned
                     ? isAuthorized || isAssignerUser || canHRActOnCompany
                     : isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate || canHRActOnCompany;
-            } else if (isTransferReassignBtn || action.label === 'Transfer') {
-                hasPermission = isAuthorized || isAssignedUser;
             } else if (isActionBtn && isAwaitingCreationApproval) {
                 hasPermission = isAuthorized;
                 if (isSubmittedForApprovalState && isCreator && isLossDamageBtn) {

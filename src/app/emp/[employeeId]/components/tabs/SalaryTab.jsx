@@ -26,7 +26,6 @@ import {
     categorizeAssetsForBulkLeave,
     categorizeAssetsForBulkReturnOrEos,
     formatAssetAssignmentStatusLine,
-    formatAssetListSummary,
     formatOnLeaveStatusLine,
     formatOnServiceStatusLine,
     getAssetStatusBadgeClass,
@@ -61,6 +60,8 @@ import {
     formatLoanProfilePaymentLabel,
     getLoanRepaymentBalance,
 } from '@/app/HRM/LoanAndAdvance/utils/loanStatusConstants';
+import { buildEntityPaymentSchedule } from '@/app/HRM/shared/utils/buildEntityPaymentSchedule';
+import LoanPaymentReceiptsDropdown from '@/app/HRM/LoanAndAdvance/components/LoanPaymentReceiptsDropdown';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 import AssetCheckboxAssignModal from '../modals/AssetCheckboxAssignModal';
@@ -86,7 +87,108 @@ import {
 } from '@/utils/paymentStatusDisplay';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import EmployeeSalaryVehicleUtilityPanel from './EmployeeSalaryVehicleUtilityPanel';
+import AssetHeaderChoiceModal from '@/app/HRM/Asset/components/AssetHeaderChoiceModal';
+import TransferAssetModal from '@/app/HRM/Asset/components/TransferAssetModal';
+import ReturnAssetModal from '@/app/HRM/Asset/components/ReturnAssetModal';
 
+/** Extract Mongo id from actionRequiredBy (ObjectId, string, or populated employee). */
+function getActionRequiredById(actionRequiredBy) {
+    if (!actionRequiredBy) return null;
+    if (typeof actionRequiredBy === 'object' && actionRequiredBy._id) {
+        return actionRequiredBy._id.toString();
+    }
+    return actionRequiredBy.toString();
+}
+
+/** Employee → company repayments for loan/advance installment boxes (not disbursement). */
+function getLoanRepaymentPaymentsForSchedule(loan, allPayments = []) {
+    if (!loan) return [];
+    const loanMongoId = String(loan._id || loan.id || '');
+    const loanCode = String(loan.loanId || '');
+    const repaymentType =
+        String(loan.type || 'Loan').trim() === 'Advance' ? 'AdvanceRepayment' : 'LoanRepayment';
+
+    const fromPayments = (allPayments || []).filter((p) => {
+        if (!isPaymentCountableTowardPaid(p.status)) return false;
+        if (String(p.relatedEntityType || '') !== repaymentType) return false;
+        const refOk = loanCode && String(p.referenceId || '') === loanCode;
+        const idOk =
+            loanMongoId &&
+            String(p.relatedEntityId?._id || p.relatedEntityId || '') === loanMongoId;
+        return refOk || idOk;
+    });
+
+    if (fromPayments.length > 0) return fromPayments;
+
+    const repaid = Number(loan.repaidAmount) || 0;
+    if (repaid > 0.01) {
+        return [
+            {
+                amount: repaid,
+                paymentDate: loan.updatedAt || loan.createdAt || new Date().toISOString(),
+                status: 'Completed',
+                relatedEntityType: repaymentType,
+            },
+        ];
+    }
+    return [];
+}
+
+function formatScheduleChipAmount(value) {
+    const n = parseFloat(value) || 0;
+    return n.toLocaleString(undefined, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+    });
+}
+
+/** Compact loan/advance month chips: red unpaid, green paid, red+green partial; amount on chip, month on hover. */
+function renderLoanAdvanceScheduleChips(loan, allPayments = []) {
+    const entityType = String(loan?.type || 'Loan').trim() === 'Advance' ? 'Advance' : 'Loan';
+    const boxes = buildEntityPaymentSchedule({
+        entityType,
+        entity: loan,
+        payments: getLoanRepaymentPaymentsForSchedule(loan, allPayments),
+    });
+
+    if (!boxes.length) {
+        return <span className="text-gray-400 text-xs">—</span>;
+    }
+
+    return boxes.map((box) => {
+        const paidPct =
+            box.monthlyAmount > 0
+                ? Math.min(100, Math.max(0, (box.paidAmount / box.monthlyAmount) * 100))
+                : box.isPaid
+                  ? 100
+                  : 0;
+        const hover = `${box.monthTitle || box.label}: ${formatScheduleChipAmount(box.paidAmount)} / ${formatScheduleChipAmount(box.monthlyAmount)} AED`;
+        const baseClass = box.isPaid
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+            : box.isPartial
+              ? 'bg-rose-50 text-slate-800 border-rose-300'
+              : 'bg-rose-50 text-rose-700 border-rose-300';
+
+        return (
+            <span
+                key={box.key}
+                title={hover}
+                className={`relative overflow-hidden inline-flex flex-col items-center justify-center min-w-[3.25rem] px-1.5 py-1 text-[9px] font-black uppercase tracking-tighter rounded border ${baseClass}`}
+            >
+                {box.isPartial ? (
+                    <span
+                        className="absolute inset-y-0 left-0 bg-emerald-200/90 pointer-events-none"
+                        style={{ width: `${paidPct}%` }}
+                        aria-hidden
+                    />
+                ) : null}
+                <span className="relative z-[1] leading-tight">
+                    {formatScheduleChipAmount(box.paidAmount)}/{formatScheduleChipAmount(box.monthlyAmount)}
+                </span>
+            </span>
+        );
+    });
+}
 /** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
 const SALARY_ACTION_TO_MODULE = {
     'Salary History': 'hrm_employees_view_salary',
@@ -364,10 +466,23 @@ export default function SalaryTab({
     const [extensionReason, setExtensionReason] = useState('');
     /** Parking tab: bulk transfer uses same Leave + duration API as TransferAssetModal (1–30 days). */
     const [bulkParkingTransferDuration, setBulkParkingTransferDuration] = useState('7');
-    /** Your Assets: parking-style dialogs + direct API (no picker modal). */
-    const [yourAssetsBulkDialog, setYourAssetsBulkDialog] = useState({ isOpen: false, kind: null });
-    const [yourAssetsBulkLeaveDuration, setYourAssetsBulkLeaveDuration] = useState('7');
-    const [processingYourAssetsBulk, setProcessingYourAssetsBulk] = useState(false);
+    /** Your Assets: same Leave / EOS / Return modals as asset details. */
+    const [showYourAssetsReturnChoice, setShowYourAssetsReturnChoice] = useState(false);
+    const [profileTransferModal, setProfileTransferModal] = useState({
+        isOpen: false,
+        actionOption: 'Leave',
+        assets: [],
+    });
+    const [profileReturnModal, setProfileReturnModal] = useState({
+        isOpen: false,
+        assets: [],
+    });
+    const [processingPendingRespond, setProcessingPendingRespond] = useState(false);
+    const [pendingRespondConfirm, setPendingRespondConfirm] = useState({
+        isOpen: false,
+        action: null,
+        mode: null,
+    });
     const [downloadingAssetList, setDownloadingAssetList] = useState(false);
     const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
     const [selectedUnassignedAssets, setSelectedUnassignedAssets] = useState([]);
@@ -525,6 +640,30 @@ export default function SalaryTab({
         [yourAssetsAllRows, selectedYourAssets],
     );
 
+    const selectedYourAssetRows = useMemo(() => {
+        const idSet = new Set((selectedYourAssets || []).map((id) => String(id)));
+        return (yourAssetsAllRows || []).filter((a) => idSet.has(String(a?._id)));
+    }, [yourAssetsAllRows, selectedYourAssets]);
+
+    const selectedAssignedYourAssetIds = useMemo(
+        () =>
+            selectedYourAssetRows
+                .filter((a) => String(a?.status || '').trim() === 'Assigned')
+                .map((a) => a._id)
+                .filter(Boolean),
+        [selectedYourAssetRows],
+    );
+
+    const yourAssetsAssignedLeaveBulkSummary = useMemo(
+        () => categorizeAssetsForBulkLeave(yourAssetsAllRows, selectedAssignedYourAssetIds),
+        [yourAssetsAllRows, selectedAssignedYourAssetIds],
+    );
+
+    const yourAssetsAssignedReturnBulkSummary = useMemo(
+        () => categorizeAssetsForBulkReturnOrEos(yourAssetsAllRows, selectedAssignedYourAssetIds),
+        [yourAssetsAllRows, selectedAssignedYourAssetIds],
+    );
+
     const companyAssetsLeaveBulkSummary = useMemo(
         () => categorizeAssetsForBulkLeave(companyAssetsForActiveTab, selectedCompanyAssets),
         [companyAssetsForActiveTab, selectedCompanyAssets],
@@ -536,10 +675,101 @@ export default function SalaryTab({
     );
 
     const activeProfileBulkLeaveSummary =
-        assetSubTab === 'Company Assets' ? companyAssetsLeaveBulkSummary : yourAssetsLeaveBulkSummary;
+        assetSubTab === 'Company Assets'
+            ? companyAssetsLeaveBulkSummary
+            : yourAssetsAssignedLeaveBulkSummary;
 
     const activeProfileBulkReturnSummary =
-        assetSubTab === 'Company Assets' ? companyAssetsReturnBulkSummary : yourAssetsReturnBulkSummary;
+        assetSubTab === 'Company Assets'
+            ? companyAssetsReturnBulkSummary
+            : yourAssetsAssignedReturnBulkSummary;
+
+    const openProfileLeaveModal = useCallback(() => {
+        const summary = activeProfileBulkLeaveSummary;
+        if (!summary.canSubmitLeave) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing to transfer',
+                description:
+                    summary.alreadyOnLeave.length > 0 && summary.leaveApply.length === 0
+                        ? 'Selected assets are already on leave. Use Return or Loss & Damage from Parking.'
+                        : 'No eligible assets for leave transfer.',
+            });
+            return;
+        }
+        const assets = summary.leaveApply.map((a) =>
+            a.assignedTo
+                ? a
+                : {
+                      ...a,
+                      assignedTo: employee
+                          ? {
+                                _id: employee._id,
+                                firstName: employee.firstName,
+                                lastName: employee.lastName,
+                            }
+                          : a.assignedTo,
+                  },
+        );
+        setProfileTransferModal({
+            isOpen: true,
+            actionOption: 'Leave',
+            assets,
+        });
+    }, [activeProfileBulkLeaveSummary, employee, toast]);
+
+    const openProfileEosModal = useCallback(() => {
+        const summary = activeProfileBulkReturnSummary;
+        if (!summary.canSubmit) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing to submit',
+                description:
+                    summary.blocked.length > 0
+                        ? 'Selected assets are on service or parking. Complete those first.'
+                        : 'No eligible assets for end of services.',
+            });
+            return;
+        }
+        const assets = summary.eligible.map((a) =>
+            a.assignedTo
+                ? a
+                : {
+                      ...a,
+                      assignedTo: employee
+                          ? {
+                                _id: employee._id,
+                                firstName: employee.firstName,
+                                lastName: employee.lastName,
+                            }
+                          : a.assignedTo,
+                  },
+        );
+        setProfileTransferModal({
+            isOpen: true,
+            actionOption: 'End of Services',
+            assets,
+        });
+    }, [activeProfileBulkReturnSummary, employee, toast]);
+
+    const openProfileReturnModal = useCallback(() => {
+        const summary = activeProfileBulkReturnSummary;
+        if (!summary.canSubmit) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing to return',
+                description:
+                    summary.blocked.length > 0
+                        ? 'On service and on leave / parking assets cannot use return here. Use On Service or Parking tabs.'
+                        : 'No eligible assets selected for return.',
+            });
+            return;
+        }
+        setProfileReturnModal({
+            isOpen: true,
+            assets: summary.eligible,
+        });
+    }, [activeProfileBulkReturnSummary, toast]);
 
     // Flowchart-targeted employee should see Company Assets actions even without HR role.
     const canAccessCompanyAssets = useMemo(() => {
@@ -872,8 +1102,20 @@ export default function SalaryTab({
                 setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
                 return true;
             }
-            if (yourAssetsBulkDialog?.isOpen) {
-                setYourAssetsBulkDialog({ isOpen: false, kind: null });
+            if (profileTransferModal?.isOpen) {
+                setProfileTransferModal({ isOpen: false, actionOption: 'Leave', assets: [] });
+                return true;
+            }
+            if (profileReturnModal?.isOpen) {
+                setProfileReturnModal({ isOpen: false, assets: [] });
+                return true;
+            }
+            if (showYourAssetsReturnChoice) {
+                setShowYourAssetsReturnChoice(false);
+                return true;
+            }
+            if (pendingRespondConfirm?.isOpen) {
+                setPendingRespondConfirm({ isOpen: false, action: null, mode: null });
                 return true;
             }
             if (isBulkAssignModalOpen) {
@@ -910,7 +1152,10 @@ export default function SalaryTab({
         showHandoverModal,
         confirmDialog?.isOpen,
         onLeaveActionDialog?.isOpen,
-        yourAssetsBulkDialog?.isOpen,
+        profileTransferModal?.isOpen,
+        profileReturnModal?.isOpen,
+        showYourAssetsReturnChoice,
+        pendingRespondConfirm?.isOpen,
         isBulkAssignModalOpen,
         selectedSalaryAction,
         selectedParkingEmployee,
@@ -956,6 +1201,93 @@ export default function SalaryTab({
     const loggedInEmployeeId = currentUser?.employeeObjectId; // EmployeeBasic ObjectId - used for actionRequiredBy comparison
     const isLoggedInAdmin = isAdmin();
     const isProfileOwner = loggedInEmployeeId === employee?._id;
+
+    const selectedPendingYourAssets = useMemo(() => {
+        return selectedYourAssetRows.filter(
+            (a) => String(a?.status || '').trim() === 'Pending',
+        );
+    }, [selectedYourAssetRows]);
+
+    const showYourAssetsAssignedReturnActions = selectedAssignedYourAssetIds.length > 0;
+
+    const showYourAssetsPendingRespondActions = selectedPendingYourAssets.length > 0;
+
+    /** Mutual lock: selecting Assigned disables Pending checkboxes, and vice versa. */
+    const yourAssetsSelectionLock = useMemo(() => {
+        if (selectedAssignedYourAssetIds.length > 0) return 'assigned';
+        const hasPendingSelected = selectedYourAssetRows.some(
+            (a) => String(a?.status || '').trim() === 'Pending',
+        );
+        if (hasPendingSelected) return 'pending';
+        return null;
+    }, [selectedAssignedYourAssetIds, selectedYourAssetRows]);
+
+    const yourAssetsAssignableRows = useMemo(
+        () =>
+            (yourAssetsAllRows || []).filter(
+                (a) => String(a?.status || '').trim() === 'Assigned',
+            ),
+        [yourAssetsAllRows],
+    );
+
+    const yourAssetsPendingStatusRows = useMemo(
+        () =>
+            (yourAssetsAllRows || []).filter(
+                (a) => String(a?.status || '').trim() === 'Pending',
+            ),
+        [yourAssetsAllRows],
+    );
+
+    const yourAssetsSelectAllTargetRows = useMemo(() => {
+        if (yourAssetsSelectionLock === 'pending') return yourAssetsPendingStatusRows;
+        if (yourAssetsSelectionLock === 'assigned') return yourAssetsAssignableRows;
+        if (yourAssetsAssignableRows.length > 0) return yourAssetsAssignableRows;
+        return yourAssetsPendingStatusRows;
+    }, [
+        yourAssetsSelectionLock,
+        yourAssetsAssignableRows,
+        yourAssetsPendingStatusRows,
+    ]);
+
+    const executeBulkPendingRespond = async (action) => {
+        const ids = selectedPendingYourAssets.map((a) => a._id).filter(Boolean);
+        if (!ids.length) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing to process',
+                description: 'No pending assignments require your approval.',
+            });
+            return;
+        }
+        setProcessingPendingRespond(true);
+        try {
+            const res = await axiosInstance.put('/AssetItem/bulk/respond', {
+                assetIds: ids,
+                action,
+                comments: '',
+            });
+            toast({
+                title: 'Success',
+                description:
+                    res.data?.message ||
+                    `${action === 'Accept' ? 'Accepted' : 'Rejected'} ${ids.length} assignment(s).`,
+            });
+            setSelectedYourAssets([]);
+            setPendingRespondConfirm({ isOpen: false, action: null, mode: null });
+            if (fetchEmployee) fetchEmployee();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description:
+                    error.response?.data?.message ||
+                    `Failed to ${String(action || '').toLowerCase()} assignment(s).`,
+            });
+        } finally {
+            setProcessingPendingRespond(false);
+        }
+    };
+
     const canRunServiceOverdueCheck =
         isLoggedInAdmin || (isProfileOwner && isAssetController);
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
@@ -2640,37 +2972,56 @@ export default function SalaryTab({
                                     <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
                                         {selectedYourAssets.length} Selected
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'return' })
-                                        }
-                                        className="px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black hover:bg-rose-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
-                                    >
-                                        <Undo2 size={14} />
-                                        BULK RETURN
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setYourAssetsBulkLeaveDuration('7');
-                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'leave' });
-                                        }}
-                                        className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
-                                    >
-                                        <ArrowRightLeft size={14} />
-                                        BULK TRANSFER
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'endOfServices' })
-                                        }
-                                        className="px-4 py-2 bg-slate-700 text-white rounded-xl text-[10px] font-black hover:bg-slate-800 transition-all shadow-md flex items-center gap-2 active:scale-95"
-                                    >
-                                        <PackageX size={14} />
-                                        BULK END OF SERVICES
-                                    </button>
+                                    {showYourAssetsAssignedReturnActions ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowYourAssetsReturnChoice(true)}
+                                            className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                        >
+                                            <Undo2 size={14} />
+                                            RETURN
+                                        </button>
+                                    ) : null}
+                                    {showYourAssetsPendingRespondActions ? (
+                                        <>
+                                            <button
+                                                type="button"
+                                                disabled={processingPendingRespond}
+                                                onClick={() =>
+                                                    setPendingRespondConfirm({
+                                                        isOpen: true,
+                                                        action: 'Accept',
+                                                        mode: 'selected',
+                                                    })
+                                                }
+                                                className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black hover:bg-emerald-700 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                                            >
+                                                <CheckCircle2 size={14} />
+                                                ACCEPT ({selectedPendingYourAssets.length})
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={processingPendingRespond}
+                                                onClick={() =>
+                                                    setPendingRespondConfirm({
+                                                        isOpen: true,
+                                                        action: 'Reject',
+                                                        mode: 'selected',
+                                                    })
+                                                }
+                                                className="px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black hover:bg-rose-600 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                                            >
+                                                <XCircle size={14} />
+                                                REJECT ({selectedPendingYourAssets.length})
+                                            </button>
+                                        </>
+                                    ) : null}
+                                    {!showYourAssetsAssignedReturnActions &&
+                                        !showYourAssetsPendingRespondActions ? (
+                                        <p className="text-[10px] font-semibold text-slate-500">
+                                            Select Assigned assets for Return, or Pending approvals for Accept/Reject.
+                                        </p>
+                                    ) : null}
                                 </div>
                             )}
                         {selectedSalaryAction === 'Tools Asset' &&
@@ -2683,9 +3034,7 @@ export default function SalaryTab({
                                     </div>
                                     <button
                                         type="button"
-                                        onClick={() =>
-                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'return' })
-                                        }
+                                        onClick={openProfileReturnModal}
                                         className="px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black hover:bg-rose-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
                                     >
                                         <Undo2 size={14} />
@@ -2693,10 +3042,7 @@ export default function SalaryTab({
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            setYourAssetsBulkLeaveDuration('7');
-                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'leave' });
-                                        }}
+                                        onClick={openProfileLeaveModal}
                                         className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
                                     >
                                         <ArrowRightLeft size={14} />
@@ -2704,9 +3050,7 @@ export default function SalaryTab({
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() =>
-                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'endOfServices' })
-                                        }
+                                        onClick={openProfileEosModal}
                                         className="px-4 py-2 bg-slate-700 text-white rounded-xl text-[10px] font-black hover:bg-slate-800 transition-all shadow-md flex items-center gap-2 active:scale-95"
                                     >
                                         <PackageX size={14} />
@@ -2717,25 +3061,25 @@ export default function SalaryTab({
                         {selectedSalaryAction === 'Fine' &&
                             selectedPayableFines.length > 0 &&
                             isAccountsUser && (
-                            <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
-                                {isFineMonthFilterActive && !fineMonthFilterInvalid && (
-                                    <div className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
-                                        Period Total · AED {filteredFinesPeriodTotalBalance.toFixed(2)}
+                                <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
+                                    {isFineMonthFilterActive && !fineMonthFilterInvalid && (
+                                        <div className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                            Period Total · AED {filteredFinesPeriodTotalBalance.toFixed(2)}
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-lg text-emerald-700 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                        {selectedPayableFines.length} Selected · AED {selectedFinesTotalBalance.toFixed(2)}
                                     </div>
-                                )}
-                                <div className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-lg text-emerald-700 text-[10px] font-black uppercase tracking-wider shadow-sm">
-                                    {selectedPayableFines.length} Selected · AED {selectedFinesTotalBalance.toFixed(2)}
+                                    <button
+                                        type="button"
+                                        onClick={handlePaySelectedFines}
+                                        className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black hover:bg-emerald-700 shadow-md flex items-center gap-2 active:scale-95 transition-all"
+                                    >
+                                        <Wallet size={16} />
+                                        Pay
+                                    </button>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={handlePaySelectedFines}
-                                    className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black hover:bg-emerald-700 shadow-md flex items-center gap-2 active:scale-95 transition-all"
-                                >
-                                    <Wallet size={16} />
-                                    Pay
-                                </button>
-                            </div>
-                        )}
+                            )}
                         {selectedSalaryAction === 'Salary History' && accSalaryHistory.view && (
                             <>
                                 <div className="flex items-center gap-2">
@@ -2810,1681 +3154,1474 @@ export default function SalaryTab({
                         }}
                     />
                 ) : (
-                <div className="overflow-x-auto w-full max-w-full">
-                    <table className="w-full min-w-0 table-auto">
-                        <thead>
-                            <tr className="border-b border-gray-200">
-                                {selectedSalaryAction === 'Salary History' && (
-                                    <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">From Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">To Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic Salary</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Other Allowance</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Home Rent Allowance</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fuel Allowance</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Salary Letter</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Rewards' && (
-                                    <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Fine' && (
-                                    <>
-                                        <th className="py-3 px-4 text-left w-10">
-                                            <input
-                                                type="checkbox"
-                                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
-                                                title="Select all payable fines"
-                                                checked={
-                                                    payableFines.length > 0 &&
-                                                    payableFines.every((f) =>
-                                                        selectedFinesForPayment.includes(String(f.fineId || f._id))
-                                                    )
-                                                }
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedFinesForPayment(
-                                                            payableFines.map((f) => String(f.fineId || f._id))
-                                                        );
-                                                    } else {
-                                                        setSelectedFinesForPayment([]);
-                                                    }
-                                                }}
-                                            />
-                                        </th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fine ID</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Individual Amount</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Paid Amount</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 w-12">Link</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'NCR' && (
-                                    <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                    </>
-                                )}
-                                {['Loans', 'Advance'].includes(selectedSalaryAction) && (
-                                    <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Amount</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Deduction</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'CTC' && (
-                                    <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Year</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Allowances</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Your Assets' && (
-                                    <>
-                                        <th className="py-3 px-4 text-left w-10">
-                                            <input
-                                                type="checkbox"
-                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                title="Select all assets in this list"
-                                                checked={
-                                                    yourAssetsAllRows.length > 0 &&
-                                                    yourAssetsAllRows.every((a) =>
-                                                        selectedYourAssets.some(
-                                                            (sid) => String(sid) === String(a._id)
+                    <div className="overflow-x-auto w-full max-w-full">
+                        <table className="w-full min-w-0 table-auto">
+                            <thead>
+                                <tr className="border-b border-gray-200">
+                                    {selectedSalaryAction === 'Salary History' && (
+                                        <>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">From Date</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">To Date</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic Salary</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Other Allowance</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Home Rent Allowance</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fuel Allowance</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Salary Letter</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Rewards' && (
+                                        <>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Fine' && (
+                                        <>
+                                            <th className="py-3 px-4 text-left w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                                                    title="Select all payable fines"
+                                                    checked={
+                                                        payableFines.length > 0 &&
+                                                        payableFines.every((f) =>
+                                                            selectedFinesForPayment.includes(String(f.fineId || f._id))
                                                         )
-                                                    )
-                                                }
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedYourAssets(
-                                                            yourAssetsAllRows.map((a) => a._id).filter(Boolean)
-                                                        );
-                                                    } else {
-                                                        setSelectedYourAssets([]);
                                                     }
-                                                }}
-                                            />
-                                        </th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Previous Assets' && (
-                                    <>
-                                        <th className="py-3 px-4 text-left w-10"></th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Current Assignee</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'Unassigned Assets' && (
-                                    <>
-                                        <th className="py-3 px-4 text-left w-10">
-                                            <input
-                                                type="checkbox"
-                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                title="Select all assets in this list"
-                                                checked={
-                                                    toolsUnassignedAssets.length > 0 &&
-                                                    selectedUnassignedAssets.length === toolsUnassignedAssets.length
-                                                }
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedUnassignedAssets(
-                                                            toolsUnassignedAssets
-                                                                .map((a) => a?._id || a?.id)
-                                                                .filter(Boolean)
-                                                        );
-                                                    } else {
-                                                        setSelectedUnassignedAssets([]);
-                                                    }
-                                                }}
-                                            />
-                                        </th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Leave' && (
-                                    <>
-                                        <th className="py-3 px-4 text-left w-10">
-                                            <input
-                                                type="checkbox"
-                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                checked={filteredOnLeaveAssets.length > 0 && selectedOnLeaveAssets.length === filteredOnLeaveAssets.length}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedOnLeaveAssets(filteredOnLeaveAssets.map(a => a._id));
-                                                    } else {
-                                                        setSelectedOnLeaveAssets([]);
-                                                    }
-                                                }}
-                                            />
-                                        </th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned To</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Remaining Days</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Service' && (
-                                    <>
-                                        <th className="py-3 px-4 text-left w-10">
-                                            <input
-                                                type="checkbox"
-                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                checked={onServiceActiveAssets.length > 0 && selectedOnServiceAssets.length === onServiceActiveAssets.length}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedOnServiceAssets(onServiceActiveAssets.map((a) => a._id || a.id).filter(Boolean));
-                                                    } else {
-                                                        setSelectedOnServiceAssets([]);
-                                                    }
-                                                }}
-                                            />
-                                        </th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned To</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Remaining Days</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Tools Asset' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
-                                    <>
-                                        <th className="py-3 px-4 text-left w-10">
-                                            <input
-                                                type="checkbox"
-                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                title="Select all company assets in this list"
-                                                checked={
-                                                    companyAssetsForActiveTab.length > 0 &&
-                                                    companyAssetsForActiveTab.every((a) =>
-                                                        selectedCompanyAssets.some(
-                                                            (sid) => String(sid) === String(a._id || a.id)
-                                                        )
-                                                    )
-                                                }
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedCompanyAssets(
-                                                            companyAssetsForActiveTab
-                                                                .map((a) => a._id || a.id)
-                                                                .filter(Boolean)
-                                                        );
-                                                    } else {
-                                                        setSelectedCompanyAssets([]);
-                                                    }
-                                                }}
-                                            />
-                                        </th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Purchase Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
-                                    </>
-                                )}
-                                {selectedSalaryAction === 'Certificate' && (
-                                    <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issued By</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issued To</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issue Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Expiry</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Source</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
-                                    </>
-                                )}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {selectedSalaryAction === 'Salary History' && (
-                                currentPageData.length > 0 ? (
-                                    currentPageData.map((entry, index) => {
-                                        const actualIndex = startIndex + index;
-                                        return (
-                                            <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {formatSalaryMonthYear(entry.fromDate) || '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {entry.toDate ? formatSalaryMonthYear(entry.toDate) : 'Present'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">AED {(() => {
-                                                    if (entry.fuelAllowance !== undefined && entry.fuelAllowance !== null) {
-                                                        return entry.fuelAllowance.toFixed(2);
-                                                    }
-                                                    const fuelFromAdditional = entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-                                                    return fuelFromAdditional.toFixed(2);
-                                                })()}</td>
-                                                <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {(() => {
-                                                    const basic = entry.basic || 0;
-                                                    const hra = entry.houseRentAllowance || 0;
-                                                    const vehicle = entry.vehicleAllowance || 0;
-                                                    const other = entry.otherAllowance || 0;
-                                                    const fuel = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
-                                                        ? entry.fuelAllowance
-                                                        : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
-                                                    const recalculatedTotal = basic + hra + vehicle + fuel + other;
-                                                    return recalculatedTotal.toFixed(2);
-                                                })()}</td>
-                                                <td className="py-3 px-4 text-sm">
-                                                    {(() => {
-                                                        const hasOfferLetter = !!(entry.offerLetter &&
-                                                            (entry.offerLetter.url || entry.offerLetter.data));
-
-                                                        if (!hasOfferLetter) {
-                                                            return <span className="text-gray-400">—</span>;
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedFinesForPayment(
+                                                                payableFines.map((f) => String(f.fineId || f._id))
+                                                            );
+                                                        } else {
+                                                            setSelectedFinesForPayment([]);
                                                         }
+                                                    }}
+                                                />
+                                            </th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fine ID</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Individual Amount</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Paid Amount</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 w-12">Link</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'NCR' && (
+                                        <>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        </>
+                                    )}
+                                    {['Loans', 'Advance'].includes(selectedSalaryAction) && (
+                                        <>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Amount</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Deduction</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Pay</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'CTC' && (
+                                        <>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Year</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Allowances</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Your Assets' && (
+                                        <>
+                                            <th className="py-3 px-4 text-left w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title={
+                                                        yourAssetsSelectionLock === 'pending'
+                                                            ? 'Select all Pending assets'
+                                                            : yourAssetsSelectionLock === 'assigned'
+                                                                ? 'Select all Assigned assets'
+                                                                : 'Select all Assigned (or Pending if none Assigned)'
+                                                    }
+                                                    disabled={yourAssetsSelectAllTargetRows.length === 0}
+                                                    checked={
+                                                        yourAssetsSelectAllTargetRows.length > 0 &&
+                                                        yourAssetsSelectAllTargetRows.every((a) =>
+                                                            selectedYourAssets.some(
+                                                                (sid) => String(sid) === String(a._id),
+                                                            ),
+                                                        )
+                                                    }
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedYourAssets(
+                                                                yourAssetsSelectAllTargetRows
+                                                                    .map((a) => a._id)
+                                                                    .filter(Boolean),
+                                                            );
+                                                        } else {
+                                                            setSelectedYourAssets([]);
+                                                        }
+                                                    }}
+                                                />
+                                            </th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned Date</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Previous Assets' && (
+                                        <>
+                                            <th className="py-3 px-4 text-left w-10"></th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Current Assignee</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'Unassigned Assets' && (
+                                        <>
+                                            <th className="py-3 px-4 text-left w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                    title="Select all assets in this list"
+                                                    checked={
+                                                        toolsUnassignedAssets.length > 0 &&
+                                                        selectedUnassignedAssets.length === toolsUnassignedAssets.length
+                                                    }
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedUnassignedAssets(
+                                                                toolsUnassignedAssets
+                                                                    .map((a) => a?._id || a?.id)
+                                                                    .filter(Boolean)
+                                                            );
+                                                        } else {
+                                                            setSelectedUnassignedAssets([]);
+                                                        }
+                                                    }}
+                                                />
+                                            </th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Leave' && (
+                                        <>
+                                            <th className="py-3 px-4 text-left w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                    checked={filteredOnLeaveAssets.length > 0 && selectedOnLeaveAssets.length === filteredOnLeaveAssets.length}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedOnLeaveAssets(filteredOnLeaveAssets.map(a => a._id));
+                                                        } else {
+                                                            setSelectedOnLeaveAssets([]);
+                                                        }
+                                                    }}
+                                                />
+                                            </th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned To</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Remaining Days</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Service' && (
+                                        <>
+                                            <th className="py-3 px-4 text-left w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                    checked={onServiceActiveAssets.length > 0 && selectedOnServiceAssets.length === onServiceActiveAssets.length}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedOnServiceAssets(onServiceActiveAssets.map((a) => a._id || a.id).filter(Boolean));
+                                                        } else {
+                                                            setSelectedOnServiceAssets([]);
+                                                        }
+                                                    }}
+                                                />
+                                            </th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned To</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Remaining Days</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Tools Asset' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
+                                        <>
+                                            <th className="py-3 px-4 text-left w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                    title="Select all company assets in this list"
+                                                    checked={
+                                                        companyAssetsForActiveTab.length > 0 &&
+                                                        companyAssetsForActiveTab.every((a) =>
+                                                            selectedCompanyAssets.some(
+                                                                (sid) => String(sid) === String(a._id || a.id)
+                                                            )
+                                                        )
+                                                    }
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedCompanyAssets(
+                                                                companyAssetsForActiveTab
+                                                                    .map((a) => a._id || a.id)
+                                                                    .filter(Boolean)
+                                                            );
+                                                        } else {
+                                                            setSelectedCompanyAssets([]);
+                                                        }
+                                                    }}
+                                                />
+                                            </th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Purchase Date</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                        </>
+                                    )}
+                                    {selectedSalaryAction === 'Certificate' && (
+                                        <>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issued By</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issued To</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issue Date</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Expiry</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Source</th>
+                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                        </>
+                                    )}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {selectedSalaryAction === 'Salary History' && (
+                                    currentPageData.length > 0 ? (
+                                        currentPageData.map((entry, index) => {
+                                            const actualIndex = startIndex + index;
+                                            return (
+                                                <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {formatSalaryMonthYear(entry.fromDate) || '—'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {entry.toDate ? formatSalaryMonthYear(entry.toDate) : 'Present'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {(() => {
+                                                        if (entry.fuelAllowance !== undefined && entry.fuelAllowance !== null) {
+                                                            return entry.fuelAllowance.toFixed(2);
+                                                        }
+                                                        const fuelFromAdditional = entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
+                                                        return fuelFromAdditional.toFixed(2);
+                                                    })()}</td>
+                                                    <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {(() => {
+                                                        const basic = entry.basic || 0;
+                                                        const hra = entry.houseRentAllowance || 0;
+                                                        const vehicle = entry.vehicleAllowance || 0;
+                                                        const other = entry.otherAllowance || 0;
+                                                        const fuel = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
+                                                            ? entry.fuelAllowance
+                                                            : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
+                                                        const recalculatedTotal = basic + hra + vehicle + fuel + other;
+                                                        return recalculatedTotal.toFixed(2);
+                                                    })()}</td>
+                                                    <td className="py-3 px-4 text-sm">
+                                                        {(() => {
+                                                            const hasOfferLetter = !!(entry.offerLetter &&
+                                                                (entry.offerLetter.url || entry.offerLetter.data));
 
-                                                        const offerLetterName = entry.offerLetter?.name || 'Salary Letter.pdf';
+                                                            if (!hasOfferLetter) {
+                                                                return <span className="text-gray-400">—</span>;
+                                                            }
 
-                                                        return (
-                                                            <button
-                                                                onClick={async (e) => {
-                                                                    e.preventDefault();
-                                                                    e.stopPropagation();
+                                                            const offerLetterName = entry.offerLetter?.name || 'Salary Letter.pdf';
 
-                                                                    const offerLetter = entry.offerLetter;
+                                                            return (
+                                                                <button
+                                                                    onClick={async (e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
 
-                                                                    if (!offerLetter) {
-                                                                        toast({
-                                                                            title: "No salary letter found",
-                                                                            description: "No salary letter is available for this salary record."
-                                                                        });
-                                                                        return;
-                                                                    }
+                                                                        const offerLetter = entry.offerLetter;
 
-                                                                    const documentData = offerLetter.url || offerLetter.data;
-
-                                                                    if (documentData) {
-                                                                        const isCloudinaryUrl = offerLetter.url ||
-                                                                            (offerLetter.data && (offerLetter.data.startsWith('http://') || offerLetter.data.startsWith('https://')));
-
-                                                                        if (isCloudinaryUrl) {
-                                                                            onViewDocument({
-                                                                                data: documentData,
-                                                                                name: offerLetterName,
-                                                                                mimeType: offerLetter.mimeType || 'application/pdf',
-                                                                                moduleId: 'hrm_employees_view_salary',
-                                                                                allowDownload: accSalaryHistory.download,
+                                                                        if (!offerLetter) {
+                                                                            toast({
+                                                                                title: "No salary letter found",
+                                                                                description: "No salary letter is available for this salary record."
                                                                             });
-                                                                        } else {
-                                                                            let cleanData = documentData;
-                                                                            if (cleanData.includes(',')) {
-                                                                                cleanData = cleanData.split(',')[1];
-                                                                            }
-                                                                            onViewDocument({
-                                                                                data: cleanData,
-                                                                                name: offerLetterName,
-                                                                                mimeType: offerLetter.mimeType || 'application/pdf',
-                                                                                moduleId: 'hrm_employees_view_salary',
-                                                                                allowDownload: accSalaryHistory.download,
-                                                                            });
+                                                                            return;
                                                                         }
-                                                                    } else {
-                                                                        if (entry._id && employeeId) {
-                                                                            try {
-                                                                                const axiosInstance = (await import('@/utils/axios')).default;
-                                                                                const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
-                                                                                    params: { type: 'salaryOfferLetter', docId: entry._id }
+
+                                                                        const documentData = offerLetter.url || offerLetter.data;
+
+                                                                        if (documentData) {
+                                                                            const isCloudinaryUrl = offerLetter.url ||
+                                                                                (offerLetter.data && (offerLetter.data.startsWith('http://') || offerLetter.data.startsWith('https://')));
+
+                                                                            if (isCloudinaryUrl) {
+                                                                                onViewDocument({
+                                                                                    data: documentData,
+                                                                                    name: offerLetterName,
+                                                                                    mimeType: offerLetter.mimeType || 'application/pdf',
+                                                                                    moduleId: 'hrm_employees_view_salary',
+                                                                                    allowDownload: accSalaryHistory.download,
                                                                                 });
+                                                                            } else {
+                                                                                let cleanData = documentData;
+                                                                                if (cleanData.includes(',')) {
+                                                                                    cleanData = cleanData.split(',')[1];
+                                                                                }
+                                                                                onViewDocument({
+                                                                                    data: cleanData,
+                                                                                    name: offerLetterName,
+                                                                                    mimeType: offerLetter.mimeType || 'application/pdf',
+                                                                                    moduleId: 'hrm_employees_view_salary',
+                                                                                    allowDownload: accSalaryHistory.download,
+                                                                                });
+                                                                            }
+                                                                        } else {
+                                                                            if (entry._id && employeeId) {
+                                                                                try {
+                                                                                    const axiosInstance = (await import('@/utils/axios')).default;
+                                                                                    const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
+                                                                                        params: { type: 'salaryOfferLetter', docId: entry._id }
+                                                                                    });
 
-                                                                                if (response.data && response.data.data) {
-                                                                                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
-                                                                                        (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
+                                                                                    if (response.data && response.data.data) {
+                                                                                        const isCloudinaryUrl = response.data.isCloudinaryUrl ||
+                                                                                            (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
-                                                                                    if (isCloudinaryUrl) {
-                                                                                        onViewDocument({
-                                                                                            data: response.data.data,
-                                                                                            name: response.data.name || offerLetterName,
-                                                                                            mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                                                                            moduleId: 'hrm_employees_view_salary',
-                                                                                            allowDownload: accSalaryHistory.download,
-                                                                                        });
-                                                                                    } else {
-                                                                                        let cleanData = response.data.data;
-                                                                                        if (cleanData.includes(',')) {
-                                                                                            cleanData = cleanData.split(',')[1];
+                                                                                        if (isCloudinaryUrl) {
+                                                                                            onViewDocument({
+                                                                                                data: response.data.data,
+                                                                                                name: response.data.name || offerLetterName,
+                                                                                                mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
+                                                                                                moduleId: 'hrm_employees_view_salary',
+                                                                                                allowDownload: accSalaryHistory.download,
+                                                                                            });
+                                                                                        } else {
+                                                                                            let cleanData = response.data.data;
+                                                                                            if (cleanData.includes(',')) {
+                                                                                                cleanData = cleanData.split(',')[1];
+                                                                                            }
+                                                                                            onViewDocument({
+                                                                                                data: cleanData,
+                                                                                                name: response.data.name || offerLetterName,
+                                                                                                mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
+                                                                                                moduleId: 'hrm_employees_view_salary',
+                                                                                                allowDownload: accSalaryHistory.download,
+                                                                                            });
                                                                                         }
-                                                                                        onViewDocument({
-                                                                                            data: cleanData,
-                                                                                            name: response.data.name || offerLetterName,
-                                                                                            mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                                                                            moduleId: 'hrm_employees_view_salary',
-                                                                                            allowDownload: accSalaryHistory.download,
+                                                                                    } else {
+                                                                                        toast({
+                                                                                            variant: "destructive",
+                                                                                            title: "Failed to load salary letter",
+                                                                                            description: "Unable to load the salary letter."
                                                                                         });
                                                                                     }
-                                                                                } else {
-                                                                                    toast({
-                                                                                        variant: "destructive",
-                                                                                        title: "Failed to load salary letter",
-                                                                                        description: "Unable to load the salary letter."
-                                                                                    });
+                                                                                } catch (err) {
+                                                                                    if (err.response?.status === 404) {
+                                                                                        toast({
+                                                                                            variant: "destructive",
+                                                                                            title: "Salary letter not found",
+                                                                                            description: "No salary letter is available for this salary record."
+                                                                                        });
+                                                                                    } else {
+                                                                                        toast({
+                                                                                            variant: "destructive",
+                                                                                            title: "Error loading salary letter",
+                                                                                            description: "Please try again."
+                                                                                        });
+                                                                                    }
                                                                                 }
-                                                                            } catch (err) {
-                                                                                if (err.response?.status === 404) {
-                                                                                    toast({
-                                                                                        variant: "destructive",
-                                                                                        title: "Salary letter not found",
-                                                                                        description: "No salary letter is available for this salary record."
-                                                                                    });
-                                                                                } else {
-                                                                                    toast({
-                                                                                        variant: "destructive",
-                                                                                        title: "Error loading salary letter",
-                                                                                        description: "Please try again."
-                                                                                    });
-                                                                                }
+                                                                            } else {
+                                                                                toast({
+                                                                                    variant: "destructive",
+                                                                                    title: "Salary letter data not available",
+                                                                                    description: "The salary letter data is not available."
+                                                                                });
                                                                             }
-                                                                        } else {
-                                                                            toast({
-                                                                                variant: "destructive",
-                                                                                title: "Salary letter data not available",
-                                                                                description: "The salary letter data is not available."
-                                                                            });
                                                                         }
-                                                                    }
-                                                                }}
-                                                                className="text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1.5 font-medium"
-                                                                title="View Salary Letter"
-                                                            >
-                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                                                    <polyline points="14 2 14 8 20 8"></polyline>
-                                                                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                                                                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                                                                    <polyline points="10 9 9 9 8 9"></polyline>
-                                                                </svg>
-                                                                <span className="truncate max-w-[150px]" title={offerLetterName}>
-                                                                    {offerLetterName}
-                                                                </span>
-                                                            </button>
-                                                        );
-                                                    })()}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm">
-                                                    <div className="flex items-center gap-2">
-                                                        {accSalaryHistory.edit && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    const entryToEdit = sortedHistory[actualIndex];
-                                                                    if (onEditSalary) {
-                                                                        onEditSalary(entryToEdit, actualIndex);
-                                                                    }
-                                                                }}
-                                                                className="text-blue-600 hover:text-blue-700"
-                                                                title="Edit"
-                                                            >
-                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                </svg>
-                                                            </button>
-                                                        )}
-                                                        {canDeleteSalaryHistory &&
-                                                            sortedHistory.length > 1 &&
-                                                            !isOldestSalaryHistoryEntry(entry, salaryHistoryData) && (
-                                                                <button
-                                                                    onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
-                                                                    className="text-red-600 hover:text-red-700"
-                                                                    title="Delete"
+                                                                    }}
+                                                                    className="text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1.5 font-medium"
+                                                                    title="View Salary Letter"
                                                                 >
                                                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <polyline points="3 6 5 6 21 6"></polyline>
-                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                                                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                                        <polyline points="10 9 9 9 8 9"></polyline>
+                                                                    </svg>
+                                                                    <span className="truncate max-w-[150px]" title={offerLetterName}>
+                                                                        {offerLetterName}
+                                                                    </span>
+                                                                </button>
+                                                            );
+                                                        })()}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm">
+                                                        <div className="flex items-center gap-2">
+                                                            {accSalaryHistory.edit && (
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const entryToEdit = sortedHistory[actualIndex];
+                                                                        if (onEditSalary) {
+                                                                            onEditSalary(entryToEdit, actualIndex);
+                                                                        }
+                                                                    }}
+                                                                    className="text-blue-600 hover:text-blue-700"
+                                                                    title="Edit"
+                                                                >
+                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                                                                     </svg>
                                                                 </button>
                                                             )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                ) : (
-                                    <tr>
-                                        <td colSpan={11} className="py-16 text-center text-gray-400 text-sm">
-                                            No Salary History
-                                        </td>
-                                    </tr>
-                                )
-                            )}
-
-                            {selectedSalaryAction === 'Fine' && (
-                                filteredFinesForTable.length > 0 ? (
-                                    filteredFinesForTable.map((fine, index) => {
-                                        const individualShare = isFineMonthFilterActive
-                                            ? getFineFilteredDueAmount(fine)
-                                            : calculateEmployeeFineShare(fine);
-                                        const isExpanded = expandedFineId === (fine._id || index);
-                                        const fineKey = String(fine.fineId || fine._id);
-
-                                        const relatedPayments = allEmployeePayments.filter(p =>
-                                            (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
-                                            isPaymentCountableTowardPaid(p.status)
-                                        );
-                                        const pendingFinePayments = allEmployeePayments.filter(p =>
-                                            (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
-                                            !isPaymentCountableTowardPaid(p.status) &&
-                                            shouldShowPaymentInHistory(p.status)
-                                        );
-
-                                        const paidAmount = isFineMonthFilterActive
-                                            ? getFineFilteredPaidAmount(fine)
-                                            : relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
-                                        const balance = isFineMonthFilterActive
-                                            ? getFineFilteredBalance(fine)
-                                            : Math.max(0, calculateEmployeeFineShare(fine) - relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0));
-                                        const scheduleMonthsYM = getFineScheduleMonths(fine);
-                                        const filterStart = fineFilterStartYM || 0;
-                                        const filterEnd = fineFilterEndYM || 999912;
-                                        const isGroup = (fine.assignedEmployees || []).filter(
-                                            (e) => e.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId)
-                                        ).length > 1;
-                                        const canSelectForPay = balance > 0.01;
-                                        const isSelectedForPay = selectedFinesForPayment.includes(fineKey);
-                                        const statusLabel = formatFineProfileStatus(fine);
-                                        const paymentLabel = formatFineProfilePaymentLabel(fine, balance);
-                                        const canPayCompany = canAccountsPayFineEmployeeShare(
-                                            fine,
-                                            currentUser,
-                                            balance,
-                                            accountsFlowchartRows,
-                                        );
-
-                                        return (
-                                            <React.Fragment key={fine._id || index}>
-                                                <tr
-                                                    data-nav-href={
-                                                        fine.fineId || fine._id
-                                                            ? `/HRM/Fine/${encodeURIComponent(fine.fineId || fine._id)}`
-                                                            : undefined
-                                                    }
-                                                    onClick={(e) => openFineDetails(fine, e)}
-                                                    className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
-                                                >
-                                                    <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                                                        <input
-                                                            type="checkbox"
-                                                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 disabled:opacity-40"
-                                                            disabled={!canSelectForPay}
-                                                            checked={isSelectedForPay}
-                                                            title={canSelectForPay ? 'Select for payment' : 'Fully paid'}
-                                                            onChange={(e) => toggleFinePaymentSelection(fine, e.target.checked)}
-                                                        />
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm font-bold text-gray-700">
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                className="p-0.5 rounded hover:bg-gray-100"
-                                                                title={isExpanded ? 'Hide receipts' : 'Show receipts'}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    toggleFineExpansion(fine._id || index, fine.fineId);
-                                                                }}
-                                                            >
-                                                                {isExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
-                                                            </button>
-                                                            {fine.fineId || '—'}
-                                                            {pendingFinePayments.length > 0 ? (
-                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${getPaymentStatusBadgeClass('Processing')}`}>
-                                                                    {pendingFinePayments.length} Pending
-                                                                </span>
-                                                            ) : null}
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm">
-                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${isGroup ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                                                            {isGroup ? 'Group' : 'Individual'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm font-black text-gray-700">
-                                                        AED {individualShare.toFixed(2)}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm font-black text-emerald-600">
-                                                        AED {paidAmount.toFixed(2)}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm font-black text-rose-600">
-                                                        AED {balance.toFixed(2)}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm font-medium text-gray-700">
-                                                        {statusLabel}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm">
-                                                        <span
-                                                            className={
-                                                                paymentLabel === 'Paid'
-                                                                    ? 'font-medium text-green-700'
-                                                                    : paymentLabel === 'Not Paid'
-                                                                      ? 'font-medium text-amber-700'
-                                                                      : 'text-gray-500'
-                                                            }
-                                                        >
-                                                            {paymentLabel}
-                                                        </span>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {(() => {
-                                                                const monthLabels = getMonthSequence(fine.monthStart, fine.payableDuration, fine.createdAt || fine.fineDate);
-                                                                const monthlyAmount = fine.payableDuration > 0 ? (calculateEmployeeFineShare(fine) / fine.payableDuration) : calculateEmployeeFineShare(fine);
-
-                                                                // Simple month-matching logic consistent with PaymentReceipt
-                                                                let remainingPays = [...relatedPayments].sort((a, b) => new Date(a.paymentDate || a.createdAt) - new Date(b.paymentDate || b.createdAt));
-
-                                                                return monthLabels.map((m, idx) => {
-                                                                    const monthYM = scheduleMonthsYM[idx];
-                                                                    const inFilterRange = !isFineMonthFilterActive || fineMonthFilterInvalid
-                                                                        || (monthYM && monthYM >= filterStart && monthYM <= filterEnd);
-                                                                    let currentPaid = 0;
-                                                                    while (remainingPays.length > 0 && currentPaid < (monthlyAmount - 0.01)) {
-                                                                        const p = remainingPays[0];
-                                                                        const pAmt = parseFloat(p.amount || 0);
-                                                                        const needed = monthlyAmount - currentPaid;
-                                                                        if (pAmt <= (needed + 0.01)) {
-                                                                            currentPaid += pAmt;
-                                                                            remainingPays.shift();
-                                                                        } else {
-                                                                            currentPaid = monthlyAmount;
-                                                                            remainingPays[0] = { ...p, amount: pAmt - needed };
-                                                                            break;
-                                                                        }
-                                                                    }
-                                                                    const isPaid = currentPaid >= (monthlyAmount - 0.5);
-
-                                                                    return (
-                                                                        <span
-                                                                            key={idx}
-                                                                            className={`px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tighter rounded border ${!inFilterRange
-                                                                                ? 'bg-gray-50 text-gray-400 border-gray-200 opacity-60'
-                                                                                : isPaid
-                                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                                : 'bg-rose-50 text-rose-700 border-rose-200'
-                                                                                }`}
-                                                                            title={isPaid ? 'Paid' : `AED ${currentPaid.toFixed(0)} / ${monthlyAmount.toFixed(0)}`}
-                                                                        >
-                                                                            {m.substring(0, 3)}
-                                                                        </span>
-                                                                    );
-                                                                });
-                                                            })()}
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                                            {hasFineUploadedAttachment(fine) && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => handleViewFineUploadedAttachment(fine, e)}
-                                                                    className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
-                                                                    title="View attachment"
-                                                                >
-                                                                    <FileText size={18} />
-                                                                </button>
-                                                            )}
-                                                            {['Approved', 'Paid'].includes(fine.fineStatus) && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => handleViewFineFormPdf(fine, e)}
-                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors p-1 hover:bg-emerald-50 rounded"
-                                                                    title="View fine form PDF"
-                                                                >
-                                                                    <Download size={18} />
-                                                                </button>
-                                                            )}
-                                                            {!hasFineUploadedAttachment(fine) &&
-                                                                !['Approved', 'Paid'].includes(fine.fineStatus) && (
-                                                                    <span className="text-gray-400">—</span>
+                                                            {canDeleteSalaryHistory &&
+                                                                sortedHistory.length > 1 &&
+                                                                !isOldestSalaryHistoryEntry(entry, salaryHistoryData) && (
+                                                                    <button
+                                                                        onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
+                                                                        className="text-red-600 hover:text-red-700"
+                                                                        title="Delete"
+                                                                    >
+                                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                            <polyline points="3 6 5 6 21 6"></polyline>
+                                                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                                        </svg>
+                                                                    </button>
                                                                 )}
                                                         </div>
                                                     </td>
-                                                    <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
-                                                        {paymentLabel === 'Not Paid' && canPayCompany ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => startCompanyFineRefund([fine])}
-                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-sm active:scale-95 transition-all"
-                                                                title="Pay fine — Expense Refund (Zoho Banking)"
-                                                            >
-                                                                <Wallet size={14} />
-                                                                Pay
-                                                            </button>
-                                                        ) : (
-                                                            <span className="text-gray-400 text-xs">—</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
-                                                        <button
-                                                            type="button"
-                                                            data-nav-href={
-                                                                fine.fineId || fine._id
-                                                                    ? `/HRM/Fine/${encodeURIComponent(fine.fineId || fine._id)}`
-                                                                    : undefined
-                                                            }
-                                                            onClick={(e) => openFineDetails(fine, e)}
-                                                            className="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
-                                                            title="Open fine details"
-                                                        >
-                                                            <ExternalLink size={16} />
-                                                        </button>
-                                                    </td>
                                                 </tr>
-                                                {isExpanded && (
-                                                    <tr>
-                                                        <td colSpan={12} className="bg-gray-50/50 p-4">
-                                                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                                                                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <History size={14} className="text-blue-500" />
-                                                                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment Receipts</h4>
-                                                                    </div>
-                                                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100 italic">
-                                                                        Individual History
+                                            );
+                                        })
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={11} className="py-16 text-center text-gray-400 text-sm">
+                                                No Salary History
+                                            </td>
+                                        </tr>
+                                    )
+                                )}
+
+                                {selectedSalaryAction === 'Fine' && (
+                                    filteredFinesForTable.length > 0 ? (
+                                        filteredFinesForTable.map((fine, index) => {
+                                            const individualShare = isFineMonthFilterActive
+                                                ? getFineFilteredDueAmount(fine)
+                                                : calculateEmployeeFineShare(fine);
+                                            const isExpanded = expandedFineId === (fine._id || index);
+                                            const fineKey = String(fine.fineId || fine._id);
+
+                                            const relatedPayments = allEmployeePayments.filter(p =>
+                                                (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
+                                                isPaymentCountableTowardPaid(p.status)
+                                            );
+                                            const pendingFinePayments = allEmployeePayments.filter(p =>
+                                                (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
+                                                !isPaymentCountableTowardPaid(p.status) &&
+                                                shouldShowPaymentInHistory(p.status)
+                                            );
+
+                                            const paidAmount = isFineMonthFilterActive
+                                                ? getFineFilteredPaidAmount(fine)
+                                                : relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+                                            const balance = isFineMonthFilterActive
+                                                ? getFineFilteredBalance(fine)
+                                                : Math.max(0, calculateEmployeeFineShare(fine) - relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0));
+                                            const scheduleMonthsYM = getFineScheduleMonths(fine);
+                                            const filterStart = fineFilterStartYM || 0;
+                                            const filterEnd = fineFilterEndYM || 999912;
+                                            const isGroup = (fine.assignedEmployees || []).filter(
+                                                (e) => e.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId)
+                                            ).length > 1;
+                                            const canSelectForPay = balance > 0.01;
+                                            const isSelectedForPay = selectedFinesForPayment.includes(fineKey);
+                                            const statusLabel = formatFineProfileStatus(fine);
+                                            const paymentLabel = formatFineProfilePaymentLabel(fine, balance);
+                                            const canPayCompany = canAccountsPayFineEmployeeShare(
+                                                fine,
+                                                currentUser,
+                                                balance,
+                                                accountsFlowchartRows,
+                                            );
+
+                                            return (
+                                                <React.Fragment key={fine._id || index}>
+                                                    <tr
+                                                        data-nav-href={
+                                                            fine.fineId || fine._id
+                                                                ? `/HRM/Fine/${encodeURIComponent(fine.fineId || fine._id)}`
+                                                                : undefined
+                                                        }
+                                                        onClick={(e) => openFineDetails(fine, e)}
+                                                        className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
+                                                    >
+                                                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 disabled:opacity-40"
+                                                                disabled={!canSelectForPay}
+                                                                checked={isSelectedForPay}
+                                                                title={canSelectForPay ? 'Select for payment' : 'Fully paid'}
+                                                                onChange={(e) => toggleFinePaymentSelection(fine, e.target.checked)}
+                                                            />
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-bold text-gray-700">
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    className="p-0.5 rounded hover:bg-gray-100"
+                                                                    title={isExpanded ? 'Hide receipts' : 'Show receipts'}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        toggleFineExpansion(fine._id || index, fine.fineId);
+                                                                    }}
+                                                                >
+                                                                    {isExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
+                                                                </button>
+                                                                {fine.fineId || '—'}
+                                                                {pendingFinePayments.length > 0 ? (
+                                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${getPaymentStatusBadgeClass('Processing')}`}>
+                                                                        {pendingFinePayments.length} Pending
                                                                     </span>
-                                                                </div>
-                                                                <div className="p-0">
-                                                                    {loadingPayments ? (
-                                                                        <div className="p-8 text-center">
-                                                                            <div className="w-6 h-6 border-2 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-2"></div>
-                                                                            <p className="text-xs text-gray-400 font-bold uppercase tracking-tight">Loading receipts...</p>
-                                                                        </div>
-                                                                    ) : finePayments.length === 0 ? (
-                                                                        <div className="p-8 text-center text-gray-400 text-xs font-bold uppercase tracking-widest">
-                                                                            No payment receipts found for this fine.
-                                                                        </div>
-                                                                    ) : (
-                                                                        <table className="w-full text-left text-sm">
-                                                                            <thead>
-                                                                                <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                                                                                    <th className="px-4 py-2">Receipt No</th>
-                                                                                    <th className="px-4 py-2">Date</th>
-                                                                                    <th className="px-4 py-2">Amount</th>
-                                                                                    <th className="px-4 py-2">Status</th>
-                                                                                    <th className="px-4 py-2">Attachment</th>
-                                                                                    <th className="px-4 py-2 text-right">Action</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody>
-                                                                                {finePayments.map((pay) => (
-                                                                                    <tr key={pay._id} className={`border-b border-slate-50 transition-colors group ${getPaymentStatusSurfaceClass(pay.status)}`}>
-                                                                                        <td className="px-4 py-3 font-bold text-slate-700">{pay.paymentId}</td>
-                                                                                        <td className="px-4 py-3 text-slate-500">{new Date(pay.paymentDate || pay.createdAt).toLocaleDateString()}</td>
-                                                                                        <td className={`px-4 py-3 font-black ${getPaymentAmountTextClass(pay.status)}`}>AED {pay.amount?.toFixed(2)}</td>
-                                                                                        <td className="px-4 py-3">
-                                                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${getPaymentStatusBadgeClass(pay.status)}`}>
-                                                                                                {getPaymentStatusLabel(pay.status)}
-                                                                                            </span>
-                                                                                        </td>
-                                                                                        <td className="px-4 py-3">
-                                                                                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                                                                                {(() => {
-                                                                                                    const viewerDoc = normalizePaymentAttachmentForViewer(
-                                                                                                        pay.attachment,
-                                                                                                        `${pay.paymentId || 'Payment'}-attachment`
-                                                                                                    );
-                                                                                                    if (!viewerDoc) {
-                                                                                                        return <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide">No File</span>;
-                                                                                                    }
-                                                                                                    return (
-                                                                                                        <button
-                                                                                                            onClick={() =>
-                                                                                                                onViewDocument({
-                                                                                                                    ...viewerDoc,
-                                                                                                                    moduleId: 'hrm_fine',
-                                                                                                                    allowDownload: accSalaryFine.download,
-                                                                                                                })
-                                                                                                            }
-                                                                                                            className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
-                                                                                                            title="View Attachment"
-                                                                                                        >
-                                                                                                            <FileText size={16} />
-                                                                                                        </button>
-                                                                                                    );
-                                                                                                })()}
-                                                                                            </div>
-                                                                                        </td>
-                                                                                        <td className="px-4 py-3 text-right">
-                                                                                            <button
-                                                                                                onClick={() => setSelectedInvoice(pay)}
-                                                                                                className="text-blue-600 hover:text-blue-700 font-bold text-[10px] uppercase tracking-widest flex items-center gap-1 ml-auto group"
-                                                                                            >
-                                                                                                View Invoice
-                                                                                                <ArrowRightLeft size={12} className="group-hover:translate-x-1 transition-transform" />
-                                                                                            </button>
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                ))}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    )}
-                                                                </div>
+                                                                ) : null}
                                                             </div>
                                                         </td>
-                                                    </tr>
-                                                )}
-                                            </React.Fragment>
-                                        );
-                                    })
-                                ) : (
-                                    <tr>
-                                        <td colSpan={12} className="py-16 text-center text-gray-400 text-sm">
-                                            {isFineMonthFilterActive
-                                                ? (fineMonthFilterInvalid ? 'Invalid month range' : 'No fines in selected month range')
-                                                : 'No Fines to display'}
-                                        </td>
-                                    </tr>
-                                )
-                            )}
-
-                            {selectedSalaryAction === 'Rewards' && (
-                                (() => {
-                                    const profileRewards = (rewards || []).filter(isRewardVisibleOnEmployeeProfile);
-                                    return profileRewards.length > 0 ? (
-                                        profileRewards.map((reward, index) => {
-                                            const paymentLabel = formatRewardPaymentLabel(reward);
-                                            const statusLabel = formatRewardStatusLabel(
-                                                reward.rewardStatus,
-                                                reward.rewardType,
-                                            );
-                                            return (
-                                        <tr
-                                            key={reward._id || index}
-                                            data-nav-href={
-                                                reward?.rewardId || reward?._id
-                                                    ? `/HRM/Reward/rewrd.${encodeURIComponent(reward.rewardId || reward._id)}`
-                                                    : undefined
-                                            }
-                                            onClick={(e) => openRewardDetails(reward, e)}
-                                            className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
-                                        >
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {reward.awardedDate ? formatDate(reward.awardedDate) : '—'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {reward.awardedDate ? new Date(reward.awardedDate).toLocaleString('default', { month: 'long' }) : '—'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {reward.title || reward.description || '—'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                AED {reward.amount?.toFixed(2) || '0.00'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-700 font-medium">
-                                                {statusLabel}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm">
-                                                <span
-                                                    className={
-                                                        paymentLabel === 'Paid'
-                                                            ? 'font-medium text-green-700'
-                                                            : paymentLabel === 'Not Paid'
-                                                              ? 'font-medium text-amber-700'
-                                                              : 'text-gray-500'
-                                                    }
-                                                >
-                                                    {paymentLabel}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
-                                                {canAccountsPayCashReward(reward, currentUser) &&
-                                                isRewardPaymentEligible(reward) ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const prefill = buildRewardPaymentPrefill(reward, {
-                                                                returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
-                                                            });
-                                                            if (!prefill) return;
-                                                            sessionStorage.setItem(
-                                                                'rewardPaymentPrefill',
-                                                                JSON.stringify(prefill),
-                                                            );
-                                                            router.push('/Accounts/Payments?addRewardPay=1');
-                                                        }}
-                                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
-                                                    >
-                                                        <Wallet size={12} />
-                                                        Pay
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-gray-400">—</span>
-                                                )}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedCertificate(reward);
-                                                        setShowCertificate(true);
-                                                    }}
-                                                    className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700 font-medium transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
-                                                >
-                                                    <FileText size={16} />
-                                                    <span className="text-xs">View certificate</span>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                            );
-                                        })
-                                    ) : (
-                                    <tr>
-                                        <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
-                                            No Rewards to display
-                                        </td>
-                                    </tr>
-                                    );
-                                })()
-                            )}
-
-                            {/* Handling other tabs that are not yet implemented with data */}
-                            {selectedSalaryAction === 'Loans' && (
-                                (() => {
-                                    const actualLoans = (loans || []).filter(
-                                        (l) =>
-                                            (l.type || 'Loan') === 'Loan' &&
-                                            isLoanVisibleOnEmployeeProfile(l),
-                                    );
-                                    return actualLoans.length > 0 ? (
-                                        actualLoans.map((loan, index) => {
-                                            const statusLabel = formatLoanProfileStatus(loan);
-                                            const paymentLabel = formatLoanProfilePaymentLabel(loan);
-                                            const canPay =
-                                                paymentLabel === 'Not Paid' &&
-                                                (canAccountsCollectLoanRepayment(loan, currentUser) ||
-                                                    isAccountsUser);
-                                            return (
-                                            <tr
-                                                key={loan._id || index}
-                                                data-nav-href={
-                                                    loan._id || loan.id
-                                                        ? `/HRM/LoanAndAdvance/${String(loan.type || 'Loan').replace(/\s+/g, '-')}-${loan._id || loan.id}`
-                                                        : undefined
-                                                }
-                                                className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
-                                                onClick={(e) => openLoanAdvanceDetails(loan, e)}
-                                            >
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {loan.loanId || 'Loan'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {loan.createdAt ? formatDate(loan.createdAt) : (loan.appliedDate ? formatDate(loan.appliedDate) : '—')}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {Number(loan.amount || 0).toFixed(2)}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {loan.duration ? (Number(loan.amount || 0) / loan.duration).toFixed(2) : '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm font-medium text-gray-700">
-                                                    {statusLabel}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm">
-                                                    <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
-                                                        {paymentLabel}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {(() => {
-                                                            const boxes = getMonthSequence(loan.monthStart, loan.duration, loan.createdAt || loan.appliedDate);
-                                                            return boxes.map((month, idx) => (
-                                                                <span
-                                                                    key={idx}
-                                                                    className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md border border-blue-200"
-                                                                >
-                                                                    {month}
-                                                                </span>
-                                                            ));
-                                                        })()}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
-                                                    {canPay ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => startLoanCompanyRefund([loan])}
-                                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
-                                                            title="Collect loan repayment — Expense Refund (Zoho Banking)"
-                                                        >
-                                                            <Wallet size={12} />
-                                                            Pay
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-gray-400">—</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                    {loan.attachment ? (
-                                                        <button
-                                                            onClick={() => {
-                                                                const doc = normalizePaymentAttachmentForViewer(
-                                                                    loan.attachment,
-                                                                    loan.loanId || 'Loan-attachment'
-                                                                );
-                                                                if (!doc) return;
-                                                                onViewDocument({
-                                                                    ...doc,
-                                                                    moduleId: 'hrm_loan',
-                                                                    allowDownload: accSalaryLoans.download,
-                                                                });
-                                                            }}
-                                                            className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
-                                                            title="View Document"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                <polyline points="7 10 12 15 17 10"></polyline>
-                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                            </svg>
-                                                        </button>
-                                                    ) : '—'}
-                                                </td>
-                                            </tr>
-                                            );
-                                        })
-                                    ) : (
-                                        <tr>
-                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
-                                                No Loans to display
-                                            </td>
-                                        </tr>
-                                    );
-                                })()
-                            )}
-
-                            {selectedSalaryAction === 'Advance' && (
-                                (() => {
-                                    const advances = (loans || []).filter(
-                                        (l) => l.type === 'Advance' && isLoanVisibleOnEmployeeProfile(l),
-                                    );
-                                    return advances.length > 0 ? (
-                                        advances.map((advance, index) => {
-                                            const statusLabel = formatLoanProfileStatus(advance);
-                                            const paymentLabel = formatLoanProfilePaymentLabel(advance);
-                                            const canPay =
-                                                paymentLabel === 'Not Paid' &&
-                                                (canAccountsCollectLoanRepayment(advance, currentUser) ||
-                                                    isAccountsUser);
-                                            return (
-                                            <tr
-                                                key={advance._id || index}
-                                                data-nav-href={
-                                                    advance._id || advance.id
-                                                        ? `/HRM/LoanAndAdvance/Advance-${advance._id || advance.id}`
-                                                        : undefined
-                                                }
-                                                className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
-                                                onClick={(e) => openLoanAdvanceDetails(advance, e)}
-                                            >
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {advance.loanId || 'Advance'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {advance.createdAt ? formatDate(advance.createdAt) : (advance.appliedDate ? formatDate(advance.appliedDate) : '—')}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {Number(advance.amount || 0).toFixed(2)}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {advance.duration ? (Number(advance.amount || 0) / advance.duration).toFixed(2) : '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm font-medium text-gray-700">
-                                                    {statusLabel}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm">
-                                                    <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
-                                                        {paymentLabel}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {(() => {
-                                                            const boxes = getMonthSequence(advance.monthStart, advance.duration, advance.createdAt || advance.appliedDate);
-                                                            return boxes.map((month, idx) => (
-                                                                <span
-                                                                    key={idx}
-                                                                    className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md border border-blue-200"
-                                                                >
-                                                                    {month}
-                                                                </span>
-                                                            ));
-                                                        })()}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
-                                                    {canPay ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => startLoanCompanyRefund([advance])}
-                                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
-                                                            title="Collect advance repayment — Expense Refund (Zoho Banking)"
-                                                        >
-                                                            <Wallet size={12} />
-                                                            Pay
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-gray-400">—</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                    {advance.attachment ? (
-                                                        <button
-                                                            onClick={() => {
-                                                                const doc = normalizePaymentAttachmentForViewer(
-                                                                    advance.attachment,
-                                                                    advance.loanId || 'Advance-attachment'
-                                                                );
-                                                                if (!doc) return;
-                                                                onViewDocument({
-                                                                    ...doc,
-                                                                    moduleId: 'hrm_loan',
-                                                                    allowDownload: accSalaryAdvance.download,
-                                                                });
-                                                            }}
-                                                            className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
-                                                            title="View Document"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                <polyline points="7 10 12 15 17 10"></polyline>
-                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                            </svg>
-                                                        </button>
-                                                    ) : '—'}
-                                                </td>
-                                            </tr>
-                                            );
-                                        })
-                                    ) : (
-                                        <tr>
-                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
-                                                No Advances to display
-                                            </td>
-                                        </tr>
-                                    );
-                                })()
-                            )}
-
-                            {selectedSalaryAction === 'NCR' && (
-                                <tr>
-                                    <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
-                                        No NCR Records Found
-                                    </td>
-                                </tr>
-                            )}
-
-                            {selectedSalaryAction === 'CTC' && (
-                                <tr>
-                                    <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
-                                        No CTC History Found
-                                    </td>
-                                </tr>
-                            )}
-
-                            {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Your Assets' && (
-                                (() => {
-                                    const assetsList = yourAssetsAllRows;
-
-                                    const handleRespondToAsset = async (asset, action) => {
-                                        setConfirmDialog({ isOpen: true, asset, action });
-                                    };
-
-                                    const viewAssetHistory = async (asset) => {
-                                        try {
-                                            setSelectedHistoryAsset(asset);
-                                            setShowHistoryModal(true);
-                                            setLoadingHistory(true);
-                                            const response = await axiosInstance.get(`/AssetItem/${asset._id}/history`);
-                                            setAssetHistory(response.data);
-                                        } catch (error) {
-                                            console.error('Error fetching asset history:', error);
-                                            toast({
-                                                variant: "destructive",
-                                                title: "Error",
-                                                description: "Failed to fetch asset history"
-                                            });
-                                        } finally {
-                                            setLoadingHistory(false);
-                                        }
-                                    };
-
-                                    if (assetsList.length === 0) {
-                                        return (
-                                            <tr>
-                                                <td
-                                                    colSpan={9}
-                                                    className="py-16 text-center text-gray-400 text-sm"
-                                                >
-                                                    No tools assigned
-                                                </td>
-                                            </tr>
-                                        );
-                                    }
-
-                                    return assetsList.map((asset, index) => {
-                                        const rowAssigneeId = (() => {
-                                            const t = asset?.assignedTo;
-                                            if (!t) return null;
-                                            if (typeof t === 'object' && t._id) return t._id.toString();
-                                            return t.toString();
-                                        })();
-                                        const profileEmpId = employee?._id?.toString();
-                                        const assetAssignedToProfileEmployee = !!(rowAssigneeId && profileEmpId && rowAssigneeId === profileEmpId);
-                                        const canReturnAssetFromProfile =
-                                            isLoggedInAdmin || isAssetController || (isProfileOwner && assetAssignedToProfileEmployee);
-                                        const rowSelected = selectedYourAssets.some(
-                                            (sid) => String(sid) === String(asset._id)
-                                        );
-
-                                        return (
-                                            <tr
-                                                key={asset._id || index}
-                                                className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${canBulkAssetFromProfile && rowSelected ? 'bg-blue-50/50' : ''
-                                                    }`}
-                                                {...navHrefProps(resolveAssetProfileHref(asset))}
-                                                onClick={() => openAssetDetailFromProfile(asset)}
-                                            >
-                                                <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
-                                                    <input
-                                                        type="checkbox"
-                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                        title="Include in bulk return / transfer / end of services (on service and parking assets follow special rules)"
-                                                        checked={rowSelected}
-                                                        onChange={(e) => {
-                                                            const id = asset._id;
-                                                            if (e.target.checked) {
-                                                                setSelectedYourAssets((prev) =>
-                                                                    prev.some((p) => String(p) === String(id))
-                                                                        ? prev
-                                                                        : [...prev, id]
-                                                                );
-                                                            } else {
-                                                                setSelectedYourAssets((prev) =>
-                                                                    prev.filter((p) => String(p) !== String(id))
-                                                                );
-                                                            }
-                                                        }}
-                                                    />
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500 font-medium">
-                                                    <div className="flex flex-col">
-                                                        <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
-                                                        {/* Assignment meta labels intentionally removed from asset-name cell */}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.assetId || '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    <span>{asset.typeId?.name || asset.typeId || '—'}</span>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.status === 'Returned' ? formatDate(asset.updatedAt) :
-                                                        (asset.assignedDate ? formatDate(asset.assignedDate) :
-                                                            (asset.updatedAt ? formatDate(asset.updatedAt) : '—'))}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm">
-                                                    <span
-                                                        className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(asset.status)}`}
-                                                    >
-                                                        {(() => {
-                                                            const statusStr = String(asset.status || '');
-                                                            let assigneeStr = '';
-                                                            if (asset.assignedTo && typeof asset.assignedTo === 'object') {
-                                                                const first = asset.assignedTo.firstName || '';
-                                                                const last = asset.assignedTo.lastName || '';
-                                                                assigneeStr = first && last
-                                                                    ? `${first} ${last.charAt(0).toUpperCase()}.`
-                                                                    : first || last;
-                                                            }
-                                                            if (statusStr === 'Assigned' || isServiceActive(asset) || isLeaveActive(asset)) {
-                                                                return formatAssetAssignmentStatusLine(asset, assigneeStr);
-                                                            }
-                                                            if (isServiceOperationalStatus(statusStr)) {
-                                                                return formatOnServiceStatusLine(asset, assigneeStr);
-                                                            }
-                                                            if (hasActiveParkingContext(asset) || statusStr.toLowerCase() === 'on leave') {
-                                                                return formatOnLeaveStatusLine(asset, assigneeStr);
-                                                            }
-                                                            return asset.status || 'Assigned';
-                                                        })()}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedHandoverAsset(asset);
-                                                                setShowHandoverModal(true);
-                                                            }}
-                                                            className="text-indigo-600 hover:text-indigo-700 transition-colors p-1 hover:bg-indigo-50 rounded"
-                                                            title="View Handover Form"
-                                                        >
-                                                            <ClipboardList size={18} />
-                                                        </button>
-                                                        {(asset.file || asset.handoverForm) && (
-                                                            <button
-                                                                onClick={() => onViewDocument({
-                                                                    data: asset.file || asset.handoverForm,
-                                                                    name: `HandoverForm_${asset.assetId}.pdf`,
-                                                                    mimeType: 'application/pdf',
-                                                                    moduleId: 'hrm_asset',
-                                                                    allowDownload: accSalaryAssetsTab.download,
-                                                                })}
-                                                                className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
-                                                                title="View Signed Document"
-                                                            >
-                                                                <FileText size={18} />
-                                                            </button>
-                                                        )}
-                                                        {asset.invoiceFile && (
-                                                            <button
-                                                                onClick={() => onViewDocument({
-                                                                    data: asset.invoiceFile,
-                                                                    name: `Invoice_${asset.assetId}.pdf`,
-                                                                    mimeType: 'application/pdf',
-                                                                    moduleId: 'hrm_asset',
-                                                                    allowDownload: accSalaryAssetsTab.download,
-                                                                })}
-                                                                className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
-                                                                title="View Invoice"
-                                                            >
-                                                                <Download size={18} />
-                                                            </button>
-                                                        )}
-                                                        {!asset.handoverForm && !asset.file && !asset.invoiceFile && !asset && '—'}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center gap-1">
-                                                        {/* Accept/Reject buttons ONLY show for the employee who needs to accept the assignment */}
-                                                        {/* Condition: status is Pending AND actionRequiredBy matches the logged-in employee's ID */}
-                                                        {(() => {
-                                                            // Helper function to extract ID from actionRequiredBy (handles ObjectId, string, or populated object)
-                                                            const getActionRequiredById = (actionRequiredBy) => {
-                                                                if (!actionRequiredBy) return null;
-                                                                if (typeof actionRequiredBy === 'object' && actionRequiredBy._id) {
-                                                                    return actionRequiredBy._id.toString();
+                                                        <td className="py-3 px-4 text-sm">
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${isGroup ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                                                                {isGroup ? 'Group' : 'Individual'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-black text-gray-700">
+                                                            AED {individualShare.toFixed(2)}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-black text-emerald-600">
+                                                            AED {paidAmount.toFixed(2)}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-black text-rose-600">
+                                                            AED {balance.toFixed(2)}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-medium text-gray-700">
+                                                            {statusLabel}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm">
+                                                            <span
+                                                                className={
+                                                                    paymentLabel === 'Paid'
+                                                                        ? 'font-medium text-green-700'
+                                                                        : paymentLabel === 'Not Paid'
+                                                                            ? 'font-medium text-amber-700'
+                                                                            : 'text-gray-500'
                                                                 }
-                                                                return actionRequiredBy.toString();
-                                                            };
-
-                                                            const actionRequiredById = getActionRequiredById(asset.actionRequiredBy);
-                                                            const loggedInId = loggedInEmployeeId?.toString();
-
-                                                            // Show buttons ONLY if status is Pending AND actionRequiredBy matches logged-in employee
-                                                            const shouldShowButtons = asset.status === 'Pending' &&
-                                                                actionRequiredById &&
-                                                                loggedInId &&
-                                                                actionRequiredById === loggedInId;
-
-                                                            return shouldShowButtons ? (
-                                                                <div className="flex items-center gap-1 mr-2 bg-amber-50 p-1 rounded-lg border border-amber-100">
-                                                                    <button
-                                                                        onClick={() => handleRespondToAsset(asset, 'Accept')}
-                                                                        disabled={respondingToAsset === asset._id}
-                                                                        className="p-1 text-emerald-600 hover:bg-emerald-100 rounded transition-all"
-                                                                        title="Accept Assignment"
-                                                                    >
-                                                                        <CheckCircle2 size={18} />
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleRespondToAsset(asset, 'Reject')}
-                                                                        disabled={respondingToAsset === asset._id}
-                                                                        className="p-1 text-rose-600 hover:bg-rose-100 rounded transition-all"
-                                                                        title="Reject Assignment"
-                                                                    >
-                                                                        <XCircle size={18} />
-                                                                    </button>
-                                                                </div>
-                                                            ) : null;
-                                                        })()}
-                                                        <button
-                                                            onClick={() => viewAssetHistory(asset)}
-                                                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                                                            title="View Detailed History"
-                                                        >
-                                                            <History size={18} />
-                                                        </button>
-                                                        {asset.status !== 'Returned' ? (
-                                                            canReturnAssetFromProfile &&
-                                                            !isServiceOperationalStatus(asset.status) &&
-                                                            !hasActiveParkingContext(asset) ? (
-                                                                <button
-                                                                    onClick={() => handleReturnAsset(asset)}
-                                                                    className="text-amber-500 hover:text-amber-700 transition-colors p-1.5 hover:bg-amber-50 rounded-lg"
-                                                                    title="Return Asset"
-                                                                >
-                                                                    <ArrowRightLeft size={18} />
-                                                                </button>
-                                                            ) : hasActiveParkingContext(asset) &&
-                                                              (isAssetController || isLoggedInAdmin) ? (
-                                                                <button
-                                                                    onClick={() =>
-                                                                        setOnLeaveActionDialog({
-                                                                            isOpen: true,
-                                                                            asset,
-                                                                            action: 'Return',
-                                                                        })
-                                                                    }
-                                                                    className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
-                                                                    title="Return from parking (On Leave)"
-                                                                >
-                                                                    <Undo2 size={18} />
-                                                                </button>
-                                                            ) : null
-                                                        ) : (
-                                                            (isLoggedInAdmin || isAssetController) ? (
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setSelectedAssignAsset(asset);
-                                                                        setShowAssignModal(true);
-                                                                    }}
-                                                                    className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
-                                                                    title="Reassign Asset"
-                                                                >
-                                                                    <UserPlus size={18} />
-                                                                    {(() => {
-                                                                        if (asset.assignmentType !== 'Temporary') return 'Reassign';
-                                                                        const end = asset.temporaryEndDate ? new Date(asset.temporaryEndDate) : null;
-                                                                        if (!end) return 'Reassign';
-                                                                        const today = new Date();
-                                                                        today.setHours(0, 0, 0, 0);
-                                                                        const target = new Date(end);
-                                                                        target.setHours(0, 0, 0, 0);
-                                                                        const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-                                                                        const safeDays = Number.isFinite(diffDays) ? diffDays : null;
-                                                                        if (safeDays == null) return 'Reassign';
-                                                                        const display = safeDays >= 0 ? safeDays : 0;
-                                                                        return `Reassign (${display}d)`;
-                                                                    })()}
-                                                                </button>
-                                                            ) : null
-                                                        )}
-                                                        <button
-                                                            onClick={() => handleReportDamage(asset)}
-                                                            className="text-red-500 hover:text-red-700 transition-colors p-1.5 hover:bg-red-50 rounded-lg"
-                                                            title={
-                                                                hasActiveParkingContext(asset)
-                                                                    ? 'Report Loss & Damage (allowed for on leave assets)'
-                                                                    : 'Report Loss/Damage'
-                                                            }
-                                                        >
-                                                            <X size={18} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    });
-                                })())}
-
-                            {/* Previous Assets Section */}
-                            {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Previous Assets' && (
-                                <React.Fragment>
-                                    {(() => {
-                                        if (loadingPreviousAssets) {
-                                            return (
-                                                <tr>
-                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
-                                                        Loading Previous Assets...
-                                                    </td>
-                                                </tr>
-                                            );
-                                        }
-
-                                        if (!toolsPreviousAssets || toolsPreviousAssets.length === 0) {
-                                            return (
-                                                <tr>
-                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
-                                                        No Previous Tools Found
-                                                    </td>
-                                                </tr>
-                                            );
-                                        }
-
-                                        return toolsPreviousAssets.map((asset, index) => (
-                                            <tr
-                                                key={asset._id || index}
-                                                className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
-                                                {...navHrefProps(resolveAssetProfileHref(asset))}
-                                                onClick={() => openAssetDetailFromProfile(asset)}
-                                            >
-                                                <td className="py-3 px-4 w-10"></td>
-                                                <td className="py-3 px-4 text-sm text-slate-900 font-bold">
-                                                    {asset.name || '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.assetId || '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    <div className="flex flex-col">
-                                                        <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
-                                                        <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm">
-                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                        {asset.status || 'Unassigned'}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {(() => {
-                                                        if (asset.assignedTo && typeof asset.assignedTo === 'object') {
-                                                            const fullName = `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim() || 'Employee';
-                                                            const empCode = asset.assignedTo.employeeId ? ` (${asset.assignedTo.employeeId})` : '';
-                                                            return <span className="font-medium text-blue-600">{fullName}{empCode}</span>;
-                                                        }
-                                                        if (asset.assignedCompany && typeof asset.assignedCompany === 'object') {
-                                                            const companyName =
-                                                                asset.assignedCompany.nickName ||
-                                                                asset.assignedCompany.shortName ||
-                                                                asset.assignedCompany.name ||
-                                                                'Company';
-                                                            const companyCode = asset.assignedCompany.companyId ? ` (${asset.assignedCompany.companyId})` : '';
-                                                            return <span className="font-medium text-emerald-600">{companyName}{companyCode}</span>;
-                                                        }
-                                                        return <span className="text-gray-400">Unassigned</span>;
-                                                    })()}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center gap-2">
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ));
-                                    })()}
-                                </React.Fragment>
-                            )}
-
-
-                            {/* Unassigned Assets Section - for Asset Controllers */}
-                            {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'Unassigned Assets' && (
-                                <React.Fragment>
-                                    {(() => {
-                                        const pool = toolsUnassignedAssets.filter((asset) =>
-                                            isPoolAssignableAssetStatus(asset?.status),
-                                        );
-
-                                        if (!pool.length) {
-                                            return (
-                                                <tr>
-                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
-                                                        No Unassigned Assets Found
-                                                    </td>
-                                                </tr>
-                                            );
-                                        }
-                                        return pool.map((asset, index) => (
-                                            <tr
-                                                key={asset._id || index}
-                                                className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedUnassignedAssets.includes(asset._id || asset.id) ? 'bg-blue-50/40' : ''}`}
-                                                {...navHrefProps(resolveAssetProfileHref(asset))}
-                                                onClick={() => openAssetDetailFromProfile(asset)}
-                                            >
-                                                <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
-                                                    <input
-                                                        type="checkbox"
-                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                        checked={selectedUnassignedAssets.includes(asset._id || asset.id)}
-                                                        onChange={(e) => {
-                                                            const rowId = asset._id || asset.id;
-                                                            if (!rowId) return;
-                                                            if (e.target.checked) {
-                                                                setSelectedUnassignedAssets((prev) => [...new Set([...prev, rowId])]);
-                                                            } else {
-                                                                setSelectedUnassignedAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
-                                                            }
-                                                        }}
-                                                    />
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-slate-900 font-bold">
-                                                    {asset.name || '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.assetId || '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    <div className="flex flex-col">
-                                                        <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
-                                                        <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm">
-                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(asset.status, asset)}`}>
-                                                        {formatAssetAssignmentStatusLine(asset, '')}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center gap-2">
-                                                        {isPoolAssignableAssetStatus(asset?.status) ? (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setSelectedAssignAsset(asset);
-                                                                    setShowAssignModal(true);
-                                                                }}
-                                                                className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
-                                                                title="Assign Asset"
                                                             >
-                                                                <UserPlus size={18} />
-                                                            </button>
-                                                        ) : null}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">—</td>
-                                            </tr>
-                                        ));
-                                    })()}
-                                </React.Fragment>
-                            )}
+                                                                {paymentLabel}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {(() => {
+                                                                    const monthLabels = getMonthSequence(fine.monthStart, fine.payableDuration, fine.createdAt || fine.fineDate);
+                                                                    const monthlyAmount = fine.payableDuration > 0 ? (calculateEmployeeFineShare(fine) / fine.payableDuration) : calculateEmployeeFineShare(fine);
 
-                            {/* On Leave Assets Section - for Asset Controllers */}
-                            {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'On Leave' && (
-                                <React.Fragment>
-                                    {(() => {
-                                        if (!filteredOnLeaveAssets || filteredOnLeaveAssets.length === 0) {
+                                                                    // Simple month-matching logic consistent with PaymentReceipt
+                                                                    let remainingPays = [...relatedPayments].sort((a, b) => new Date(a.paymentDate || a.createdAt) - new Date(b.paymentDate || b.createdAt));
+
+                                                                    return monthLabels.map((m, idx) => {
+                                                                        const monthYM = scheduleMonthsYM[idx];
+                                                                        const inFilterRange = !isFineMonthFilterActive || fineMonthFilterInvalid
+                                                                            || (monthYM && monthYM >= filterStart && monthYM <= filterEnd);
+                                                                        let currentPaid = 0;
+                                                                        while (remainingPays.length > 0 && currentPaid < (monthlyAmount - 0.01)) {
+                                                                            const p = remainingPays[0];
+                                                                            const pAmt = parseFloat(p.amount || 0);
+                                                                            const needed = monthlyAmount - currentPaid;
+                                                                            if (pAmt <= (needed + 0.01)) {
+                                                                                currentPaid += pAmt;
+                                                                                remainingPays.shift();
+                                                                            } else {
+                                                                                currentPaid = monthlyAmount;
+                                                                                remainingPays[0] = { ...p, amount: pAmt - needed };
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                        const isPaid = currentPaid >= (monthlyAmount - 0.5);
+
+                                                                        return (
+                                                                            <span
+                                                                                key={idx}
+                                                                                className={`px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tighter rounded border ${!inFilterRange
+                                                                                    ? 'bg-gray-50 text-gray-400 border-gray-200 opacity-60'
+                                                                                    : isPaid
+                                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                                                                                    }`}
+                                                                                title={isPaid ? 'Paid' : `AED ${currentPaid.toFixed(0)} / ${monthlyAmount.toFixed(0)}`}
+                                                                            >
+                                                                                {m.substring(0, 3)}
+                                                                            </span>
+                                                                        );
+                                                                    });
+                                                                })()}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                                                {hasFineUploadedAttachment(fine) && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => handleViewFineUploadedAttachment(fine, e)}
+                                                                        className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
+                                                                        title="View attachment"
+                                                                    >
+                                                                        <FileText size={18} />
+                                                                    </button>
+                                                                )}
+                                                                {['Approved', 'Paid'].includes(fine.fineStatus) && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => handleViewFineFormPdf(fine, e)}
+                                                                        className="text-emerald-600 hover:text-emerald-700 transition-colors p-1 hover:bg-emerald-50 rounded"
+                                                                        title="View fine form PDF"
+                                                                    >
+                                                                        <Download size={18} />
+                                                                    </button>
+                                                                )}
+                                                                {!hasFineUploadedAttachment(fine) &&
+                                                                    !['Approved', 'Paid'].includes(fine.fineStatus) && (
+                                                                        <span className="text-gray-400">—</span>
+                                                                    )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                            {paymentLabel === 'Not Paid' && canPayCompany ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => startCompanyFineRefund([fine])}
+                                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider shadow-sm active:scale-95 transition-all"
+                                                                    title="Pay fine — Expense Refund (Zoho Banking)"
+                                                                >
+                                                                    <Wallet size={14} />
+                                                                    Pay
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-gray-400 text-xs">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                            <button
+                                                                type="button"
+                                                                data-nav-href={
+                                                                    fine.fineId || fine._id
+                                                                        ? `/HRM/Fine/${encodeURIComponent(fine.fineId || fine._id)}`
+                                                                        : undefined
+                                                                }
+                                                                onClick={(e) => openFineDetails(fine, e)}
+                                                                className="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+                                                                title="Open fine details"
+                                                            >
+                                                                <ExternalLink size={16} />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    {isExpanded && (
+                                                        <tr>
+                                                            <td colSpan={12} className="bg-gray-50/50 p-4">
+                                                                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                                                    <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <History size={14} className="text-blue-500" />
+                                                                            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment Receipts</h4>
+                                                                        </div>
+                                                                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100 italic">
+                                                                            Individual History
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="p-0">
+                                                                        {loadingPayments ? (
+                                                                            <div className="p-8 text-center">
+                                                                                <div className="w-6 h-6 border-2 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-2"></div>
+                                                                                <p className="text-xs text-gray-400 font-bold uppercase tracking-tight">Loading receipts...</p>
+                                                                            </div>
+                                                                        ) : finePayments.length === 0 ? (
+                                                                            <div className="p-8 text-center text-gray-400 text-xs font-bold uppercase tracking-widest">
+                                                                                No payment receipts found for this fine.
+                                                                            </div>
+                                                                        ) : (
+                                                                            <table className="w-full text-left text-sm">
+                                                                                <thead>
+                                                                                    <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                                                                        <th className="px-4 py-2">Receipt No</th>
+                                                                                        <th className="px-4 py-2">Date</th>
+                                                                                        <th className="px-4 py-2">Amount</th>
+                                                                                        <th className="px-4 py-2">Status</th>
+                                                                                        <th className="px-4 py-2">Attachment</th>
+                                                                                        <th className="px-4 py-2 text-right">Action</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    {finePayments.map((pay) => (
+                                                                                        <tr key={pay._id} className={`border-b border-slate-50 transition-colors group ${getPaymentStatusSurfaceClass(pay.status)}`}>
+                                                                                            <td className="px-4 py-3 font-bold text-slate-700">{pay.paymentId}</td>
+                                                                                            <td className="px-4 py-3 text-slate-500">{new Date(pay.paymentDate || pay.createdAt).toLocaleDateString()}</td>
+                                                                                            <td className={`px-4 py-3 font-black ${getPaymentAmountTextClass(pay.status)}`}>AED {pay.amount?.toFixed(2)}</td>
+                                                                                            <td className="px-4 py-3">
+                                                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${getPaymentStatusBadgeClass(pay.status)}`}>
+                                                                                                    {getPaymentStatusLabel(pay.status)}
+                                                                                                </span>
+                                                                                            </td>
+                                                                                            <td className="px-4 py-3">
+                                                                                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                                                                                    {(() => {
+                                                                                                        const viewerDoc = normalizePaymentAttachmentForViewer(
+                                                                                                            pay.attachment,
+                                                                                                            `${pay.paymentId || 'Payment'}-attachment`
+                                                                                                        );
+                                                                                                        if (!viewerDoc) {
+                                                                                                            return <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide">No File</span>;
+                                                                                                        }
+                                                                                                        return (
+                                                                                                            <button
+                                                                                                                onClick={() =>
+                                                                                                                    onViewDocument({
+                                                                                                                        ...viewerDoc,
+                                                                                                                        moduleId: 'hrm_fine',
+                                                                                                                        allowDownload: accSalaryFine.download,
+                                                                                                                    })
+                                                                                                                }
+                                                                                                                className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
+                                                                                                                title="View Attachment"
+                                                                                                            >
+                                                                                                                <FileText size={16} />
+                                                                                                            </button>
+                                                                                                        );
+                                                                                                    })()}
+                                                                                                </div>
+                                                                                            </td>
+                                                                                            <td className="px-4 py-3 text-right">
+                                                                                                <button
+                                                                                                    onClick={() => setSelectedInvoice(pay)}
+                                                                                                    className="text-blue-600 hover:text-blue-700 font-bold text-[10px] uppercase tracking-widest flex items-center gap-1 ml-auto group"
+                                                                                                >
+                                                                                                    View Invoice
+                                                                                                    <ArrowRightLeft size={12} className="group-hover:translate-x-1 transition-transform" />
+                                                                                                </button>
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={12} className="py-16 text-center text-gray-400 text-sm">
+                                                {isFineMonthFilterActive
+                                                    ? (fineMonthFilterInvalid ? 'Invalid month range' : 'No fines in selected month range')
+                                                    : 'No Fines to display'}
+                                            </td>
+                                        </tr>
+                                    )
+                                )}
+
+                                {selectedSalaryAction === 'Rewards' && (
+                                    (() => {
+                                        const profileRewards = (rewards || []).filter(isRewardVisibleOnEmployeeProfile);
+                                        return profileRewards.length > 0 ? (
+                                            profileRewards.map((reward, index) => {
+                                                const paymentLabel = formatRewardPaymentLabel(reward);
+                                                const statusLabel = formatRewardStatusLabel(
+                                                    reward.rewardStatus,
+                                                    reward.rewardType,
+                                                );
+                                                return (
+                                                    <tr
+                                                        key={reward._id || index}
+                                                        data-nav-href={
+                                                            reward?.rewardId || reward?._id
+                                                                ? `/HRM/Reward/rewrd.${encodeURIComponent(reward.rewardId || reward._id)}`
+                                                                : undefined
+                                                        }
+                                                        onClick={(e) => openRewardDetails(reward, e)}
+                                                        className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
+                                                    >
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {reward.awardedDate ? formatDate(reward.awardedDate) : '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {reward.awardedDate ? new Date(reward.awardedDate).toLocaleString('default', { month: 'long' }) : '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {reward.title || reward.description || '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            AED {reward.amount?.toFixed(2) || '0.00'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700 font-medium">
+                                                            {statusLabel}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm">
+                                                            <span
+                                                                className={
+                                                                    paymentLabel === 'Paid'
+                                                                        ? 'font-medium text-green-700'
+                                                                        : paymentLabel === 'Not Paid'
+                                                                            ? 'font-medium text-amber-700'
+                                                                            : 'text-gray-500'
+                                                                }
+                                                            >
+                                                                {paymentLabel}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                            {canAccountsPayCashReward(reward, currentUser) &&
+                                                                isRewardPaymentEligible(reward) ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const prefill = buildRewardPaymentPrefill(reward, {
+                                                                            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+                                                                        });
+                                                                        if (!prefill) return;
+                                                                        sessionStorage.setItem(
+                                                                            'rewardPaymentPrefill',
+                                                                            JSON.stringify(prefill),
+                                                                        );
+                                                                        router.push('/Accounts/Payments?addRewardPay=1');
+                                                                    }}
+                                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                                >
+                                                                    <Wallet size={12} />
+                                                                    Pay
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-gray-400">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setSelectedCertificate(reward);
+                                                                    setShowCertificate(true);
+                                                                }}
+                                                                className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700 font-medium transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                            >
+                                                                <FileText size={16} />
+                                                                <span className="text-xs">View certificate</span>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        ) : (
+                                            <tr>
+                                                <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
+                                                    No Rewards to display
+                                                </td>
+                                            </tr>
+                                        );
+                                    })()
+                                )}
+
+                                {/* Handling other tabs that are not yet implemented with data */}
+                                {selectedSalaryAction === 'Loans' && (
+                                    (() => {
+                                        const actualLoans = (loans || []).filter(
+                                            (l) =>
+                                                (l.type || 'Loan') === 'Loan' &&
+                                                isLoanVisibleOnEmployeeProfile(l),
+                                        );
+                                        return actualLoans.length > 0 ? (
+                                            actualLoans.map((loan, index) => {
+                                                const statusLabel = formatLoanProfileStatus(loan);
+                                                const paymentLabel = formatLoanProfilePaymentLabel(loan);
+                                                const canPay =
+                                                    paymentLabel === 'Not Paid' &&
+                                                    (canAccountsCollectLoanRepayment(loan, currentUser) ||
+                                                        isAccountsUser);
+                                                return (
+                                                    <tr
+                                                        key={loan._id || index}
+                                                        data-nav-href={
+                                                            loan._id || loan.id
+                                                                ? `/HRM/LoanAndAdvance/${String(loan.type || 'Loan').replace(/\s+/g, '-')}-${loan._id || loan.id}`
+                                                                : undefined
+                                                        }
+                                                        className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                                                        onClick={(e) => openLoanAdvanceDetails(loan, e)}
+                                                    >
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {loan.loanId || 'Loan'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {loan.createdAt ? formatDate(loan.createdAt) : (loan.appliedDate ? formatDate(loan.appliedDate) : '—')}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            AED {Number(loan.amount || 0).toFixed(2)}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            AED {loan.duration ? (Number(loan.amount || 0) / loan.duration).toFixed(2) : '0.00'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-medium text-gray-700">
+                                                            {statusLabel}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm">
+                                                            <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
+                                                                {paymentLabel}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {renderLoanAdvanceScheduleChips(loan, allEmployeePayments)}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                            {canPay ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => startLoanCompanyRefund([loan])}
+                                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                                    title="Collect loan repayment — Expense Refund (Zoho Banking)"
+                                                                >
+                                                                    <Wallet size={12} />
+                                                                    Pay
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-gray-400">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                            <LoanPaymentReceiptsDropdown
+                                                                loan={loan}
+                                                                payments={allEmployeePayments}
+                                                                requestAttachment={
+                                                                    normalizePaymentAttachmentForViewer(
+                                                                        loan.attachment,
+                                                                        loan.loanId || 'Loan-attachment',
+                                                                    )
+                                                                }
+                                                                onViewRequestAttachment={() => {
+                                                                    const doc = normalizePaymentAttachmentForViewer(
+                                                                        loan.attachment,
+                                                                        loan.loanId || 'Loan-attachment',
+                                                                    );
+                                                                    if (!doc) return;
+                                                                    onViewDocument({
+                                                                        ...doc,
+                                                                        moduleId: 'hrm_loan',
+                                                                        allowDownload: accSalaryLoans.download,
+                                                                    });
+                                                                }}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        ) : (
+                                            <tr>
+                                                <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
+                                                    No Loans to display
+                                                </td>
+                                            </tr>
+                                        );
+                                    })()
+                                )}
+
+                                {selectedSalaryAction === 'Advance' && (
+                                    (() => {
+                                        const advances = (loans || []).filter(
+                                            (l) => l.type === 'Advance' && isLoanVisibleOnEmployeeProfile(l),
+                                        );
+                                        return advances.length > 0 ? (
+                                            advances.map((advance, index) => {
+                                                const statusLabel = formatLoanProfileStatus(advance);
+                                                const paymentLabel = formatLoanProfilePaymentLabel(advance);
+                                                const canPay =
+                                                    paymentLabel === 'Not Paid' &&
+                                                    (canAccountsCollectLoanRepayment(advance, currentUser) ||
+                                                        isAccountsUser);
+                                                return (
+                                                    <tr
+                                                        key={advance._id || index}
+                                                        data-nav-href={
+                                                            advance._id || advance.id
+                                                                ? `/HRM/LoanAndAdvance/Advance-${advance._id || advance.id}`
+                                                                : undefined
+                                                        }
+                                                        className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                                                        onClick={(e) => openLoanAdvanceDetails(advance, e)}
+                                                    >
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {advance.loanId || 'Advance'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {advance.createdAt ? formatDate(advance.createdAt) : (advance.appliedDate ? formatDate(advance.appliedDate) : '—')}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            AED {Number(advance.amount || 0).toFixed(2)}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            AED {advance.duration ? (Number(advance.amount || 0) / advance.duration).toFixed(2) : '0.00'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-medium text-gray-700">
+                                                            {statusLabel}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm">
+                                                            <span className={paymentLabel === 'Paid' ? 'font-medium text-green-700' : paymentLabel === 'Not Paid' ? 'font-medium text-amber-700' : 'text-gray-500'}>
+                                                                {paymentLabel}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {renderLoanAdvanceScheduleChips(advance, allEmployeePayments)}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                            {canPay ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => startLoanCompanyRefund([advance])}
+                                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"
+                                                                    title="Collect advance repayment — Expense Refund (Zoho Banking)"
+                                                                >
+                                                                    <Wallet size={12} />
+                                                                    Pay
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-gray-400">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                            <LoanPaymentReceiptsDropdown
+                                                                loan={advance}
+                                                                payments={allEmployeePayments}
+                                                                requestAttachment={
+                                                                    normalizePaymentAttachmentForViewer(
+                                                                        advance.attachment,
+                                                                        advance.loanId || 'Advance-attachment',
+                                                                    )
+                                                                }
+                                                                onViewRequestAttachment={() => {
+                                                                    const doc = normalizePaymentAttachmentForViewer(
+                                                                        advance.attachment,
+                                                                        advance.loanId || 'Advance-attachment',
+                                                                    );
+                                                                    if (!doc) return;
+                                                                    onViewDocument({
+                                                                        ...doc,
+                                                                        moduleId: 'hrm_loan',
+                                                                        allowDownload: accSalaryAdvance.download,
+                                                                    });
+                                                                }}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        ) : (
+                                            <tr>
+                                                <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
+                                                    No Advances to display
+                                                </td>
+                                            </tr>
+                                        );
+                                    })()
+                                )}
+
+                                {selectedSalaryAction === 'NCR' && (
+                                    <tr>
+                                        <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
+                                            No NCR Records Found
+                                        </td>
+                                    </tr>
+                                )}
+
+                                {selectedSalaryAction === 'CTC' && (
+                                    <tr>
+                                        <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
+                                            No CTC History Found
+                                        </td>
+                                    </tr>
+                                )}
+
+                                {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Your Assets' && (
+                                    (() => {
+                                        const assetsList = yourAssetsAllRows;
+
+                                        if (assetsList.length === 0) {
                                             return (
                                                 <tr>
-                                                    <td colSpan={7} className="py-8 text-center text-gray-400 text-sm italic">
-                                                        {selectedParkingEmployee ? 'No assets found for selected employee' : 'No On Leave Assets Found'}
+                                                    <td
+                                                        colSpan={8}
+                                                        className="py-16 text-center text-gray-400 text-sm"
+                                                    >
+                                                        No tools assigned
                                                     </td>
                                                 </tr>
                                             );
                                         }
 
-                                        return filteredOnLeaveAssets.map((asset, index) => {
-                                            const assignedObj = asset.assignedTo;
-                                            const assignedEmpId = assignedObj?._id || assignedObj?.id || assignedObj;
-                                            const canManageThisParkingAsset =
-                                                isLoggedInAdmin ||
-                                                isAssetController ||
-                                                (isProfileOwner && assignedEmpId && String(assignedEmpId) === String(loggedInEmployeeId));
+                                        return assetsList.map((asset, index) => {
+                                            const rowSelected = selectedYourAssets.some(
+                                                (sid) => String(sid) === String(asset._id)
+                                            );
+                                            const rowStatus = String(asset?.status || '').trim();
+                                            const rowSelectionGroup =
+                                                rowStatus === 'Assigned'
+                                                    ? 'assigned'
+                                                    : rowStatus === 'Pending'
+                                                        ? 'pending'
+                                                        : null;
+                                            const rowCheckboxDisabled =
+                                                !!yourAssetsSelectionLock &&
+                                                rowSelectionGroup !== yourAssetsSelectionLock;
 
                                             return (
                                                 <tr
                                                     key={asset._id || index}
-                                                    className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnLeaveAssets.includes(asset._id) ? 'bg-blue-50/50' : ''}`}
+                                                    className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${canBulkAssetFromProfile && rowSelected ? 'bg-blue-50/50' : ''}`}
                                                     {...navHrefProps(resolveAssetProfileHref(asset))}
-                                                onClick={() => openAssetDetailFromProfile(asset)}
+                                                    onClick={() => openAssetDetailFromProfile(asset)}
+                                                >
+                                                    <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                                                            title={
+                                                                rowCheckboxDisabled
+                                                                    ? yourAssetsSelectionLock === 'pending'
+                                                                        ? 'Assigned assets are disabled while Pending is selected'
+                                                                        : 'Pending assets are disabled while Assigned is selected'
+                                                                    : 'Select Assigned assets for Return, or Pending approvals for Accept/Reject'
+                                                            }
+                                                            checked={rowSelected}
+                                                            disabled={rowCheckboxDisabled}
+                                                            onChange={(e) => {
+                                                                const id = asset._id;
+                                                                if (e.target.checked) {
+                                                                    if (rowCheckboxDisabled) return;
+                                                                    // Keep selection locked to one status group
+                                                                    if (
+                                                                        rowSelectionGroup === 'pending' ||
+                                                                        rowSelectionGroup === 'assigned'
+                                                                    ) {
+                                                                        setSelectedYourAssets((prev) => {
+                                                                            const prevRows = (yourAssetsAllRows || []).filter(
+                                                                                (a) =>
+                                                                                    prev.some(
+                                                                                        (p) =>
+                                                                                            String(p) === String(a._id),
+                                                                                    ),
+                                                                            );
+                                                                            const mixed =
+                                                                                prevRows.length > 0 &&
+                                                                                prevRows.some(
+                                                                                    (a) =>
+                                                                                        String(a?.status || '').trim() !==
+                                                                                        (rowSelectionGroup === 'pending'
+                                                                                            ? 'Pending'
+                                                                                            : 'Assigned'),
+                                                                                );
+                                                                            const nextBase = mixed ? [] : prev;
+                                                                            return nextBase.some(
+                                                                                (p) => String(p) === String(id),
+                                                                            )
+                                                                                ? nextBase
+                                                                                : [...nextBase, id];
+                                                                        });
+                                                                    } else {
+                                                                        setSelectedYourAssets((prev) =>
+                                                                            prev.some((p) => String(p) === String(id))
+                                                                                ? prev
+                                                                                : [...prev, id],
+                                                                        );
+                                                                    }
+                                                                } else {
+                                                                    setSelectedYourAssets((prev) =>
+                                                                        prev.filter((p) => String(p) !== String(id))
+                                                                    );
+                                                                }
+                                                            }}
+                                                        />
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500 font-medium">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
+                                                            {/* Assignment meta labels intentionally removed from asset-name cell */}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {asset.assetId || '—'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <span>{asset.typeId?.name || asset.typeId || '—'}</span>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {asset.status === 'Returned' ? formatDate(asset.updatedAt) :
+                                                            (asset.assignedDate ? formatDate(asset.assignedDate) :
+                                                                (asset.updatedAt ? formatDate(asset.updatedAt) : '—'))}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm">
+                                                        <span
+                                                            className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(asset.status)}`}
+                                                        >
+                                                            {(() => {
+                                                                const statusStr = String(asset.status || '');
+                                                                let assigneeStr = '';
+                                                                if (asset.assignedTo && typeof asset.assignedTo === 'object') {
+                                                                    const first = asset.assignedTo.firstName || '';
+                                                                    const last = asset.assignedTo.lastName || '';
+                                                                    assigneeStr = first && last
+                                                                        ? `${first} ${last.charAt(0).toUpperCase()}.`
+                                                                        : first || last;
+                                                                }
+                                                                if (statusStr === 'Assigned' || isServiceActive(asset) || isLeaveActive(asset)) {
+                                                                    return formatAssetAssignmentStatusLine(asset, assigneeStr);
+                                                                }
+                                                                if (isServiceOperationalStatus(statusStr)) {
+                                                                    return formatOnServiceStatusLine(asset, assigneeStr);
+                                                                }
+                                                                if (hasActiveParkingContext(asset) || statusStr.toLowerCase() === 'on leave') {
+                                                                    return formatOnLeaveStatusLine(asset, assigneeStr);
+                                                                }
+                                                                return asset.status || 'Assigned';
+                                                            })()}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setSelectedHandoverAsset(asset);
+                                                                    setShowHandoverModal(true);
+                                                                }}
+                                                                className="text-indigo-600 hover:text-indigo-700 transition-colors p-1 hover:bg-indigo-50 rounded"
+                                                                title="View Handover Form"
+                                                            >
+                                                                <ClipboardList size={18} />
+                                                            </button>
+                                                            {(asset.file || asset.handoverForm) && (
+                                                                <button
+                                                                    onClick={() => onViewDocument({
+                                                                        data: asset.file || asset.handoverForm,
+                                                                        name: `HandoverForm_${asset.assetId}.pdf`,
+                                                                        mimeType: 'application/pdf',
+                                                                        moduleId: 'hrm_asset',
+                                                                        allowDownload: accSalaryAssetsTab.download,
+                                                                    })}
+                                                                    className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
+                                                                    title="View Signed Document"
+                                                                >
+                                                                    <FileText size={18} />
+                                                                </button>
+                                                            )}
+                                                            {asset.invoiceFile && (
+                                                                <button
+                                                                    onClick={() => onViewDocument({
+                                                                        data: asset.invoiceFile,
+                                                                        name: `Invoice_${asset.assetId}.pdf`,
+                                                                        mimeType: 'application/pdf',
+                                                                        moduleId: 'hrm_asset',
+                                                                        allowDownload: accSalaryAssetsTab.download,
+                                                                    })}
+                                                                    className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
+                                                                    title="View Invoice"
+                                                                >
+                                                                    <Download size={18} />
+                                                                </button>
+                                                            )}
+                                                            {!asset.handoverForm && !asset.file && !asset.invoiceFile && !asset && '—'}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        });
+                                    })())}
+
+                                {/* Previous Assets Section */}
+                                {selectedSalaryAction === 'Tools Asset' && assetSubTab === 'Previous Assets' && (
+                                    <React.Fragment>
+                                        {(() => {
+                                            if (loadingPreviousAssets) {
+                                                return (
+                                                    <tr>
+                                                        <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
+                                                            Loading Previous Assets...
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+
+                                            if (!toolsPreviousAssets || toolsPreviousAssets.length === 0) {
+                                                return (
+                                                    <tr>
+                                                        <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
+                                                            No Previous Tools Found
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+
+                                            return toolsPreviousAssets.map((asset, index) => (
+                                                <tr
+                                                    key={asset._id || index}
+                                                    className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                    {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                    onClick={() => openAssetDetailFromProfile(asset)}
+                                                >
+                                                    <td className="py-3 px-4 w-10"></td>
+                                                    <td className="py-3 px-4 text-sm text-slate-900 font-bold">
+                                                        {asset.name || '—'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {asset.assetId || '—'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <div className="flex flex-col">
+                                                            <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
+                                                            <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm">
+                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                            {asset.status || 'Unassigned'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {(() => {
+                                                            if (asset.assignedTo && typeof asset.assignedTo === 'object') {
+                                                                const fullName = `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim() || 'Employee';
+                                                                const empCode = asset.assignedTo.employeeId ? ` (${asset.assignedTo.employeeId})` : '';
+                                                                return <span className="font-medium text-blue-600">{fullName}{empCode}</span>;
+                                                            }
+                                                            if (asset.assignedCompany && typeof asset.assignedCompany === 'object') {
+                                                                const companyName =
+                                                                    asset.assignedCompany.nickName ||
+                                                                    asset.assignedCompany.shortName ||
+                                                                    asset.assignedCompany.name ||
+                                                                    'Company';
+                                                                const companyCode = asset.assignedCompany.companyId ? ` (${asset.assignedCompany.companyId})` : '';
+                                                                return <span className="font-medium text-emerald-600">{companyName}{companyCode}</span>;
+                                                            }
+                                                            return <span className="text-gray-400">Unassigned</span>;
+                                                        })()}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center gap-2">
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ));
+                                        })()}
+                                    </React.Fragment>
+                                )}
+
+
+                                {/* Unassigned Assets Section - for Asset Controllers */}
+                                {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'Unassigned Assets' && (
+                                    <React.Fragment>
+                                        {(() => {
+                                            const pool = toolsUnassignedAssets.filter((asset) =>
+                                                isPoolAssignableAssetStatus(asset?.status),
+                                            );
+
+                                            if (!pool.length) {
+                                                return (
+                                                    <tr>
+                                                        <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
+                                                            No Unassigned Assets Found
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+                                            return pool.map((asset, index) => (
+                                                <tr
+                                                    key={asset._id || index}
+                                                    className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedUnassignedAssets.includes(asset._id || asset.id) ? 'bg-blue-50/40' : ''}`}
+                                                    {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                    onClick={() => openAssetDetailFromProfile(asset)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
                                                             type="checkbox"
                                                             className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                            checked={selectedOnLeaveAssets.includes(asset._id)}
-                                                            disabled={!(isAssetController || isLoggedInAdmin)}
+                                                            checked={selectedUnassignedAssets.includes(asset._id || asset.id)}
                                                             onChange={(e) => {
+                                                                const rowId = asset._id || asset.id;
+                                                                if (!rowId) return;
                                                                 if (e.target.checked) {
-                                                                    setSelectedOnLeaveAssets(prev => [...prev, asset._id]);
+                                                                    setSelectedUnassignedAssets((prev) => [...new Set([...prev, rowId])]);
                                                                 } else {
-                                                                    setSelectedOnLeaveAssets(prev => prev.filter(id => id !== asset._id));
+                                                                    setSelectedUnassignedAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
                                                                 }
                                                             }}
                                                         />
@@ -4504,392 +4641,479 @@ export default function SalaryTab({
                                                     <td className="py-3 px-4 text-sm text-gray-500">
                                                         AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
                                                     </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        {(() => {
-                                                            // Handle both populated object and ObjectId string
-                                                            const assignedToObj = asset.assignedTo;
-                                                            if (assignedToObj && typeof assignedToObj === 'object' && assignedToObj.firstName) {
-                                                                return (
-                                                                    <div className="flex flex-col">
-                                                                        <span className="font-medium">{assignedToObj.firstName} {assignedToObj.lastName}</span>
-                                                                        <span className="text-xs text-gray-400">{assignedToObj.employeeId}</span>
-                                                                    </div>
-                                                                );
-                                                            } else if (assignedToObj) {
-                                                                // If it's an ObjectId, we might need to fetch it, but for now show the ID
-                                                                return <span className="text-xs text-gray-400">Employee ID: {assignedToObj.toString().substring(0, 8)}...</span>;
-                                                            }
-                                                            return '—';
-                                                        })()}
-                                                    </td>
                                                     <td className="py-3 px-4 text-sm">
-                                                        {(() => {
-                                                            let end = asset.onLeaveEndDate;
-                                                            if (!end && asset.onLeaveStartDate && asset.onLeaveDuration) {
-                                                                const start = new Date(asset.onLeaveStartDate);
-                                                                end = new Date(start);
-                                                                end.setDate(start.getDate() + parseInt(asset.onLeaveDuration));
-                                                            }
-
-                                                            if (!end) return <span className="text-gray-400">—</span>;
-
-                                                            const today = new Date();
-                                                            today.setHours(0, 0, 0, 0);
-                                                            const target = new Date(end);
-                                                            target.setHours(0, 0, 0, 0);
-
-                                                            const diffTime = target - today;
-                                                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                                                            if (diffDays > 0) {
-                                                                return (
-                                                                    <div className="flex flex-col">
-                                                                        <div className="flex items-center gap-1.5">
-                                                                            <span className="text-emerald-600 font-black text-xs uppercase tracking-tight">{diffDays} Days Left</span>
-                                                                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                                                        </div>
-                                                                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight mt-0.5">End: {formatDate(end)}</span>
-                                                                    </div>
-                                                                );
-                                                            }
-                                                            if (diffDays === 0) {
-                                                                return (
-                                                                    <div className="flex flex-col">
-                                                                        <span className="text-amber-600 font-black uppercase tracking-tight text-xs flex items-center gap-1.5">
-                                                                            Expires Today
-                                                                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                                                        </span>
-                                                                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight mt-0.5">{formatDate(end)}</span>
-                                                                    </div>
-                                                                );
-                                                            }
-                                                            return (
-                                                                <div className="flex flex-col">
-                                                                    <div className="flex items-center gap-1.5">
-                                                                        <span className="text-rose-600 font-black text-xs uppercase tracking-tight">{Math.abs(diffDays)} Days Overdue</span>
-                                                                        <AlertTriangle size={10} className="text-rose-500" />
-                                                                    </div>
-                                                                    <span className="text-[10px] text-rose-400 font-bold uppercase tracking-tight mt-0.5">Expired: {formatDate(end)}</span>
-                                                                </div>
-                                                            );
-                                                        })()}
+                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(asset.status, asset)}`}>
+                                                            {formatAssetAssignmentStatusLine(asset, '')}
+                                                        </span>
                                                     </td>
                                                     <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            <button
-                                                                onClick={() => {
-                                                                    setExtensionReason('');
-                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'Return' });
-                                                                }}
-                                                                disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
-                                                                className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-[10px] font-black hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                                title="Return Asset (Status: Unassigned)"
-                                                            >
-                                                                <Undo2 size={12} />
-                                                                Return
-                                                            </button>
-                                                            <button
-                                                                onClick={() =>
-                                                                    setOnLeaveActionDialog({
-                                                                        isOpen: true,
-                                                                        asset,
-                                                                        action: 'OnDuty',
-                                                                    })
-                                                                }
-                                                                disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
-                                                                className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                                title={
-                                                                    parkingAssetNeedsOwnerOnDutyApproval(asset)
-                                                                        ? 'On Duty — assignee confirmation required'
-                                                                        : 'On Duty — apply immediately (unassigned)'
-                                                                }
-                                                            >
-                                                                <CheckCircle2 size={12} />
-                                                                On Duty
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleReportDamage(asset)}
-                                                                disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
-                                                                className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-[10px] font-black hover:bg-rose-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                                title="Report Loss & Damage"
-                                                            >
-                                                                <X size={12} />
-                                                                Loss &amp; Damage
-                                                            </button>
+                                                        <div className="flex items-center gap-2">
+                                                            {isPoolAssignableAssetStatus(asset?.status) ? (
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setSelectedAssignAsset(asset);
+                                                                        setShowAssignModal(true);
+                                                                    }}
+                                                                    className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                                    title="Assign Asset"
+                                                                >
+                                                                    <UserPlus size={18} />
+                                                                </button>
+                                                            ) : null}
                                                         </div>
                                                     </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">—</td>
                                                 </tr>
-                                            )
-                                        });
-                                    })()}
-                                </React.Fragment>
-                            )}
+                                            ));
+                                        })()}
+                                    </React.Fragment>
+                                )}
 
-                            {/* On Service Assets Section - for Asset Controllers */}
-                            {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Service' && (
-                                <React.Fragment>
-                                    {(() => {
-                                        if (!onServiceActiveAssets || onServiceActiveAssets.length === 0) {
-                                            return (
-                                                <tr>
-                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm italic">
-                                                        No On Service Assets Found
-                                                    </td>
-                                                </tr>
-                                            );
-                                        }
-
-                                        return onServiceActiveAssets.map((asset, index) => {
-                                            const assignedObj = asset.assignedTo;
-                                            const assignedEmpId = assignedObj?._id || assignedObj?.id || assignedObj;
-                                            const canManageThisServiceAsset =
-                                                isLoggedInAdmin ||
-                                                isAssetController ||
-                                                (isProfileOwner && assignedEmpId && String(assignedEmpId) === String(loggedInEmployeeId));
-                                            const rowId = asset._id || asset.id;
-                                            const latestService = Array.isArray(asset.services) && asset.services.length
-                                                ? asset.services[asset.services.length - 1]
-                                                : null;
-                                            const expiry = latestService?.expiryDate ? new Date(latestService.expiryDate) : null;
-                                            const now = new Date();
-                                            now.setHours(0, 0, 0, 0);
-                                            const target = expiry ? new Date(expiry) : null;
-                                            if (target) target.setHours(0, 0, 0, 0);
-                                            const remainingDays = target ? Math.ceil((target - now) / (1000 * 60 * 60 * 24)) : null;
-                                            return (
-                                                <tr
-                                                    key={rowId || index}
-                                                    className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnServiceAssets.includes(rowId) ? 'bg-blue-50/50' : ''}`}
-                                                    {...navHrefProps(resolveAssetProfileHref(asset))}
-                                                onClick={() => openAssetDetailFromProfile(asset)}
-                                                >
-                                                    <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
-                                                        <input
-                                                            type="checkbox"
-                                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                            checked={selectedOnServiceAssets.includes(rowId)}
-                                                            disabled={!(isAssetController || isLoggedInAdmin)}
-                                                            onChange={(e) => {
-                                                                if (!rowId) return;
-                                                                if (e.target.checked) {
-                                                                    setSelectedOnServiceAssets((prev) => [...prev, rowId]);
-                                                                } else {
-                                                                    setSelectedOnServiceAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
-                                                                }
-                                                            }}
-                                                        />
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-slate-900 font-bold">{asset.name || '—'}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">{asset.assetId || '—'}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        <div className="flex flex-col">
-                                                            <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
-                                                            <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        {assignedObj?.firstName
-                                                            ? `${assignedObj.firstName} ${assignedObj.lastName} (${assignedObj.employeeId || '—'})`
-                                                            : '—'}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        {remainingDays == null ? (
-                                                            '—'
-                                                        ) : remainingDays > 0 ? (
-                                                            <span className="text-emerald-600 font-black text-xs uppercase tracking-tight">{remainingDays} Days Left</span>
-                                                        ) : remainingDays === 0 ? (
-                                                            <span className="text-amber-600 font-black text-xs uppercase tracking-tight">Expires Today</span>
-                                                        ) : (
-                                                            <span className="text-rose-600 font-black text-xs uppercase tracking-tight">{Math.abs(remainingDays)} Days Overdue</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            <button
-                                                                onClick={() => {
-                                                                    setExtensionReason('');
-                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceReturn' });
-                                                                }}
-                                                                disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
-                                                                className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-[10px] font-black hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                            >
-                                                                <Undo2 size={12} />
-                                                                Return
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setExtensionDays(1);
-                                                                    setExtensionReason('');
-                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceExtend' });
-                                                                }}
-                                                                disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
-                                                                className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[10px] font-black hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                            >
-                                                                <Clock size={12} />
-                                                                Extend
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceLive' });
-                                                                }}
-                                                                disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
-                                                                className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                            >
-                                                                <CheckCircle2 size={12} />
-                                                                Live
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        });
-                                    })()}
-                                </React.Fragment>
-                            )}
-
-                            {selectedSalaryAction === 'Tools Asset' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
-                                <React.Fragment>
-                                    {loadingCompanyAssets ? (
-                                        <tr>
-                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
-                                                <div className="flex flex-col items-center gap-2">
-                                                    <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-500 rounded-full animate-spin"></div>
-                                                    <span>Loading company assets...</span>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ) : !companyAssets || companyAssets.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm italic">
-                                                No Company Assets Found
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        (() => {
-                                            // Filter assets by selected company tab
-                                            const filteredAssets = companyAssetsForActiveTab;
-
-                                            if (filteredAssets.length === 0) {
+                                {/* On Leave Assets Section - for Asset Controllers */}
+                                {selectedSalaryAction === 'Tools Asset' && isAssetController && assetSubTab === 'On Leave' && (
+                                    <React.Fragment>
+                                        {(() => {
+                                            if (!filteredOnLeaveAssets || filteredOnLeaveAssets.length === 0) {
                                                 return (
                                                     <tr>
-                                                        <td colSpan={9} className="py-16 text-center text-gray-400 text-sm italic">
-                                                            {selectedCompanyTab ? 'No assets found for selected company' : 'No Company Assets Found'}
+                                                        <td colSpan={7} className="py-8 text-center text-gray-400 text-sm italic">
+                                                            {selectedParkingEmployee ? 'No assets found for selected employee' : 'No On Leave Assets Found'}
                                                         </td>
                                                     </tr>
                                                 );
                                             }
 
-                                            return filteredAssets.map((asset, index) => (
-                                                <tr
-                                                    key={asset._id || index}
-                                                    className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedCompanyAssets.some((sid) => String(sid) === String(asset._id || asset.id)) ? 'bg-blue-50/40' : ''}`}
-                                                    {...navHrefProps(resolveAssetProfileHref(asset))}
-                                                onClick={() => openAssetDetailFromProfile(asset)}
-                                                >
-                                                    <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
-                                                        <input
-                                                            type="checkbox"
-                                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                            checked={selectedCompanyAssets.some(
-                                                                (sid) => String(sid) === String(asset._id || asset.id)
-                                                            )}
-                                                            onChange={(e) => {
-                                                                const rowId = asset._id || asset.id;
-                                                                if (!rowId) return;
-                                                                if (e.target.checked) {
-                                                                    setSelectedCompanyAssets((prev) => [...new Set([...prev, rowId])]);
-                                                                } else {
-                                                                    setSelectedCompanyAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
-                                                                }
-                                                            }}
-                                                        />
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500 font-medium">
-                                                        <div className="flex flex-col gap-1">
-                                                            <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        {asset.assetId || '—'}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        <div className="flex flex-col">
-                                                            <span>{asset.typeId?.name || asset.typeId || '—'}</span>
-                                                            <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId || ''}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
-                                                        {asset.purchaseDate ? formatDate(asset.purchaseDate) : '—'}
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm">
-                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
-                                                            asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                                                'bg-emerald-100 text-emerald-700'
-                                                            }`}>
-                                                            {asset.status || 'Assigned'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                {...navHrefProps(resolveAssetProfileHref(asset))}
-                                                onClick={() => openAssetDetailFromProfile(asset)}
-                                                                className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
-                                                                title="View Details"
-                                                            >
-                                                                <Monitor size={18} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center gap-2">
-                                                            {(() => {
-                                                                // Helper function to extract ID from actionRequiredBy (handles ObjectId, string, or populated object)
-                                                                const getActionRequiredById = (actionRequiredBy) => {
-                                                                    if (!actionRequiredBy) return null;
-                                                                    if (typeof actionRequiredBy === 'object' && actionRequiredBy._id) {
-                                                                        return actionRequiredBy._id.toString();
+                                            return filteredOnLeaveAssets.map((asset, index) => {
+                                                const assignedObj = asset.assignedTo;
+                                                const assignedEmpId = assignedObj?._id || assignedObj?.id || assignedObj;
+                                                const canManageThisParkingAsset =
+                                                    isLoggedInAdmin ||
+                                                    isAssetController ||
+                                                    (isProfileOwner && assignedEmpId && String(assignedEmpId) === String(loggedInEmployeeId));
+
+                                                return (
+                                                    <tr
+                                                        key={asset._id || index}
+                                                        className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnLeaveAssets.includes(asset._id) ? 'bg-blue-50/50' : ''}`}
+                                                        {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                        onClick={() => openAssetDetailFromProfile(asset)}
+                                                    >
+                                                        <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                                checked={selectedOnLeaveAssets.includes(asset._id)}
+                                                                disabled={!(isAssetController || isLoggedInAdmin)}
+                                                                onChange={(e) => {
+                                                                    if (e.target.checked) {
+                                                                        setSelectedOnLeaveAssets(prev => [...prev, asset._id]);
+                                                                    } else {
+                                                                        setSelectedOnLeaveAssets(prev => prev.filter(id => id !== asset._id));
                                                                     }
-                                                                    return actionRequiredBy.toString();
-                                                                };
-
-                                                                const actionRequiredById = getActionRequiredById(asset.actionRequiredBy);
-                                                                const loggedInId = loggedInEmployeeId?.toString();
-
-                                                                // Show button ONLY if status is Pending AND actionRequiredBy matches logged-in EmployeeBasic ObjectId
-                                                                // Also check if user is HR from flowchart
-                                                                const shouldShowButton = asset.status === 'Pending' &&
-                                                                    actionRequiredById &&
-                                                                    loggedInId &&
-                                                                    actionRequiredById === loggedInId;
-
-                                                                return shouldShowButton ? (
-                                                                    <button
-                                                                        {...navHrefProps(resolveAssetProfileHref(asset, 'authAction=true'))}
-                                                                        onClick={() => openAssetDetailFromProfile(asset, 'authAction=true')}
-                                                                        className="px-3 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1"
-                                                                    >
-                                                                        <CheckCircle2 size={12} />
-                                                                        REVIEW APPROVAL
-                                                                    </button>
-                                                                ) : '—';
+                                                                }}
+                                                            />
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-slate-900 font-bold">
+                                                            {asset.name || '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {asset.assetId || '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex flex-col">
+                                                                <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
+                                                                <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {(() => {
+                                                                // Handle both populated object and ObjectId string
+                                                                const assignedToObj = asset.assignedTo;
+                                                                if (assignedToObj && typeof assignedToObj === 'object' && assignedToObj.firstName) {
+                                                                    return (
+                                                                        <div className="flex flex-col">
+                                                                            <span className="font-medium">{assignedToObj.firstName} {assignedToObj.lastName}</span>
+                                                                            <span className="text-xs text-gray-400">{assignedToObj.employeeId}</span>
+                                                                        </div>
+                                                                    );
+                                                                } else if (assignedToObj) {
+                                                                    // If it's an ObjectId, we might need to fetch it, but for now show the ID
+                                                                    return <span className="text-xs text-gray-400">Employee ID: {assignedToObj.toString().substring(0, 8)}...</span>;
+                                                                }
+                                                                return '—';
                                                             })()}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ));
-                                        })()
-                                    )}
-                                </React.Fragment>
-                            )}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm">
+                                                            {(() => {
+                                                                let end = asset.onLeaveEndDate;
+                                                                if (!end && asset.onLeaveStartDate && asset.onLeaveDuration) {
+                                                                    const start = new Date(asset.onLeaveStartDate);
+                                                                    end = new Date(start);
+                                                                    end.setDate(start.getDate() + parseInt(asset.onLeaveDuration));
+                                                                }
 
-                        </tbody>
-                    </table>
-                </div>
+                                                                if (!end) return <span className="text-gray-400">—</span>;
+
+                                                                const today = new Date();
+                                                                today.setHours(0, 0, 0, 0);
+                                                                const target = new Date(end);
+                                                                target.setHours(0, 0, 0, 0);
+
+                                                                const diffTime = target - today;
+                                                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                                                if (diffDays > 0) {
+                                                                    return (
+                                                                        <div className="flex flex-col">
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <span className="text-emerald-600 font-black text-xs uppercase tracking-tight">{diffDays} Days Left</span>
+                                                                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                                            </div>
+                                                                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight mt-0.5">End: {formatDate(end)}</span>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                if (diffDays === 0) {
+                                                                    return (
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-amber-600 font-black uppercase tracking-tight text-xs flex items-center gap-1.5">
+                                                                                Expires Today
+                                                                                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                                                            </span>
+                                                                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight mt-0.5">{formatDate(end)}</span>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <div className="flex flex-col">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className="text-rose-600 font-black text-xs uppercase tracking-tight">{Math.abs(diffDays)} Days Overdue</span>
+                                                                            <AlertTriangle size={10} className="text-rose-500" />
+                                                                        </div>
+                                                                        <span className="text-[10px] text-rose-400 font-bold uppercase tracking-tight mt-0.5">Expired: {formatDate(end)}</span>
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setExtensionReason('');
+                                                                        setOnLeaveActionDialog({ isOpen: true, asset, action: 'Return' });
+                                                                    }}
+                                                                    disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
+                                                                    className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-[10px] font-black hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                                    title="Return Asset (Status: Unassigned)"
+                                                                >
+                                                                    <Undo2 size={12} />
+                                                                    Return
+                                                                </button>
+                                                                <button
+                                                                    onClick={() =>
+                                                                        setOnLeaveActionDialog({
+                                                                            isOpen: true,
+                                                                            asset,
+                                                                            action: 'OnDuty',
+                                                                        })
+                                                                    }
+                                                                    disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
+                                                                    className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                                    title={
+                                                                        parkingAssetNeedsOwnerOnDutyApproval(asset)
+                                                                            ? 'On Duty — assignee confirmation required'
+                                                                            : 'On Duty — apply immediately (unassigned)'
+                                                                    }
+                                                                >
+                                                                    <CheckCircle2 size={12} />
+                                                                    On Duty
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleReportDamage(asset)}
+                                                                    disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
+                                                                    className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-[10px] font-black hover:bg-rose-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                                    title="Report Loss & Damage"
+                                                                >
+                                                                    <X size={12} />
+                                                                    Loss &amp; Damage
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            });
+                                        })()}
+                                    </React.Fragment>
+                                )}
+
+                                {/* On Service Assets Section - for Asset Controllers */}
+                                {selectedSalaryAction === 'Tools Asset' && canManageParkingTab && assetSubTab === 'On Service' && (
+                                    <React.Fragment>
+                                        {(() => {
+                                            if (!onServiceActiveAssets || onServiceActiveAssets.length === 0) {
+                                                return (
+                                                    <tr>
+                                                        <td colSpan={8} className="py-8 text-center text-gray-400 text-sm italic">
+                                                            No On Service Assets Found
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+
+                                            return onServiceActiveAssets.map((asset, index) => {
+                                                const assignedObj = asset.assignedTo;
+                                                const assignedEmpId = assignedObj?._id || assignedObj?.id || assignedObj;
+                                                const canManageThisServiceAsset =
+                                                    isLoggedInAdmin ||
+                                                    isAssetController ||
+                                                    (isProfileOwner && assignedEmpId && String(assignedEmpId) === String(loggedInEmployeeId));
+                                                const rowId = asset._id || asset.id;
+                                                const latestService = Array.isArray(asset.services) && asset.services.length
+                                                    ? asset.services[asset.services.length - 1]
+                                                    : null;
+                                                const expiry = latestService?.expiryDate ? new Date(latestService.expiryDate) : null;
+                                                const now = new Date();
+                                                now.setHours(0, 0, 0, 0);
+                                                const target = expiry ? new Date(expiry) : null;
+                                                if (target) target.setHours(0, 0, 0, 0);
+                                                const remainingDays = target ? Math.ceil((target - now) / (1000 * 60 * 60 * 24)) : null;
+                                                return (
+                                                    <tr
+                                                        key={rowId || index}
+                                                        className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnServiceAssets.includes(rowId) ? 'bg-blue-50/50' : ''}`}
+                                                        {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                        onClick={() => openAssetDetailFromProfile(asset)}
+                                                    >
+                                                        <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                                checked={selectedOnServiceAssets.includes(rowId)}
+                                                                disabled={!(isAssetController || isLoggedInAdmin)}
+                                                                onChange={(e) => {
+                                                                    if (!rowId) return;
+                                                                    if (e.target.checked) {
+                                                                        setSelectedOnServiceAssets((prev) => [...prev, rowId]);
+                                                                    } else {
+                                                                        setSelectedOnServiceAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-slate-900 font-bold">{asset.name || '—'}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">{asset.assetId || '—'}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex flex-col">
+                                                                <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
+                                                                <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {assignedObj?.firstName
+                                                                ? `${assignedObj.firstName} ${assignedObj.lastName} (${assignedObj.employeeId || '—'})`
+                                                                : '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {remainingDays == null ? (
+                                                                '—'
+                                                            ) : remainingDays > 0 ? (
+                                                                <span className="text-emerald-600 font-black text-xs uppercase tracking-tight">{remainingDays} Days Left</span>
+                                                            ) : remainingDays === 0 ? (
+                                                                <span className="text-amber-600 font-black text-xs uppercase tracking-tight">Expires Today</span>
+                                                            ) : (
+                                                                <span className="text-rose-600 font-black text-xs uppercase tracking-tight">{Math.abs(remainingDays)} Days Overdue</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setExtensionReason('');
+                                                                        setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceReturn' });
+                                                                    }}
+                                                                    disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
+                                                                    className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-[10px] font-black hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                                >
+                                                                    <Undo2 size={12} />
+                                                                    Return
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setExtensionDays(1);
+                                                                        setExtensionReason('');
+                                                                        setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceExtend' });
+                                                                    }}
+                                                                    disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
+                                                                    className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[10px] font-black hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                                >
+                                                                    <Clock size={12} />
+                                                                    Extend
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceLive' });
+                                                                    }}
+                                                                    disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
+                                                                    className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                                >
+                                                                    <CheckCircle2 size={12} />
+                                                                    Live
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            });
+                                        })()}
+                                    </React.Fragment>
+                                )}
+
+                                {selectedSalaryAction === 'Tools Asset' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
+                                    <React.Fragment>
+                                        {loadingCompanyAssets ? (
+                                            <tr>
+                                                <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
+                                                    <div className="flex flex-col items-center gap-2">
+                                                        <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-500 rounded-full animate-spin"></div>
+                                                        <span>Loading company assets...</span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : !companyAssets || companyAssets.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={9} className="py-16 text-center text-gray-400 text-sm italic">
+                                                    No Company Assets Found
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            (() => {
+                                                // Filter assets by selected company tab
+                                                const filteredAssets = companyAssetsForActiveTab;
+
+                                                if (filteredAssets.length === 0) {
+                                                    return (
+                                                        <tr>
+                                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm italic">
+                                                                {selectedCompanyTab ? 'No assets found for selected company' : 'No Company Assets Found'}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                }
+
+                                                return filteredAssets.map((asset, index) => (
+                                                    <tr
+                                                        key={asset._id || index}
+                                                        className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedCompanyAssets.some((sid) => String(sid) === String(asset._id || asset.id)) ? 'bg-blue-50/40' : ''}`}
+                                                        {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                        onClick={() => openAssetDetailFromProfile(asset)}
+                                                    >
+                                                        <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                                checked={selectedCompanyAssets.some(
+                                                                    (sid) => String(sid) === String(asset._id || asset.id)
+                                                                )}
+                                                                onChange={(e) => {
+                                                                    const rowId = asset._id || asset.id;
+                                                                    if (!rowId) return;
+                                                                    if (e.target.checked) {
+                                                                        setSelectedCompanyAssets((prev) => [...new Set([...prev, rowId])]);
+                                                                    } else {
+                                                                        setSelectedCompanyAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500 font-medium">
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {asset.assetId || '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex flex-col">
+                                                                <span>{asset.typeId?.name || asset.typeId || '—'}</span>
+                                                                <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId || ''}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {asset.purchaseDate ? formatDate(asset.purchaseDate) : '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm">
+                                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
+                                                                asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                                    'bg-emerald-100 text-emerald-700'
+                                                                }`}>
+                                                                {asset.status || 'Assigned'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    {...navHrefProps(resolveAssetProfileHref(asset))}
+                                                                    onClick={() => openAssetDetailFromProfile(asset)}
+                                                                    className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                                    title="View Details"
+                                                                >
+                                                                    <Monitor size={18} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center gap-2">
+                                                                {(() => {
+                                                                    // Helper function to extract ID from actionRequiredBy (handles ObjectId, string, or populated object)
+                                                                    const getActionRequiredById = (actionRequiredBy) => {
+                                                                        if (!actionRequiredBy) return null;
+                                                                        if (typeof actionRequiredBy === 'object' && actionRequiredBy._id) {
+                                                                            return actionRequiredBy._id.toString();
+                                                                        }
+                                                                        return actionRequiredBy.toString();
+                                                                    };
+
+                                                                    const actionRequiredById = getActionRequiredById(asset.actionRequiredBy);
+                                                                    const loggedInId = loggedInEmployeeId?.toString();
+
+                                                                    // Show button ONLY if status is Pending AND actionRequiredBy matches logged-in EmployeeBasic ObjectId
+                                                                    // Also check if user is HR from flowchart
+                                                                    const shouldShowButton = asset.status === 'Pending' &&
+                                                                        actionRequiredById &&
+                                                                        loggedInId &&
+                                                                        actionRequiredById === loggedInId;
+
+                                                                    return shouldShowButton ? (
+                                                                        <button
+                                                                            {...navHrefProps(resolveAssetProfileHref(asset, 'authAction=true'))}
+                                                                            onClick={() => openAssetDetailFromProfile(asset, 'authAction=true')}
+                                                                            className="px-3 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1"
+                                                                        >
+                                                                            <CheckCircle2 size={12} />
+                                                                            REVIEW APPROVAL
+                                                                        </button>
+                                                                    ) : '—';
+                                                                })()}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ));
+                                            })()
+                                        )}
+                                    </React.Fragment>
+                                )}
+
+                            </tbody>
+                        </table>
+                    </div>
                 )}
             </div>
 
@@ -5723,302 +5947,132 @@ export default function SalaryTab({
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Your Assets — bulk actions (same pattern as Parking: show only when selected; confirm then direct API) */}
+            <AssetHeaderChoiceModal
+                isOpen={showYourAssetsReturnChoice}
+                onClose={() => setShowYourAssetsReturnChoice(false)}
+                title="Return"
+                subtitle="Leave, Employee End of Services, or Others"
+                options={[
+                    {
+                        key: 'leave',
+                        label: 'Leave',
+                        displayLabel: 'Leave',
+                        onClick: openProfileLeaveModal,
+                    },
+                    {
+                        key: 'eos',
+                        label: 'Employee End of Services',
+                        displayLabel: 'Employee End of Services',
+                        onClick: openProfileEosModal,
+                    },
+                    {
+                        key: 'others',
+                        label: 'Others',
+                        displayLabel: 'Others',
+                        onClick: openProfileReturnModal,
+                    },
+                ]}
+            />
+
+            <TransferAssetModal
+                isOpen={profileTransferModal.isOpen}
+                onClose={() =>
+                    setProfileTransferModal({
+                        isOpen: false,
+                        actionOption: 'Leave',
+                        assets: [],
+                    })
+                }
+                asset={profileTransferModal.assets[0] || null}
+                presetAssets={profileTransferModal.assets}
+                initialActionOption={profileTransferModal.actionOption}
+                initialTransferMode={
+                    profileTransferModal.assets.length > 1 ? 'bulk' : 'individual'
+                }
+                hideModeToggle={profileTransferModal.assets.length > 1}
+                lockActionOption
+                isAssetController={Boolean(viewerIsAssetController || isAssetController)}
+                isAssignedUser={Boolean(
+                    loggedInEmployeeId &&
+                        employee?._id &&
+                        String(loggedInEmployeeId) === String(employee._id),
+                )}
+                onUpdate={() => {
+                    setSelectedYourAssets([]);
+                    setSelectedCompanyAssets([]);
+                    if (fetchEmployee) fetchEmployee();
+                }}
+            />
+
+            <ReturnAssetModal
+                isOpen={profileReturnModal.isOpen}
+                onClose={() => setProfileReturnModal({ isOpen: false, assets: [] })}
+                asset={profileReturnModal.assets[0] || null}
+                presetAssets={profileReturnModal.assets}
+                handoverTarget={
+                    typeof handoverTarget === 'object' ? handoverTarget : null
+                }
+                isAssigneeSelf={Boolean(
+                    loggedInEmployeeId &&
+                        employee?._id &&
+                        String(loggedInEmployeeId) === String(employee._id),
+                )}
+                onUpdate={() => {
+                    setSelectedYourAssets([]);
+                    setSelectedCompanyAssets([]);
+                    if (fetchEmployee) fetchEmployee();
+                }}
+            />
+
             <AlertDialog
-                open={yourAssetsBulkDialog.isOpen}
-                onOpenChange={(open) => !open && setYourAssetsBulkDialog({ isOpen: false, kind: null })}
+                open={pendingRespondConfirm.isOpen}
+                onOpenChange={(open) =>
+                    !open && setPendingRespondConfirm({ isOpen: false, action: null, mode: null })
+                }
             >
                 <AlertDialogContent>
-                    {(() => {
-                        const activeBulkIds = assetSubTab === 'Company Assets' ? selectedCompanyAssets : selectedYourAssets;
-                        return (
-                            <>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                        {yourAssetsBulkDialog.kind === 'return' && 'Bulk return'}
-                                        {yourAssetsBulkDialog.kind === 'leave' && 'Bulk transfer (leave / parking)'}
-                                        {yourAssetsBulkDialog.kind === 'endOfServices' && 'Bulk end of services'}
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        {yourAssetsBulkDialog.kind === 'return' && (
-                                            <>
-                                                Return <strong>{activeBulkIds.length}</strong> selected asset(s)? If you are the assignee,
-                                                this may send one return request to the Asset Controller; otherwise each asset is processed
-                                                separately.
-                                                {activeProfileBulkReturnSummary.blocked.length > 0 && (
-                                                    <div className="mt-4 space-y-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                                        <p className="font-semibold">
-                                                            Excluded from return ({activeProfileBulkReturnSummary.blocked.length})
-                                                        </p>
-                                                        <p>
-                                                            On service and on leave / parking assets cannot use bulk return here. Use the{' '}
-                                                            <strong>On Service</strong> or <strong>Parking</strong> tabs instead.
-                                                        </p>
-                                                        <p className="text-xs text-amber-800">
-                                                            {formatAssetListSummary(
-                                                                activeProfileBulkReturnSummary.blocked.map((row) => row.asset),
-                                                            )}
-                                                        </p>
-                                                    </div>
-                                                )}
-                                                {activeProfileBulkReturnSummary.eligible.length > 0 && (
-                                                    <p className="mt-3 text-sm text-slate-600">
-                                                        <strong>{activeProfileBulkReturnSummary.eligible.length}</strong> asset(s) eligible for return.
-                                                    </p>
-                                                )}
-                                                {!activeProfileBulkReturnSummary.canSubmit && (
-                                                    <p className="mt-3 text-sm font-medium text-slate-700">
-                                                        No eligible assets selected for return.
-                                                    </p>
-                                                )}
-                                            </>
-                                        )}
-                                        {yourAssetsBulkDialog.kind === 'leave' && (
-                                            <div className="space-y-4">
-                                                <p className="text-sm text-slate-600">
-                                                    Send a <strong>Leave</strong> (parking) request for{' '}
-                                                    <strong>{activeBulkIds.length}</strong> asset(s), same API as the asset transfer flow.
-                                                </p>
-                                                {activeProfileBulkLeaveSummary.alreadyOnLeave.length > 0 && (
-                                                    <div className="rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-                                                        <p className="font-semibold">Already on leave — transfer blocked ({activeProfileBulkLeaveSummary.alreadyOnLeave.length})</p>
-                                                        <p className="mt-1 text-sky-800">
-                                                            {formatAssetListSummary(activeProfileBulkLeaveSummary.alreadyOnLeave)} cannot be transferred again.
-                                                            Use <strong>Return</strong> or <strong>Loss &amp; Damage</strong> from the Parking tab.
-                                                        </p>
-                                                    </div>
-                                                )}
-                                                {activeProfileBulkLeaveSummary.leaveApply.length > 0 && (
-                                                    <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-sm text-amber-900">
-                                                        <p className="font-semibold">Will be placed on leave ({activeProfileBulkLeaveSummary.leaveApply.length})</p>
-                                                        <p className="mt-1 text-amber-800">
-                                                            {formatAssetListSummary(activeProfileBulkLeaveSummary.leaveApply)}
-                                                        </p>
-                                                    </div>
-                                                )}
-                                                {!activeProfileBulkLeaveSummary.canSubmitLeave && (
-                                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                                                        {activeProfileBulkLeaveSummary.alreadyOnLeave.length > 0 &&
-                                                        activeProfileBulkLeaveSummary.leaveApply.length === 0
-                                                            ? 'Selected assets are already on leave. Transfer is not allowed — use Return or Loss & Damage only.'
-                                                            : 'No eligible assets for parking transfer.'}
-                                                    </div>
-                                                )}
-                                                <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
-                                                    <div className="flex-1">
-                                                        <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-2">
-                                                            Duration (days, 1–30)
-                                                        </label>
-                                                        <input
-                                                            type="number"
-                                                            min={1}
-                                                            max={30}
-                                                            value={yourAssetsBulkLeaveDuration}
-                                                            onChange={(e) => {
-                                                                const raw = e.target.value;
-                                                                if (raw === '') {
-                                                                    setYourAssetsBulkLeaveDuration('');
-                                                                    return;
-                                                                }
-                                                                const v = parseInt(raw, 10);
-                                                                if (Number.isNaN(v)) return;
-                                                                setYourAssetsBulkLeaveDuration(
-                                                                    String(Math.min(30, Math.max(1, v)))
-                                                                );
-                                                            }}
-                                                            className="w-full px-4 py-2 border border-amber-200 rounded-xl text-sm font-bold text-slate-700 bg-white shadow-sm focus:ring-2 focus:ring-amber-500 outline-none"
-                                                        />
-                                                    </div>
-                                                    <div className="w-10 h-10 rounded-xl bg-white border border-amber-100 flex items-center justify-center text-amber-700 font-black shadow-sm mt-5 text-xs">
-                                                        {yourAssetsBulkLeaveDuration ? `${yourAssetsBulkLeaveDuration}d` : '—'}
-                                                    </div>
-                                                </div>
-                                                {yourAssetsBulkLeaveDuration ? (
-                                                    <p className="text-sm font-medium text-amber-800">
-                                                        Expiration will be:{' '}
-                                                        {calculateBusinessExpiryMidnight(
-                                                            parseInt(String(yourAssetsBulkLeaveDuration), 10),
-                                                        ).toLocaleString()}
-                                                    </p>
-                                                ) : null}
-                                            </div>
-                                        )}
-                                        {yourAssetsBulkDialog.kind === 'endOfServices' && (
-                                            <>
-                                                Submit <strong>End of Services</strong> for <strong>{activeBulkIds.length}</strong>{' '}
-                                                selected asset(s)? This uses the same bulk request as the asset module (return to store flow).
-                                                {activeProfileBulkReturnSummary.blocked.length > 0 && (
-                                                    <div className="mt-4 space-y-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                                        <p className="font-semibold">
-                                                            Excluded ({activeProfileBulkReturnSummary.blocked.length})
-                                                        </p>
-                                                        <p>
-                                                            On service and on leave / parking assets are skipped. Complete service or use parking actions first.
-                                                        </p>
-                                                    </div>
-                                                )}
-                                                {activeProfileBulkReturnSummary.eligible.length > 0 && (
-                                                    <p className="mt-3 text-sm text-slate-600">
-                                                        <strong>{activeProfileBulkReturnSummary.eligible.length}</strong> asset(s) eligible for end of services.
-                                                    </p>
-                                                )}
-                                                {!activeProfileBulkReturnSummary.canSubmit && (
-                                                    <p className="mt-3 text-sm font-medium text-slate-700">
-                                                        No eligible assets selected for end of services.
-                                                    </p>
-                                                )}
-                                            </>
-                                        )}
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel disabled={processingYourAssetsBulk}>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
-                                        disabled={
-                                            processingYourAssetsBulk ||
-                                            (yourAssetsBulkDialog.kind === 'leave' && !activeProfileBulkLeaveSummary.canSubmitLeave) ||
-                                            ((yourAssetsBulkDialog.kind === 'return' || yourAssetsBulkDialog.kind === 'endOfServices') &&
-                                                !activeProfileBulkReturnSummary.canSubmit)
-                                        }
-                                        onClick={async (e) => {
-                                            e.preventDefault();
-                                            const kind = yourAssetsBulkDialog.kind;
-                                            if (!kind) return;
-
-                                            if (kind === 'leave') {
-                                                const d = parseInt(String(yourAssetsBulkLeaveDuration || '').trim(), 10);
-                                                if (!Number.isInteger(d) || d < 1 || d > 30) {
-                                                    toast({
-                                                        variant: 'destructive',
-                                                        title: 'Invalid duration',
-                                                        description: 'Enter a duration between 1 and 30 days.'
-                                                    });
-                                                    return;
-                                                }
-                                                const ids = activeProfileBulkLeaveSummary.leaveRequestIds;
-                                                if (!ids.length) {
-                                                    toast({
-                                                        variant: 'destructive',
-                                                        title: 'Nothing to transfer',
-                                                        description: 'Selected assets are on service. Parking transfer does not apply until service is complete.'
-                                                    });
-                                                    return;
-                                                }
-                                            }
-
-                                            const ids =
-                                                kind === 'leave'
-                                                    ? activeProfileBulkLeaveSummary.leaveRequestIds
-                                                    : activeProfileBulkReturnSummary.eligibleIds;
-                                            if (!ids.length) return;
-
-                                            if (kind === 'leave') {
-                                                const d = parseInt(String(yourAssetsBulkLeaveDuration || '').trim(), 10);
-                                                if (!Number.isInteger(d) || d < 1 || d > 30) {
-                                                    return;
-                                                }
-                                            }
-
-                                            setProcessingYourAssetsBulk(true);
-                                            try {
-                                                if (kind === 'return') {
-                                                    const assigneeSelf =
-                                                        loggedInEmployeeId &&
-                                                        employee?._id &&
-                                                        String(loggedInEmployeeId) === String(employee._id);
-                                                    const primary = ids[0];
-                                                    if (assigneeSelf) {
-                                                        if (ids.length > 1) {
-                                                            await axiosInstance.put(`/AssetItem/${primary}/return`, {
-                                                                bulkAssetIds: ids
-                                                            });
-                                                        } else {
-                                                            await axiosInstance.put(`/AssetItem/${primary}/return`, {});
-                                                        }
-                                                    } else {
-                                                        for (const id of ids) {
-                                                            await axiosInstance.put(`/AssetItem/${id}/return`, {});
-                                                        }
-                                                    }
-                                                    toast({
-                                                        title: 'Success',
-                                                        description: (() => {
-                                                            const skipped = activeProfileBulkReturnSummary.blocked.length;
-                                                            const base = assigneeSelf
-                                                                ? ids.length > 1
-                                                                    ? 'Return request sent to the Asset Controller for the selected assets.'
-                                                                    : 'Return request sent to the Asset Controller.'
-                                                                : `Return processed for ${ids.length} asset(s).`;
-                                                            return skipped
-                                                                ? `${base} ${skipped} on service / parking asset(s) were excluded.`
-                                                                : base;
-                                                        })()
-                                                    });
-                                                } else if (kind === 'leave') {
-                                                    const d = parseInt(String(yourAssetsBulkLeaveDuration || '').trim(), 10);
-                                                    await axiosInstance.put('/AssetItem/bulk/request-action', {
-                                                        assetIds: ids,
-                                                        actionType: 'Leave',
-                                                        reason: `Leave duration: ${d} days`,
-                                                        duration: d,
-                                                        leaveDuration: d
-                                                    });
-                                                    const skipped = activeProfileBulkLeaveSummary.onService.length;
-                                                    toast({
-                                                        title: 'Success',
-                                                        description: skipped
-                                                            ? `Leave request sent for ${ids.length} asset(s). ${skipped} on-service asset(s) unchanged.`
-                                                            : `Leave request sent for ${ids.length} asset(s).`
-                                                    });
-                                                } else if (kind === 'endOfServices') {
-                                                    await axiosInstance.put('/AssetItem/bulk/request-action', {
-                                                        assetIds: ids,
-                                                        actionType: 'End of Services',
-                                                        reason: 'End of Services return requested'
-                                                    });
-                                                    const skipped = activeProfileBulkReturnSummary.blocked.length;
-                                                    toast({
-                                                        title: 'Success',
-                                                        description: skipped
-                                                            ? `End of Services request sent for ${ids.length} asset(s). ${skipped} excluded (on service / parking).`
-                                                            : `End of Services request sent for ${ids.length} asset(s).`
-                                                    });
-                                                }
-                                                setSelectedYourAssets([]);
-                                                setSelectedCompanyAssets([]);
-                                                setYourAssetsBulkDialog({ isOpen: false, kind: null });
-                                                if (fetchEmployee) fetchEmployee();
-                                            } catch (err) {
-                                                toast({
-                                                    variant: 'destructive',
-                                                    title: 'Error',
-                                                    description:
-                                                        err.response?.data?.message || 'Bulk action failed. Try again or pick fewer items.'
-                                                });
-                                            } finally {
-                                                setProcessingYourAssetsBulk(false);
-                                            }
-                                        }}
-                                        className={
-                                            yourAssetsBulkDialog.kind === 'return'
-                                                ? 'bg-rose-600 hover:bg-rose-700 text-white'
-                                                : yourAssetsBulkDialog.kind === 'leave'
-                                                    ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                                                    : 'bg-slate-800 hover:bg-slate-900 text-white'
-                                        }
-                                    >
-                                        {processingYourAssetsBulk
-                                            ? 'Processing…'
-                                            : yourAssetsBulkDialog.kind === 'return'
-                                                ? 'Confirm return'
-                                                : yourAssetsBulkDialog.kind === 'leave'
-                                                    ? 'Submit transfer'
-                                                    : 'Submit'}
-                                    </AlertDialogAction>
-                                </AlertDialogFooter>
-                            </>
-                        );
-                    })()}
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {pendingRespondConfirm.action === 'Accept' ? 'Accept' : 'Reject'}{' '}
+                            selected pending assignment(s)?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {pendingRespondConfirm.action === 'Accept' ? (
+                                <>
+                                    Accepted assets will show status <strong>Assigned</strong> for this
+                                    employee.
+                                </>
+                            ) : (
+                                <>
+                                    Rejected assets return to the previous employee when applicable, or
+                                    become <strong>Unassigned</strong>.
+                                </>
+                            )}{' '}
+                            This will process{' '}
+                            <strong>{selectedPendingYourAssets.length}</strong> asset(s).
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={processingPendingRespond}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={processingPendingRespond}
+                            className={
+                                pendingRespondConfirm.action === 'Accept'
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    : 'bg-rose-600 hover:bg-rose-700 text-white'
+                            }
+                            onClick={async (e) => {
+                                e.preventDefault();
+                                await executeBulkPendingRespond(pendingRespondConfirm.action);
+                            }}
+                        >
+                            {processingPendingRespond
+                                ? 'Processing…'
+                                : pendingRespondConfirm.action === 'Accept'
+                                    ? 'Confirm Accept'
+                                    : 'Confirm Reject'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
 
@@ -6046,7 +6100,7 @@ export default function SalaryTab({
                             const pays = res.data?.payments || res.data || [];
                             setAllEmployeePayments(Array.isArray(pays) ? pays : []);
                         })
-                        .catch(() => {});
+                        .catch(() => { });
                     if (fetchEmployee) fetchEmployee();
                 }}
             />

@@ -8,6 +8,7 @@ import {
     loadStorageFileBlob,
     ensureDownloadFilename,
     isNonDocumentResponseContentType,
+    resolveStorageProxyKey,
 } from '@/utils/attachmentPreview';
 
 function blobToObjectUrl(blob, mimeType) {
@@ -96,6 +97,24 @@ export default function DocumentViewerContent({
             (docData.startsWith('http://') || docData.startsWith('https://'))
         ) {
             setIsLoadingSrc(true);
+
+            // Object-storage URLs must go through the API proxy (browser CORS/DNS often fail).
+            const proxyKey = resolveStorageProxyKey(docData);
+            if (proxyKey) {
+                loadStorageFileBlob(proxyKey)
+                    .then((blob) => finishWithBlob(blob, viewingDocument.mimeType))
+                    .catch((err) => {
+                        fail(
+                            err.response?.data?.message ||
+                                err.message ||
+                                'Could not load file from storage.',
+                        );
+                    });
+                return () => {
+                    cancelled = true;
+                };
+            }
+
             fetch(docData, { mode: 'cors', credentials: 'omit' })
                 .then(async (response) => {
                     if (!response.ok) {
@@ -115,7 +134,22 @@ export default function DocumentViewerContent({
                     }
                     finishWithBlob(blobData, viewingDocument.mimeType);
                 })
-                .catch((err) => fail(err.message || 'Could not load document.'));
+                .catch((err) => {
+                    // Public CDNs often block fetch() (CORS) but still allow <embed>/<img> src.
+                    const msg = String(err?.message || '');
+                    if (
+                        msg === 'Failed to fetch' ||
+                        msg.toLowerCase().includes('network') ||
+                        msg.toLowerCase().includes('cors')
+                    ) {
+                        if (!cancelled) {
+                            setDocumentSrc(`${docData}#toolbar=0`);
+                            setIsLoadingSrc(false);
+                        }
+                        return;
+                    }
+                    fail(msg || 'Could not load document.');
+                });
             return () => {
                 cancelled = true;
             };
@@ -175,11 +209,16 @@ export default function DocumentViewerContent({
                 (viewingDocument.data.startsWith('http://') ||
                     viewingDocument.data.startsWith('https://'))
             ) {
-                const response = await fetch(viewingDocument.data, { credentials: 'omit' });
-                if (!response.ok) throw new Error('Download failed');
-                blob = await response.blob();
-                if (isNonDocumentResponseContentType(blob.type)) {
-                    throw new Error('File not found in storage.');
+                const proxyKey = resolveStorageProxyKey(viewingDocument.data);
+                if (proxyKey) {
+                    blob = await loadStorageFileBlob(proxyKey);
+                } else {
+                    const response = await fetch(viewingDocument.data, { credentials: 'omit' });
+                    if (!response.ok) throw new Error('Download failed');
+                    blob = await response.blob();
+                    if (isNonDocumentResponseContentType(blob.type)) {
+                        throw new Error('File not found in storage.');
+                    }
                 }
             } else {
                 let base64Data = viewingDocument.data;

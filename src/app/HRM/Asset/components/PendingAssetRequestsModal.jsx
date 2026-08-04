@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { useRouter } from 'next/navigation';
 import BulkPendingResolveModal from './BulkPendingResolveModal';
+import BulkAssignmentAcknowledgeModal from './BulkAssignmentAcknowledgeModal';
 import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
 import { isPendingInboxRowVisible } from '../utils/assetRequestLabels';
 import { countVisibleAssetPendingInbox, dedupeAssetPendingInboxItems, invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
@@ -15,7 +16,11 @@ import {
     filterVehicleAssetInboxRows,
     isUtilityBillInboxRow,
 } from '@/utils/assetInboxScope';
-import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
+import {
+    buildAssetNotificationPath,
+    normalizeAssetNotificationItem,
+    resolveBulkAssignmentGroupId,
+} from '@/utils/assetNotificationRouting';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import { canDismissAssetInboxNotifications } from '@/utils/permissions';
 import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
@@ -53,6 +58,7 @@ export default function PendingAssetRequestsModal({
     const itemsRef = useRef(items);
     itemsRef.current = items;
     const [bulkRow, setBulkRow] = useState(null);
+    const [bulkAssignmentGroupId, setBulkAssignmentGroupId] = useState(null);
     const [ownerOnDutyRow, setOwnerOnDutyRow] = useState(null);
     const [deletingId, setDeletingId] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
@@ -141,11 +147,22 @@ export default function PendingAssetRequestsModal({
         }
         load();
         setBulkRow(null);
+        setBulkAssignmentGroupId(null);
     }, [isOpen, load, inboxScope, onPendingInboxCount]);
 
     const handleRowActivate = (row) => {
         if (row.requestType === 'Asset Owner On Duty' && row.dashboardActionId) {
             setOwnerOnDutyRow(row);
+            return;
+        }
+
+        // One bulk-assign notification → open select/accept modal here (no asset-page redirect).
+        const assignmentGroupId = resolveBulkAssignmentGroupId(row);
+        if (
+            assignmentGroupId &&
+            (row.bulkKind === 'assignment' || row.isBulk || String(row.requestType || '').includes('Assignment'))
+        ) {
+            setBulkAssignmentGroupId(assignmentGroupId);
             return;
         }
 
@@ -213,7 +230,23 @@ export default function PendingAssetRequestsModal({
         }
     };
 
-    const visibleRows = dedupeAssetPendingInboxItems(items).filter(isPendingInboxRowVisible);
+    const visibleRows = useMemo(() => {
+        return dedupeAssetPendingInboxItems(items)
+            .filter(isPendingInboxRowVisible)
+            .filter((row) => {
+                if (resolveBulkAssignmentGroupId(row)) return true;
+                if (
+                    row?.isBulk &&
+                    Array.isArray(row.bulkAssetIds) &&
+                    row.bulkAssetIds.length > 1
+                ) {
+                    return true;
+                }
+                if (String(row?.requestType || '').trim() === 'Asset Owner On Duty') return true;
+                const path = buildAssetNotificationPath(normalizeAssetNotificationItem(row));
+                return Boolean(path);
+            });
+    }, [items]);
     const notificationRows = useMemo(
         () => visibleRows.map((row, index) => mapAssetPendingInboxToRow(row, index)),
         [visibleRows],
@@ -230,7 +263,7 @@ export default function PendingAssetRequestsModal({
 
     return (
         <>
-            {!bulkRow && !ownerOnDutyRow && (
+            {!bulkRow && !ownerOnDutyRow && !bulkAssignmentGroupId && (
                 <NotificationInboxModal
                     isOpen={isOpen}
                     onClose={onClose}
@@ -245,9 +278,10 @@ export default function PendingAssetRequestsModal({
                             : 'No pending asset requests in your inbox.'
                     }
                     onItemClick={handleRowActivate}
-                    getItemHref={(row) =>
-                        buildAssetNotificationPath(normalizeAssetNotificationItem(row)) || ''
-                    }
+                    getItemHref={(row) => {
+                        if (resolveBulkAssignmentGroupId(row)) return '';
+                        return buildAssetNotificationPath(normalizeAssetNotificationItem(row)) || '';
+                    }}
                     onDelete={
                         canDeleteNotifications
                             ? (row) => setDeleteTarget(row)
@@ -261,6 +295,17 @@ export default function PendingAssetRequestsModal({
                 row={bulkRow}
                 onClose={() => setBulkRow(null)}
                 onSuccess={() => {
+                    invalidateAssetPendingInbox(inboxScope === 'vehicle' ? 'vehicle' : inboxScope === 'tools' ? 'tools' : 'all');
+                    load({ force: true });
+                    onRefreshParent?.();
+                }}
+            />
+            <BulkAssignmentAcknowledgeModal
+                isOpen={!!bulkAssignmentGroupId}
+                groupId={bulkAssignmentGroupId || ''}
+                onClose={() => setBulkAssignmentGroupId(null)}
+                onSuccess={() => {
+                    setBulkAssignmentGroupId(null);
                     invalidateAssetPendingInbox(inboxScope === 'vehicle' ? 'vehicle' : inboxScope === 'tools' ? 'tools' : 'all');
                     load({ force: true });
                     onRefreshParent?.();

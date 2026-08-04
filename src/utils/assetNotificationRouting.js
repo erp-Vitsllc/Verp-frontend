@@ -54,6 +54,20 @@ export function parseAssetNotificationMeta(extra3) {
     }
 }
 
+/** Bulk AC assignment group id from a dashboard / pending-inbox row, or ''. */
+export function resolveBulkAssignmentGroupId(rawItem = {}) {
+    const item = normalizeAssetNotificationItem(rawItem);
+    const meta = parseAssetNotificationMeta(item.extra3);
+    if (meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {
+        return String(meta.bulkAssignmentGroupId);
+    }
+    if (rawItem?.bulkKind === 'assignment' && meta?.bulkAssignmentGroupId) {
+        return String(meta.bulkAssignmentGroupId);
+    }
+    const fromRow = rawItem?.bulkAssignmentGroupId || rawItem?.groupId;
+    return fromRow ? String(fromRow) : '';
+}
+
 /** Dashboard extra3 may store a full frontend URL — router needs an app-relative path. */
 export function normalizeNotificationDestinationPath(path = '') {
     if (!path || typeof path !== 'string') return '';
@@ -152,7 +166,9 @@ export function buildVehicleDetailPath(vehicleId, params = {}) {
 function parseVehicleServiceTypeFromNotification(item = {}, meta = null) {
     const fromMeta = String(meta?.serviceType || '').trim();
     if (fromMeta) return fromMeta;
-    const match = String(item.extra1 || '').match(/—\s*(.+)$/);
+    const extra1 = String(item.extra1 || '');
+    // Match em dash, en dash, mojibake "â€”", or plain hyphen separators.
+    const match = extra1.match(/(?:—|–|â€”|-)\s*([^—–\-\n]+)$/);
     return match ? match[1].trim() : '';
 }
 
@@ -171,6 +187,21 @@ function buildOilServiceNotificationPath(vehicleId, serviceRecordId, { focus = '
 function buildTireChangeNotificationPath(vehicleId, serviceRecordId) {
     if (!vehicleId || !serviceRecordId) return '';
     return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/tire-change/${encodeURIComponent(String(serviceRecordId))}`;
+}
+
+function buildShopServiceNotificationPath(vehicleId, serviceRecordId, serviceType) {
+    if (!vehicleId || !serviceRecordId) return '';
+    const type = String(serviceType || '').trim();
+    const slug =
+        type === 'Mechanical Work'
+            ? 'mechanical-work'
+            : type === 'Body Work'
+              ? 'body-work'
+              : type === 'Accident Repair'
+                ? 'accident-repair'
+                : '';
+    if (!slug) return '';
+    return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/${slug}/${encodeURIComponent(String(serviceRecordId))}`;
 }
 
 export function resolveVehicleExpiryFocusFromLabel(label = '') {
@@ -267,6 +298,16 @@ export function buildAssetNotificationPath(rawItem) {
             ) {
                 return buildTireChangeNotificationPath(vehicleId, serviceRecordId);
             }
+            const shopPath = buildShopServiceNotificationPath(vehicleId, serviceRecordId, serviceType);
+            if (
+                shopPath &&
+                (normalized.includes('/service-requests/details/') ||
+                    normalized.includes('/mechanical-work/') ||
+                    normalized.includes('/body-work/') ||
+                    normalized.includes('/accident-repair/'))
+            ) {
+                return shopPath;
+            }
             // Ensure Accounts Make Payment inbox rows land on Zoho Make Payment card.
             if (
                 serviceType === 'Oil Service' &&
@@ -300,6 +341,8 @@ export function buildAssetNotificationPath(rawItem) {
             if (serviceType === 'Tire Change') {
                 return buildTireChangeNotificationPath(vehicleId, serviceRecordId);
             }
+            const shopPath = buildShopServiceNotificationPath(vehicleId, serviceRecordId, serviceType);
+            if (shopPath) return shopPath;
             return `/HRM/Asset/Vehicle/service-requests/details/${encodeURIComponent(String(vehicleId))}/${encodeURIComponent(String(serviceRecordId))}`;
         }
         return vehicleId

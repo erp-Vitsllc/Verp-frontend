@@ -26,8 +26,8 @@ function isRequestAborted(err) {
 }
 
 /**
- * AC bulk-assign batch: assignee (or manager delegate) reviews assets.
- * Checked = accept assignment; unchecked = decline (unassigned, or prior assignee when batch meta says so).
+ * Bulk-assign batch: assignee reviews assets in one notification.
+ * Checked = accept now; unchecked stay pending (notification remains until 0 pending).
  */
 export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClose, onSuccess }) {
     const { toast } = useToast();
@@ -107,6 +107,19 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
     }, []);
 
     const allIds = useMemo(() => items.map((row) => String(row._id)), [items]);
+    const acceptedCount = useMemo(
+        () => allIds.filter((id) => checked.has(id)).length,
+        [allIds, checked],
+    );
+    const leavePendingCount = allIds.length - acceptedCount;
+
+    const selectAll = useCallback(() => {
+        setChecked(new Set(allIds));
+    }, [allIds]);
+
+    const clearSelection = useCallback(() => {
+        setChecked(new Set());
+    }, []);
 
     const assetDetailHref = useCallback((row) => {
         const id = String(row._id);
@@ -119,9 +132,12 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
     const submit = async () => {
         if (!groupId || allIds.length === 0) return;
         const acceptedAssetIds = allIds.filter((id) => checked.has(id));
-        const rejectedAssetIds = allIds.filter((id) => !checked.has(id));
-        if (acceptedAssetIds.length + rejectedAssetIds.length !== allIds.length) {
-            toast({ variant: 'destructive', title: 'Invalid selection', description: 'Each asset must be accepted or declined.' });
+        if (acceptedAssetIds.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing selected',
+                description: 'Select at least one asset to accept. Unselected assets stay pending.',
+            });
             return;
         }
         setSubmitting(true);
@@ -129,14 +145,14 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
             const res = await axiosInstance.put('/AssetItem/bulk-assignment-respond', {
                 groupId,
                 acceptedAssetIds,
-                rejectedAssetIds,
-                comments: comments.trim() || undefined
+                rejectedAssetIds: [],
+                comments: comments.trim() || undefined,
             });
             toast({
-                title: 'Batch updated',
-                description: res.data?.message || 'Your responses were saved.'
+                title: 'Assignment updated',
+                description: res.data?.message || 'Selected assets were accepted.',
             });
-            onSuccess?.();
+            onSuccess?.({ remainingPending: res.data?.remainingPending });
             onClose?.();
         } catch (e) {
             const msg = apiErrorMessage(e, 'Try again.');
@@ -163,7 +179,7 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                         <div className="min-w-0">
                             <h2 className="text-lg font-black text-slate-900 tracking-tight">Bulk assignment</h2>
                             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Accept assigned assets (checked). Unchecked = decline — unassigned or returned to prior holder when applicable
+                                Select assets to accept. Unselected stay pending until you accept or reject them.
                             </p>
                         </div>
                     </div>
@@ -186,71 +202,93 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                     ) : items.length === 0 ? (
                         <div className="text-center py-12 text-slate-400 text-sm font-semibold">No pending items in this batch.</div>
                     ) : (
-                        items.map((row) => {
-                            const id = String(row._id);
-                            const isOn = checked.has(id);
-                            const cat = row.categoryId?.name || '—';
-                            const by = row.assignedBy
-                                ? `${row.assignedBy.firstName || ''} ${row.assignedBy.lastName || ''}`.trim() ||
-                                row.assignedBy.employeeId ||
-                                '—'
-                                : '—';
-                            const rev = row.bulkAssignment?.revertToDisplayName;
-                            return (
-                                <label
-                                    key={id}
-                                    className={`flex items-start gap-3 rounded-2xl border p-4 cursor-pointer transition-colors ${isOn ? 'border-sky-200 bg-sky-50/40' : 'border-slate-200 bg-slate-50/50 opacity-90'
+                        <>
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <p className="text-xs font-semibold text-slate-500">
+                                    {acceptedCount} selected to accept
+                                    {leavePendingCount > 0 ? ` · ${leavePendingCount} stay pending` : ''}
+                                </p>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={selectAll}
+                                        disabled={submitting}
+                                        className="text-[11px] font-bold uppercase tracking-wider text-sky-700 hover:text-sky-900 disabled:opacity-50"
+                                    >
+                                        Select all
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={clearSelection}
+                                        disabled={submitting}
+                                        className="text-[11px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 disabled:opacity-50"
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                            </div>
+                            {items.map((row) => {
+                                const id = String(row._id);
+                                const isOn = checked.has(id);
+                                const cat = row.categoryId?.name || '—';
+                                const by = row.assignedBy
+                                    ? `${row.assignedBy.firstName || ''} ${row.assignedBy.lastName || ''}`.trim() ||
+                                      row.assignedBy.employeeId ||
+                                      '—'
+                                    : '—';
+                                return (
+                                    <label
+                                        key={id}
+                                        className={`flex items-start gap-3 rounded-2xl border p-4 cursor-pointer transition-colors ${
+                                            isOn ? 'border-sky-200 bg-sky-50/40' : 'border-slate-200 bg-slate-50/50 opacity-90'
                                         }`}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                                        checked={isOn}
-                                        onChange={() => toggle(id)}
-                                    />
-                                    <div className="min-w-0 flex-1 space-y-1">
-                                        <div className="flex items-start justify-between gap-2 flex-wrap">
-                                            <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                                <Package size={16} className="text-slate-400 shrink-0" />
-                                                <span className="font-bold text-slate-900 text-sm">{row.name || 'Asset'}</span>
-                                                <span className="text-xs font-mono text-slate-500">{row.assetId}</span>
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                            checked={isOn}
+                                            onChange={() => toggle(id)}
+                                        />
+                                        <div className="min-w-0 flex-1 space-y-1">
+                                            <div className="flex items-start justify-between gap-2 flex-wrap">
+                                                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                                    <Package size={16} className="text-slate-400 shrink-0" />
+                                                    <span className="font-bold text-slate-900 text-sm">{row.name || 'Asset'}</span>
+                                                    <span className="text-xs font-mono text-slate-500">{row.assetId}</span>
+                                                </div>
+                                                <Link
+                                                    href={assetDetailHref(row)}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 shrink-0 text-[11px] font-bold text-sky-700 hover:text-sky-900 hover:underline"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onMouseDown={(e) => e.stopPropagation()}
+                                                >
+                                                    View asset
+                                                    <ExternalLink size={12} className="opacity-80" />
+                                                </Link>
                                             </div>
-                                            <Link
-                                                href={assetDetailHref(row)}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="inline-flex items-center gap-1 shrink-0 text-[11px] font-bold text-sky-700 hover:text-sky-900 hover:underline"
-                                                onClick={(e) => e.stopPropagation()}
-                                                onMouseDown={(e) => e.stopPropagation()}
-                                            >
-                                                View asset
-                                                <ExternalLink size={12} className="opacity-80" />
-                                            </Link>
-                                        </div>
-                                        <div className="text-[11px] text-slate-600">
-                                            <span className="font-semibold">{cat}</span>
-                                            <span className="mx-1 text-slate-300">·</span>
-                                            <span>From {by}</span>
-                                            {row.assignmentType ? (
-                                                <>
-                                                    <span className="mx-1 text-slate-300">·</span>
-                                                    <span>{row.assignmentType}</span>
-                                                </>
+                                            <div className="text-[11px] text-slate-600">
+                                                <span className="font-semibold">{cat}</span>
+                                                <span className="mx-1 text-slate-300">·</span>
+                                                <span>From {by}</span>
+                                                {row.assignmentType ? (
+                                                    <>
+                                                        <span className="mx-1 text-slate-300">·</span>
+                                                        <span>{row.assignmentType}</span>
+                                                    </>
+                                                ) : null}
+                                            </div>
+                                            {!isOn ? (
+                                                <p className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide pt-1">
+                                                    Will stay pending
+                                                </p>
                                             ) : null}
                                         </div>
-                                        {rev ? (
-                                            <p className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide pt-1">
-                                                If declined: returns to {rev}
-                                            </p>
-                                        ) : (
-                                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide pt-1">
-                                                If declined: returns to unassigned pool
-                                            </p>
-                                        )}
-                                    </div>
-                                </label>
-                            );
-                        })
+                                    </label>
+                                );
+                            })}
+                        </>
                     )}
                 </div>
 
@@ -265,7 +303,7 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                                 onChange={(e) => setComments(e.target.value)}
                                 rows={2}
                                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
-                                placeholder="Optional note for accepted / declined items"
+                                placeholder="Optional note for accepted assets"
                             />
                         </div>
                         <div className="flex justify-end gap-2">
@@ -280,10 +318,14 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                             <button
                                 type="button"
                                 onClick={submit}
-                                disabled={submitting}
+                                disabled={submitting || acceptedCount === 0}
                                 className="px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 shadow-lg shadow-sky-100"
                             >
-                                {submitting ? 'Saving…' : 'Submit responses'}
+                                {submitting
+                                    ? 'Saving…'
+                                    : leavePendingCount > 0
+                                      ? `Accept ${acceptedCount} selected`
+                                      : `Accept all (${acceptedCount})`}
                             </button>
                         </div>
                     </div>

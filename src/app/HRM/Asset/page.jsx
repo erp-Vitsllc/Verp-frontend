@@ -1476,31 +1476,16 @@ function AssetPageContent() {
     const categoryTabDownloadAssets = useMemo(() => {
         const q = (deferredSearchQuery || '').toLowerCase().trim();
         const officialCats = assetTypes.filter((t) => t.assetId?.startsWith('asset-cat-'));
-        const categories = officialCats.reduce((acc, cat) => {
-            acc[cat.category] = {
-                name: cat.category,
-                typeNames: cat.type ? [cat.type] : [],
-            };
-            return acc;
-        }, {});
-
-        assetTypes.forEach((curr) => {
-            const cat = categories[curr.category];
-            if (!cat) return;
-            if (curr.type && curr.type !== '-' && !cat.typeNames.includes(curr.type)) {
-                cat.typeNames.push(curr.type);
-            }
-        });
-
         const visibleCategoryNames = new Set(
-            Object.values(categories)
+            officialCats
                 .filter(
-                    (category) =>
+                    (cat) =>
                         !q ||
-                        category.name.toLowerCase().includes(q) ||
-                        (category.typeNames || []).some((typeName) => typeName.toLowerCase().includes(q)),
+                        (cat.category || '').toLowerCase().includes(q) ||
+                        (cat.type || '').toLowerCase().includes(q),
                 )
-                .map((category) => category.name),
+                .map((cat) => cat.category)
+                .filter(Boolean),
         );
         if (!visibleCategoryNames.size) return [];
         return nonVehicleAssetRows.filter((asset) => visibleCategoryNames.has(asset.category));
@@ -3104,9 +3089,7 @@ function AssetPageContent() {
 
                                                             _id: cat._id,
 
-                                                            typeNames: cat.type ? [cat.type] : [],
-
-                                                            parentType: cat.type || '',
+                                                            type: cat.type || '',
 
                                                             assetCount: 0,
 
@@ -3124,7 +3107,7 @@ function AssetPageContent() {
 
 
 
-                                                    // Fill data from the flat list
+                                                    // Fill asset stats only — type stays the category's selected type
 
                                                     assetTypes.forEach(curr => {
 
@@ -3142,16 +3125,6 @@ function AssetPageContent() {
 
                                                             cat.unassignedTotal += (curr.unassigned || 0);
 
-
-
-                                                            // Collect type names from assets in this category
-
-                                                            if (curr.type && curr.type !== '-' && !cat.typeNames.includes(curr.type)) {
-
-                                                                cat.typeNames.push(curr.type);
-
-                                                            }
-
                                                         }
 
                                                     });
@@ -3164,7 +3137,7 @@ function AssetPageContent() {
 
                                                         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
 
-                                                        (c.typeNames && c.typeNames.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())))
+                                                        (c.type && c.type.toLowerCase().includes(searchQuery.toLowerCase()))
 
                                                     );
 
@@ -3237,7 +3210,7 @@ function AssetPageContent() {
 
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-xs sm:text-sm text-gray-600 font-normal">
 
-                                                                {cat.typeNames.length > 0 ? cat.typeNames.join(', ') : '-'}
+                                                                {cat.type || '-'}
 
                                                             </td>
 
@@ -3261,7 +3234,7 @@ function AssetPageContent() {
                                                                                 setTypeCategoryEditInitial({
                                                                                     _id: cat._id,
                                                                                     category: cat.name,
-                                                                                    type: cat.parentType || cat.typeNames?.[0] || '',
+                                                                                    type: cat.type || '',
                                                                                     imagePreview: cat.imagePreview,
                                                                                     assetId: cat.categoryId
                                                                                 });
@@ -4375,7 +4348,7 @@ function AssetPageContent() {
 
                         fetchAssetTypes();
 
-                        fetchPendingInboxCount();
+                        fetchPendingInboxCount({ force: true });
 
                     }}
 

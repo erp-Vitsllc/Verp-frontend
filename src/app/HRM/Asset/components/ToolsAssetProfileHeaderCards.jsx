@@ -3,6 +3,7 @@
 import { User } from 'lucide-react';
 import { HEADER_PAIR_CARD, HEADER_PAIR_CARD_BODY, HEADER_PAIR_CARD_PADDING, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import { resolveAssetPrimaryPhoto } from '../utils/resolveAssetPrimaryPhoto';
+import StorageImage from '@/components/StorageImage';
 
 const ACTION_BTN_BASE =
     'min-h-[44px] sm:min-h-[52px] rounded-xl sm:rounded-2xl px-2 sm:px-3 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all break-words';
@@ -27,8 +28,9 @@ export default function ToolsAssetProfileHeaderCards({
     userHistoryCount = 0,
     serviceHistoryCount = 0,
     primaryActionButtons = [],
-    onOpenOtherActions,
-    otherActionsCount = 0,
+    /** When set, shows RETURN in the 6th slot instead of OTHERS. */
+    onOpenReturnActions,
+    returnActionsDisabled = false,
 }) {
     const accessoryTotal = (accessoriesVisibleOnAssetPage || []).reduce(
         (sum, acc) => sum + (Number(acc.amount) || 0),
@@ -46,7 +48,12 @@ export default function ToolsAssetProfileHeaderCards({
                         <div className="flex flex-col items-center shrink-0 w-[112px] sm:w-[140px] lg:w-[156px]">
                             <div className="w-full aspect-square max-w-[112px] sm:max-w-[140px] lg:max-w-[156px] rounded-xl sm:rounded-2xl bg-sky-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-sm">
                                 {primaryPhoto ? (
-                                    <img src={primaryPhoto} alt={asset.name} className="w-full h-full object-cover" />
+                                    <StorageImage
+                                        src={primaryPhoto}
+                                        alt={asset.name}
+                                        className="w-full h-full object-cover"
+                                        placeholderClassName="w-full h-full flex items-center justify-center bg-sky-50 text-blue-400 font-black text-2xl sm:text-3xl lg:text-4xl uppercase"
+                                    />
                                 ) : (
                                     <span className="text-blue-400 font-black text-2xl sm:text-3xl lg:text-4xl uppercase">
                                         {asset?.name?.substring(0, 1) || 'A'}
@@ -228,13 +235,23 @@ export default function ToolsAssetProfileHeaderCards({
                                     {action.loading ? 'Please wait…' : action.displayLabel || action.label}
                                 </button>
                             ))}
-                            <button
-                                type="button"
-                                onClick={onOpenOtherActions}
-                                className={`${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8]`}
-                            >
-                                OTHERS{otherActionsCount > 0 ? ` (${otherActionsCount})` : ''}
-                            </button>
+                            {typeof onOpenReturnActions === 'function' ? (
+                                <button
+                                    type="button"
+                                    disabled={returnActionsDisabled}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!returnActionsDisabled) onOpenReturnActions();
+                                    }}
+                                    className={`${ACTION_BTN_BASE} ${
+                                        returnActionsDisabled
+                                            ? 'opacity-50 cursor-not-allowed bg-slate-200/90 text-slate-500'
+                                            : 'hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8]'
+                                    }`}
+                                >
+                                    RETURN
+                                </button>
+                            ) : null}
                         </div>
                     </div>
                 </div>

@@ -20,9 +20,15 @@ const PaymentReceipt = ({ payment }) => {
                 // 1. Fetch current related item
                 let url = '';
                 const refId = payment.relatedEntityId || payment.referenceId;
-                if (payment.relatedEntityType === 'Fine') {
+                const entityType = String(payment.relatedEntityType || '').trim();
+                const isFine = entityType === 'Fine';
+                const isLoanLike = ['Loan', 'Advance', 'LoanRepayment', 'AdvanceRepayment'].includes(
+                    entityType,
+                );
+
+                if (isFine) {
                     url = `/Fine/${refId}`;
-                } else if (payment.relatedEntityType === 'Loan') {
+                } else if (isLoanLike) {
                     url = `/Employee/loans/${refId}`;
                 }
 
@@ -40,7 +46,7 @@ const PaymentReceipt = ({ payment }) => {
                     ]);
 
                     const allFines = finesRes.data.fines || [];
-                    const allLoans = (loansRes.data.loans || []).filter(l => ['Approved', 'Paid'].includes(l.status || l.approvalStatus));
+                    const allLoans = (loansRes.data.loans || []).filter(l => ['Approved', 'Paid', 'Pending Payment to Employee'].includes(l.status || l.approvalStatus));
 
                     let total = 0;
                     const debts = [];
@@ -57,8 +63,9 @@ const PaymentReceipt = ({ payment }) => {
                     });
 
                     allLoans.forEach(l => {
-                        const rem = Math.max(0, (l.amount || 0) - (l.paidAmount || 0));
-                        if (rem > 0.01 && (l.status !== 'Paid' && l.approvalStatus !== 'Paid')) {
+                        // Outstanding repayment (employee → company), not disbursement balance
+                        const rem = Math.max(0, (l.amount || 0) - (Number(l.repaidAmount) || 0));
+                        if (rem > 0.01) {
                             total += rem;
                             if (l._id !== payment.relatedEntityId && l.loanId !== payment.referenceId) {
                                 debts.push({ type: l.type || 'Loan', id: l.loanId || 'N/A', balance: rem });
@@ -72,14 +79,30 @@ const PaymentReceipt = ({ payment }) => {
 
                 // 3. Fetch specific payments for this entity
                 const refIdForQuery = payment.relatedEntityId || payment.referenceId;
-                const payParams = {
-                    relatedEntityType: payment.relatedEntityType === 'Loan' ? 'Loan' : 'Fine',
-                };
-                
-                if (payment.relatedEntityType === 'Fine') {
-                    payParams.referenceId = payment.referenceId || refIdForQuery; 
+                const payParams = {};
+
+                if (isFine) {
+                    payParams.relatedEntityType = 'Fine';
+                    payParams.referenceId = payment.referenceId || refIdForQuery;
+                } else if (isLoanLike) {
+                    // Repayment receipts use LoanRepayment / AdvanceRepayment
+                    const repaymentType =
+                        entityType === 'Advance' || entityType === 'AdvanceRepayment'
+                            ? 'AdvanceRepayment'
+                            : entityType === 'LoanRepayment' || entityType === 'Loan'
+                              ? 'LoanRepayment'
+                              : entityType;
+                    payParams.relatedEntityType = repaymentType;
+                    if (payment.relatedEntityId) {
+                        payParams.relatedEntityId = payment.relatedEntityId;
+                    } else if (payment.referenceId) {
+                        payParams.referenceId = payment.referenceId;
+                    } else {
+                        payParams.relatedEntityId = refIdForQuery;
+                    }
                 } else {
-                    payParams.relatedEntityId = payment.relatedEntityId || refIdForQuery;
+                    payParams.relatedEntityType = entityType || 'Fine';
+                    payParams.relatedEntityId = refIdForQuery;
                 }
 
                 const payRes = await axiosInstance.get('/Payment', { params: payParams });
@@ -102,8 +125,10 @@ const PaymentReceipt = ({ payment }) => {
 
     if (loading) return <div className="p-8 text-center text-gray-400">Loading receipt details...</div>;
 
+    const isFineReceipt = String(payment.relatedEntityType || '') === 'Fine';
+
     let targetEmpId = typeof payment.paidBy === 'object' ? payment.paidBy.employeeId : payment.paidBy;
-    if (payment.relatedEntityType === 'Fine' && relatedData?.assignedEmployees) {
+    if (isFineReceipt && relatedData?.assignedEmployees) {
         const isObjectId = /^[0-9a-fA-F]{24}$/.test(targetEmpId);
         if (isObjectId) {
             const empRec = relatedData.assignedEmployees.find(e => 
@@ -115,12 +140,12 @@ const PaymentReceipt = ({ payment }) => {
         }
     }
 
-    const share = payment.relatedEntityType === 'Fine' 
+    const share = isFineReceipt
         ? calculateEmployeeShareLogic(relatedData, targetEmpId) 
         : parseFloat(relatedData?.amount || relatedData?.loanAmount || 0);
 
     const duration = parseInt(
-        (payment.relatedEntityType === 'Fine' 
+        (isFineReceipt
             ? relatedData?.payableDuration 
             : (relatedData?.duration || relatedData?.months || relatedData?.totalInstallments)) || 1
     );

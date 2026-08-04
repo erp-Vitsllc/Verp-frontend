@@ -63,10 +63,13 @@ import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagAct
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
 import TransferAssetModal from '../../components/TransferAssetModal';
+import AssetBulkListPreview, { ASSET_BULK_MORE_THRESHOLD } from '../../components/AssetBulkListPreview';
 import ToolsAssetProfileHeaderCards from '../../components/ToolsAssetProfileHeaderCards';
-import AssetOtherActionsModal from '../../components/AssetOtherActionsModal';
+import AssetHeaderChoiceModal from '../../components/AssetHeaderChoiceModal';
+import BulkAssignAssetModal from '../../components/BulkAssignAssetModal';
 import { evaluateToolsAssetHeaderActions } from '../../utils/evaluateToolsAssetHeaderActions';
 import { buildAssetGalleryImages } from '../../utils/resolveAssetPrimaryPhoto';
+import StorageImage from '@/components/StorageImage';
 import {
     ASSET_ACTIONS,
     buildAssetActionUser,
@@ -421,7 +424,13 @@ function AssetDetailsPageContent() {
     const [editingAccessory, setEditingAccessory] = useState(null); // For editing existing accessories
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showTransferModal, setShowTransferModal] = useState(false);
-    const [showOtherActionsModal, setShowOtherActionsModal] = useState(false);
+    const [transferInitialOption, setTransferInitialOption] = useState('Leave');
+    const [showTransferChoiceModal, setShowTransferChoiceModal] = useState(false);
+    const [showReturnChoiceModal, setShowReturnChoiceModal] = useState(false);
+    const [showBulkReassignModal, setShowBulkReassignModal] = useState(false);
+    const [bulkReassignAvailableAssets, setBulkReassignAvailableAssets] = useState([]);
+    const [bulkReassignLoading, setBulkReassignLoading] = useState(false);
+    const [bulkReassignHolderLabel, setBulkReassignHolderLabel] = useState('');
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUserId, setCurrentUserId] = useState(null);
@@ -499,6 +508,7 @@ function AssetDetailsPageContent() {
 
     // Return Asset Modal State (similar to SalaryTab)
     const [showReturnModal, setShowReturnModal] = useState(false);
+    const [returnDescription, setReturnDescription] = useState('');
     const [isReturning, setIsReturning] = useState(false);
     const [requestingOwnerOnDuty, setRequestingOwnerOnDuty] = useState(false);
     const [pendingOwnerOnDutyReviewId, setPendingOwnerOnDutyReviewId] = useState(null);
@@ -1040,23 +1050,36 @@ function AssetDetailsPageContent() {
 
     const submitReturnAsset = async () => {
         if (!asset) return;
+        const reason = String(returnDescription || '').trim();
+        if (!reason) {
+            toast({
+                variant: 'destructive',
+                title: 'Description required',
+                description: 'Please enter a description before returning the asset.',
+            });
+            return;
+        }
 
         setIsReturning(true);
         try {
-            const payload = {};
+            const payload = { reason };
             if (canUseBulkReturnUi && returnMode === 'bulk' && returnBulkSelectedIds.length > 0) {
                 payload.bulkAssetIds = returnBulkSelectedIds.map(String);
             }
             const statusLower = String(asset?.status || '').toLowerCase().trim();
             const response =
                 statusLower === 'service' || statusLower === 'on service'
-                    ? await axiosInstance.put(`/AssetItem/${asset._id}/on-service-action`, { action: 'Return' })
+                    ? await axiosInstance.put(`/AssetItem/${asset._id}/on-service-action`, {
+                          action: 'Return',
+                          reason,
+                      })
                     : await axiosInstance.put(`/AssetItem/${asset._id}/return`, payload);
             toast({
                 title: "Success",
                 description: response?.data?.message || "Return request processed."
             });
             setShowReturnModal(false);
+            setReturnDescription('');
             fetchAssetDetails();
         } catch (error) {
             toast({
@@ -1542,7 +1565,12 @@ function AssetDetailsPageContent() {
             setImageUploadModal({ isOpen: false, file: null, base64: null, caption: '', date: '' });
             fetchAssetDetails();
         } catch (err) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Failed to upload image.' });
+            const serverMsg =
+                err?.response?.data?.error ||
+                err?.response?.data?.message ||
+                err?.message ||
+                'Failed to upload image.';
+            toast({ variant: 'destructive', title: 'Error', description: serverMsg });
         }
     };
 
@@ -2186,13 +2214,7 @@ function AssetDetailsPageContent() {
                 tier: 'primary',
                 label: 'TRANSFER ASSET',
                 displayLabel: 'TRANSFER ASSET',
-                onClick: () => {
-                    if (asset?.status === 'Assigned' && !isLeaveActive(asset)) {
-                        setShowTransferModal(true);
-                    } else {
-                        setShowAssignModal(true);
-                    }
-                },
+                onClick: () => setShowTransferChoiceModal(true),
             },
             {
                 tier: 'primary',
@@ -2251,27 +2273,6 @@ function AssetDetailsPageContent() {
             },
             {
                 tier: 'other',
-                label:
-                    asset.status === 'Assigned' ||
-                    isLeaveActive(asset) ||
-                    isAssetAssignmentAcknowledgmentPending(asset)
-                        ? isLeaveActive(asset)
-                            ? 'Reassign (Parking)'
-                            : 'Reassign'
-                        : 'Assign',
-                displayLabel:
-                    asset.status === 'Assigned' ||
-                    isLeaveActive(asset) ||
-                    isAssetAssignmentAcknowledgmentPending(asset)
-                        ? isLeaveActive(asset)
-                            ? 'REASSIGN (PARKING)'
-                            : 'REASSIGN'
-                        : 'ASSIGN',
-                onClick: () => setShowAssignModal(true),
-                disabled: isServiceActive(asset),
-            },
-            {
-                tier: 'other',
                 label: 'Extend Service',
                 displayLabel: 'EXTEND SERVICE',
                 onClick: () => {
@@ -2292,12 +2293,6 @@ function AssetDetailsPageContent() {
                 label: 'Confirm On Duty',
                 displayLabel: 'CONFIRM ON DUTY',
                 onClick: () => setShowOwnerOnDutyModal(true),
-            },
-            {
-                tier: 'other',
-                label: 'Return Asset',
-                displayLabel: 'RETURN ASSET',
-                onClick: () => setShowReturnModal(true),
             },
         ];
 
@@ -2336,6 +2331,36 @@ function AssetDetailsPageContent() {
         requestingOwnerOnDuty,
         pendingOwnerOnDutyAcRequestId,
         pendingOwnerOnDutyReviewId,
+    ]);
+
+    const returnHeaderActionsDisabled = useMemo(() => {
+        if (!asset) return true;
+        const statusLower = String(asset?.status || '').trim().toLowerCase();
+        if (statusLower === 'lost' || statusLower === 'unassigned' || statusLower === 'draft') return true;
+        if (isTerminalAssetStatus(asset)) return true;
+        if (isAssetDraftStatusForHeader || isRejectedStatusForHeader) return true;
+        const isCompanyAsset =
+            String(asset?.assignedToType || '').toLowerCase() === 'company' && !!asset?.assignedCompany;
+        const isUnassigned = !(asset?.assignedTo || isCompanyAsset);
+        if (isUnassigned) return true;
+        const assignedToRef = asset?.assignedTo?._id ?? asset?.assignedTo;
+        const isAssignedUser =
+            !!assignedToRef &&
+            currentUserEmployeeId?.toString() === assignedToRef.toString();
+        const assignedByRef = asset?.assignedBy?._id ?? asset?.assignedBy;
+        const isAssignerUser =
+            !!assignedByRef &&
+            currentUserEmployeeId?.toString() === assignedByRef.toString();
+        const isAuthorized = userIsAdmin || effectiveIsAssetController || isAssetController;
+        return !(isAuthorized || isAssignedUser || isAssignerUser);
+    }, [
+        asset,
+        currentUserEmployeeId,
+        userIsAdmin,
+        effectiveIsAssetController,
+        isAssetController,
+        isAssetDraftStatusForHeader,
+        isRejectedStatusForHeader,
     ]);
 
     const cannotAddAccessories = isAssetStatusBlockingAccessoryAdd(asset?.status);
@@ -3263,14 +3288,135 @@ function AssetDetailsPageContent() {
                         userHistoryCount={userHistoryCount}
                         serviceHistoryCount={serviceHistoryCount}
                         primaryActionButtons={toolsHeaderPrimaryButtons}
-                        onOpenOtherActions={() => setShowOtherActionsModal(true)}
-                        otherActionsCount={toolsHeaderOtherButtons.filter((action) => !action.disabled).length}
+                        onOpenReturnActions={() => setShowReturnChoiceModal(true)}
+                        returnActionsDisabled={returnHeaderActionsDisabled}
                     />
 
-                    <AssetOtherActionsModal
-                        isOpen={showOtherActionsModal}
-                        onClose={() => setShowOtherActionsModal(false)}
-                        actions={toolsHeaderOtherButtons}
+                    <AssetHeaderChoiceModal
+                        isOpen={showTransferChoiceModal}
+                        onClose={() => setShowTransferChoiceModal(false)}
+                        title="Transfer Asset"
+                        subtitle="Asset Owner or Asset Controller only"
+                        options={[
+                            {
+                                key: 'reassign',
+                                label:
+                                    asset?.status === 'Assigned' ||
+                                    isLeaveActive(asset) ||
+                                    isAssetAssignmentAcknowledgmentPending(asset)
+                                        ? 'Reassign'
+                                        : 'Assign',
+                                displayLabel:
+                                    asset?.status === 'Assigned' ||
+                                    isLeaveActive(asset) ||
+                                    isAssetAssignmentAcknowledgmentPending(asset)
+                                        ? 'Reassign'
+                                        : 'Assign',
+                                disabled: isServiceActive(asset),
+                                onClick: () => setShowAssignModal(true),
+                            },
+                            {
+                                key: 'bulk-reassign',
+                                label: 'Bulk Reassign',
+                                displayLabel: 'Bulk Reassign',
+                                disabled: !asset?.assignedTo,
+                                onClick: async () => {
+                                    const holderId = asset?.assignedTo?._id ?? asset?.assignedTo;
+                                    if (!holderId) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'No assignee',
+                                            description:
+                                                'Bulk reassign needs an employee currently assigned to this asset.',
+                                        });
+                                        return;
+                                    }
+                                    const holderName = asset?.assignedTo
+                                        ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim() ||
+                                          asset.assignedTo.employeeId ||
+                                          'Current holder'
+                                        : 'Current holder';
+                                    setBulkReassignHolderLabel(holderName);
+                                    setBulkReassignLoading(true);
+                                    setShowBulkReassignModal(true);
+                                    try {
+                                        const res = await axiosInstance.get('/AssetItem/assigned/all', {
+                                            params: { status: 'Assigned' },
+                                            skipToast: true,
+                                        });
+                                        const list = Array.isArray(res.data)
+                                            ? res.data
+                                            : Array.isArray(res.data?.items)
+                                              ? res.data.items
+                                              : [];
+                                        const pool = list.filter((a) => {
+                                            const st = String(a?.status || '').trim();
+                                            if (st !== 'Assigned') return false;
+                                            if (a?.pendingAction) return false;
+                                            const assignedId = a?.assignedTo?._id ?? a?.assignedTo;
+                                            return assignedId && String(assignedId) === String(holderId);
+                                        });
+                                        // Always include the current asset if Assigned and same holder.
+                                        if (
+                                            asset?._id &&
+                                            String(asset.status || '').trim() === 'Assigned' &&
+                                            !pool.some((a) => String(a._id) === String(asset._id))
+                                        ) {
+                                            pool.unshift(asset);
+                                        }
+                                        setBulkReassignAvailableAssets(pool);
+                                    } catch {
+                                        setBulkReassignAvailableAssets([]);
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Could not load assets',
+                                            description:
+                                                'Unable to load this employee’s Assigned assets for bulk reassign.',
+                                        });
+                                    } finally {
+                                        setBulkReassignLoading(false);
+                                    }
+                                },
+                            },
+                        ]}
+                    />
+
+                    <AssetHeaderChoiceModal
+                        isOpen={showReturnChoiceModal}
+                        onClose={() => setShowReturnChoiceModal(false)}
+                        title="Return"
+                        subtitle="Leave, Employee End of Services, or Others"
+                        options={[
+                            {
+                                key: 'leave',
+                                label: 'Leave',
+                                displayLabel: 'Leave',
+                                disabled: isLeaveActive(asset) || !asset?.assignedTo,
+                                onClick: () => {
+                                    setTransferInitialOption('Leave');
+                                    setShowTransferModal(true);
+                                },
+                            },
+                            {
+                                key: 'eos',
+                                label: 'Employee End of Services',
+                                displayLabel: 'Employee End of Services',
+                                disabled: !asset?.assignedTo && !asset?.assignedCompany,
+                                onClick: () => {
+                                    setTransferInitialOption('End of Services');
+                                    setShowTransferModal(true);
+                                },
+                            },
+                            {
+                                key: 'others',
+                                label: 'Others',
+                                displayLabel: 'Others',
+                                onClick: () => {
+                                    setReturnDescription('');
+                                    setShowReturnModal(true);
+                                },
+                            },
+                        ]}
                     />
                     {/* Row 2: Handover Document / Assignment Actions */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
@@ -3829,11 +3975,15 @@ function AssetDetailsPageContent() {
                                                                     {allImages.map((img) => (
                                                                         <div key={img._id} className="group relative rounded-2xl overflow-hidden border border-slate-100 shadow-sm bg-slate-50 aspect-square">
                                                                             <div className="absolute inset-0 w-full h-full">
-                                                                                <img
+                                                                                <StorageImage
                                                                                     src={img.url}
                                                                                     alt={img.caption || 'Asset image'}
                                                                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer"
-                                                                                    onClick={() => window.open(img.url, '_blank')}
+                                                                                    onClick={() => {
+                                                                                        if (img.url) {
+                                                                                            openFilePreview(img.url, img.caption || 'Asset image');
+                                                                                        }
+                                                                                    }}
                                                                                 />
                                                                             </div>
                                                                             {/* Overlay */}
@@ -4027,12 +4177,31 @@ function AssetDetailsPageContent() {
                         onClose={() => setShowTransferModal(false)}
                         asset={asset}
                         onUpdate={fetchAssetDetails}
+                        initialActionOption={transferInitialOption}
                         isAssetController={effectiveIsAssetController || isAssetController}
                         isAssignedUser={
                             !!asset?.assignedTo &&
                             currentUserEmployeeId?.toString() ===
                             (asset.assignedTo?._id ?? asset.assignedTo)?.toString()
                         }
+                    />
+
+                    <BulkAssignAssetModal
+                        isOpen={showBulkReassignModal}
+                        mode="reassign"
+                        sourceHolderLabel={bulkReassignHolderLabel}
+                        onClose={() => {
+                            setShowBulkReassignModal(false);
+                            setBulkReassignAvailableAssets([]);
+                            setBulkReassignHolderLabel('');
+                        }}
+                        selectedAssets={[]}
+                        allAvailableAssets={bulkReassignAvailableAssets}
+                        onUpdate={() => {
+                            setShowBulkReassignModal(false);
+                            setBulkReassignHolderLabel('');
+                            fetchAssetDetails();
+                        }}
                     />
 
                     <HandoverFormModal
@@ -5645,6 +5814,45 @@ function AssetDetailsPageContent() {
                                         </p>
                                         {returnableLoading ? (
                                             <p className="text-sm text-slate-500 py-4 text-center">Loading your assets…</p>
+                                        ) : returnBulkSelectedIds.length >= ASSET_BULK_MORE_THRESHOLD ? (
+                                            <>
+                                                <AssetBulkListPreview
+                                                    assets={returnableAssets.filter((row) =>
+                                                        returnBulkSelectedIds.includes(row._id?.toString()),
+                                                    )}
+                                                    title="Assets to return"
+                                                    accent="amber"
+                                                />
+                                                <details className="rounded-xl border border-amber-100 bg-white/80 px-3 py-2">
+                                                    <summary className="cursor-pointer text-[11px] font-black uppercase tracking-wider text-amber-800">
+                                                        Adjust selection
+                                                    </summary>
+                                                    <ul className="mt-2 space-y-2 max-h-40 overflow-y-auto">
+                                                        {returnableAssets.map((row) => {
+                                                            const rid = row._id?.toString();
+                                                            const isCurrent = rid === asset._id?.toString();
+                                                            const checked = returnBulkSelectedIds.includes(rid);
+                                                            return (
+                                                                <li
+                                                                    key={rid}
+                                                                    className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm ${isCurrent ? 'border-amber-300 bg-white' : 'border-slate-200 bg-white'}`}
+                                                                >
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        className="h-4 w-4 rounded border-slate-300"
+                                                                        checked={checked}
+                                                                        disabled={isCurrent}
+                                                                        onChange={() => !isCurrent && toggleReturnBulkAsset(rid)}
+                                                                    />
+                                                                    <span className="flex-1 font-bold text-slate-800">
+                                                                        {row.assetId} — {row.name || ''}
+                                                                    </span>
+                                                                </li>
+                                                            );
+                                                        })}
+                                                    </ul>
+                                                </details>
+                                            </>
                                         ) : (
                                             <ul className="space-y-2 max-h-48 overflow-y-auto">
                                                 {returnableAssets.map((row) => {
@@ -5704,6 +5912,19 @@ function AssetDetailsPageContent() {
                                         </div>
                                     </div>
                                 </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">
+                                        Description <span className="text-rose-500">*</span>
+                                    </label>
+                                    <textarea
+                                        value={returnDescription}
+                                        onChange={(e) => setReturnDescription(e.target.value)}
+                                        rows={4}
+                                        placeholder="Describe why this asset is being returned…"
+                                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-y min-h-[96px]"
+                                    />
+                                </div>
                             </div>
 
                             {/* Footer */}
@@ -5716,7 +5937,7 @@ function AssetDetailsPageContent() {
                                 </button>
                                 <button
                                     onClick={submitReturnAsset}
-                                    disabled={isReturning}
+                                    disabled={isReturning || !String(returnDescription || '').trim()}
                                     className="flex-[2] px-6 py-4 bg-amber-500 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
                                 >
                                     {isReturning ? (

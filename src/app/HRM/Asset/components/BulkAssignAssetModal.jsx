@@ -112,7 +112,18 @@ const selectControlStyles = {
     menu: (base) => ({ ...base, zIndex: 9999 })
 };
 
-export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets = [], allAvailableAssets = [], onUpdate }) {
+export default function BulkAssignAssetModal({
+    isOpen,
+    onClose,
+    selectedAssets = [],
+    allAvailableAssets = [],
+    onUpdate,
+    /** 'assign' = pool Unassigned/Returned; 'reassign' = currently Assigned assets of a holder */
+    mode = 'assign',
+    /** Display name of the current holder whose Assigned assets are being reassigned */
+    sourceHolderLabel = '',
+}) {
+    const isReassignMode = mode === 'reassign';
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
@@ -206,7 +217,11 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         }
     };
 
-    const isUnassignedPoolAsset = (a) => isPoolAssignableAssetStatus(a?.status);
+    const isEligiblePoolAsset = (a) => {
+        const status = String(a?.status || '').trim();
+        if (isReassignMode) return status === 'Assigned';
+        return isPoolAssignableAssetStatus(status);
+    };
 
     const validateStagedAssetsAgainstLivePool = async (rows) => {
         const res = await axiosInstance.get('/AssetType', { params: { scope: 'tools' }, skipToast: true });
@@ -223,27 +238,27 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             if (!id) continue;
             const fresh = byId.get(id);
             const status = String(fresh?.status ?? row?.asset?.status ?? '').trim();
-            if (!isUnassignedPoolAsset({ status })) {
+            if (!isEligiblePoolAsset({ status })) {
                 invalid.push(fresh?.assetId || fresh?.name || id);
             }
         }
         return invalid;
     };
 
-    const unassignedPool = useMemo(() => {
-        return (allAvailableAssets.length > 0 ? allAvailableAssets : selectedAssets).filter(isUnassignedPoolAsset);
-    }, [selectedAssets, allAvailableAssets]);
+    const eligiblePool = useMemo(() => {
+        return (allAvailableAssets.length > 0 ? allAvailableAssets : selectedAssets).filter(isEligiblePoolAsset);
+    }, [selectedAssets, allAvailableAssets, isReassignMode]);
 
-    const hasBulkUnassignedPool = useMemo(() => unassignedPool.length >= 1, [unassignedPool]);
+    const hasBulkEligiblePool = useMemo(() => eligiblePool.length >= 1, [eligiblePool]);
 
     const typeOptions = useMemo(() => {
-        if (!hasBulkUnassignedPool) return [];
+        if (!hasBulkEligiblePool) return [];
 
         const sortOpts = (arr) =>
             [...arr].sort((x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }));
 
         const map = new Map();
-        for (const a of unassignedPool) {
+        for (const a of eligiblePool) {
             const hasCategory =
                 (a?.categoryId && typeof a.categoryId === 'object' && String(a.categoryId?.name || '').trim() !== '') ||
                 String(a?.category || '').trim() !== '';
@@ -253,15 +268,15 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             if (!map.has(value)) map.set(value, { value, label });
         }
         return sortOpts([...map.values()]);
-    }, [unassignedPool, hasBulkUnassignedPool]);
+    }, [eligiblePool, hasBulkEligiblePool]);
 
     const categoryOptions = useMemo(() => {
-        if (!formState.filterTypeKey || !hasBulkUnassignedPool) return [];
+        if (!formState.filterTypeKey || !hasBulkEligiblePool) return [];
 
         const sortOpts = (arr) =>
             [...arr].sort((x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }));
 
-        const ofType = unassignedPool.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey, catalogList));
+        const ofType = eligiblePool.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey, catalogList));
         const map = new Map();
         for (const a of ofType) {
             const value = categoryFilterKey(a);
@@ -270,14 +285,14 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             if (!map.has(value)) map.set(value, { value, label });
         }
         return sortOpts([...map.values()]);
-    }, [catalogList, unassignedPool, formState.filterTypeKey, hasBulkUnassignedPool]);
+    }, [catalogList, eligiblePool, formState.filterTypeKey, hasBulkEligiblePool]);
 
-    // Unassigned + type + category + not already staged
+    // Eligible pool + type + category + not already staged
     const availableAssets = useMemo(() => {
-        if (!hasBulkUnassignedPool) return [];
+        if (!hasBulkEligiblePool) return [];
 
         const stagedIds = new Set(stagedAssignments.map((s) => String(s.asset._id)));
-        let list = unassignedPool.filter((a) => !stagedIds.has(String(a._id)));
+        let list = eligiblePool.filter((a) => !stagedIds.has(String(a._id)));
         if (formState.filterTypeKey) {
             list = list.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey, catalogList));
         }
@@ -285,7 +300,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             list = list.filter((a) => assetMatchesCategoryKey(a, formState.filterCategoryKey, catalogList));
         }
         return list;
-    }, [unassignedPool, stagedAssignments, formState.filterTypeKey, formState.filterCategoryKey, catalogList, hasBulkUnassignedPool]);
+    }, [eligiblePool, stagedAssignments, formState.filterTypeKey, formState.filterCategoryKey, catalogList, hasBulkEligiblePool]);
 
     const handleAddAssignment = () => {
         if (formState.assignedToType === 'Company' && !companyAllocationAllowed) {
@@ -357,7 +372,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             }
         }
 
-        const pool = unassignedPool;
+        const pool = eligiblePool;
         const asset = pool.find(
             (a) =>
                 String(a._id) === String(formState.targetAssetId) &&
@@ -366,12 +381,25 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         );
 
         if (!asset) return;
-        if (!isUnassignedPoolAsset(asset)) {
+        if (!isEligiblePoolAsset(asset)) {
             return toast({
                 variant: 'destructive',
                 title: 'Invalid asset',
-                description: 'Only Unassigned or Returned assets can be assigned from the pool.',
+                description: isReassignMode
+                    ? 'Only assets with status Assigned can be bulk reassigned.'
+                    : 'Only Unassigned or Returned assets can be assigned from the pool.',
             });
+        }
+
+        if (isReassignMode && lockedType === 'Employee') {
+            const currentHolderId = asset?.assignedTo?._id ?? asset?.assignedTo;
+            if (currentHolderId && String(currentHolderId) === String(lockedAssigneeId)) {
+                return toast({
+                    variant: 'destructive',
+                    title: 'Same holder',
+                    description: 'Choose a different employee — this asset is already assigned to them.',
+                });
+            }
         }
 
         if (stagedAssignments.some((row) => String(row.asset._id) === String(asset._id))) {
@@ -440,9 +468,38 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             if (staleAssets.length > 0) {
                 return toast({
                     variant: 'destructive',
-                    title: 'Assignment blocked',
-                    description: `These assets are no longer Unassigned/Returned (refresh the list and try again): ${staleAssets.join(', ')}`,
+                    title: isReassignMode ? 'Reassign blocked' : 'Assignment blocked',
+                    description: isReassignMode
+                        ? `These assets are no longer Assigned (refresh the list and try again): ${staleAssets.join(', ')}`
+                        : `These assets are no longer Unassigned/Returned (refresh the list and try again): ${staleAssets.join(', ')}`,
                 });
+            }
+
+            if (isReassignMode) {
+                let reassignedCount = 0;
+                for (const row of stagedAssignments) {
+                    const targetId =
+                        row.assigneeType === 'Employee' ? row.employee?._id : row.company?._id;
+                    const payload = {
+                        assignedTo: targetId,
+                        assignedToType: row.assigneeType,
+                        assignmentType: row.assignmentType,
+                        assignedDays:
+                            row.assignmentType === 'Temporary' ? row.assignedDays : undefined,
+                    };
+                    if (row.assetPhoto) payload.assetPhoto = row.assetPhoto;
+                    await axiosInstance.put(`/AssetItem/${row.asset._id}/assign`, payload, {
+                        skipActionDedupe: true,
+                    });
+                    reassignedCount += 1;
+                }
+                toast({
+                    title: 'Success',
+                    description: `Successfully reassigned ${reassignedCount} asset(s).`,
+                });
+                if (onUpdate) onUpdate();
+                onClose();
+                return;
             }
 
             const groups = stagedAssignments.reduce((acc, curr) => {
@@ -514,7 +571,14 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                             <Table size={24} strokeWidth={2.5} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Bulk Assignment</h2>
+                            <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">
+                                {isReassignMode ? 'Bulk Reassign' : 'Bulk Assignment'}
+                            </h2>
+                            {isReassignMode && sourceHolderLabel ? (
+                                <p className="text-[11px] font-semibold text-slate-500 mt-1">
+                                    Assigned assets of {sourceHolderLabel}
+                                </p>
+                            ) : null}
                         </div>
                     </div>
                     <button onClick={onClose} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all">
@@ -528,7 +592,9 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
 
                         {/* Row 1: Employee vs Company + target (same pattern as single Assign Asset modal) */}
                         <div className="space-y-3">
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
+                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">
+                                {isReassignMode ? 'Reassign To' : 'Assign To'}
+                            </label>
                             {stagedAssignments.length > 0 && (
                                 <p className="text-[9px] font-semibold text-slate-500 leading-snug pl-1">
                                     One target per batch. Remove all staged rows below to change employee/company or type.
@@ -634,7 +700,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                             )}
                         </div>
 
-                        {/* Row 2: filter by type → category (Unassigned pool only) */}
+                        {/* Row 2: filter by type → category */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Type</label>
@@ -686,18 +752,26 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start md:items-end">
                             <div className="space-y-2 md:col-span-5">
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
-                                <p className="text-[9px] font-semibold text-slate-400 pl-1">Unassigned or Returned only (filters by type & category if selected)</p>
+                                <p className="text-[9px] font-semibold text-slate-400 pl-1">
+                                    {isReassignMode
+                                        ? 'Assigned status only (filters by type & category if selected).'
+                                        : 'Unassigned or Returned only (filters by type & category if selected).'}
+                                </p>
                                 <Select
                                     value={availableAssets
                                         .map((asset) => ({
                                             value: String(asset._id),
-                                            label: `${asset.assetId ? `${asset.assetId} - ` : ''}${asset.name || 'Unnamed Asset'}`
+                                            label: `${asset.assetId ? `${asset.assetId} - ` : ''}${asset.name || 'Unnamed Asset'}${
+                                                isReassignMode && asset.status
+                                                    ? ` [${asset.status}]`
+                                                    : ''
+                                            }`
                                         }))
                                         .find((opt) => String(opt.value) === String(formState.targetAssetId)) || null}
                                     onChange={(selectedOption) => {
                                         const assetId = selectedOption?.value ? String(selectedOption.value) : '';
                                         if (assetId) {
-                                            const asset = unassignedPool.find((a) => String(a._id) === assetId);
+                                            const asset = eligiblePool.find((a) => String(a._id) === assetId);
                                             if (asset) {
                                                 const typeKey = typeFilterKey(asset);
                                                 const catKey = categoryFilterKey(asset);
@@ -717,15 +791,21 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                     }}
                                     options={availableAssets.map((asset) => ({
                                         value: String(asset._id),
-                                        label: `${asset.assetId ? `${asset.assetId} - ` : ''}${asset.name || 'Unnamed Asset'}`
+                                        label: `${asset.assetId ? `${asset.assetId} - ` : ''}${asset.name || 'Unnamed Asset'}${
+                                            isReassignMode && asset.status ? ` [${asset.status}]` : ''
+                                        }`
                                     }))}
                                     className="basic-single"
                                     classNamePrefix="select"
                                     placeholder={
                                         availableAssets.length === 0
                                             ? (!formState.filterTypeKey || !formState.filterCategoryKey
-                                                ? 'No unassigned assets available'
-                                                : 'No unassigned assets in this category')
+                                                ? (isReassignMode
+                                                    ? 'No assigned assets available'
+                                                    : 'No unassigned assets available')
+                                                : (isReassignMode
+                                                    ? 'No assigned assets in this category'
+                                                    : 'No unassigned assets in this category'))
                                             : 'Search or Select Asset...'
                                     }
                                     isClearable
@@ -895,7 +975,9 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                             <td colSpan="5" className="px-6 py-12 text-center">
                                                 <div className="flex flex-col items-center gap-3 opacity-20">
                                                     <Package size={48} strokeWidth={1} />
-                                                    <p className="text-xs font-black uppercase tracking-widest">No assignments staged</p>
+                                                    <p className="text-xs font-black uppercase tracking-widest">
+                                                        {isReassignMode ? 'No reassignments staged' : 'No assignments staged'}
+                                                    </p>
                                                 </div>
                                             </td>
                                         </tr>
@@ -905,6 +987,11 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                                 <td className="px-6 py-4 font-bold text-sm text-slate-900">
                                                     <div>{s.asset.name}</div>
                                                     <div className="text-[10px] text-blue-600 font-mono tracking-tighter">{s.asset.assetId}</div>
+                                                    {isReassignMode && s.asset.status ? (
+                                                        <div className="text-[9px] font-black uppercase text-emerald-600 mt-0.5">
+                                                            {s.asset.status}
+                                                        </div>
+                                                    ) : null}
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <span className="text-[10px] font-black text-slate-500 uppercase">{s.asset.type || 'Standard'}</span>
@@ -959,7 +1046,9 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                         ) : (
                             <>
                                 <CheckCircle2 size={18} strokeWidth={3} />
-                                Confirm assignments ({stagedAssignments.length})
+                                {isReassignMode
+                                    ? `Confirm reassignments (${stagedAssignments.length})`
+                                    : `Confirm assignments (${stagedAssignments.length})`}
                             </>
                         )}
                     </button>

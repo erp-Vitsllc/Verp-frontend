@@ -331,16 +331,25 @@ function baseRow(item = {}, index = 0) {
     };
 }
 
+/** Fix UTF-8 mojibake / normalize dash separators in notification text. */
+function sanitizeNotificationText(value = '') {
+    return String(value || '')
+        .replace(/â€”/g, '—')
+        .replace(/â€“/g, '–')
+        .replace(/\u00a0/g, ' ')
+        .trim();
+}
+
 /** Dashboard / page-bell notification item → inbox row. */
 export function mapDashboardNotificationToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.type || item.requestType || '').trim();
-    row.title = buildExpiryReminderTitle(item) || type || row.title;
+    row.title = sanitizeNotificationText(buildExpiryReminderTitle(item) || type || row.title);
     if (item.extra1) {
-        row.category = String(item.extra1).trim() || row.category;
+        row.category = sanitizeNotificationText(item.extra1) || row.category;
     }
     if (item.extra2 && !row.highlight) {
-        const e2 = String(item.extra2).trim();
+        const e2 = sanitizeNotificationText(item.extra2);
         if (/exp|expiry|due/i.test(e2)) row.highlight = e2;
         else if (!row.category || row.category === 'Pending task') row.category = e2;
     }
@@ -351,8 +360,8 @@ export function mapDashboardNotificationToRow(item = {}, index = 0) {
 export function mapPendingInboxToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.requestType || item.type || '').trim();
-    row.title = buildExpiryReminderTitle(item) || type || row.title;
-    if (item.extra1) row.category = String(item.extra1).trim() || row.category;
+    row.title = sanitizeNotificationText(buildExpiryReminderTitle(item) || type || row.title);
+    if (item.extra1) row.category = sanitizeNotificationText(item.extra1) || row.category;
     return row;
 }
 
@@ -360,8 +369,8 @@ export function mapPendingInboxToRow(item = {}, index = 0) {
 export function mapAssetPendingInboxToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.requestType || item.type || '').trim();
-    row.title = buildExpiryReminderTitle(item) || type || row.title;
-    if (item.extra1) row.category = String(item.extra1).trim() || row.category;
+    row.title = sanitizeNotificationText(buildExpiryReminderTitle(item) || type || row.title);
+    if (item.extra1) row.category = sanitizeNotificationText(item.extra1) || row.category;
     if (item.asset?.name) row.entityName = String(item.asset.name).trim();
     if (item.asset?.assetId) row.entityId = String(item.asset.assetId).trim();
     return row;

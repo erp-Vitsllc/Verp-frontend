@@ -490,7 +490,19 @@ export default function DocumentsTab({
         // Recover durable key from signed/http storage URLs when publicId was never stored
         if (!storageKey && typeof doc.url === 'string' && doc.url.startsWith('http')) {
             const u = doc.url;
-            for (const folder of ['employee-documents', 'company-documents', 'profile-pictures', 'signatures']) {
+            for (const folder of [
+                'employee-documents',
+                'company-documents',
+                'profile-pictures',
+                'signatures',
+                'employee-profiles',
+                'employee-signatures',
+                'asset-documents',
+                'asset-invoices',
+                'rewards',
+                'fines',
+                'loans',
+            ]) {
                 const idx = u.indexOf(folder);
                 if (idx !== -1) {
                     try {

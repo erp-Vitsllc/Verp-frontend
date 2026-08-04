@@ -32,7 +32,7 @@ function formatPaymentDate(value) {
     }
 }
 
-async function fetchEntityPayments({ entityType, referenceId }) {
+async function fetchEntityPayments({ entityType, referenceId, relatedEntityId }) {
     const params = { limit: 50 };
 
     if (entityType === 'Fine') {
@@ -42,13 +42,33 @@ async function fetchEntityPayments({ entityType, referenceId }) {
         params.referenceId = referenceId;
         params.relatedEntityType = 'Reward';
     } else {
-        // Loan / Advance — match by loanId + paymentType (relatedEntityType may be Loan or Advance)
-        params.referenceId = referenceId;
-        params.paymentType = entityType === 'Advance' ? 'Advance' : 'Loan';
+        // Loan / Advance installment boxes track employee → company repayments
+        // (not company → employee disbursement / "Paid to Employee").
+        params.relatedEntityType =
+            entityType === 'Advance' ? 'AdvanceRepayment' : 'LoanRepayment';
+        if (referenceId) params.referenceId = referenceId;
+        else if (relatedEntityId) params.relatedEntityId = relatedEntityId;
     }
 
     const response = await axiosInstance.get('/Payment', { params });
-    const list = response.data?.payments || (Array.isArray(response.data) ? response.data : []);
+    let list = response.data?.payments || (Array.isArray(response.data) ? response.data : []);
+
+    // Fallback: match by relatedEntityId when referenceId query returns nothing
+    if (
+        (entityType === 'Loan' || entityType === 'Advance') &&
+        list.length === 0 &&
+        relatedEntityId &&
+        referenceId
+    ) {
+        const fallback = await axiosInstance.get('/Payment', {
+            params: {
+                limit: 50,
+                relatedEntityType: entityType === 'Advance' ? 'AdvanceRepayment' : 'LoanRepayment',
+                relatedEntityId,
+            },
+        });
+        list = fallback.data?.payments || (Array.isArray(fallback.data) ? fallback.data : []);
+    }
 
     return list.sort((a, b) => {
         const ta = new Date(a.paymentDate || a.createdAt || 0).getTime();
@@ -228,6 +248,7 @@ export default function EntityPaymentDetailsCard({
     const total = Number(totalPayable) || 0;
     const paid = Number(paidAmount) || 0;
     const remaining = Math.max(0, total - paid);
+    const isLoanLike = entityType === 'Loan' || entityType === 'Advance';
 
     const visiblePayments = payments.filter(
         (p) => !['Rejected', 'Cancelled', 'Failed'].includes(p.status)
@@ -236,11 +257,31 @@ export default function EntityPaymentDetailsCard({
         (p) => (p.paymentSource || 'Salary') === 'Salary'
     );
     const eosPayments = visiblePayments.filter((p) => p.paymentSource === 'End of Benefits');
+    // Loan/Advance recorded list = employee repayments (any source: Cash, Salary, …)
+    const loanRepaymentPayments = isLoanLike ? visiblePayments : [];
 
-    const schedulePayments = useMemo(
-        () => visiblePayments.filter((p) => isPaymentCountableTowardPaid(p.status)),
-        [visiblePayments]
-    );
+    const schedulePayments = useMemo(() => {
+        const countable = visiblePayments.filter((p) => isPaymentCountableTowardPaid(p.status));
+        if (!isLoanLike) return countable;
+
+        // If no repayment payment rows yet, allocate loan.repaidAmount across months
+        if (countable.length === 0) {
+            const repaid = Number(entityRecord?.repaidAmount) || 0;
+            if (repaid > 0.01) {
+                return [
+                    {
+                        amount: repaid,
+                        paymentDate:
+                            entityRecord?.updatedAt ||
+                            entityRecord?.createdAt ||
+                            new Date().toISOString(),
+                        status: 'Completed',
+                    },
+                ];
+            }
+        }
+        return countable;
+    }, [visiblePayments, isLoanLike, entityRecord]);
 
     const scheduleBoxes = useMemo(() => {
         if (!entityRecord) return [];
@@ -325,7 +366,11 @@ export default function EntityPaymentDetailsCard({
                 iconBg="bg-emerald-50"
                 iconColor="text-emerald-600"
                 title="Payment Details"
-                subtitle={`Payments recorded against this ${typeLabel.toLowerCase()}`}
+                subtitle={
+                    isLoanLike
+                        ? 'Employee repayments against this loan (not disbursement to employee)'
+                        : `Payments recorded against this ${typeLabel.toLowerCase()}`
+                }
                 headerAction={payButton}
             >
                 {entityRecord && scheduleBoxes.length > 0 ? (
@@ -343,9 +388,15 @@ export default function EntityPaymentDetailsCard({
                     <div className="space-y-5">
                         <div>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
-                                Recorded Payments
+                                {isLoanLike ? 'Recorded Repayments' : 'Recorded Payments'}
                             </p>
-                            {entityType === 'Fine' && (entityRecord?.sourceOfIncome || 'Salary') === 'End of Service' ? (
+                            {isLoanLike ? (
+                                <PaymentList
+                                    payments={loanRepaymentPayments}
+                                    onSelect={setSelectedInvoice}
+                                    emptyMessage="No repayments recorded yet"
+                                />
+                            ) : entityType === 'Fine' && (entityRecord?.sourceOfIncome || 'Salary') === 'End of Service' ? (
                                 <PaymentList
                                     payments={eosPayments.length > 0 ? eosPayments : visiblePayments}
                                     onSelect={setSelectedInvoice}

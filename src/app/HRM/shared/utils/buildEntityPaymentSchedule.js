@@ -136,6 +136,7 @@ function buildEosMonthBoxes(entity, payments, employeeId) {
         return {
             key: `${monthDate.getFullYear()}-${monthDate.getMonth()}`,
             label: monthLabel,
+            monthTitle: monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
             monthDate,
             monthlyAmount,
             paidAmount: allocation.paidAmount,
@@ -206,6 +207,7 @@ export function buildEntityPaymentSchedule({
         return {
             key: `${monthDate.getFullYear()}-${monthDate.getMonth()}`,
             label: monthLabel,
+            monthTitle: monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
             monthDate,
             monthlyAmount,
             paidAmount: allocation.paidAmount,

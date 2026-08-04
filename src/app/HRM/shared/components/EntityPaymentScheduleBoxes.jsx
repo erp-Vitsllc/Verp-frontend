@@ -8,10 +8,19 @@ function formatAmount(value) {
 }
 
 function ScheduleBox({ box }) {
+    const monthly = parseFloat(box.monthlyAmount) || 0;
+    const paid = parseFloat(box.paidAmount) || 0;
+    const paidPct =
+        monthly > 0 ? Math.min(100, Math.max(0, (paid / monthly) * 100)) : box.isPaid ? 100 : 0;
+    const hoverTitle =
+        box.monthTitle ||
+        box.label ||
+        `${formatAmount(paid)} / ${formatAmount(monthly)} AED`;
+
     const boxClass = box.isPaid
         ? 'bg-green-50 border-green-500'
         : box.isPartial
-            ? 'bg-amber-50 border-amber-500'
+            ? 'bg-red-50 border-red-400'
             : box.isEos
                 ? 'bg-amber-50 border-amber-400'
                 : 'bg-red-50 border-red-500';
@@ -19,41 +28,60 @@ function ScheduleBox({ box }) {
     const labelClass = box.isPaid
         ? 'text-green-700'
         : box.isPartial
-            ? 'text-amber-700'
+            ? 'text-slate-800'
             : box.isEos
                 ? 'text-amber-700'
                 : 'text-red-700';
 
     return (
-        <div className={`p-4 rounded-xl border-2 transition-all ${boxClass}`}>
-            <div className={`text-[11px] font-bold uppercase tracking-wider mb-2 flex items-center justify-between ${labelClass}`}>
-                <span>{box.label}</span>
-                {box.isPaid ? (
-                    <span className="text-green-600 bg-green-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
-                        ✓
-                    </span>
-                ) : box.isPartial ? (
-                    <span className="text-amber-600 bg-amber-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
-                        ~
-                    </span>
-                ) : (
-                    <span className="text-red-600 bg-red-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
-                        ✗
-                    </span>
-                )}
-            </div>
-            <div className={`text-sm font-bold mb-1 ${labelClass}`}>
-                {formatAmount(box.paidAmount)}
-                {' '}
-                <span className="text-xs font-normal text-gray-500">
-                    / {formatAmount(box.monthlyAmount)} AED
-                </span>
-            </div>
-            {!box.isPaid ? (
-                <div className={`text-[10px] font-medium mt-2 ${box.isPartial ? 'text-amber-600/80' : 'text-red-600/80'}`}>
-                    Remaining: {formatAmount(box.remaining)} AED
-                </div>
+        <div
+            title={hoverTitle}
+            className={`relative overflow-hidden p-4 rounded-xl border-2 transition-all ${boxClass}`}
+        >
+            {/* Partial: green paid portion over red unpaid base */}
+            {box.isPartial ? (
+                <div
+                    className="absolute inset-y-0 left-0 bg-green-200/90 pointer-events-none"
+                    style={{ width: `${paidPct}%` }}
+                    aria-hidden
+                />
             ) : null}
+            <div className="relative z-[1]">
+                <div
+                    className={`text-[11px] font-bold uppercase tracking-wider mb-2 flex items-center justify-between ${labelClass}`}
+                >
+                    <span>{box.label}</span>
+                    {box.isPaid ? (
+                        <span className="text-green-600 bg-green-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
+                            ✓
+                        </span>
+                    ) : box.isPartial ? (
+                        <span className="text-amber-800 bg-amber-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
+                            ~
+                        </span>
+                    ) : (
+                        <span className="text-red-600 bg-red-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
+                            ✗
+                        </span>
+                    )}
+                </div>
+                <div className={`text-sm font-bold mb-1 ${labelClass}`}>
+                    {formatAmount(box.paidAmount)}
+                    {' '}
+                    <span className="text-xs font-normal text-gray-500">
+                        / {formatAmount(box.monthlyAmount)} AED
+                    </span>
+                </div>
+                {!box.isPaid ? (
+                    <div
+                        className={`text-[10px] font-medium mt-2 ${
+                            box.isPartial ? 'text-amber-800/90' : 'text-red-600/80'
+                        }`}
+                    >
+                        Remaining: {formatAmount(box.remaining)} AED
+                    </div>
+                ) : null}
+            </div>
         </div>
     );
 }
@@ -71,7 +99,7 @@ export default function EntityPaymentScheduleBoxes({ boxes = [], eosBoxes = [] }
                 Payment Schedule
             </h3>
             <p className="text-xs text-gray-500 mb-4">
-                Installment status for this item (green = paid, amber = partial, red = unpaid)
+                Installment status for this item (green = paid, red/green = partial, red = unpaid). Hover a box for the month name.
             </p>
             {salaryBoxes.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">

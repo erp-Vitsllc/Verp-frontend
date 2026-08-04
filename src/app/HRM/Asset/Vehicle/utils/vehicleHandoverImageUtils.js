@@ -1,5 +1,6 @@
 import axiosInstance from '@/utils/axios';
 import { validateErpJpegFile } from '@/utils/uploadFileTypes';
+import { loadStorageFileBlob } from '@/utils/attachmentPreview';
 import {
     normalizeHandoverPhotoIdentity,
     resolveAssessmentMediaUrl,
@@ -99,7 +100,7 @@ export async function uploadHandoverAssessmentPhoto(file, itemKey, { skipToast =
     };
 }
 
-/** Fetch a fresh signed URL for handover/accessories photos stored as S3 keys. */
+/** Load handover/accessories photos via API proxy (avoids Wasabi DNS in the browser). */
 export async function fetchSignedAssessmentMediaUrl(photo) {
     const direct = resolveAssessmentMediaUrl(photo);
     if (direct?.startsWith('data:')) return direct;
@@ -110,12 +111,9 @@ export async function fetchSignedAssessmentMediaUrl(photo) {
     }
 
     try {
-        const response = await axiosInstance.get('/storage/signed-url', {
-            params: { key },
-            skipToast: true,
-        });
-        return response?.data?.url || direct || null;
+        const blob = await loadStorageFileBlob(key);
+        return URL.createObjectURL(blob);
     } catch {
-        return direct || null;
+        return direct?.startsWith('data:') ? direct : null;
     }
 }

@@ -12,6 +12,8 @@ import axiosInstance from '@/utils/axios';
 
 import { mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
 import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
+import { resolveBulkAssignmentGroupId } from '@/utils/assetNotificationRouting';
+import BulkAssignmentAcknowledgeModal from '@/app/HRM/Asset/components/BulkAssignmentAcknowledgeModal';
 import {
     vehicleIdFromNotificationHref,
     warmVehicleDetailLight,
@@ -205,6 +207,8 @@ function DashboardContent() {
     const [showHierarchyModal, setShowHierarchyModal] = useState(false);
 
     const [selectedUser, setSelectedUser] = useState(null); // null = self
+
+    const [bulkAssignmentGroupId, setBulkAssignmentGroupId] = useState(null);
 
     const [hasTeam, setHasTeam] = useState(false);
 
@@ -611,6 +615,13 @@ function DashboardContent() {
             });
         }
 
+        // Bulk asset assignment → open select/accept modal here (no Asset page redirect).
+        const bulkGroupId = resolveBulkAssignmentGroupId(item);
+        if (bulkGroupId) {
+            setBulkAssignmentGroupId(bulkGroupId);
+            return;
+        }
+
         const path = buildDashboardNotificationPath(item);
         if (path) {
             prefetchNotificationDestination(item);
@@ -941,6 +952,8 @@ function DashboardContent() {
 
 
     return (
+
+        <>
 
         <div className="flex h-screen bg-[#F8FAFC] text-slate-800 font-sans">
 
@@ -2029,6 +2042,22 @@ function DashboardContent() {
             </div>
 
         </div>
+
+        <BulkAssignmentAcknowledgeModal
+            isOpen={!!bulkAssignmentGroupId}
+            groupId={bulkAssignmentGroupId || ''}
+            onClose={() => setBulkAssignmentGroupId(null)}
+            onSuccess={() => {
+                setBulkAssignmentGroupId(null);
+                try {
+                    window.dispatchEvent(new Event(ASSET_PENDING_INBOX_CHANGED));
+                } catch {
+                    /* ignore */
+                }
+            }}
+        />
+
+        </>
 
     );
 

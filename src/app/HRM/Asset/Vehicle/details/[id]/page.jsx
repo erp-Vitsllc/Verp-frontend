@@ -466,8 +466,7 @@ function VehicleDetailsPageContent() {
     const [serviceInnerTab, setServiceInnerTab] = useState(() => {
         const fromUrl = String(searchParams.get('serviceTab') || '').trim();
         if (fromUrl && VEHICLE_SERVICE_TYPES.includes(fromUrl)) return fromUrl;
-        // Car Wash / other service tabs temporarily hidden — keep Oil Service only
-        // if (searchParams.get('carWashServiceId')) return 'Car Wash';
+        if (searchParams.get('carWashServiceId')) return 'Car Wash';
         if (searchParams.get('focusCard') === 'vehicleService') return 'Oil Service';
         return VEHICLE_SERVICE_TYPES[0];
     });
@@ -556,9 +555,8 @@ function VehicleDetailsPageContent() {
             const serviceTab = String(searchParams.get('serviceTab') || '').trim();
             if (serviceTab && VEHICLE_SERVICE_TYPES.includes(serviceTab)) {
                 setServiceInnerTab((prev) => (prev === serviceTab ? prev : serviceTab));
-            // Car Wash / other service tabs temporarily hidden — keep Oil Service only
-            // } else if (searchParams.get('carWashServiceId')) {
-            //     setServiceInnerTab((prev) => (prev === 'Car Wash' ? prev : 'Car Wash'));
+            } else if (searchParams.get('carWashServiceId')) {
+                setServiceInnerTab((prev) => (prev === 'Car Wash' ? prev : 'Car Wash'));
             } else if (searchParams.get('focusCard') === 'vehicleService') {
                 setServiceInnerTab((prev) => (prev === 'Oil Service' ? prev : 'Oil Service'));
             }
