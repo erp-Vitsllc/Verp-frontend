@@ -32,6 +32,7 @@ import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
+import VehicleGarageBillingFields from './VehicleGarageBillingFields';
 
 export default function VehicleBodyWorkGarageCard({
     asset,
@@ -186,33 +187,8 @@ export default function VehicleBodyWorkGarageCard({
                     />
                 </VehicleBodyWorkFormFieldCell>
                 <VehicleBodyWorkFormFieldCell
-                    label="Amount (from Initiate / HR)"
-                    accentClass={accent(0)}
-                    minHeightPx={fieldMinHeightPx}
-                >
-                    <div className="relative">
-                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
-                            AED
-                        </span>
-                        <input
-                            className={`${bodyFieldSelect} pl-11`}
-                            type="text"
-                            readOnly
-                            value={
-                                approvedAmount > 0
-                                    ? approvedAmount.toLocaleString(undefined, {
-                                          minimumFractionDigits: 0,
-                                          maximumFractionDigits: 2,
-                                      })
-                                    : 'â€”'
-                            }
-                            disabled
-                        />
-                    </div>
-                </VehicleBodyWorkFormFieldCell>
-                <VehicleBodyWorkFormFieldCell
                     label="Service Start Date"
-                    accentClass={accent(1)}
+                    accentClass={accent(0)}
                     minHeightPx={fieldMinHeightPx}
                 >
                     <DatePicker
@@ -225,7 +201,7 @@ export default function VehicleBodyWorkGarageCard({
                 </VehicleBodyWorkFormFieldCell>
                 <VehicleBodyWorkFormFieldCell
                     label="Service End Date"
-                    accentClass={accent(2)}
+                    accentClass={accent(1)}
                     minHeightPx={fieldMinHeightPx}
                 >
                     <DatePicker
@@ -236,6 +212,15 @@ export default function VehicleBodyWorkGarageCard({
                         disabled={fieldsDisabled}
                     />
                 </VehicleBodyWorkFormFieldCell>
+                <VehicleGarageBillingFields
+                    formData={formData}
+                    setField={set}
+                    fieldsDisabled={fieldsDisabled}
+                    accent={accent}
+                    fieldMinHeightPx={fieldMinHeightPx}
+                    fieldClassName={bodyFieldSelect}
+                    amountReadOnly={approvedAmount > 0}
+                />
             </div>
 
             {canEditGarage ? (

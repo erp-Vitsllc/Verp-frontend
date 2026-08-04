@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ClipboardList, GripVertical, Loader2, Plus, Upload } from 'lucide-react';
+import { ClipboardList, Loader2, Plus, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -41,11 +41,6 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleTireChangeDetailUi';
-import {
-    buildTireQuoteDragPayload,
-    quoteKindToKey,
-    TIRE_QUOTE_DRAG_TYPE,
-} from '../utils/vehicleTireChangeQuoteDrag';
 import {
     ERP_JPEG_ACCEPT,
     ERP_PDF_ACCEPT,
@@ -503,25 +498,8 @@ export default function VehicleTireChangeDetailForm({
         onDraftStateChange({ canRequest, requesting: saving });
     }, [canRequest, onDraftStateChange, saving]);
 
-    const QuoteUpload = ({ label, kind, fileName, existingUrl, amount = '' }) => {
+    const QuoteUpload = ({ label, kind, fileName, existingUrl }) => {
         const hasQuote = !!(fileName || existingUrl);
-        const dragKey = quoteKindToKey(kind);
-
-        const handleDragStart = (event) => {
-            if (!hasQuote || !dragKey) return;
-            event.dataTransfer.setData(
-                TIRE_QUOTE_DRAG_TYPE,
-                buildTireQuoteDragPayload({
-                    key: dragKey,
-                    label,
-                    fileName: fileName || label,
-                    amount,
-                }),
-            );
-            event.dataTransfer.effectAllowed = 'copy';
-        };
-
-        const quotesDraggable = hasQuote && !assignmentPending;
 
         return (
             <div
@@ -529,16 +507,6 @@ export default function VehicleTireChangeDetailForm({
                     hasQuote ? 'border-blue-200 bg-blue-50/40' : 'border-transparent'
                 }`}
             >
-                {quotesDraggable ? (
-                    <span
-                        draggable
-                        onDragStart={handleDragStart}
-                        className="inline-flex cursor-grab items-center rounded-md border border-blue-100 bg-white px-1.5 py-1 text-blue-500 active:cursor-grabbing"
-                        title={`Drag ${label} to Approved Quote below`}
-                    >
-                        <GripVertical size={14} />
-                    </span>
-                ) : null}
                 {existingUrl ? (
                     <button
                         type="button"
@@ -580,7 +548,7 @@ export default function VehicleTireChangeDetailForm({
                     subtitle={
                         assignmentPending
                             ? 'Complete all fields, then click Send / Submit for Approval'
-                            : 'Submitted — drag Quote 1, 2, or 3 below into HR Approval'
+                            : 'Submitted — select Quote 1, 2, or 3 in HR Approval'
                     }
                     icon={ClipboardList}
                     iconBg="bg-blue-50"
@@ -935,7 +903,6 @@ export default function VehicleTireChangeDetailForm({
                                         kind="attachment"
                                         fileName={formData.attachmentName}
                                         existingUrl={formData.existingAttachmentUrl}
-                                        amount={formData.estimatedCost || formData.quotation1Amount || ''}
                                     />
                                 </VehicleTireChangeFormFieldCell>
                                 <VehicleTireChangeFormFieldCell
@@ -948,7 +915,6 @@ export default function VehicleTireChangeDetailForm({
                                         kind="quotation2"
                                         fileName={formData.quotation2Name}
                                         existingUrl={formData.existingQuotation2Url}
-                                        amount={formData.quotation2Amount || ''}
                                     />
                                 </VehicleTireChangeFormFieldCell>
                                 <VehicleTireChangeFormFieldCell
@@ -961,7 +927,6 @@ export default function VehicleTireChangeDetailForm({
                                         kind="quotation3"
                                         fileName={formData.quotation3Name}
                                         existingUrl={formData.existingQuotation3Url}
-                                        amount={formData.quotation3Amount || ''}
                                     />
                                 </VehicleTireChangeFormFieldCell>
                     </div>
