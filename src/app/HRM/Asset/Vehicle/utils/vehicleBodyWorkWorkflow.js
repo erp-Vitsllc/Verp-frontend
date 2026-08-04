@@ -46,6 +46,8 @@ export function isBodyWorkGarageSubmitted(asset, service) {
 export function canEditBodyWorkGarage(stage, canManageBodyWork, { asset, service } = {}) {
     if (!canManageBodyWork) return false;
     if (asset && service && isBodyWorkGarageSubmitted(asset, service)) return false;
+    // Parallel with HR after Initiate (oil cash style).
+    if (stage === BODY_WORK_WORKFLOW_STAGES.HR) return true;
     if (stage === BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
     if (stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS) return true;
     return false;

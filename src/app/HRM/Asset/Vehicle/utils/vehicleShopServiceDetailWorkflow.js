@@ -259,6 +259,9 @@ function resolveActiveStepId({
     if (s === 'scheduled_service' && onServiceDone && !completeDone) return 6;
     if (s === 'scheduled_service' || (accountsDone && scheduleDone && hrDone && !onServiceDone)) return 5;
     if (s === 'pending_accounts' || (scheduleDone && hrDone && !accountsDone)) return 4;
+    // After Initiate: Schedule + HR open together — highlight Schedule while garage incomplete;
+    // HR stays Pending via parallel badge below (oil cash style).
+    if (s === 'pending_hr' && initiateDone && !scheduleDone) return 2;
     if (s === 'pending_admin_officer' || (hrDone && !scheduleDone)) return 2;
     if (s === 'pending_hr' || (initiateDone && !hrDone)) return 3;
     if (!initiateDone) return 1;
@@ -486,7 +489,7 @@ export function buildShopServiceDetailWorkflowEvents(
         }
         if (step.id === 3) {
             detail =
-                currentActiveStepId === 3
+                currentActiveStepId === 3 || (currentActiveStepId === 2 && !hrDone)
                     ? 'Flowchart HR must approve quotation'
                     : 'HR approved schedule';
         }
@@ -525,6 +528,13 @@ export function buildShopServiceDetailWorkflowEvents(
 
     if (events.length) {
         events[events.length - 1].isLast = true;
+    }
+
+    // Parallel open: show HR as Pending when Schedule is active and HR not done yet (oil cash style).
+    const hrEvent = events.find((e) => e.stepNumber === 3);
+    if (hrEvent && currentActiveStepId === 2 && !hrDone) {
+        hrEvent.badge = 'Pending';
+        hrEvent.badgeVariant = 'pending';
     }
 
     return events;

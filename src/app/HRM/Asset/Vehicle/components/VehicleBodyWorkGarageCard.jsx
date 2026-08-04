@@ -122,8 +122,9 @@ export default function VehicleBodyWorkGarageCard({
         ? scheduleGate.message
         : !canManage
           ? 'Waiting for flowchart Admin Officer to schedule / reschedule'
-          : stage === BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER
-            ? 'Garage and dates are required â€” then click OK'
+          : stage === BODY_WORK_WORKFLOW_STAGES.HR ||
+              stage === BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER
+            ? 'Garage and dates are required â€” then click OK (open with HR Approval)'
             : isComplete || stage === 'billed'
               ? 'Schedule locked â€” service is complete'
               : 'Admin Officer can update garage or dates until Complete Service';

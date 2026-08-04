@@ -44,6 +44,8 @@ export function canEditTireChangeGarage(stage, canManageTireChange, { asset, ser
         const remark = parseVehicleServiceRemark(service) || {};
         if (wf.garageSubmittedAt || String(remark.garageSubmittedByName || '').trim()) return false;
     }
+    // Parallel with HR after Initiate (oil cash style).
+    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.HR) return true;
     if (stage === TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
     if (stage === TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS) return true;
     return false;

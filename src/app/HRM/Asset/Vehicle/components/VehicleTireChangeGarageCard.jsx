@@ -122,8 +122,9 @@ export default function VehicleTireChangeGarageCard({
         ? scheduleGate.message
         : !canManage
           ? 'Waiting for flowchart Admin Officer to schedule / reschedule'
-          : stage === TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_OFFICER
-            ? 'Garage and dates are required — then click OK'
+          : stage === TIRE_CHANGE_WORKFLOW_STAGES.HR ||
+              stage === TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_OFFICER
+            ? 'Garage and dates are required — then click OK (open with HR Approval)'
             : isComplete || stage === 'billed'
               ? 'Schedule locked — service is complete'
               : 'Admin Officer can update garage or dates until Complete Service';

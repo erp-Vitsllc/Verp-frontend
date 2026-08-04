@@ -2,8 +2,8 @@
  * Sequential lock messages for shop services (Tire / Mechanical / Body),
  * matching Oil Service always-visible locked card shells.
  *
- * Page order matches Oil naming: Initiate → Schedule → HR|Accounts → Complete → Make Payment
- * with locks reflecting shop stage readiness (HR before Schedule edit).
+ * Page order matches Oil naming: Initiate → Schedule + HR (together) → Accounts → Complete → Make Payment
+ * (Cash oil parallel: Schedule and HR unlock together after Initiate).
  */
 
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
@@ -51,7 +51,7 @@ export function resolveShopServiceCardGate({
         if (cardKey === SHOP_SERVICE_CARD.SCHEDULE) {
             return {
                 locked: true,
-                message: 'Complete Initiate Service and HR Approval first',
+                message: 'Complete Initiate Service and click Send first',
             };
         }
         if (cardKey === SHOP_SERVICE_CARD.COMPLETE) {
@@ -70,13 +70,12 @@ export function resolveShopServiceCardGate({
 
     switch (cardKey) {
         case SHOP_SERVICE_CARD.SCHEDULE: {
-            if (stage === 'pending_hr') {
-                return { locked: true, message: 'Complete HR Approval first' };
-            }
             if (isTerminal(stage) && garageDone) {
                 return { locked: true, message: 'Schedule locked — this service is complete or billed' };
             }
+            // Oil-style: Schedule + HR open together after Initiate (pending_hr).
             if (
+                stage === 'pending_hr' ||
                 stage === 'pending_admin_officer' ||
                 stage === 'pending_accounts' ||
                 stage === 'scheduled_service' ||
@@ -87,11 +86,13 @@ export function resolveShopServiceCardGate({
                 return {
                     locked: false,
                     message: '',
-                    active: stage === 'pending_admin_officer',
+                    active:
+                        (stage === 'pending_hr' && !garageDone) ||
+                        stage === 'pending_admin_officer',
                     done: garageDone,
                 };
             }
-            return { locked: true, message: 'Complete HR Approval first' };
+            return { locked: true, message: 'Complete Initiate Service and click Send first' };
         }
         case SHOP_SERVICE_CARD.HR: {
             if (stage === 'pending_hr') {
