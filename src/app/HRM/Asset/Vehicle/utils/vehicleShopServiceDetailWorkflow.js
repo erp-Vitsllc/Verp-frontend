@@ -172,26 +172,23 @@ function isHrDone(remark, stage, history = []) {
 function isAccountsApproveDone(remark, stage, history = []) {
     if (
         String(remark.accountsQuoteApprovedAt || '').trim() ||
-        String(remark.accountsGarageApprovedAt || '').trim()
+        String(remark.accountsGarageApprovedAt || '').trim() ||
+        String(remark.accountsApprovedAt || '').trim()
     ) {
         return true;
     }
-    if (
-        [
-            'scheduled_service',
-            'pending_admin_return',
-            'pending_billing',
-            'billed',
-            'complete',
-        ].includes(stage)
-    ) {
+    if (['pending_admin_return', 'pending_billing', 'billed', 'complete'].includes(stage)) {
         return true;
     }
-    return history.some(
+    const accountsApprovedInHistory = history.some(
         (h) =>
             String(h.action || '').toLowerCase() === 'approve' &&
             String(h.stage || '').toLowerCase() === 'pending_accounts',
     );
+    if (stage === 'scheduled_service' && accountsApprovedInHistory) {
+        return true;
+    }
+    return accountsApprovedInHistory;
 }
 
 function isInitiateDone(remark, service) {

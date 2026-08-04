@@ -19,12 +19,38 @@ function formatAed(value) {
     return n.toLocaleString(undefined, { minimumFractionDigits: 2 });
 }
 
+function resolveApprovedQuoteKey(remark = {}) {
+    const key = String(
+        remark.approvedQuotationChoice ||
+            remark.approvedQuoteKey ||
+            remark.hrApprovedQuoteKey ||
+            '',
+    )
+        .toLowerCase()
+        .trim();
+    if (key === 'q1' || key === 'quote1') return 'q1';
+    if (key === 'q2' || key === 'quote2') return 'q2';
+    if (key === 'q3' || key === 'quote3') return 'q3';
+    return '';
+}
+
 function quoteLabelFromRemark(remark) {
-    const key = String(remark.approvedQuoteKey || remark.hrApprovedQuoteKey || '').toLowerCase();
-    if (key === 'q1' || key === 'quote1') return 'Quote 1';
-    if (key === 'q2' || key === 'quote2') return 'Quote 2';
-    if (key === 'q3' || key === 'quote3') return 'Quote 3';
+    const key = resolveApprovedQuoteKey(remark);
+    if (key === 'q1') return 'Quote 1';
+    if (key === 'q2') return 'Quote 2';
+    if (key === 'q3') return 'Quote 3';
     return remark.approvedQuoteLabel || '—';
+}
+
+function isAccountsApprovalDone(remark = {}, stage = '') {
+    if (
+        String(remark.accountsQuoteApprovedAt || '').trim() ||
+        String(remark.accountsGarageApprovedAt || '').trim() ||
+        String(remark.accountsApprovedAt || '').trim()
+    ) {
+        return true;
+    }
+    return ['pending_admin_return', 'pending_billing', 'billed', 'complete'].includes(stage);
 }
 
 /**
@@ -63,22 +89,19 @@ export default function VehicleShopServiceAccountsApproveCard({
         0;
     const companyPay = Number(remark.hrReviewCompanyPay ?? remark.companyPay ?? 0);
     const employeePay = Number(remark.hrReviewEmployeePay ?? remark.employeePay ?? 0);
+    const approvedQuoteKey = resolveApprovedQuoteKey(remark);
     const quoteLabel = quoteLabelFromRemark(remark);
     const quoteUrl =
         remark.approvedQuoteUrl ||
-        (String(remark.approvedQuoteKey || '').toLowerCase() === 'q2'
+        (approvedQuoteKey === 'q2'
             ? service?.quotation2
-            : String(remark.approvedQuoteKey || '').toLowerCase() === 'q3'
+            : approvedQuoteKey === 'q3'
               ? service?.quotation3
               : service?.attachment) ||
         '';
 
     const canApprove = canActAccounts && stage === 'pending_accounts' && !busy;
-    const accountsDone =
-        gate.done ||
-        ['scheduled_service', 'pending_admin_return', 'pending_billing', 'billed', 'complete'].includes(
-            stage,
-        );
+    const accountsDone = isAccountsApprovalDone(remark, stage) || Boolean(gate.done);
 
     const handleApprove = async () => {
         if (!vehicleId || !canApprove) return;

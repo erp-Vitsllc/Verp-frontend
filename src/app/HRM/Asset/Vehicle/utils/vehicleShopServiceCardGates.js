@@ -104,26 +104,35 @@ export function resolveShopServiceCardGate({
             return { locked: true, message: 'Complete Initiate Service and click Send first' };
         }
         case SHOP_SERVICE_CARD.ACCOUNTS: {
+            const accountsApproved = Boolean(
+                String(remark.accountsQuoteApprovedAt || '').trim() ||
+                    String(remark.accountsGarageApprovedAt || '').trim() ||
+                    String(remark.accountsApprovedAt || '').trim(),
+            );
+            const pastAccountsByStage = [
+                'pending_admin_return',
+                'pending_billing',
+                'billed',
+                'complete',
+            ].includes(stage);
+            const done = accountsApproved || pastAccountsByStage;
+
             if (stage === 'pending_hr') {
                 return { locked: true, message: 'Complete HR Approval first (HR once)' };
             }
-            if (stage === 'pending_accounts') {
-                return { locked: false, message: '', active: true, done: false };
-            }
-            if (
-                stage === 'scheduled_service' ||
-                stage === 'pending_admin_return' ||
-                stage === 'pending_billing' ||
-                stage === 'billed' ||
-                stage === 'complete'
-            ) {
+            if (done) {
                 return { locked: false, message: '', active: false, done: true };
             }
-            if (stage === 'pending_admin_officer') {
+            if (
+                stage === 'pending_accounts' ||
+                stage === 'pending_admin_officer' ||
+                stage === 'scheduled_service'
+            ) {
+                // scheduled_service without an Accounts stamp is stale — still waiting.
                 return {
                     locked: false,
                     message: '',
-                    active: false,
+                    active: stage === 'pending_accounts' || stage === 'scheduled_service',
                     done: false,
                 };
             }

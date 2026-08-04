@@ -8,7 +8,27 @@ function findServiceRow(asset, serviceId, service) {
 }
 
 function shopActivityLog(remark = {}) {
-    return Array.isArray(remark.tireActivityLog) ? remark.tireActivityLog : [];
+    if (Array.isArray(remark.tireActivityLog) && remark.tireActivityLog.length) return remark.tireActivityLog;
+    if (Array.isArray(remark.mechanicalActivityLog) && remark.mechanicalActivityLog.length) {
+        return remark.mechanicalActivityLog;
+    }
+    if (Array.isArray(remark.bodyWorkActivityLog) && remark.bodyWorkActivityLog.length) {
+        return remark.bodyWorkActivityLog;
+    }
+    return [];
+}
+
+function hasAccountsApprovalEvidence(remark = {}, asset = null, service = null, accountsStage = 'pending_accounts') {
+    if (
+        String(remark.accountsApprovedAt || '').trim() ||
+        String(remark.accountsQuoteApprovedAt || '').trim() ||
+        String(remark.accountsGarageApprovedAt || '').trim()
+    ) {
+        return true;
+    }
+    const log = shopActivityLog(remark);
+    if (log.some((entry) => entry.type === 'accounts_approved')) return true;
+    return accountsApprovalRecorded(asset, service, accountsStage);
 }
 
 function accountsApprovalRecorded(asset, service, accountsStage) {
@@ -30,7 +50,7 @@ function accountsApprovalRecorded(asset, service, accountsStage) {
     );
 }
 
-function inferStageFromRemarkActivity(remark, asset, stages) {
+function inferStageFromRemarkActivity(remark, asset, stages, service = null) {
     const log = shopActivityLog(remark);
     const has = (type) => log.some((entry) => entry.type === type);
     const workflowStage = String(remark.workflowStage || '').toLowerCase();
@@ -48,15 +68,21 @@ function inferStageFromRemarkActivity(remark, asset, stages) {
         return stages.COMPLETE;
     }
 
-    if (has('accounts_approved') || remark.accountsApprovedAt) {
+    // Accounts Approve (not garage alone) unlocks scheduled / On Service — oil cash style.
+    if (hasAccountsApprovalEvidence(remark, asset, service, stages.ACCOUNTS)) {
         return stages.SCHEDULED;
     }
-    if (has('garage_updated') || remark.garageSubmittedByName) {
-        return stages.SCHEDULED;
+
+    // HR quotation approved → Accounts next (Schedule may already be done in parallel).
+    if (
+        has('quotation_review_approved') ||
+        String(remark.hrReviewApprovedAt || '').trim() ||
+        String(remark.hrApprovedAt || '').trim() ||
+        String(remark.hrScheduleApprovedAt || '').trim()
+    ) {
+        return stages.ACCOUNTS;
     }
-    if (has('quotation_review_approved')) {
-        return stages.ADMIN_OFFICER;
-    }
+
     if (has('request_submitted') || String(remark.requestStatus || '').toLowerCase() === 'submitted') {
         return stages.HR;
     }
@@ -118,13 +144,13 @@ function resolveRawShopServiceStage(asset, serviceId, service, stages) {
         return 'billed';
     }
 
-    const inferred = inferStageFromRemarkActivity(remark, asset, stages);
+    const inferred = inferStageFromRemarkActivity(remark, asset, stages, serviceRow);
     if (inferred === pendingBilling || inferred === 'billed' || inferred === stages.COMPLETE) {
         return inferred;
     }
 
-    // Garage already submitted → never stay on Admin Officer / pre-schedule stages.
-    // Stale snapshot/active stage can lag behind the activity log (Done stays visible, Return card hidden).
+    // Accounts already approved → never stay on pre-schedule stages.
+    // Stale snapshot/active stage can lag behind the activity log.
     if (inferred === stages.SCHEDULED) {
         const ahead = new Set([
             stages.SCHEDULED,
