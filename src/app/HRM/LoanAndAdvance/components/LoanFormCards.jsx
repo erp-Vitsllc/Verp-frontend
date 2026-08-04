@@ -47,7 +47,7 @@ export default function LoanFormCards(props) {
                     referenceId={loan.loanId}
                     relatedEntityId={loan._id || loan.id}
                     totalPayable={loan.amount}
-                    paidAmount={loan.paidAmount}
+                    paidAmount={loan.repaidAmount}
                     typeLabel={loan.type === 'Advance' ? 'Advance' : 'Loan'}
                     entityRecord={loan}
                     employeeId={loan.employeeId}

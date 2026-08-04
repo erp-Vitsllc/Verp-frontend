@@ -77,9 +77,9 @@ const PaymentReceipt = ({ payment }) => {
                     setOtherDebts(debts);
                 }
 
-                // 3. Fetch specific payments for this entity
+                // 3. Fetch specific payments for this entity (this loan/fine only)
                 const refIdForQuery = payment.relatedEntityId || payment.referenceId;
-                const payParams = {};
+                const payParams = { limit: 100 };
 
                 if (isFine) {
                     payParams.relatedEntityType = 'Fine';
@@ -95,9 +95,11 @@ const PaymentReceipt = ({ payment }) => {
                     payParams.relatedEntityType = repaymentType;
                     if (payment.relatedEntityId) {
                         payParams.relatedEntityId = payment.relatedEntityId;
-                    } else if (payment.referenceId) {
+                    }
+                    if (payment.referenceId) {
                         payParams.referenceId = payment.referenceId;
-                    } else {
+                    }
+                    if (!payParams.relatedEntityId && !payParams.referenceId) {
                         payParams.relatedEntityId = refIdForQuery;
                     }
                 } else {
@@ -106,7 +108,29 @@ const PaymentReceipt = ({ payment }) => {
                 }
 
                 const payRes = await axiosInstance.get('/Payment', { params: payParams });
-                const fetchedPayments = payRes.data.payments || (Array.isArray(payRes.data) ? payRes.data : []);
+                let fetchedPayments = payRes.data.payments || (Array.isArray(payRes.data) ? payRes.data : []);
+
+                // Keep only this loan's repayments (never mix other loans for the same employee).
+                if (isLoanLike) {
+                    const loanMongoId = String(
+                        payment.relatedEntityId?._id || payment.relatedEntityId || '',
+                    ).trim();
+                    const loanCode = String(payment.referenceId || '').trim();
+                    const repaymentType =
+                        entityType === 'Advance' || entityType === 'AdvanceRepayment'
+                            ? 'AdvanceRepayment'
+                            : 'LoanRepayment';
+                    fetchedPayments = (fetchedPayments || []).filter((p) => {
+                        if (String(p.relatedEntityType || '') !== repaymentType) return false;
+                        const refOk = loanCode && String(p.referenceId || '') === loanCode;
+                        const idOk =
+                            loanMongoId &&
+                            String(p.relatedEntityId?._id || p.relatedEntityId || '') ===
+                                loanMongoId;
+                        return Boolean(refOk || idOk);
+                    });
+                }
+
                 setExistingPayments(fetchedPayments);
 
             } catch (e) {
@@ -126,6 +150,9 @@ const PaymentReceipt = ({ payment }) => {
     if (loading) return <div className="p-8 text-center text-gray-400">Loading receipt details...</div>;
 
     const isFineReceipt = String(payment.relatedEntityType || '') === 'Fine';
+    const isLoanRepaymentReceipt = ['Loan', 'Advance', 'LoanRepayment', 'AdvanceRepayment'].includes(
+        String(payment.relatedEntityType || '').trim(),
+    );
 
     let targetEmpId = typeof payment.paidBy === 'object' ? payment.paidBy.employeeId : payment.paidBy;
     if (isFineReceipt && relatedData?.assignedEmployees) {
@@ -140,8 +167,8 @@ const PaymentReceipt = ({ payment }) => {
         }
     }
 
-    const share = isFineReceipt
-        ? calculateEmployeeShareLogic(relatedData, targetEmpId) 
+    const principal = isFineReceipt
+        ? calculateEmployeeShareLogic(relatedData, targetEmpId)
         : parseFloat(relatedData?.amount || relatedData?.loanAmount || 0);
 
     const duration = parseInt(
@@ -188,7 +215,12 @@ const PaymentReceipt = ({ payment }) => {
 
     const paidByNow = parseFloat(payment.amount || 0);
     const earlier = earlierAtTime;
-    const balanceNow = Math.max(0, share - totalPaidAtTime);
+    // Loan repayments: invoice "Total" = outstanding before this payment (principal − paid earlier),
+    // not the full loan amount again on every partial payment.
+    const share = isLoanRepaymentReceipt
+        ? Math.max(0, principal - earlier)
+        : principal;
+    const balanceNow = Math.max(0, principal - totalPaidAtTime);
     const empName = payment.paidBy?.firstName ? `${payment.paidBy.firstName} ${payment.paidBy.lastName}` : (payment.paidByName || 'Employee');
 
     const generateMonthBoxes = () => {
@@ -221,7 +253,7 @@ const PaymentReceipt = ({ payment }) => {
             }
         } catch (e) { return []; }
         
-        const monthlyAmount = duration > 0 ? (share / duration) : share;
+        const monthlyAmount = duration > 0 ? (principal / duration) : principal;
         if (isNaN(monthlyAmount)) return [];
 
         const sortedPayments = [...historical].sort((a, b) => {
@@ -283,6 +315,26 @@ const PaymentReceipt = ({ payment }) => {
                     <p className="text-sm text-gray-600">Date: <span className="font-bold text-gray-900">{new Date(payment.paymentDate || new Date()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span></p>
                     <p className="text-sm text-gray-600 mt-1">Ref Type: <span className="font-bold text-blue-600">{payment.paymentType || payment.relatedEntityType}</span></p>
                     <p className="text-sm text-gray-600 mt-1">Ref ID: <span className="font-bold text-gray-900">{payment.referenceId || 'N/A'}</span></p>
+                    {isLoanRepaymentReceipt ? (
+                        <p className="text-sm text-gray-600 mt-1">
+                            Zoho:{' '}
+                            <span
+                                className={`font-bold ${
+                                    String(payment.zohoExpenseId || '').trim()
+                                        ? 'text-emerald-600'
+                                        : payment.zohoSyncError
+                                          ? 'text-rose-600'
+                                          : 'text-amber-600'
+                                }`}
+                            >
+                                {String(payment.zohoExpenseId || '').trim()
+                                    ? `Synced (${payment.zohoExpenseId})`
+                                    : payment.zohoSyncError
+                                      ? 'Failed'
+                                      : 'Pending'}
+                            </span>
+                        </p>
+                    ) : null}
                 </div>
             </div>
 
@@ -334,7 +386,7 @@ const PaymentReceipt = ({ payment }) => {
             <div className="flex justify-end mb-10">
                 <div className="w-72 space-y-3">
                     <div className="flex justify-between text-xs font-bold text-gray-400 uppercase tracking-wider">
-                        <span>Total Amount:</span>
+                        <span>{isLoanRepaymentReceipt ? 'Balance Due:' : 'Total Amount:'}</span>
                         <span className="text-gray-900">{share.toLocaleString(undefined, { minimumFractionDigits: 2 })} AED</span>
                     </div>
                     <div className="flex justify-between text-xs font-bold text-gray-400 uppercase tracking-wider">
@@ -356,7 +408,7 @@ const PaymentReceipt = ({ payment }) => {
                 <p className="text-sm text-blue-900 leading-relaxed">
                     <span className="font-bold italic">Note:</span> {empName} has successfully paid <span className="font-bold">{paidByNow.toLocaleString(undefined, { minimumFractionDigits: 2 })} AED</span>.
                     The current outstanding balance for this item is <span className="font-bold">{balanceNow.toLocaleString(undefined, { minimumFractionDigits: 2 })} AED</span>.
-                    {duration > 1 && ` Estimated Monthly Installment: ${(share / duration).toLocaleString(undefined, { minimumFractionDigits: 2 })} AED`}
+                    {duration > 1 && ` Estimated Monthly Installment: ${(principal / duration).toLocaleString(undefined, { minimumFractionDigits: 2 })} AED`}
                 </p>
             </div>
 

@@ -1,16 +1,26 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { X, Undo2, ArrowRightLeft, User, Package } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { X, ArrowRightLeft, Package, Undo2, ListChecks } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import AssetBulkListPreview, {
     ASSET_BULK_MORE_THRESHOLD,
 } from './AssetBulkListPreview';
 
 /**
- * Return Asset modal — same UX as asset details Return (Individual / Bulk).
- * Supports presetAssets when opened from employee profile bulk selection.
+ * Return Asset modal — same card layout as End of Services (TransferAssetModal),
+ * with a mandatory description field.
  */
 export default function ReturnAssetModal({
     isOpen,
@@ -24,106 +34,145 @@ export default function ReturnAssetModal({
     handoverTarget = null,
     /** Treat submitter as assignee (sends AC request with bulkAssetIds). */
     isAssigneeSelf = true,
+    isAssetController = false,
+    /** Hide Individual/Bulk toggle (profile already selected the set). */
+    hideModeToggle = false,
 }) {
     const { toast } = useToast();
     const hasPreset = Array.isArray(presetAssets) && presetAssets.length > 0;
-    const primaryAsset = hasPreset ? presetAssets[0] : asset;
+    const primaryAsset = hasPreset ? (presetAssets[0] || asset) : asset;
 
     const [returnMode, setReturnMode] = useState('individual');
     const [returnDescription, setReturnDescription] = useState('');
     const [isReturning, setIsReturning] = useState(false);
-    const [returnableAssets, setReturnableAssets] = useState([]);
-    const [returnBulkSelectedIds, setReturnBulkSelectedIds] = useState([]);
-    const [returnableLoading, setReturnableLoading] = useState(false);
+    const [confirmReturn, setConfirmReturn] = useState(false);
+    const [otherAssets, setOtherAssets] = useState([]);
+    const [selectedAssetIds, setSelectedAssetIds] = useState([]);
+    const [loadingAssets, setLoadingAssets] = useState(false);
+    const selectAllRef = useRef(null);
+
+    const isIdSelected = (id) =>
+        selectedAssetIds.some((sid) => String(sid) === String(id));
+
+    const allBulkAssetIds = useMemo(() => {
+        if (hasPreset) {
+            return presetAssets.map((a) => a._id || a.id).filter(Boolean);
+        }
+        if (!primaryAsset?._id) return [];
+        return [primaryAsset._id, ...otherAssets.map((a) => a._id)];
+    }, [hasPreset, presetAssets, primaryAsset?._id, otherAssets]);
+
+    const selectedAssetObjects = useMemo(() => {
+        if (hasPreset) {
+            const idSet = new Set(selectedAssetIds.map(String));
+            return presetAssets.filter((a) => idSet.has(String(a._id || a.id)));
+        }
+        const map = new Map();
+        if (primaryAsset?._id) map.set(String(primaryAsset._id), primaryAsset);
+        otherAssets.forEach((a) => {
+            if (a?._id) map.set(String(a._id), a);
+        });
+        return selectedAssetIds.map((id) => map.get(String(id))).filter(Boolean);
+    }, [hasPreset, presetAssets, selectedAssetIds, primaryAsset, otherAssets]);
+
+    const allBulkSelected =
+        allBulkAssetIds.length > 0 && allBulkAssetIds.every((id) => isIdSelected(id));
+
+    const someBulkSelected =
+        allBulkAssetIds.some((id) => isIdSelected(id)) && !allBulkSelected;
+
+    useEffect(() => {
+        if (selectAllRef.current) {
+            selectAllRef.current.indeterminate = someBulkSelected;
+        }
+    }, [someBulkSelected, allBulkSelected]);
+
+    const toggleSelectAllBulk = () => {
+        if (!primaryAsset?._id && !hasPreset) return;
+        if (allBulkSelected) {
+            setSelectedAssetIds(
+                primaryAsset?._id ? [primaryAsset._id] : allBulkAssetIds.slice(0, 1),
+            );
+        } else {
+            setSelectedAssetIds(allBulkAssetIds);
+        }
+    };
 
     useEffect(() => {
         if (!isOpen) return;
+
         setReturnDescription('');
         setIsReturning(false);
+        setConfirmReturn(false);
 
         if (hasPreset) {
-            const ids = presetAssets.map((a) => String(a._id || a.id)).filter(Boolean);
-            setReturnableAssets(presetAssets);
-            setReturnBulkSelectedIds(ids);
+            const ids = presetAssets.map((a) => a._id || a.id).filter(Boolean);
+            setOtherAssets(presetAssets.slice(1));
+            setSelectedAssetIds(ids);
             setReturnMode(ids.length > 1 ? 'bulk' : 'individual');
-            setReturnableLoading(false);
+            setLoadingAssets(false);
             return;
         }
 
         setReturnMode('individual');
-        if (primaryAsset?._id) {
-            setReturnBulkSelectedIds([String(primaryAsset._id)]);
-        } else {
-            setReturnBulkSelectedIds([]);
+        setSelectedAssetIds(primaryAsset?._id ? [primaryAsset._id] : []);
+        setOtherAssets([]);
+
+        if (canUseBulkReturnUi && primaryAsset?._id) {
+            fetchOtherAssets();
         }
-        setReturnableAssets(primaryAsset ? [primaryAsset] : []);
-    }, [isOpen, hasPreset, presetAssets, primaryAsset?._id]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, hasPreset, presetAssets, primaryAsset?._id, canUseBulkReturnUi]);
 
     useEffect(() => {
-        if (!isOpen || hasPreset || !canUseBulkReturnUi || !primaryAsset?._id) return;
+        if (hasPreset || !isOpen) return;
+        if (returnMode === 'bulk' && otherAssets.length > 0 && primaryAsset?._id) {
+            setSelectedAssetIds([primaryAsset._id, ...otherAssets.map((a) => a._id)]);
+        } else if (returnMode === 'individual') {
+            setSelectedAssetIds(primaryAsset?._id ? [primaryAsset._id] : []);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [returnMode, otherAssets.length, hasPreset, isOpen]);
 
-        let cancelled = false;
-        const load = async () => {
-            setReturnableLoading(true);
+    const fetchOtherAssets = async () => {
+        setLoadingAssets(true);
+        try {
+            const response = await axiosInstance.get('/AssetItem/assigned/me-for-return');
+            const items = Array.isArray(response.data?.items)
+                ? response.data.items
+                : Array.isArray(response.data)
+                    ? response.data
+                    : [];
+            const primaryId = String(primaryAsset?._id || '');
+            const others = items.filter(
+                (a) =>
+                    String(a._id) !== primaryId &&
+                    String(a.status || '').trim() === 'Assigned' &&
+                    !a.pendingAction,
+            );
+            setOtherAssets(others);
+        } catch {
             try {
                 const response = await axiosInstance.get('/AssetItem/assigned/all');
                 const assignedAssets = Array.isArray(response.data) ? response.data : [];
                 const assigneeId =
-                    primaryAsset.assignedTo?._id || primaryAsset.assignedTo;
-                const mine = assignedAssets.filter((a) => {
+                    primaryAsset?.assignedTo?._id || primaryAsset?.assignedTo;
+                const others = assignedAssets.filter((a) => {
                     const aid = a.assignedTo?._id || a.assignedTo;
                     return (
                         String(aid) === String(assigneeId) &&
+                        String(a._id) !== String(primaryAsset?._id) &&
                         String(a.status || '').trim() === 'Assigned' &&
                         !a.pendingAction
                     );
                 });
-                if (!cancelled) {
-                    setReturnableAssets(mine.length ? mine : [primaryAsset]);
-                }
+                setOtherAssets(others);
             } catch {
-                if (!cancelled) setReturnableAssets([primaryAsset]);
-            } finally {
-                if (!cancelled) setReturnableLoading(false);
+                setOtherAssets([]);
             }
-        };
-        load();
-        return () => {
-            cancelled = true;
-        };
-    }, [isOpen, hasPreset, canUseBulkReturnUi, primaryAsset]);
-
-    const selectedAssets = useMemo(() => {
-        const idSet = new Set(returnBulkSelectedIds.map(String));
-        const pool = hasPreset
-            ? presetAssets
-            : returnMode === 'bulk'
-                ? returnableAssets
-                : primaryAsset
-                    ? [primaryAsset]
-                    : [];
-        if (returnMode === 'individual' && primaryAsset) return [primaryAsset];
-        return (pool || []).filter((a) => idSet.has(String(a._id || a.id)));
-    }, [
-        returnBulkSelectedIds,
-        hasPreset,
-        presetAssets,
-        returnMode,
-        returnableAssets,
-        primaryAsset,
-    ]);
-
-    const useCollapsedPreview =
-        (returnMode === 'bulk' || hasPreset) &&
-        selectedAssets.length >= ASSET_BULK_MORE_THRESHOLD;
-
-    const toggleReturnBulkAsset = (rid) => {
-        const id = String(rid);
-        const primaryId = String(primaryAsset?._id || '');
-        if (id === primaryId) return;
-        setReturnBulkSelectedIds((prev) =>
-            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-        );
+        } finally {
+            setLoadingAssets(false);
+        }
     };
 
     const submitReturn = async () => {
@@ -139,7 +188,7 @@ export default function ReturnAssetModal({
 
         const ids =
             returnMode === 'bulk' || hasPreset
-                ? returnBulkSelectedIds
+                ? selectedAssetIds.map(String).filter(Boolean)
                 : primaryAsset?._id
                     ? [String(primaryAsset._id)]
                     : [];
@@ -156,7 +205,22 @@ export default function ReturnAssetModal({
         setIsReturning(true);
         try {
             const primary = ids[0];
-            if (isAssigneeSelf) {
+            const statusLower = String(primaryAsset?.status || '')
+                .toLowerCase()
+                .trim();
+            const isOnService =
+                statusLower === 'service' || statusLower === 'on service';
+
+            if (isOnService && ids.length === 1) {
+                await axiosInstance.put(`/AssetItem/${primary}/on-service-action`, {
+                    action: 'Return',
+                    reason,
+                });
+                toast({
+                    title: 'Success',
+                    description: 'Return request processed.',
+                });
+            } else if (isAssigneeSelf) {
                 if (ids.length > 1) {
                     await axiosInstance.put(`/AssetItem/${primary}/return`, {
                         bulkAssetIds: ids,
@@ -191,214 +255,367 @@ export default function ReturnAssetModal({
             });
         } finally {
             setIsReturning(false);
+            setConfirmReturn(false);
         }
     };
 
     if (!isOpen || !primaryAsset) return null;
 
     const showBulkToggle =
-        !hasPreset && canUseBulkReturnUi && returnableAssets.length > 1;
+        !hideModeToggle &&
+        !hasPreset &&
+        canUseBulkReturnUi &&
+        (otherAssets.length > 0 || returnMode === 'bulk');
+
+    const useCollapsedBulkPreview =
+        returnMode === 'bulk' &&
+        selectedAssetObjects.length >= ASSET_BULK_MORE_THRESHOLD;
+
+    const assigneeName =
+        primaryAsset?.assignedTo?.firstName ||
+        primaryAsset?.assignedTo?.name ||
+        'Unknown';
+
+    const forwardTargetLabel =
+        isAssetController && !isAssigneeSelf ? 'Asset Owner' : 'Asset Controller';
+    const forwardButtonText = `Forward to ${forwardTargetLabel}`;
+
+    const selectedCount =
+        returnMode === 'bulk' || hasPreset
+            ? selectedAssetIds.length
+            : 1;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col">
-                <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-300">
+                <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/50">
                     <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-100">
-                            <Undo2 size={24} strokeWidth={2.5} />
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-sm border border-indigo-100/50">
+                            <ArrowRightLeft size={20} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">
-                                Return Asset
+                            <h2 className="text-lg font-bold text-gray-900">
+                                Return Asset to Store
                             </h2>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                {selectedAssets.length > 1
-                                    ? `${selectedAssets.length} assets selected`
-                                    : `Asset: ${primaryAsset.assetId} - ${primaryAsset.name}`}
+                            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                Current Assignee:{' '}
+                                <span className="text-indigo-600 font-bold">
+                                    {assigneeName}
+                                </span>
                             </p>
                         </div>
                     </div>
                     <button
                         type="button"
                         onClick={onClose}
-                        className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all"
+                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all"
                     >
-                        <X size={24} />
+                        <X size={20} />
                     </button>
                 </div>
 
-                <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
-                    {showBulkToggle && (
-                        <div className="flex rounded-2xl border border-slate-200 bg-slate-50/80 p-1 gap-1">
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
+                    {(showBulkToggle || (hasPreset && !hideModeToggle && allBulkAssetIds.length > 1)) && (
+                        <div className="flex p-1 bg-slate-100/80 rounded-2xl">
                             <button
                                 type="button"
                                 onClick={() => {
                                     setReturnMode('individual');
-                                    setReturnBulkSelectedIds([
-                                        String(primaryAsset._id),
-                                    ]);
+                                    setSelectedAssetIds(
+                                        primaryAsset?._id ? [primaryAsset._id] : [],
+                                    );
                                 }}
-                                className={`flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${returnMode === 'individual'
-                                        ? 'bg-white text-amber-700 shadow-sm border border-amber-100'
-                                        : 'text-slate-500 hover:text-slate-800'
-                                    }`}
+                                className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${
+                                    returnMode === 'individual'
+                                        ? 'bg-white text-indigo-700 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                }`}
                             >
-                                Individual
+                                single asset return
                             </button>
                             <button
                                 type="button"
                                 onClick={() => {
                                     setReturnMode('bulk');
-                                    setReturnBulkSelectedIds(
-                                        returnableAssets.map((a) => String(a._id)),
-                                    );
+                                    if (hasPreset) {
+                                        setSelectedAssetIds(allBulkAssetIds);
+                                    } else if (otherAssets.length > 0) {
+                                        setSelectedAssetIds([
+                                            primaryAsset._id,
+                                            ...otherAssets.map((a) => a._id),
+                                        ]);
+                                    } else {
+                                        setSelectedAssetIds(
+                                            primaryAsset?._id ? [primaryAsset._id] : [],
+                                        );
+                                    }
                                 }}
-                                className={`flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${returnMode === 'bulk'
-                                        ? 'bg-white text-amber-700 shadow-sm border border-amber-100'
-                                        : 'text-slate-500 hover:text-slate-800'
-                                    }`}
+                                className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${
+                                    returnMode === 'bulk'
+                                        ? 'bg-white text-indigo-700 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                }`}
                             >
-                                Bulk return
+                                bulk asset return
                             </button>
                         </div>
                     )}
 
-                    {returnMode === 'individual' && !hasPreset && (
-                        <div className="grid grid-cols-2 gap-6 p-6 bg-slate-50/50 rounded-[24px] border border-slate-100">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">
-                                    Asset Type
-                                </label>
-                                <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
-                                    {primaryAsset.typeId?.name ||
-                                        primaryAsset.typeId ||
-                                        '-'}
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">
-                                    Category
-                                </label>
-                                <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
-                                    {primaryAsset.categoryId?.name ||
-                                        primaryAsset.categoryId ||
-                                        '-'}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {(returnMode === 'bulk' || hasPreset) && (
-                        <div className="rounded-[24px] border border-amber-100 bg-amber-50/40 p-5 space-y-3">
-                            {useCollapsedPreview ? (
-                                <AssetBulkListPreview
-                                    assets={selectedAssets}
-                                    title="Assets to return"
-                                    accent="amber"
-                                />
-                            ) : returnableLoading ? (
-                                <p className="text-sm text-slate-500 py-4 text-center">
-                                    Loading your assets…
-                                </p>
-                            ) : hasPreset ? (
-                                <div className="space-y-2">
-                                    {selectedAssets.map((row) => (
-                                        <div
-                                            key={row._id || row.assetId}
-                                            className="flex items-center gap-3 rounded-xl border border-amber-200 bg-white px-3 py-2.5"
-                                        >
-                                            <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100 shrink-0">
-                                                <Package size={16} />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-bold text-slate-800 truncate">
-                                                    {row.name}
-                                                </p>
-                                                <p className="text-[10px] font-bold text-slate-400 font-mono">
-                                                    {row.assetId}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <ul className="space-y-2 max-h-48 overflow-y-auto">
-                                    {returnableAssets.map((row) => {
-                                        const rid = row._id?.toString();
-                                        const isCurrent =
-                                            rid === primaryAsset._id?.toString();
-                                        const checked =
-                                            returnBulkSelectedIds.includes(rid);
-                                        return (
-                                            <li
-                                                key={rid}
-                                                className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${isCurrent
-                                                        ? 'border-amber-300 bg-white'
-                                                        : 'border-slate-200 bg-white'
-                                                    }`}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    className="h-4 w-4 rounded border-slate-300"
-                                                    checked={checked}
-                                                    disabled={isCurrent}
-                                                    onChange={() =>
-                                                        !isCurrent &&
-                                                        toggleReturnBulkAsset(rid)
-                                                    }
-                                                />
-                                                <span className="flex-1 font-bold text-slate-800">
-                                                    {row.assetId} — {row.name || ''}
-                                                    {isCurrent ? (
-                                                        <span className="ml-2 text-[10px] font-black uppercase text-amber-600">
-                                                            (this asset)
-                                                        </span>
-                                                    ) : null}
-                                                </span>
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
-                            )}
-                            <p className="text-[11px] text-slate-600">
-                                Selected {selectedAssets.length} asset
-                                {selectedAssets.length !== 1 ? 's' : ''}.
-                                {isAssigneeSelf
-                                    ? ' One request will be sent to the Asset Controller.'
-                                    : ''}
-                            </p>
-                        </div>
-                    )}
-
-                    <div className="bg-blue-50 border border-blue-100 rounded-[24px] p-6 space-y-2">
-                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block pl-1">
-                            Returning To
-                        </label>
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-blue-200 text-blue-700 flex items-center justify-center shadow-sm">
-                                <User size={24} />
+                    {returnMode === 'individual' && (
+                        <div className="bg-white border rounded-2xl p-4 flex items-center gap-4 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
+                            <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+                                <Package size={24} />
                             </div>
                             <div>
                                 <p className="text-sm font-bold text-slate-800">
-                                    {handoverTarget
-                                        ? `${handoverTarget.firstName} ${handoverTarget.lastName} (Handover User)`
-                                        : primaryAsset.assignedBy?.firstName
-                                            ? `${primaryAsset.assignedBy.firstName} ${primaryAsset.assignedBy.lastName} (Original Issuer)`
-                                            : 'Asset Store / Admin'}
+                                    {primaryAsset?.name}
                                 </p>
-                                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                                    {selectedAssets.length > 1
-                                        ? 'Selected assets will be returned to the store after Asset Controller approval.'
-                                        : handoverTarget
-                                            ? 'Asset will be handed over to the designated successor.'
-                                            : 'Asset will be returned to the store or original issuer.'}
+                                <p className="text-[11px] font-bold text-slate-400 font-mono mt-0.5">
+                                    {primaryAsset?.assetId}
                                 </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {returnMode === 'bulk' && (
+                        <div className="space-y-3 pt-2">
+                            {useCollapsedBulkPreview ? (
+                                <>
+                                    <AssetBulkListPreview
+                                        assets={selectedAssetObjects}
+                                        title="Assets in this request"
+                                        accent="rose"
+                                    />
+                                    {!hasPreset && (
+                                        <details className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">
+                                            <summary className="cursor-pointer text-[11px] font-black uppercase tracking-wider text-indigo-700">
+                                                Adjust selection
+                                            </summary>
+                                            <div className="mt-2 max-h-[160px] overflow-y-auto space-y-1">
+                                                <label className="flex items-center gap-2 cursor-pointer px-1 py-1">
+                                                    <input
+                                                        ref={selectAllRef}
+                                                        type="checkbox"
+                                                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 outline-none"
+                                                        checked={allBulkSelected}
+                                                        onChange={toggleSelectAllBulk}
+                                                    />
+                                                    <span className="text-[10px] font-black text-indigo-700 uppercase tracking-wider">
+                                                        Select all ({allBulkAssetIds.length})
+                                                    </span>
+                                                </label>
+                                                {otherAssets.map((other) => (
+                                                    <label
+                                                        key={other._id}
+                                                        className="flex items-center gap-3 p-3 bg-white border border-slate-100 rounded-xl hover:border-indigo-200 cursor-pointer transition-all"
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 outline-none"
+                                                            checked={isIdSelected(other._id)}
+                                                            onChange={(e) => {
+                                                                const oid = other._id;
+                                                                if (e.target.checked) {
+                                                                    setSelectedAssetIds((prev) =>
+                                                                        prev.some(
+                                                                            (id) =>
+                                                                                String(id) ===
+                                                                                String(oid),
+                                                                        )
+                                                                            ? prev
+                                                                            : [...prev, oid],
+                                                                    );
+                                                                } else {
+                                                                    setSelectedAssetIds((prev) =>
+                                                                        prev.filter(
+                                                                            (id) =>
+                                                                                String(id) !==
+                                                                                String(oid),
+                                                                        ),
+                                                                    );
+                                                                }
+                                                            }}
+                                                        />
+                                                        <div className="flex-1 overflow-hidden">
+                                                            <p className="text-sm font-bold text-slate-700 truncate">
+                                                                {other.name}
+                                                            </p>
+                                                            <p className="text-[10px] font-bold text-slate-400 font-mono">
+                                                                {other.assetId}
+                                                            </p>
+                                                        </div>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </details>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <div className="bg-white border rounded-2xl p-4 flex items-center gap-4 shadow-sm relative overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
+                                        <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+                                            <Package size={24} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-bold text-slate-800 truncate">
+                                                {primaryAsset?.name}
+                                            </p>
+                                            <p className="text-[11px] font-bold text-slate-400 font-mono mt-0.5">
+                                                {primaryAsset?.assetId}
+                                            </p>
+                                        </div>
+                                        <div className="ml-auto px-3 py-1 bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase rounded-lg shrink-0">
+                                            Primary
+                                        </div>
+                                    </div>
+
+                                    {!hasPreset && (
+                                        <>
+                                            <div className="flex items-center justify-between gap-3 pl-1 pr-1">
+                                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                                                    <ListChecks size={14} /> Other Assigned
+                                                    Assets
+                                                </label>
+                                                {!loadingAssets &&
+                                                    (otherAssets.length > 0 ||
+                                                        primaryAsset?._id) && (
+                                                        <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                                                            <input
+                                                                ref={selectAllRef}
+                                                                type="checkbox"
+                                                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 outline-none"
+                                                                checked={allBulkSelected}
+                                                                onChange={toggleSelectAllBulk}
+                                                            />
+                                                            <span className="text-[10px] font-black text-indigo-700 uppercase tracking-wider">
+                                                                Select all (
+                                                                {allBulkAssetIds.length})
+                                                            </span>
+                                                        </label>
+                                                    )}
+                                            </div>
+
+                                            <div className="max-h-[160px] overflow-y-auto border rounded-2xl p-2 space-y-1 bg-slate-50/50">
+                                                {loadingAssets ? (
+                                                    <p className="text-xs text-center text-slate-400 py-4 font-bold uppercase">
+                                                        Loading assets...
+                                                    </p>
+                                                ) : otherAssets.length === 0 ? (
+                                                    <p className="text-xs text-center text-slate-400 py-4 font-bold uppercase">
+                                                        No other assets found
+                                                    </p>
+                                                ) : (
+                                                    otherAssets.map((other) => (
+                                                        <label
+                                                            key={other._id}
+                                                            className="flex items-center gap-3 p-3 bg-white border border-slate-100 rounded-xl hover:border-indigo-200 cursor-pointer transition-all"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 outline-none"
+                                                                checked={isIdSelected(
+                                                                    other._id,
+                                                                )}
+                                                                onChange={(e) => {
+                                                                    const oid = other._id;
+                                                                    if (e.target.checked) {
+                                                                        setSelectedAssetIds(
+                                                                            (prev) =>
+                                                                                prev.some(
+                                                                                    (id) =>
+                                                                                        String(
+                                                                                            id,
+                                                                                        ) ===
+                                                                                        String(
+                                                                                            oid,
+                                                                                        ),
+                                                                                )
+                                                                                    ? prev
+                                                                                    : [
+                                                                                          ...prev,
+                                                                                          oid,
+                                                                                      ],
+                                                                        );
+                                                                    } else {
+                                                                        setSelectedAssetIds(
+                                                                            (prev) =>
+                                                                                prev.filter(
+                                                                                    (id) =>
+                                                                                        String(
+                                                                                            id,
+                                                                                        ) !==
+                                                                                        String(
+                                                                                            oid,
+                                                                                        ),
+                                                                                ),
+                                                                        );
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <div className="flex-1 overflow-hidden">
+                                                                <p className="text-sm font-bold text-slate-700 truncate">
+                                                                    {other.name}
+                                                                </p>
+                                                                <p className="text-[10px] font-bold text-slate-400 font-mono">
+                                                                    {other.assetId}
+                                                                </p>
+                                                            </div>
+                                                        </label>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {hasPreset && (
+                                        <div className="space-y-2">
+                                            {selectedAssetObjects
+                                                .slice(1)
+                                                .map((row) => (
+                                                    <div
+                                                        key={row._id || row.assetId}
+                                                        className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5"
+                                                    >
+                                                        <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100 shrink-0">
+                                                            <Package size={16} />
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-bold text-slate-800 truncate">
+                                                                {row.name}
+                                                            </p>
+                                                            <p className="text-[10px] font-bold text-slate-400 font-mono">
+                                                                {row.assetId}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="h-px bg-slate-100 w-full" />
+
+                    <div className="space-y-3">
+                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                            Action Option
+                        </label>
+                        <div className="grid grid-cols-1 gap-3">
+                            <div className="flex flex-col items-center justify-center p-4 border-2 rounded-2xl border-rose-400 bg-rose-50 text-rose-700 shadow-sm">
+                                <Undo2 size={28} className="mb-2" />
+                                <span className="text-[12px] font-bold uppercase tracking-wide">
+                                    Return
+                                </span>
                             </div>
                         </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">
+                    <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                        <label className="text-[11px] font-black text-rose-600 uppercase tracking-widest pl-1">
                             Description <span className="text-rose-500">*</span>
                         </label>
                         <textarea
@@ -406,40 +623,91 @@ export default function ReturnAssetModal({
                             onChange={(e) => setReturnDescription(e.target.value)}
                             rows={4}
                             placeholder="Describe why this asset is being returned…"
-                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-y min-h-[96px]"
+                            className="w-full px-4 py-3 bg-white border border-rose-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-400/10 transition-all placeholder:text-slate-300 placeholder:font-normal resize-y min-h-[96px]"
                         />
                     </div>
+
+                    {handoverTarget && (
+                        <p className="text-[11px] text-slate-500 font-medium">
+                            Handover target:{' '}
+                            <span className="font-bold text-slate-700">
+                                {handoverTarget.firstName} {handoverTarget.lastName}
+                            </span>
+                        </p>
+                    )}
                 </div>
 
-                <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex gap-4">
+                <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex gap-4">
                     <button
                         type="button"
                         onClick={onClose}
-                        className="flex-1 px-6 py-4 bg-white border border-slate-200 rounded-2xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-white hover:border-slate-300 transition-all active:scale-95"
+                        className="flex-1 px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"
                     >
                         Cancel
                     </button>
                     <button
                         type="button"
-                        onClick={submitReturn}
-                        disabled={
-                            isReturning || !String(returnDescription || '').trim()
-                        }
-                        className="flex-[2] px-6 py-4 bg-amber-500 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
+                        onClick={() => {
+                            if (!String(returnDescription || '').trim()) {
+                                return toast({
+                                    variant: 'destructive',
+                                    title: 'Description required',
+                                    description:
+                                        'Please enter a description before returning.',
+                                });
+                            }
+                            setConfirmReturn(true);
+                        }}
+                        disabled={isReturning || !String(returnDescription || '').trim()}
+                        className="flex-[2] flex justify-center items-center gap-2 px-4 py-3.5 rounded-xl text-[11px] font-black uppercase tracking-widest text-white shadow-lg transition-all bg-rose-500 hover:bg-rose-600 shadow-rose-200 disabled:opacity-50"
                     >
-                        {isReturning ? (
-                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        ) : (
-                            <>
-                                <ArrowRightLeft size={18} strokeWidth={2.5} />
-                                {selectedAssets.length > 1
-                                    ? `Submit bulk return (${selectedAssets.length})`
-                                    : 'Confirm Return'}
-                            </>
-                        )}
+                        {forwardButtonText}
                     </button>
                 </div>
             </div>
+
+            <AlertDialog open={confirmReturn} onOpenChange={setConfirmReturn}>
+                <AlertDialogContent className="bg-white rounded-[24px]">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-xl font-bold">
+                            Confirm Action
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-gray-500 flex flex-col gap-2">
+                            <span>
+                                Request{' '}
+                                <span className="font-bold text-gray-900">Return</span> for
+                                <span className="font-bold text-gray-900">
+                                    {' '}
+                                    {returnMode === 'bulk' || selectedCount > 1
+                                        ? `${selectedCount} asset(s)`
+                                        : `"${primaryAsset?.name}"`}
+                                </span>
+                                ? This will notify the {forwardTargetLabel} to return the
+                                asset(s) to store as{' '}
+                                <span className="font-bold text-rose-600">
+                                    &quot;Unassigned&quot;
+                                </span>
+                                .
+                            </span>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2">
+                        <AlertDialogCancel className="rounded-xl border-gray-100 font-bold uppercase text-[10px] tracking-widest cursor-pointer">
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                submitReturn();
+                            }}
+                            disabled={isReturning}
+                            className="bg-rose-500 hover:bg-rose-600 text-white font-bold uppercase text-[10px] tracking-widest rounded-xl shadow-lg shadow-rose-100 cursor-pointer"
+                        >
+                            {isReturning ? 'Submitting...' : 'Confirm'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

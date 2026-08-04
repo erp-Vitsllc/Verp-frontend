@@ -269,7 +269,7 @@ export default function TransferAssetModal({
                             <ArrowRightLeft size={20} />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-gray-900">Transfer Asset to Store</h2>
+                            <h2 className="text-lg font-bold text-gray-900">Return Asset to Store</h2>
                             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
                                 Current Assignee:{' '}
                                 <span className="text-indigo-600 font-bold">{assigneeName}</span>
@@ -296,7 +296,7 @@ export default function TransferAssetModal({
                                 }}
                                 className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${transferMode === 'individual' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                Individual Transfer
+                                single asset return
                             </button>
                             <button
                                 type="button"
@@ -315,7 +315,7 @@ export default function TransferAssetModal({
                                 }}
                                 className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${transferMode === 'bulk' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                Bulk Transfer
+                                bulk asset return
                             </button>
                         </div>
                     )}
@@ -554,35 +554,44 @@ export default function TransferAssetModal({
                         <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest pl-1">
                             Action Option
                         </label>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                type="button"
-                                disabled={lockActionOption && actionOption !== 'Leave'}
-                                onClick={() => setActionOption('Leave')}
-                                className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${actionOption === 'Leave'
-                                        ? 'border-amber-400 bg-amber-50 text-amber-700 shadow-sm'
-                                        : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'
-                                    } ${lockActionOption && actionOption !== 'Leave' ? 'opacity-40 cursor-not-allowed' : ''}`}
-                            >
-                                <CalendarClock size={28} className="mb-2" />
-                                <span className="text-[12px] font-bold uppercase tracking-wide">Leave</span>
-                            </button>
-                            <button
-                                type="button"
-                                disabled={
-                                    lockActionOption && actionOption !== 'End of Services'
-                                }
-                                onClick={() => setActionOption('End of Services')}
-                                className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${actionOption === 'End of Services'
-                                        ? 'border-rose-400 bg-rose-50 text-rose-700 shadow-sm'
-                                        : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'
-                                    } ${lockActionOption && actionOption !== 'End of Services' ? 'opacity-40 cursor-not-allowed' : ''}`}
-                            >
-                                <PackageX size={28} className="mb-2" />
-                                <span className="text-[12px] font-bold uppercase tracking-wide">
-                                    End of Services
-                                </span>
-                            </button>
+                        <div
+                            className={`grid gap-3 ${
+                                lockActionOption ? 'grid-cols-1' : 'grid-cols-2'
+                            }`}
+                        >
+                            {(!lockActionOption || actionOption === 'Leave') && (
+                                <button
+                                    type="button"
+                                    onClick={() => setActionOption('Leave')}
+                                    className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${
+                                        actionOption === 'Leave'
+                                            ? 'border-amber-400 bg-amber-50 text-amber-700 shadow-sm'
+                                            : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                                    }`}
+                                >
+                                    <CalendarClock size={28} className="mb-2" />
+                                    <span className="text-[12px] font-bold uppercase tracking-wide">
+                                        Leave
+                                    </span>
+                                </button>
+                            )}
+                            {(!lockActionOption ||
+                                actionOption === 'End of Services') && (
+                                <button
+                                    type="button"
+                                    onClick={() => setActionOption('End of Services')}
+                                    className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${
+                                        actionOption === 'End of Services'
+                                            ? 'border-rose-400 bg-rose-50 text-rose-700 shadow-sm'
+                                            : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                                    }`}
+                                >
+                                    <PackageX size={28} className="mb-2" />
+                                    <span className="text-[12px] font-bold uppercase tracking-wide">
+                                        End of Services
+                                    </span>
+                                </button>
+                            )}
                         </div>
                     </div>
 

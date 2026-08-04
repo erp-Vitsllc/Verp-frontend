@@ -145,7 +145,11 @@ function PaymentsPageContent() {
         try {
             setLoading(true);
             setError('');
-            const response = await axiosInstance.get('/Payment');
+            const response = await axiosInstance.get('/Payment', {
+                params: {
+                    excludeRelatedEntityTypes: 'LoanRepayment,AdvanceRepayment',
+                },
+            });
             setPayments(response.data.payments || response.data || []);
         } catch (err) {
             console.error('Error fetching payments:', err);

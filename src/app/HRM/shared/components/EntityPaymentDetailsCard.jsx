@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Banknote, FileText, Loader2, Plus, X } from 'lucide-react';
+import { Banknote, FileText, Loader2, Plus, RefreshCw, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { useToast } from '@/hooks/use-toast';
 import AddPaymentModal from '@/app/Accounts/Payments/components/AddPaymentModal';
 import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 import { FineFormCard, formatMoney } from '../../Fine/components/FineFormCardShared';
@@ -32,8 +33,36 @@ function formatPaymentDate(value) {
     }
 }
 
+function needsZohoRetry(pay) {
+    if (!pay) return false;
+    if (String(pay.zohoExpenseId || '').trim()) return false;
+    const status = String(pay.status || '').trim();
+    const hasErr = Boolean(String(pay.zohoSyncError || '').trim());
+    return status === 'Failed' || hasErr;
+}
+
+function zohoStatusMeta(pay) {
+    if (String(pay?.zohoExpenseId || '').trim()) {
+        return {
+            label: 'Zoho Synced',
+            className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        };
+    }
+    if (needsZohoRetry(pay)) {
+        return {
+            label: 'Zoho Failed',
+            className: 'bg-rose-50 text-rose-700 border-rose-200',
+            title: pay.zohoSyncError || 'Zoho Expense Refund not posted',
+        };
+    }
+    return {
+        label: 'Zoho Pending',
+        className: 'bg-amber-50 text-amber-700 border-amber-200',
+    };
+}
+
 async function fetchEntityPayments({ entityType, referenceId, relatedEntityId }) {
-    const params = { limit: 50 };
+    const params = { limit: 100 };
 
     if (entityType === 'Fine') {
         params.referenceId = referenceId;
@@ -46,28 +75,28 @@ async function fetchEntityPayments({ entityType, referenceId, relatedEntityId })
         // (not company → employee disbursement / "Paid to Employee").
         params.relatedEntityType =
             entityType === 'Advance' ? 'AdvanceRepayment' : 'LoanRepayment';
+        // Send both keys so backend can $or-match either linkage style.
         if (referenceId) params.referenceId = referenceId;
-        else if (relatedEntityId) params.relatedEntityId = relatedEntityId;
+        if (relatedEntityId) params.relatedEntityId = relatedEntityId;
     }
 
     const response = await axiosInstance.get('/Payment', { params });
     let list = response.data?.payments || (Array.isArray(response.data) ? response.data : []);
 
-    // Fallback: match by relatedEntityId when referenceId query returns nothing
-    if (
-        (entityType === 'Loan' || entityType === 'Advance') &&
-        list.length === 0 &&
-        relatedEntityId &&
-        referenceId
-    ) {
-        const fallback = await axiosInstance.get('/Payment', {
-            params: {
-                limit: 50,
-                relatedEntityType: entityType === 'Advance' ? 'AdvanceRepayment' : 'LoanRepayment',
-                relatedEntityId,
-            },
+    // Strict per-loan filter: never mix another loan's repayments for the same employee.
+    if (entityType === 'Loan' || entityType === 'Advance') {
+        const loanMongoId = String(relatedEntityId || '').trim();
+        const loanCode = String(referenceId || '').trim();
+        const repaymentType =
+            entityType === 'Advance' ? 'AdvanceRepayment' : 'LoanRepayment';
+        list = (list || []).filter((p) => {
+            if (String(p.relatedEntityType || '') !== repaymentType) return false;
+            const refOk = loanCode && String(p.referenceId || '') === loanCode;
+            const idOk =
+                loanMongoId &&
+                String(p.relatedEntityId?._id || p.relatedEntityId || '') === loanMongoId;
+            return Boolean(refOk || idOk);
         });
-        list = fallback.data?.payments || (Array.isArray(fallback.data) ? fallback.data : []);
     }
 
     return list.sort((a, b) => {
@@ -111,7 +140,14 @@ function formatPaymentSourceLabel(source) {
     return source || 'Salary';
 }
 
-function PaymentList({ payments, onSelect, emptyMessage = 'No payment here' }) {
+function PaymentList({
+    payments,
+    onSelect,
+    emptyMessage = 'No payment here',
+    showZohoStatus = false,
+    onRetryZoho = null,
+    retryingId = null,
+}) {
     if (!payments.length) {
         return <p className="text-sm text-gray-400 text-center py-4">{emptyMessage}</p>;
     }
@@ -124,6 +160,9 @@ function PaymentList({ payments, onSelect, emptyMessage = 'No payment here' }) {
                 const surfaceClass = getPaymentStatusSurfaceClass(payment.status);
                 const badgeClass = getPaymentStatusBadgeClass(payment.status);
                 const amountClass = getPaymentAmountTextClass(payment.status);
+                const zoho = showZohoStatus ? zohoStatusMeta(payment) : null;
+                const retry = showZohoStatus && needsZohoRetry(payment);
+                const isRetrying = retryingId && String(retryingId) === String(payment._id);
 
                 return (
                     <div
@@ -144,21 +183,55 @@ function PaymentList({ payments, onSelect, emptyMessage = 'No payment here' }) {
                                 <p className="text-sm font-semibold text-gray-800 truncate">
                                     {pid || '—'}
                                 </p>
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${badgeClass}`}>
-                                    {statusLabel}
-                                </span>
+                                {zoho ? (
+                                    <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${zoho.className}`}
+                                        title={zoho.title || (payment.zohoExpenseId ? `Zoho txn: ${payment.zohoExpenseId}` : '')}
+                                    >
+                                        {zoho.label}
+                                    </span>
+                                ) : (
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${badgeClass}`}>
+                                        {statusLabel}
+                                    </span>
+                                )}
                             </div>
                             <p className="text-xs text-gray-500 mt-0.5">
                                 {formatPaymentDate(payment.paymentDate || payment.createdAt)}
                                 {' · '}
                                 {formatPaymentSourceLabel(payment.paymentSource)}
+                                {payment.zohoExpenseId ? (
+                                    <span className="text-emerald-600 font-medium">
+                                        {' · '}Txn {String(payment.zohoExpenseId).slice(0, 10)}…
+                                    </span>
+                                ) : null}
                             </p>
+                            {retry && payment.zohoSyncError ? (
+                                <p className="text-[11px] text-rose-600 mt-1 line-clamp-2" title={payment.zohoSyncError}>
+                                    {payment.zohoSyncError}
+                                </p>
+                            ) : null}
                         </div>
 
-                        <div className="flex items-center gap-4 shrink-0">
+                        <div className="flex items-center gap-3 shrink-0">
                             <p className={`text-sm font-bold whitespace-nowrap ${amountClass}`}>
                                 {formatMoney(payment.amount)} AED
                             </p>
+                            {retry && typeof onRetryZoho === 'function' ? (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onRetryZoho(payment);
+                                    }}
+                                    disabled={Boolean(isRetrying)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 text-white text-[9px] font-black uppercase tracking-wide hover:bg-amber-600 disabled:opacity-60"
+                                    title="Retry Zoho Expense Refund"
+                                >
+                                    <RefreshCw size={12} className={isRetrying ? 'animate-spin' : ''} />
+                                    {isRetrying ? 'Retrying' : 'Retry Zoho'}
+                                </button>
+                            ) : null}
                             <button
                                 type="button"
                                 onClick={(e) => {
@@ -219,6 +292,8 @@ export default function EntityPaymentDetailsCard({
     const [isPayModalOpen, setIsPayModalOpen] = useState(false);
     const [paymentPrefill, setPaymentPrefill] = useState(null);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
+    const [retryingZohoId, setRetryingZohoId] = useState(null);
+    const { toast } = useToast();
 
     const loadPayments = useCallback(async () => {
         if (!referenceId && !relatedEntityId) {
@@ -251,17 +326,63 @@ export default function EntityPaymentDetailsCard({
     const isLoanLike = entityType === 'Loan' || entityType === 'Advance';
 
     const visiblePayments = payments.filter(
-        (p) => !['Rejected', 'Cancelled', 'Failed'].includes(p.status)
+        (p) => !['Rejected', 'Cancelled'].includes(p.status)
     );
     const salaryPayments = visiblePayments.filter(
-        (p) => (p.paymentSource || 'Salary') === 'Salary'
+        (p) =>
+            (p.paymentSource || 'Salary') === 'Salary' &&
+            !['Failed'].includes(p.status),
     );
-    const eosPayments = visiblePayments.filter((p) => p.paymentSource === 'End of Benefits');
-    // Loan/Advance recorded list = employee repayments (any source: Cash, Salary, …)
-    const loanRepaymentPayments = isLoanLike ? visiblePayments : [];
+    const eosPayments = visiblePayments.filter(
+        (p) =>
+            p.paymentSource === 'End of Benefits' &&
+            !['Failed'].includes(p.status),
+    );
+    // Loan/Advance recorded list = employee repayments (include Zoho-failed for Retry)
+    const loanRepaymentPayments = isLoanLike
+        ? visiblePayments.filter(
+              (p) =>
+                  !['Failed'].includes(p.status) ||
+                  needsZohoRetry(p) ||
+                  String(p.zohoExpenseId || '').trim(),
+          )
+        : [];
+
+    const handleRetryZoho = async (pay) => {
+        const id = pay?._id;
+        if (!id) return;
+        setRetryingZohoId(String(id));
+        try {
+            const res = await axiosInstance.post(
+                `/Payment/${encodeURIComponent(id)}/retry-zoho-expense-refund`,
+            );
+            toast({
+                title: 'Zoho Expense Refund',
+                description: res.data?.message || 'Zoho Expense Refund posted.',
+            });
+            await loadPayments();
+            if (typeof onPaymentSuccess === 'function') onPaymentSuccess();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Retry Zoho failed',
+                description:
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    'Could not post Expense Refund to Zoho.',
+            });
+            await loadPayments();
+        } finally {
+            setRetryingZohoId(null);
+        }
+    };
 
     const schedulePayments = useMemo(() => {
-        const countable = visiblePayments.filter((p) => isPaymentCountableTowardPaid(p.status));
+        const countable = visiblePayments.filter(
+            (p) =>
+                isPaymentCountableTowardPaid(p.status) &&
+                !needsZohoRetry(p),
+        );
         if (!isLoanLike) return countable;
 
         // If no repayment payment rows yet, allocate loan.repaidAmount across months
@@ -395,6 +516,9 @@ export default function EntityPaymentDetailsCard({
                                     payments={loanRepaymentPayments}
                                     onSelect={setSelectedInvoice}
                                     emptyMessage="No repayments recorded yet"
+                                    showZohoStatus
+                                    onRetryZoho={handleRetryZoho}
+                                    retryingId={retryingZohoId}
                                 />
                             ) : entityType === 'Fine' && (entityRecord?.sourceOfIncome || 'Salary') === 'End of Service' ? (
                                 <PaymentList

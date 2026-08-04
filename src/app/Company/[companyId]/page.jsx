@@ -243,6 +243,8 @@ import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import CertificateModal from '@/components/modals/CertificateModal';
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
+import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
+import BulkAssignAssetModal from '@/app/HRM/Asset/components/BulkAssignAssetModal';
 import { buildHeldActivationEditState } from './utils/heldActivationEditModal.js';
 import {
     buildActivationSnapshotRows,
@@ -754,6 +756,10 @@ function CompanyProfilePageContent() {
         mode: null, // 'return' | 'transfer' | 'endOfServices'
         leaveDuration: '1',
     });
+    const [showCompanyAssignModal, setShowCompanyAssignModal] = useState(false);
+    const [companyAssignAsset, setCompanyAssignAsset] = useState(null);
+    const [isCompanyBulkReassignOpen, setIsCompanyBulkReassignOpen] = useState(false);
+    const [companyBulkReassignAssets, setCompanyBulkReassignAssets] = useState([]);
 
     const [activationSubmitting, setActivationSubmitting] = useState(false);
     const [showProgressTooltip, setShowProgressTooltip] = useState(false);
@@ -5109,6 +5115,29 @@ function CompanyProfilePageContent() {
         setCompanyBulkDialog({ open: true, mode: 'endOfServices', leaveDuration: '1' });
     };
 
+    const handleCompanyTransferAsset = () => {
+        if (selectedCompanyAssetIds.length === 0 || companyBulkSubmitting) return;
+        const idSet = new Set(selectedCompanyAssetIds.map(String));
+        const selected = (filteredCompanyAssets || []).filter((a) =>
+            idSet.has(String(a?._id || a?.id)),
+        );
+        if (selected.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No assets',
+                description: 'Select at least one Assigned asset to transfer.',
+            });
+            return;
+        }
+        if (selected.length === 1) {
+            setCompanyAssignAsset(selected[0]);
+            setShowCompanyAssignModal(true);
+            return;
+        }
+        setCompanyBulkReassignAssets(selected);
+        setIsCompanyBulkReassignOpen(true);
+    };
+
     const handleCompanyBulkDialogConfirm = async () => {
         let ok = false;
         if (companyBulkDialog.mode === 'return') {
@@ -7387,9 +7416,19 @@ function CompanyProfilePageContent() {
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={handleCompanyBulkTransfer}
+                                            onClick={handleCompanyTransferAsset}
                                             disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
                                             className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Transfer asset"
+                                        >
+                                            <ArrowRightLeft size={14} />
+                                            <span>Transfer Asset</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleCompanyBulkTransfer}
+                                            disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
+                                            className="bg-white hover:bg-sky-50 text-sky-800 border border-sky-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Bulk transfer"
                                         >
                                             <ArrowRightLeft size={14} />
@@ -14021,6 +14060,43 @@ function CompanyProfilePageContent() {
                         </div>
                     );
                 })()}
+
+                {showCompanyAssignModal && companyAssignAsset ? (
+                    <AssignAssetModal
+                        isOpen={showCompanyAssignModal}
+                        onClose={() => {
+                            setShowCompanyAssignModal(false);
+                            setCompanyAssignAsset(null);
+                        }}
+                        asset={companyAssignAsset}
+                        onUpdate={() => {
+                            setShowCompanyAssignModal(false);
+                            setCompanyAssignAsset(null);
+                            setSelectedCompanyAssetIds([]);
+                            fetchCompanyAssets();
+                        }}
+                    />
+                ) : null}
+
+                <BulkAssignAssetModal
+                    isOpen={isCompanyBulkReassignOpen}
+                    mode="reassign"
+                    sourceHolderLabel={
+                        company?.nickName || company?.name || company?.companyId || 'Company'
+                    }
+                    onClose={() => {
+                        setIsCompanyBulkReassignOpen(false);
+                        setCompanyBulkReassignAssets([]);
+                    }}
+                    selectedAssets={companyBulkReassignAssets}
+                    allAvailableAssets={companyBulkReassignAssets}
+                    onUpdate={() => {
+                        setIsCompanyBulkReassignOpen(false);
+                        setCompanyBulkReassignAssets([]);
+                        setSelectedCompanyAssetIds([]);
+                        fetchCompanyAssets();
+                    }}
+                />
 
                 <AlertDialog
                     open={companyBulkDialog.open}

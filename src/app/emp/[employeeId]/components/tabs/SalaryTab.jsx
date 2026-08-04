@@ -95,6 +95,7 @@ import EmployeeSalaryVehicleUtilityPanel from './EmployeeSalaryVehicleUtilityPan
 import AssetHeaderChoiceModal from '@/app/HRM/Asset/components/AssetHeaderChoiceModal';
 import TransferAssetModal from '@/app/HRM/Asset/components/TransferAssetModal';
 import ReturnAssetModal from '@/app/HRM/Asset/components/ReturnAssetModal';
+import BulkAssignAssetModal from '@/app/HRM/Asset/components/BulkAssignAssetModal';
 
 /** Extract Mongo id from actionRequiredBy (ObjectId, string, or populated employee). */
 function getActionRequiredById(actionRequiredBy) {
@@ -490,6 +491,8 @@ export default function SalaryTab({
     });
     const [downloadingAssetList, setDownloadingAssetList] = useState(false);
     const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
+    const [isProfileBulkReassignOpen, setIsProfileBulkReassignOpen] = useState(false);
+    const [profileBulkReassignAssets, setProfileBulkReassignAssets] = useState([]);
     const [selectedUnassignedAssets, setSelectedUnassignedAssets] = useState([]);
     const previousProfileEmployeeIdRef = useRef(null);
 
@@ -756,6 +759,49 @@ export default function SalaryTab({
             assets,
         });
     }, [activeProfileBulkReturnSummary, employee, toast]);
+
+    const openProfileTransferAsset = useCallback(() => {
+        const assigned = (selectedYourAssetRows || []).filter(
+            (a) => String(a?.status || '').trim() === 'Assigned',
+        );
+        if (assigned.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No assets',
+                description: 'Select at least one Assigned asset to transfer.',
+            });
+            return;
+        }
+        if (assigned.length === 1) {
+            setSelectedAssignAsset(assigned[0]);
+            setShowAssignModal(true);
+            return;
+        }
+        setProfileBulkReassignAssets(assigned);
+        setIsProfileBulkReassignOpen(true);
+    }, [selectedYourAssetRows, toast]);
+
+    const openProfileCompanyTransferAsset = useCallback(() => {
+        const idSet = new Set((selectedCompanyAssets || []).map((id) => String(id)));
+        const selected = (companyAssetsForActiveTab || []).filter((a) =>
+            idSet.has(String(a?._id || a?.id)),
+        );
+        if (selected.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No assets',
+                description: 'Select at least one company asset to transfer.',
+            });
+            return;
+        }
+        if (selected.length === 1) {
+            setSelectedAssignAsset(selected[0]);
+            setShowAssignModal(true);
+            return;
+        }
+        setProfileBulkReassignAssets(selected);
+        setIsProfileBulkReassignOpen(true);
+    }, [selectedCompanyAssets, companyAssetsForActiveTab, toast]);
 
     const openProfileReturnModal = useCallback(() => {
         const summary = activeProfileBulkReturnSummary;
@@ -1128,6 +1174,11 @@ export default function SalaryTab({
                 setIsBulkAssignModalOpen(false);
                 return true;
             }
+            if (isProfileBulkReassignOpen) {
+                setIsProfileBulkReassignOpen(false);
+                setProfileBulkReassignAssets([]);
+                return true;
+            }
             if (selectedSalaryAction === 'Tools Asset') {
                 if (selectedParkingEmployee) {
                     setSelectedParkingEmployee(null);
@@ -1163,6 +1214,7 @@ export default function SalaryTab({
         showYourAssetsReturnChoice,
         pendingRespondConfirm?.isOpen,
         isBulkAssignModalOpen,
+        isProfileBulkReassignOpen,
         selectedSalaryAction,
         selectedParkingEmployee,
         assetSubTab,
@@ -2979,14 +3031,24 @@ export default function SalaryTab({
                                         {selectedYourAssets.length} Selected
                                     </div>
                                     {showYourAssetsAssignedReturnActions ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowYourAssetsReturnChoice(true)}
-                                            className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
-                                        >
-                                            <Undo2 size={14} />
-                                            RETURN
-                                        </button>
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowYourAssetsReturnChoice(true)}
+                                                className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                            >
+                                                <Undo2 size={14} />
+                                                RETURN
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={openProfileTransferAsset}
+                                                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                            >
+                                                <ArrowRightLeft size={14} />
+                                                TRANSFER ASSET
+                                            </button>
+                                        </>
                                     ) : null}
                                     {showYourAssetsPendingRespondActions ? (
                                         <>
@@ -3045,6 +3107,14 @@ export default function SalaryTab({
                                     >
                                         <Undo2 size={14} />
                                         BULK RETURN
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={openProfileCompanyTransferAsset}
+                                        className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    >
+                                        <ArrowRightLeft size={14} />
+                                        TRANSFER ASSET
                                     </button>
                                     <button
                                         type="button"
@@ -5433,6 +5503,33 @@ export default function SalaryTab({
                 }}
             />
 
+            <BulkAssignAssetModal
+                isOpen={isProfileBulkReassignOpen}
+                mode="reassign"
+                sourceHolderLabel={
+                    profileBulkReassignAssets[0]?.assignedCompany?.name ||
+                    profileBulkReassignAssets[0]?.assignedCompany?.nickName ||
+                    (employee
+                        ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() ||
+                          employee.employeeId ||
+                          'Current holder'
+                        : 'Current holder')
+                }
+                onClose={() => {
+                    setIsProfileBulkReassignOpen(false);
+                    setProfileBulkReassignAssets([]);
+                }}
+                selectedAssets={profileBulkReassignAssets}
+                allAvailableAssets={profileBulkReassignAssets}
+                onUpdate={() => {
+                    setIsProfileBulkReassignOpen(false);
+                    setProfileBulkReassignAssets([]);
+                    setSelectedYourAssets([]);
+                    setSelectedCompanyAssets([]);
+                    if (fetchEmployee) fetchEmployee();
+                }}
+            />
+
             {/* Asset History Modal */}
             {
                 showHistoryModal && selectedHistoryAsset && (
@@ -6015,7 +6112,7 @@ export default function SalaryTab({
                 isOpen={showYourAssetsReturnChoice}
                 onClose={() => setShowYourAssetsReturnChoice(false)}
                 title="Return"
-                subtitle="Leave, Employee End of Services, or Others"
+                subtitle="Leave, Employee End of Services, or Return (Others)"
                 options={[
                     {
                         key: 'leave',
@@ -6031,8 +6128,8 @@ export default function SalaryTab({
                     },
                     {
                         key: 'others',
-                        label: 'Others',
-                        displayLabel: 'Others',
+                        label: 'Return (Others)',
+                        displayLabel: 'Return (Others)',
                         onClick: openProfileReturnModal,
                     },
                 ]}
@@ -6073,6 +6170,12 @@ export default function SalaryTab({
                 onClose={() => setProfileReturnModal({ isOpen: false, assets: [] })}
                 asset={profileReturnModal.assets[0] || null}
                 presetAssets={profileReturnModal.assets}
+                hideModeToggle={profileReturnModal.assets.length > 1}
+                canUseBulkReturnUi={Boolean(
+                    loggedInEmployeeId &&
+                        employee?._id &&
+                        String(loggedInEmployeeId) === String(employee._id),
+                )}
                 handoverTarget={
                     typeof handoverTarget === 'object' ? handoverTarget : null
                 }
@@ -6081,6 +6184,7 @@ export default function SalaryTab({
                         employee?._id &&
                         String(loggedInEmployeeId) === String(employee._id),
                 )}
+                isAssetController={Boolean(viewerIsAssetController || isAssetController)}
                 onUpdate={() => {
                     setSelectedYourAssets([]);
                     setSelectedCompanyAssets([]);
