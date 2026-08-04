@@ -799,9 +799,15 @@ export default function FineCompanyRefundModal({
             if (zohoSync && zohoSync.ok === false) {
                 toast({
                     variant: 'destructive',
-                    title: 'Saved in ERP — not in Zoho',
-                    description: res?.data?.message || zohoSync.message,
+                    title: 'Zoho Expense Refund failed',
+                    description:
+                        res?.data?.message ||
+                        zohoSync.message ||
+                        'Payment was not approved. Fix VAT/accounts and use Retry Zoho.',
                 });
+                // Keep modal open context via parent refresh; payment is Failed in ERP.
+                onSuccess?.();
+                onClose?.();
             } else {
                 toast({
                     title: 'Expense Refund saved',
@@ -811,9 +817,9 @@ export default function FineCompanyRefundModal({
                             ? `Zoho Expense Refund ${zohoSync.expenseNumber || zohoSync.expenseId} created.`
                             : 'Expense Refund recorded successfully.'),
                 });
+                onSuccess?.();
+                onClose?.();
             }
-            onSuccess?.();
-            onClose?.();
         } catch (err) {
             toast({
                 variant: 'destructive',

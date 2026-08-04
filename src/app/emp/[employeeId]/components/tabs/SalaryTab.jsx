@@ -61,7 +61,12 @@ import {
     getLoanRepaymentBalance,
 } from '@/app/HRM/LoanAndAdvance/utils/loanStatusConstants';
 import { buildEntityPaymentSchedule } from '@/app/HRM/shared/utils/buildEntityPaymentSchedule';
-import LoanPaymentReceiptsDropdown from '@/app/HRM/LoanAndAdvance/components/LoanPaymentReceiptsDropdown';
+import LoanPaymentReceiptsExpandPanel, {
+    LoanDocumentExpandButton,
+} from '@/app/HRM/LoanAndAdvance/components/LoanPaymentReceiptsDropdown';
+import {
+    getLoanRepaymentPaymentsForDocuments,
+} from '@/app/HRM/LoanAndAdvance/utils/loanPaymentReceipts';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 import AssetCheckboxAssignModal from '../modals/AssetCheckboxAssignModal';
@@ -1039,6 +1044,7 @@ export default function SalaryTab({
     };
 
     const [expandedFineId, setExpandedFineId] = useState(null);
+    const [expandedLoanDocId, setExpandedLoanDocId] = useState(null);
     const [finePayments, setFinePayments] = useState([]);
     const [loadingPayments, setLoadingPayments] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
@@ -4094,6 +4100,16 @@ export default function SalaryTab({
                                                 (l.type || 'Loan') === 'Loan' &&
                                                 isLoanVisibleOnEmployeeProfile(l),
                                         );
+                                        const refreshLoanPayments = () => {
+                                            axiosInstance
+                                                .get('/Payment', { params: { paidBy: employeeId } })
+                                                .then((res) => {
+                                                    const pays = res.data?.payments || res.data || [];
+                                                    setAllEmployeePayments(Array.isArray(pays) ? pays : []);
+                                                })
+                                                .catch(() => {});
+                                            if (fetchEmployee) fetchEmployee();
+                                        };
                                         return actualLoans.length > 0 ? (
                                             actualLoans.map((loan, index) => {
                                                 const statusLabel = formatLoanProfileStatus(loan);
@@ -4102,15 +4118,25 @@ export default function SalaryTab({
                                                     paymentLabel === 'Not Paid' &&
                                                     (canAccountsCollectLoanRepayment(loan, currentUser) ||
                                                         isAccountsUser);
+                                                const loanKey = String(loan._id || loan.id || index);
+                                                const isDocExpanded = expandedLoanDocId === loanKey;
+                                                const receiptCount = getLoanRepaymentPaymentsForDocuments(
+                                                    loan,
+                                                    allEmployeePayments,
+                                                ).length;
+                                                const requestDoc = normalizePaymentAttachmentForViewer(
+                                                    loan.attachment,
+                                                    loan.loanId || 'Loan-attachment',
+                                                );
                                                 return (
+                                                    <React.Fragment key={loan._id || index}>
                                                     <tr
-                                                        key={loan._id || index}
                                                         data-nav-href={
                                                             loan._id || loan.id
                                                                 ? `/HRM/LoanAndAdvance/${String(loan.type || 'Loan').replace(/\s+/g, '-')}-${loan._id || loan.id}`
                                                                 : undefined
                                                         }
-                                                        className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                                                        className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${isDocExpanded ? 'bg-emerald-50/30' : ''}`}
                                                         onClick={(e) => openLoanAdvanceDetails(loan, e)}
                                                     >
                                                         <td className="py-3 px-4 text-sm text-gray-500">
@@ -4154,30 +4180,39 @@ export default function SalaryTab({
                                                             )}
                                                         </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                            <LoanPaymentReceiptsDropdown
-                                                                loan={loan}
-                                                                payments={allEmployeePayments}
-                                                                requestAttachment={
-                                                                    normalizePaymentAttachmentForViewer(
-                                                                        loan.attachment,
-                                                                        loan.loanId || 'Loan-attachment',
+                                                            <LoanDocumentExpandButton
+                                                                receiptCount={receiptCount + (requestDoc ? 1 : 0)}
+                                                                isExpanded={isDocExpanded}
+                                                                disabled={receiptCount === 0 && !requestDoc}
+                                                                onToggle={() =>
+                                                                    setExpandedLoanDocId((prev) =>
+                                                                        prev === loanKey ? null : loanKey,
                                                                     )
                                                                 }
-                                                                onViewRequestAttachment={() => {
-                                                                    const doc = normalizePaymentAttachmentForViewer(
-                                                                        loan.attachment,
-                                                                        loan.loanId || 'Loan-attachment',
-                                                                    );
-                                                                    if (!doc) return;
-                                                                    onViewDocument({
-                                                                        ...doc,
-                                                                        moduleId: 'hrm_loan',
-                                                                        allowDownload: accSalaryLoans.download,
-                                                                    });
-                                                                }}
                                                             />
                                                         </td>
                                                     </tr>
+                                                    {isDocExpanded ? (
+                                                        <tr>
+                                                            <td colSpan={9} className="bg-gray-50/50 p-4">
+                                                                <LoanPaymentReceiptsExpandPanel
+                                                                    loan={loan}
+                                                                    payments={allEmployeePayments}
+                                                                    requestAttachment={requestDoc}
+                                                                    onViewRequestAttachment={() => {
+                                                                        if (!requestDoc) return;
+                                                                        onViewDocument({
+                                                                            ...requestDoc,
+                                                                            moduleId: 'hrm_loan',
+                                                                            allowDownload: accSalaryLoans.download,
+                                                                        });
+                                                                    }}
+                                                                    onPaymentsChanged={refreshLoanPayments}
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    ) : null}
+                                                    </React.Fragment>
                                                 );
                                             })
                                         ) : (
@@ -4195,6 +4230,16 @@ export default function SalaryTab({
                                         const advances = (loans || []).filter(
                                             (l) => l.type === 'Advance' && isLoanVisibleOnEmployeeProfile(l),
                                         );
+                                        const refreshLoanPayments = () => {
+                                            axiosInstance
+                                                .get('/Payment', { params: { paidBy: employeeId } })
+                                                .then((res) => {
+                                                    const pays = res.data?.payments || res.data || [];
+                                                    setAllEmployeePayments(Array.isArray(pays) ? pays : []);
+                                                })
+                                                .catch(() => {});
+                                            if (fetchEmployee) fetchEmployee();
+                                        };
                                         return advances.length > 0 ? (
                                             advances.map((advance, index) => {
                                                 const statusLabel = formatLoanProfileStatus(advance);
@@ -4203,15 +4248,25 @@ export default function SalaryTab({
                                                     paymentLabel === 'Not Paid' &&
                                                     (canAccountsCollectLoanRepayment(advance, currentUser) ||
                                                         isAccountsUser);
+                                                const loanKey = `adv-${String(advance._id || advance.id || index)}`;
+                                                const isDocExpanded = expandedLoanDocId === loanKey;
+                                                const receiptCount = getLoanRepaymentPaymentsForDocuments(
+                                                    advance,
+                                                    allEmployeePayments,
+                                                ).length;
+                                                const requestDoc = normalizePaymentAttachmentForViewer(
+                                                    advance.attachment,
+                                                    advance.loanId || 'Advance-attachment',
+                                                );
                                                 return (
+                                                    <React.Fragment key={advance._id || index}>
                                                     <tr
-                                                        key={advance._id || index}
                                                         data-nav-href={
                                                             advance._id || advance.id
                                                                 ? `/HRM/LoanAndAdvance/Advance-${advance._id || advance.id}`
                                                                 : undefined
                                                         }
-                                                        className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                                                        className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${isDocExpanded ? 'bg-emerald-50/30' : ''}`}
                                                         onClick={(e) => openLoanAdvanceDetails(advance, e)}
                                                     >
                                                         <td className="py-3 px-4 text-sm text-gray-500">
@@ -4255,30 +4310,39 @@ export default function SalaryTab({
                                                             )}
                                                         </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
-                                                            <LoanPaymentReceiptsDropdown
-                                                                loan={advance}
-                                                                payments={allEmployeePayments}
-                                                                requestAttachment={
-                                                                    normalizePaymentAttachmentForViewer(
-                                                                        advance.attachment,
-                                                                        advance.loanId || 'Advance-attachment',
+                                                            <LoanDocumentExpandButton
+                                                                receiptCount={receiptCount + (requestDoc ? 1 : 0)}
+                                                                isExpanded={isDocExpanded}
+                                                                disabled={receiptCount === 0 && !requestDoc}
+                                                                onToggle={() =>
+                                                                    setExpandedLoanDocId((prev) =>
+                                                                        prev === loanKey ? null : loanKey,
                                                                     )
                                                                 }
-                                                                onViewRequestAttachment={() => {
-                                                                    const doc = normalizePaymentAttachmentForViewer(
-                                                                        advance.attachment,
-                                                                        advance.loanId || 'Advance-attachment',
-                                                                    );
-                                                                    if (!doc) return;
-                                                                    onViewDocument({
-                                                                        ...doc,
-                                                                        moduleId: 'hrm_loan',
-                                                                        allowDownload: accSalaryAdvance.download,
-                                                                    });
-                                                                }}
                                                             />
                                                         </td>
                                                     </tr>
+                                                    {isDocExpanded ? (
+                                                        <tr>
+                                                            <td colSpan={9} className="bg-gray-50/50 p-4">
+                                                                <LoanPaymentReceiptsExpandPanel
+                                                                    loan={advance}
+                                                                    payments={allEmployeePayments}
+                                                                    requestAttachment={requestDoc}
+                                                                    onViewRequestAttachment={() => {
+                                                                        if (!requestDoc) return;
+                                                                        onViewDocument({
+                                                                            ...requestDoc,
+                                                                            moduleId: 'hrm_loan',
+                                                                            allowDownload: accSalaryAdvance.download,
+                                                                        });
+                                                                    }}
+                                                                    onPaymentsChanged={refreshLoanPayments}
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    ) : null}
+                                                    </React.Fragment>
                                                 );
                                             })
                                         ) : (
