@@ -1528,7 +1528,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                         />
                                     </div>
                                     <div>
-                                        <span className={fieldLabel}>Car Driven By</span>
+                                        <span className={fieldLabel}>Who Committed Accident</span>
                                         <input
                                             type="text"
                                             readOnly
@@ -1750,7 +1750,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                         />
                                     </div>
                                     <div>
-                                        <span className={fieldLabel}>Car Driven By</span>
+                                        <span className={fieldLabel}>Who Committed Accident</span>
                                         <input
                                             type="text"
                                             readOnly

@@ -214,7 +214,7 @@ export function validateOilServiceDetailCreateForm(formData) {
     // Next service KM is collected on Complete Service — not on Initiate.
     delete errors.nextChangeKm;
     if (!String(formData.carDrivenByEmployeeId ?? '').trim()) {
-        errors.carDrivenByEmployeeId = 'Car driven by is required';
+        errors.carDrivenByEmployeeId = 'Who committed accident is required';
     }
     if (isOilPayablePaymentMode(formData.amountMode)) {
         const amount = Number(formData.value);
@@ -280,7 +280,7 @@ const OIL_SERVICE_FIELD_LABELS = {
     currentKm: 'Current KM',
     lastChangeKm: 'Last change KM',
     vehicleOwnerEmployeeId: 'Vehicle assigned',
-    carDrivenByEmployeeId: 'Car driven by',
+    carDrivenByEmployeeId: 'Who committed accident',
     garageName: 'Garage name',
     garageLocation: 'Garage location',
     garageContact: 'Garage contact',

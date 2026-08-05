@@ -338,7 +338,7 @@ export function buildMechanicalWorkDetailFormState(service, asset, { flowchartRo
 
 const MECHANICAL_WORK_FIELD_LABELS = {
     vehicleOwnerEmployeeId: 'Vehicle assigned',
-    carDrivenByEmployeeId: 'Car driven by',
+    carDrivenByEmployeeId: 'Who committed accident',
     paymentByMode: 'Payment by',
     amountMode: 'Payment type',
     paymentMethod: 'Payment method',
@@ -425,7 +425,7 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
     delete e.quotation3Amount;
 
     if (!String(formData.carDrivenByEmployeeId || '').trim()) {
-        e.carDrivenByEmployeeId = 'Car driven by is required';
+        e.carDrivenByEmployeeId = 'Who committed accident is required';
     }
     if (!formData.paymentByMode) {
         e.paymentByMode = 'Payment by is required';

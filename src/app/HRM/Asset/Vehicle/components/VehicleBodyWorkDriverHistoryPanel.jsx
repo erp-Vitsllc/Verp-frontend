@@ -89,7 +89,7 @@ export default function VehicleBodyWorkDriverHistoryPanel({ asset, service, clas
                 </div>
             ) : !driver.employeeId ? (
                 <p className="flex flex-1 items-center justify-center py-10 text-center text-sm text-gray-500 px-4">
-                    Select Car Driven By on the assignment form to see cross-vehicle body work history.
+                    Select Who Committed Accident on the assignment form to see cross-vehicle body work history.
                 </p>
             ) : !entries.length ? (
                 <p className="flex flex-1 items-center justify-center py-10 text-center text-sm text-gray-500 px-4">
