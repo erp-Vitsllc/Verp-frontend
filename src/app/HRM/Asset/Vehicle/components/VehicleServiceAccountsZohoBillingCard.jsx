@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 import ZohoPayAccountSelect from './ZohoPayAccountSelect';
@@ -188,6 +189,39 @@ export default function VehicleServiceAccountsZohoBillingCard({
             garageAttachment: { name: file.name, data, mime: file.type || 'application/pdf' },
             existingGarageAttachmentName: file.name,
         }));
+    };
+
+    const garageInvoicePreview = useMemo(() => {
+        if (billing.garageAttachment?.data) {
+            return {
+                url: billing.garageAttachment.data,
+                name:
+                    billing.garageAttachment.name ||
+                    billing.existingGarageAttachmentName ||
+                    'garage-invoice.pdf',
+            };
+        }
+        const url = String(billing.existingGarageAttachmentUrl || '').trim();
+        if (!url) return null;
+        return {
+            url,
+            name: billing.existingGarageAttachmentName || 'garage-invoice.pdf',
+        };
+    }, [billing.garageAttachment, billing.existingGarageAttachmentUrl, billing.existingGarageAttachmentName]);
+
+    const handleViewGarageInvoice = async () => {
+        if (!garageInvoicePreview?.url) return;
+        const result = await openAttachmentInNewTab(garageInvoicePreview.url, {
+            name: garageInvoicePreview.name,
+            mimeType: billing.garageAttachment?.mime || 'application/pdf',
+        });
+        if (!result.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open file',
+                description: result.error || 'File unavailable.',
+            });
+        }
     };
 
     const buildServiceUpdates = () => {
@@ -376,19 +410,30 @@ export default function VehicleServiceAccountsZohoBillingCard({
                             />
                         </div>
                     </label>
-                    <label className="block text-xs font-semibold text-gray-500">
-                        Garage invoice (PDF)
-                        <input
-                            type="file"
-                            accept={ERP_PDF_ACCEPT}
-                            className="mt-1 block w-full text-sm"
-                            disabled={!canAct || busy}
-                            onChange={(e) => void handleGarageInvoice(e.target.files?.[0])}
-                        />
+                    <div className="block text-xs font-semibold text-gray-500">
+                        <span>Garage invoice (PDF)</span>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <input
+                                type="file"
+                                accept={ERP_PDF_ACCEPT}
+                                className="block min-w-0 flex-1 text-sm"
+                                disabled={!canAct || busy}
+                                onChange={(e) => void handleGarageInvoice(e.target.files?.[0])}
+                            />
+                            {garageInvoicePreview ? (
+                                <button
+                                    type="button"
+                                    onClick={() => void handleViewGarageInvoice()}
+                                    className="inline-flex shrink-0 items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                                >
+                                    View
+                                </button>
+                            ) : null}
+                        </div>
                         {billing.existingGarageAttachmentName ||
                         billing.garageAttachment?.name ||
                         billing.existingGarageAttachmentUrl ? (
-                            <span className="mt-1 block text-[11px] text-emerald-700">
+                            <span className="mt-1 block text-[11px] font-medium text-emerald-700">
                                 {billing.garageAttachment?.name ||
                                     billing.existingGarageAttachmentName ||
                                     'Garage invoice from service details'}
@@ -397,11 +442,11 @@ export default function VehicleServiceAccountsZohoBillingCard({
                                     : ''}
                             </span>
                         ) : (
-                            <span className="mt-1 block text-[11px] text-amber-700">
+                            <span className="mt-1 block text-[11px] font-medium text-amber-700">
                                 No garage invoice yet — upload here or from garage / return details
                             </span>
                         )}
-                    </label>
+                    </div>
                 </div>
 
                 <div className="rounded-lg border border-gray-200 bg-white p-3">
