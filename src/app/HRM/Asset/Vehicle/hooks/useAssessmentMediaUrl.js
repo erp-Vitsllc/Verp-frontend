@@ -17,7 +17,10 @@ function mediaDependencyKey(value) {
 }
 
 export default function useAssessmentMediaUrl(photo) {
-    const [url, setUrl] = useState(() => resolveAssessmentMediaUrl(photo));
+    const [url, setUrl] = useState(() => {
+        const direct = resolveAssessmentMediaUrl(photo);
+        return direct?.startsWith('data:') ? direct : null;
+    });
     const [loading, setLoading] = useState(false);
     const [failed, setFailed] = useState(false);
     const retryCountRef = useRef(0);
@@ -43,8 +46,9 @@ export default function useAssessmentMediaUrl(photo) {
 
         const storageKey = normalizeHandoverPhotoIdentity(photo);
         if (!storageKey || storageKey.startsWith('data:')) {
-            setUrl(direct);
-            setFailed(!direct);
+            // Do not put Wasabi/http URLs into <img src> — browser DNS often fails.
+            setUrl(null);
+            setFailed(true);
             setLoading(false);
             return undefined;
         }
@@ -54,8 +58,9 @@ export default function useAssessmentMediaUrl(photo) {
         setFailed(false);
         fetchSignedAssessmentMediaUrl(photo).then((signed) => {
             if (cancelled) return;
-            setUrl(signed || direct || null);
-            setFailed(!(signed || direct));
+            const nextUrl = signed || (direct?.startsWith('data:') ? direct : null);
+            setUrl(nextUrl);
+            setFailed(!nextUrl);
             setLoading(false);
         });
         return () => {

@@ -13,7 +13,7 @@ import {
     isBodyConditionFormComplete,
     validateBodyConditionForm,
 } from '../utils/vehicleHandoverBodyCondition';
-import { HANDOVER_BODY_CONDITION_GRID_CLASS, HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS, resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
+import { HANDOVER_BODY_CONDITION_GRID_CLASS, HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS } from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverLandscapePhotoBox from './VehicleHandoverLandscapePhotoBox';
 
 function readFileAsDataUrl(file) {
@@ -26,8 +26,6 @@ function readFileAsDataUrl(file) {
 }
 
 function ViewFieldEditor({ fieldKey, label, row, error, saving, onCommentChange, onPhotoChange }) {
-    const photoUrl = resolveAssessmentMediaUrl(row?.photo);
-
     return (
         <div
             className={`rounded-xl border p-3 ${
@@ -54,7 +52,7 @@ function ViewFieldEditor({ fieldKey, label, row, error, saving, onCommentChange,
             <div className="mt-1">
                 <VehicleHandoverLandscapePhotoBox
                     label={label}
-                    photoUrl={photoUrl}
+                    photo={row?.photo}
                     uploading={saving}
                     onUpload={(file) => onPhotoChange(fieldKey, file)}
                     inputIdPrefix={`modal-body-${fieldKey}`}

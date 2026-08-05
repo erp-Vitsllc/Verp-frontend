@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { GripVertical, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
@@ -23,15 +23,9 @@ import {
     tireFieldSelect,
     tireMoneyInput,
     tireSummaryValue,
-    tireViewBtn,
 } from '../utils/vehicleMechanicalWorkDetailUi';
 import { applyEmployeePayTargetToRows } from '../utils/vehicleMechanicalWorkDetailForm';
-import {
-    buildTireQuoteDragPayload,
-    parseTireQuoteDragPayload,
-    quoteKeyToLabel,
-    TIRE_QUOTE_DRAG_TYPE,
-} from '../utils/vehicleMechanicalWorkQuoteDrag';
+import { quoteKeyToLabel } from '../utils/vehicleMechanicalWorkQuoteDrag';
 import {
     buildHrReviewInitiateRemarkPatch,
     syncHrReviewPayCalculation,
@@ -129,7 +123,9 @@ function buildReviewAmountsFromAssignment(remark, service, approvedRow) {
 
 function mergeSavedHrReview(assignmentBase, remark) {
     const hasSaved =
-        remark?.hrReviewApprovedAmount != null && remark?.hrReviewApprovedAmount !== '';
+        (remark?.hrReviewApprovedAmount != null && remark?.hrReviewApprovedAmount !== '') ||
+        remark?.hrReviewCompanyPay != null ||
+        remark?.hrReviewEmployeePay != null;
     if (!hasSaved) return assignmentBase;
 
     const rows =
@@ -138,7 +134,12 @@ function mergeSavedHrReview(assignmentBase, remark) {
                   employeeId: String(row.employeeId || ''),
                   paidAmount: row.paidAmount != null ? String(row.paidAmount) : '',
               }))
-            : assignmentBase.employeeRows;
+            : Array.isArray(remark?.employeeLiabilityRows) && remark.employeeLiabilityRows.length
+              ? remark.employeeLiabilityRows.map((row) => ({
+                    employeeId: String(row.employeeId || ''),
+                    paidAmount: row.paidAmount != null ? String(row.paidAmount) : '',
+                }))
+              : assignmentBase.employeeRows;
 
     return {
         approvedAmount: String(remark.hrReviewApprovedAmount ?? assignmentBase.approvedAmount),
@@ -165,7 +166,6 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
     const [loading, setLoading] = useState(false);
     const [rowsSaving, setRowsSaving] = useState(false);
     const [rowsDirty, setRowsDirty] = useState(false);
-    const [isDragOver, setIsDragOver] = useState(false);
     const [employees, setEmployees] = useState([]);
     const [quoteState, setQuoteState] = useState({
         q1: { status: '', comment: '' },
@@ -207,6 +207,8 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
             }),
         [assignmentPending, stage, canActHr, canManageMechanicalWork, canRespondToWorkflow],
     );
+    // After HR approve, company/employee pay may still be adjusted (with employee rows).
+    const canEditPaySplit = canEdit || canEditEmployeeRows;
 
     useEffect(() => {
         let active = true;
@@ -262,6 +264,8 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
 
     useEffect(() => {
         if (assignmentPending) return;
+        // Keep local edits while the user is adjusting pay / rows (page reloads must not snap back).
+        if (rowsDirty) return;
         const fromAssignment = buildReviewAmountsFromAssignment(remark, service, approvedRow);
         const merged = mergeSavedHrReview(fromAssignment, remark);
         setDisplaySummary({
@@ -270,9 +274,9 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
             employeePay: merged.employeePay,
         });
         setEmployeeRows(merged.employeeRows);
-        setRowsDirty(false);
     }, [
         assignmentPending,
+        rowsDirty,
         service?._id,
         service?.value,
         service?.remark,
@@ -395,7 +399,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         setEmployeeRows((prev) => {
             const rows = [...(prev || [])];
             rows[index] = { ...rows[index], [field]: value };
-            if (field === 'paidAmount' && canEdit) {
+            if (field === 'paidAmount' && canEditPaySplit) {
                 const synced = syncHrReviewPayFromEmployeeRows({
                     employeeRows: rows,
                     approvedAmount: displaySummary.approvedAmount,
@@ -413,13 +417,6 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         setRowsDirty(true);
     };
 
-    const setQuoteField = (key, field, value) => {
-        setQuoteState((prev) => ({
-            ...prev,
-            [key]: { ...prev[key], [field]: value },
-        }));
-    };
-
     const setQuoteStatus = (key, status) => {
         setQuoteState((prev) => {
             const next = { ...prev, [key]: { ...prev[key], status } };
@@ -434,6 +431,17 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         });
     };
 
+    const selectQuote = (row) => {
+        if (!canEdit || assignmentPending || !row?.key) return;
+        setQuoteStatus(row.key, 'approved');
+        const quoteAmount = Number(row.amount);
+        const fallback = Number(remark?.estimatedCost ?? service?.value ?? 0);
+        const amount = quoteAmount > 0 ? quoteAmount : fallback;
+        if (amount > 0) {
+            setReviewApprovedAmount(String(amount));
+        }
+    };
+
     const handleViewFile = async (row) => {
         if (!row?.url) return;
         const result = await openAttachmentInNewTab(row.url, {
@@ -446,44 +454,6 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                 title: 'Cannot open file',
                 description: result.error || 'File unavailable.',
             });
-        }
-    };
-
-    const handleDragOver = (event) => {
-        if (!canEdit || assignmentPending) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-        setIsDragOver(true);
-    };
-
-    const handleDragLeave = () => {
-        setIsDragOver(false);
-    };
-
-    const handleDrop = (event) => {
-        event.preventDefault();
-        setIsDragOver(false);
-        if (!canEdit || assignmentPending) return;
-
-        const payload = parseTireQuoteDragPayload(event.dataTransfer);
-        if (!payload?.key) return;
-
-        const row = quoteRows.find((r) => r.key === payload.key);
-        if (!row) {
-            toast({
-                variant: 'destructive',
-                title: 'Quote not available',
-                description: `${payload.label} must be uploaded in the assignment form first.`,
-            });
-            return;
-        }
-
-        setQuoteStatus(payload.key, 'approved');
-        const dragAmount = Number(payload.amount);
-        const fallback = Number(remark?.estimatedCost ?? service?.value ?? 0);
-        const amount = dragAmount > 0 ? dragAmount : fallback;
-        if (amount > 0) {
-            setReviewApprovedAmount(String(amount));
         }
     };
 
@@ -502,11 +472,16 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         try {
             const { data } = await axiosInstance.put(
                 `/AssetItem/${vehicleId}/service/${serviceId}/mechanical-work/quote-employees`,
-                { employeeRows: buildEmployeeRowsPayload() },
+                {
+                    employeeRows: buildEmployeeRowsPayload(),
+                    approvedAmount: Number(displaySummary.approvedAmount) || 0,
+                    companyPay: Number(displaySummary.companyPay) || 0,
+                    employeePay: Number(displaySummary.employeePay) || 0,
+                },
             );
             toast({
-                title: 'Employee rows saved',
-                description: 'Paid amounts were updated without changing the approved quote totals.',
+                title: 'Pay amounts saved',
+                description: 'Employee / company pay and Initiate Service amounts were updated.',
             });
             setRowsDirty(false);
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
@@ -561,7 +536,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                 toast({
                     variant: 'destructive',
                     title: 'Quotation required',
-                    description: 'Drag a quote into Approved Quote and mark it Approved before continuing.',
+                    description: 'Select Quote 1, Quote 2, or Quote 3 before continuing.',
                 });
                 return;
             }
@@ -586,6 +561,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                           : 'Rejected',
                 description: data?.message || 'Workflow updated.',
             });
+            setRowsDirty(false);
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
             toast({
@@ -616,7 +592,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                     hrGate.locked
                         ? 'Locked until Initiate Service is sent'
                         : canEdit
-                          ? 'Select / drag a quote into Approved Quote, then approve once'
+                          ? 'Select one quotation, then approve once'
                           : canEditEmployeeRows
                             ? 'HR approved — employee rows may still be adjusted'
                             : hrGate.done
@@ -633,90 +609,102 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                         Upload quotations in the assignment form above and click Send. This section will populate for HR
                         review after the request is submitted.
                     </p>
-                ) : null}
+                ) : (
+                    <p className="mb-4 text-sm text-gray-600">
+                        Select one quote from Initiate. Only that quote continues to Accounts and later steps;
+                        the other quotes are not used.
+                    </p>
+                )}
 
-                <div
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    className={`mb-4 rounded-xl border-2 border-dashed p-4 transition-colors ${
-                        isDragOver
-                            ? 'border-emerald-400 bg-emerald-50/80'
-                            : approvedRow
-                              ? 'border-emerald-200 bg-white'
-                              : 'border-gray-200 bg-gray-50/70'
-                    }`}
-                >
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Approved Quote</p>
-
-                    {!approvedRow ? (
-                        <div className="mt-3 flex min-h-[120px] flex-col items-center justify-center rounded-lg border border-gray-100 bg-white/80 px-4 py-6 text-center">
-                            <GripVertical size={22} className="mb-2 text-gray-300" />
-                            <p className="text-sm font-semibold text-gray-600">
-                                Drag Quote 1, Quote 2, or Quote 3 here
-                            </p>
-                            <p className="mt-1 text-xs text-gray-400">
-                                From Mechanical Work Assignment Details above
-                            </p>
-                        </div>
+                <div className="mb-4 space-y-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                        Quotations
+                    </span>
+                    {quoteRows.length === 0 ? (
+                        <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-sm text-gray-500">
+                            No quotations uploaded on Initiate yet.
+                        </p>
                     ) : (
-                        <div className="mt-3 space-y-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-sm font-bold text-gray-800">
-                                    {quoteKeyToLabel(approvedQuoteKey)}
-                                    {approvedRow.name ? (
-                                        <span className="ml-2 text-xs font-medium text-gray-500">
-                                            ({approvedRow.name})
+                        <div className="space-y-2" role="radiogroup" aria-label="Select quotation">
+                            {quoteRows.map((row) => {
+                                const selected = approvedQuoteKey === row.key;
+                                const amountLabel =
+                                    row.amount != null &&
+                                    row.amount !== '' &&
+                                    Number.isFinite(Number(row.amount))
+                                        ? `AED ${Number(row.amount).toLocaleString()}`
+                                        : null;
+                                return (
+                                    <button
+                                        key={row.key}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={selected}
+                                        disabled={!canEdit && !selected}
+                                        onClick={() => selectQuote(row)}
+                                        className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                                            selected
+                                                ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200'
+                                                : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/40'
+                                        } ${!canEdit ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
+                                    >
+                                        <span
+                                            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                                                selected
+                                                    ? 'border-emerald-600 bg-emerald-600'
+                                                    : 'border-gray-300 bg-white'
+                                            }`}
+                                            aria-hidden
+                                        >
+                                            {selected ? (
+                                                <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                                            ) : null}
                                         </span>
-                                    ) : null}
-                                </p>
-                                {approvedRow?.amount != null && approvedRow.amount !== '' ? (
-                                    <p className="text-[11px] font-semibold text-emerald-700">
-                                        Amount: {formatAed(approvedRow.amount)}
-                                    </p>
-                                ) : null}
-                            </div>
-                            <button
-                                type="button"
-                                disabled={!approvedRow?.url}
-                                onClick={() => void handleViewFile(approvedRow)}
-                                className={`${tireViewBtn} w-full justify-center min-h-[36px]`}
-                            >
-                                View File
-                            </button>
-                            <div className="inline-flex w-full rounded-lg border border-gray-200 bg-gray-50 p-0.5 min-h-[36px]">
-                                <button
-                                    type="button"
-                                    disabled={!canEdit}
-                                    onClick={() => setQuoteStatus(approvedQuoteKey, 'approved')}
-                                    className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-bold transition-all ${
-                                        quoteState[approvedQuoteKey]?.status === 'approved'
-                                            ? 'bg-white text-emerald-600 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
-                                    } disabled:opacity-50`}
-                                >
-                                    Approved
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={!canEdit}
-                                    onClick={() => setQuoteStatus(approvedQuoteKey, 'rejected')}
-                                    className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-bold transition-all ${
-                                        quoteState[approvedQuoteKey]?.status === 'rejected'
-                                            ? 'bg-white text-orange-600 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
-                                    } disabled:opacity-50`}
-                                >
-                                    Rejected
-                                </button>
-                            </div>
-                            {canEdit ? (
-                                <p className="text-[10px] text-gray-400">
-                                    Drag another quote from the assignment card to replace this selection.
-                                </p>
-                            ) : null}
+                                        <span className="min-w-0 flex-1">
+                                            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                                <span className="text-sm font-bold text-gray-900">
+                                                    {row.label}
+                                                </span>
+                                                {amountLabel ? (
+                                                    <span className="text-xs font-semibold text-emerald-700">
+                                                        {amountLabel}
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                            {row.name ? (
+                                                <span className="mt-0.5 block truncate text-xs text-gray-500">
+                                                    {row.name}
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                        {row.url ? (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void handleViewFile(row);
+                                                }}
+                                                className="shrink-0 text-xs font-semibold text-sky-700 hover:underline"
+                                            >
+                                                View
+                                            </button>
+                                        ) : null}
+                                    </button>
+                                );
+                            })}
                         </div>
                     )}
+                    {!assignmentPending && approvedRow ? (
+                        <p className="text-xs font-semibold text-emerald-700">
+                            Selected {quoteKeyToLabel(approvedQuoteKey)}
+                            {approvedRow?.amount != null &&
+                            approvedRow.amount !== '' &&
+                            Number.isFinite(Number(approvedRow.amount))
+                                ? ` · AED ${Number(approvedRow.amount).toLocaleString()}`
+                                : ''}
+                            . Other quotes will not continue.
+                        </p>
+                    ) : null}
                 </div>
 
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
@@ -747,12 +735,12 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                             minHeightPx={fieldMinHeightPx}
                         >
                             <input
-                                className={canEdit ? tireMoneyInput : tireSummaryValue}
-                                readOnly={!canEdit}
-                                type={canEdit ? 'number' : 'text'}
-                                min={canEdit ? '0' : undefined}
+                                className={canEditPaySplit ? tireMoneyInput : tireSummaryValue}
+                                readOnly={!canEditPaySplit}
+                                type={canEditPaySplit ? 'number' : 'text'}
+                                min={canEditPaySplit ? '0' : undefined}
                                 value={
-                                    canEdit
+                                    canEditPaySplit
                                         ? displaySummary.companyPay || ''
                                         : displaySummary.companyPay
                                           ? formatAed(displaySummary.companyPay)
@@ -769,12 +757,12 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                             minHeightPx={fieldMinHeightPx}
                         >
                             <input
-                                className={canEdit ? tireMoneyInput : tireSummaryValue}
-                                readOnly={!canEdit}
-                                type={canEdit ? 'number' : 'text'}
-                                min={canEdit ? '0' : undefined}
+                                className={canEditPaySplit ? tireMoneyInput : tireSummaryValue}
+                                readOnly={!canEditPaySplit}
+                                type={canEditPaySplit ? 'number' : 'text'}
+                                min={canEditPaySplit ? '0' : undefined}
                                 value={
-                                    canEdit
+                                    canEditPaySplit
                                         ? displaySummary.employeePay || ''
                                         : displaySummary.employeePay
                                           ? formatAed(displaySummary.employeePay)

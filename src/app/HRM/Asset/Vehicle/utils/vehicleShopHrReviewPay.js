@@ -194,8 +194,89 @@ export function buildHrReviewInitiateRemarkPatch({
         estimatedCost: approvedAmountNum || undefined,
         companyPayPercent: companyPayPercent != null ? String(companyPayPercent) : derived.companyPayPercent,
         employeePayPercent: employeePayPercent != null ? String(employeePayPercent) : derived.employeePayPercent,
-        paymentByMode: paymentByMode || derived.paymentByMode,
+        // Always prefer mode derived from amounts so Initiate / Accounts stay consistent.
+        paymentByMode: derived.paymentByMode || paymentByMode || 'company',
         companyPayAmount: companyPayNum,
         employeePayAmount: employeePayNum,
+    };
+}
+
+/**
+ * Prefer absolute HR / remark pay amounts over % × estimated cost
+ * so Initiate Service shows the same numbers HR edited.
+ */
+export function resolveShopServicePayAmounts({
+    estimatedCost,
+    companyPayPercent,
+    employeePayPercent,
+    remark = {},
+    liveHrReview = null,
+} = {}) {
+    const liveApproved = liveHrReview?.approvedAmount;
+    const liveCompany = liveHrReview?.companyPay;
+    const liveEmployee = liveHrReview?.employeePay;
+
+    const hasLive =
+        (liveCompany != null && liveCompany !== '') ||
+        (liveEmployee != null && liveEmployee !== '') ||
+        (liveApproved != null && liveApproved !== '');
+
+    if (hasLive) {
+        const approved =
+            Number(liveApproved) ||
+            Number(estimatedCost) ||
+            Number(remark?.hrReviewApprovedAmount) ||
+            Number(remark?.estimatedCost) ||
+            0;
+        const company = liveCompany != null && liveCompany !== '' ? Number(liveCompany) || 0 : 0;
+        const employee = liveEmployee != null && liveEmployee !== '' ? Number(liveEmployee) || 0 : 0;
+        return {
+            estimatedCost: approved,
+            companyPayAmount: company,
+            employeePayAmount: employee,
+            paymentByMode:
+                employee <= 0 && company > 0
+                    ? 'company'
+                    : company <= 0 && employee > 0
+                      ? 'person'
+                      : company > 0 && employee > 0
+                        ? 'split'
+                        : remark?.paymentByMode || 'company',
+        };
+    }
+
+    const absApproved = remark?.hrReviewApprovedAmount ?? remark?.estimatedCost ?? estimatedCost;
+    const absCompany = remark?.hrReviewCompanyPay ?? remark?.companyPayAmount;
+    const absEmployee = remark?.hrReviewEmployeePay ?? remark?.employeePayAmount;
+    const hasAbsolute =
+        (absCompany != null && absCompany !== '') || (absEmployee != null && absEmployee !== '');
+
+    if (hasAbsolute) {
+        const approved = Number(absApproved) || Number(estimatedCost) || 0;
+        const company = absCompany != null && absCompany !== '' ? Number(absCompany) || 0 : 0;
+        const employee = absEmployee != null && absEmployee !== '' ? Number(absEmployee) || 0 : 0;
+        return {
+            estimatedCost: approved,
+            companyPayAmount: company,
+            employeePayAmount: employee,
+            paymentByMode:
+                employee <= 0 && company > 0
+                    ? 'company'
+                    : company <= 0 && employee > 0
+                      ? 'person'
+                      : company > 0 && employee > 0
+                        ? 'split'
+                        : remark?.paymentByMode || 'company',
+        };
+    }
+
+    const cost = Number(estimatedCost) || 0;
+    const companyPct = Number(companyPayPercent) || 0;
+    const employeePct = Number(employeePayPercent) || 0;
+    return {
+        estimatedCost: cost,
+        companyPayAmount: Number.isFinite(cost) ? Math.round((cost * companyPct) / 100) : 0,
+        employeePayAmount: Number.isFinite(cost) ? Math.round((cost * employeePct) / 100) : 0,
+        paymentByMode: remark?.paymentByMode || 'company',
     };
 }

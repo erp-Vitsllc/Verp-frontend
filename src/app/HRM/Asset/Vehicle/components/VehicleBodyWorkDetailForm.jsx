@@ -33,6 +33,7 @@ import {
     redistributeEmployeeLiabilityRows,
     sumEmployeeLiabilityRows,
 } from '../utils/vehicleBodyWorkDetailForm';
+import { resolveShopServicePayAmounts } from '../utils/vehicleShopHrReviewPay';
 import {
     BODY_WORK_DETAIL_GRID_LAYOUT,
     tireAccent,
@@ -104,6 +105,7 @@ export default function VehicleBodyWorkDetailForm({
     onDraftStateChange,
     canEditAssignment = true,
     flowchartRows = [],
+    liveHrReview = null,
     className = '',
 }) {
     const router = useRouter();
@@ -249,13 +251,20 @@ export default function VehicleBodyWorkDetailForm({
     const estimatedCost = Number(formData.estimatedCost || 0);
     const companyPct = Number(formData.companyPayPercent || 0);
     const employeePct = Number(formData.employeePayPercent || 0);
-    const companyPayAmount = Number.isFinite(estimatedCost)
-        ? Math.round((estimatedCost * companyPct) / 100)
-        : 0;
-    const employeePayAmount = Number.isFinite(estimatedCost)
-        ? Math.round((estimatedCost * employeePct) / 100)
-        : 0;
-    const paymentByMode = formData.paymentByMode || 'company';
+    const resolvedPayAmounts = useMemo(
+        () =>
+            resolveShopServicePayAmounts({
+                estimatedCost,
+                companyPayPercent: companyPct,
+                employeePayPercent: employeePct,
+                remark,
+                liveHrReview,
+            }),
+        [estimatedCost, companyPct, employeePct, remark, liveHrReview],
+    );
+    const companyPayAmount = resolvedPayAmounts.companyPayAmount;
+    const employeePayAmount = resolvedPayAmounts.employeePayAmount;
+    const paymentByMode = resolvedPayAmounts.paymentByMode || formData.paymentByMode || 'company';
     const isEmpOnly = paymentByMode === 'person';
     const isCompanyOnly = paymentByMode === 'company';
     const isSplitPayment = paymentByMode === 'split';

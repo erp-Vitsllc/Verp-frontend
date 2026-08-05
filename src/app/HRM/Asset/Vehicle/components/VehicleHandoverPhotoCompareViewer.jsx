@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
+import useAssessmentMediaUrl from '../hooks/useAssessmentMediaUrl';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
@@ -13,7 +14,7 @@ function clampZoom(value) {
     return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 }
 
-function ComparePane({ label, tone, photoUrl, comment, emptyLabel }) {
+function ComparePane({ label, tone, photo = null, photoUrl = null, comment, emptyLabel }) {
     const isPrevious = tone === 'previous';
     const headerClass = isPrevious ? 'bg-emerald-600' : 'bg-red-600';
     const borderClass = isPrevious ? 'border-emerald-400' : 'border-red-400';
@@ -21,6 +22,9 @@ function ComparePane({ label, tone, photoUrl, comment, emptyLabel }) {
     const thumbClass = isPrevious
         ? '[&::-webkit-slider-thumb]:bg-emerald-600 [&::-moz-range-thumb]:bg-emerald-600'
         : '[&::-webkit-slider-thumb]:bg-red-600 [&::-moz-range-thumb]:bg-red-600';
+
+    const resolved = useAssessmentMediaUrl(photo || photoUrl);
+    const displayUrl = resolved.url;
 
     const [zoom, setZoom] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -37,7 +41,7 @@ function ComparePane({ label, tone, photoUrl, comment, emptyLabel }) {
     useEffect(() => {
         setZoom(1);
         setPan({ x: 0, y: 0 });
-    }, [photoUrl]);
+    }, [displayUrl]);
 
     const handleZoomChange = useCallback((value) => {
         setZoom(clampZoom(value));
@@ -99,6 +103,7 @@ function ComparePane({ label, tone, photoUrl, comment, emptyLabel }) {
 
     const zoomPercent = Math.round(zoom * 100);
     const canPan = zoom > 1;
+    const hasMedia = Boolean(photo || photoUrl);
 
     return (
         <div className={`flex h-full min-h-0 flex-1 flex-col border-r last:border-r-0 ${borderClass} border-2`}>
@@ -118,7 +123,9 @@ function ComparePane({ label, tone, photoUrl, comment, emptyLabel }) {
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
             >
-                {photoUrl ? (
+                {resolved.loading && !displayUrl ? (
+                    <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+                ) : displayUrl ? (
                     <div
                         className="flex h-full w-full items-center justify-center p-4"
                         style={{
@@ -128,14 +135,17 @@ function ComparePane({ label, tone, photoUrl, comment, emptyLabel }) {
                         }}
                     >
                         <img
-                            src={photoUrl}
+                            src={displayUrl}
                             alt={label}
                             className="max-h-full max-w-full object-contain pointer-events-none"
                             draggable={false}
+                            onError={resolved.retry}
                         />
                     </div>
                 ) : (
-                    <p className="text-sm text-slate-400">{emptyLabel || 'No photo'}</p>
+                    <p className="text-sm text-slate-400">
+                        {hasMedia ? 'Photo unavailable' : emptyLabel || 'No photo'}
+                    </p>
                 )}
             </div>
 
@@ -182,6 +192,8 @@ function ComparePane({ label, tone, photoUrl, comment, emptyLabel }) {
 export default function VehicleHandoverPhotoCompareViewer({
     open,
     viewLabel = '',
+    previousPhoto = null,
+    currentPhoto = null,
     previousPhotoUrl = null,
     currentPhotoUrl = null,
     previousComment = '',
@@ -239,6 +251,7 @@ export default function VehicleHandoverPhotoCompareViewer({
                 <ComparePane
                     label="Previous (50%)"
                     tone="previous"
+                    photo={previousPhoto}
                     photoUrl={previousPhotoUrl}
                     comment={previousComment}
                     emptyLabel={previousPresent === false ? 'Not present' : 'No photo'}
@@ -246,6 +259,7 @@ export default function VehicleHandoverPhotoCompareViewer({
                 <ComparePane
                     label="Current (50%)"
                     tone="current"
+                    photo={currentPhoto}
                     photoUrl={currentPhotoUrl}
                     comment={currentComment}
                     emptyLabel={currentPresent === false ? 'Not present' : 'No photo'}

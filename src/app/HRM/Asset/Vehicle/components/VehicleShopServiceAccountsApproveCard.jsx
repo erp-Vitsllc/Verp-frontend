@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Loader2, Wallet } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -8,10 +8,21 @@ import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleServiceLockedSection from './VehicleServiceLockedSection';
+import { SegmentedToggle } from './VehicleServicePaymentTypeMethodFields';
 import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
+import {
+    OIL_PAYMENT_METHOD_OPTIONS,
+    OIL_PAYMENT_TYPE_OPTIONS,
+    isOilPayablePaymentMode,
+    normalizeOilPaymentMethod,
+    normalizeOilPaymentType,
+    oilPaymentMethodLabel,
+    oilPaymentTypeLabel,
+    resolveOilPaymentFields,
+} from '../utils/vehicleOilServiceDetailForm';
 
 function formatAed(value) {
     const n = Number(value);
@@ -41,10 +52,6 @@ function quoteLabelFromKey(key, remark = {}) {
     return remark.approvedQuoteLabel || '—';
 }
 
-function quoteLabelFromRemark(remark) {
-    return quoteLabelFromKey(resolveApprovedQuoteKey(remark), remark);
-}
-
 function isAccountsApprovalDone(remark = {}, stage = '') {
     if (
         String(remark.accountsQuoteApprovedAt || '').trim() ||
@@ -59,6 +66,7 @@ function isAccountsApprovalDone(remark = {}, stage = '') {
 /**
  * Oil-style Accounts Approve shell for shop services (Tire / Mechanical / Body).
  * Shows approved quote summary; Approve runs at pending_accounts (legacy garage Accounts step).
+ * Accounts may edit Payment Type / Payment Method before approving.
  */
 export default function VehicleShopServiceAccountsApproveCard({
     asset,
@@ -115,17 +123,68 @@ export default function VehicleShopServiceAccountsApproveCard({
               : service?.attachment) ||
         '';
 
+    const resolvedPayment = useMemo(() => resolveOilPaymentFields(remark), [remark]);
+    const [accountsAmountMode, setAccountsAmountMode] = useState(
+        () => resolvedPayment.amountMode || 'amount',
+    );
+    const [accountsPaymentMethod, setAccountsPaymentMethod] = useState(
+        () => resolvedPayment.paymentMethod || 'cash',
+    );
+
+    useEffect(() => {
+        const next = resolveOilPaymentFields(remark);
+        setAccountsAmountMode(next.amountMode || 'amount');
+        setAccountsPaymentMethod(next.paymentMethod || 'cash');
+    }, [service?._id, service?.updatedAt, service?.remark, remark]);
+
     const canApprove = canActAccounts && stage === 'pending_accounts' && !busy;
     const accountsDone = isAccountsApprovalDone(remark, stage) || Boolean(gate.done);
+    const accountsCashMode = isOilPayablePaymentMode(
+        accountsDone ? remark.amountMode || accountsAmountMode : accountsAmountMode,
+    );
+    const paymentTypeLabel = oilPaymentTypeLabel(
+        accountsDone ? remark.amountMode || accountsAmountMode : accountsAmountMode,
+    );
+    const paymentMethodLabel = accountsCashMode
+        ? oilPaymentMethodLabel(
+              accountsDone
+                  ? remark.paymentMethod || accountsPaymentMethod
+                  : accountsPaymentMethod,
+          )
+        : '—';
 
     const handleApprove = async () => {
         if (!vehicleId || !canApprove) return;
+
+        const amountMode = normalizeOilPaymentType(accountsAmountMode) || 'amount';
+        const paymentMethod =
+            amountMode === 'warranty'
+                ? ''
+                : normalizeOilPaymentMethod(accountsPaymentMethod) || 'cash';
+
+        if (amountMode !== 'warranty' && !paymentMethod) {
+            toast({
+                variant: 'destructive',
+                title: 'Payment method required',
+                description: 'Select Cash, Acc Pay, or Bank Transfer before approving.',
+            });
+            return;
+        }
+
         setBusy(true);
         try {
             const { data } = await axiosInstance.post(`/AssetItem/${vehicleId}/service-workflow/respond`, {
                 action: 'approve',
                 comment: `${serviceTypeLabel} — Accounts approved schedule / quotation`,
                 ...(serviceId ? { serviceRecordId: serviceId } : {}),
+                serviceUpdates: {
+                    remark: JSON.stringify({
+                        amountMode,
+                        ...(amountMode === 'warranty'
+                            ? { paymentMethod: '' }
+                            : { paymentMethod }),
+                    }),
+                },
             });
             toast({
                 title: 'Approved',
@@ -154,7 +213,7 @@ export default function VehicleShopServiceAccountsApproveCard({
                             : accountsDone
                               ? 'Quotation / schedule approved'
                               : canApprove
-                                ? 'Review amount and quotation — then approve'
+                                ? 'Review amount, payment method, and quotation — then approve'
                                 : 'Waiting for Accounts'
                     }
                     icon={Wallet}
@@ -202,12 +261,69 @@ export default function VehicleShopServiceAccountsApproveCard({
                                 {employeePay > 0 ? `AED ${formatAed(employeePay)}` : '—'}
                             </p>
                         </div>
+                        <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                Payment type
+                            </span>
+                            {canApprove ? (
+                                <div className="mt-2">
+                                    <SegmentedToggle
+                                        options={OIL_PAYMENT_TYPE_OPTIONS}
+                                        value={normalizeOilPaymentType(accountsAmountMode)}
+                                        selectedFallback="amount"
+                                        onChange={(mode) => {
+                                            setAccountsAmountMode(mode);
+                                            if (mode === 'warranty') {
+                                                setAccountsPaymentMethod('');
+                                            } else if (
+                                                !normalizeOilPaymentMethod(accountsPaymentMethod)
+                                            ) {
+                                                setAccountsPaymentMethod('cash');
+                                            }
+                                        }}
+                                        disabled={busy}
+                                    />
+                                </div>
+                            ) : (
+                                <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {paymentTypeLabel}
+                                </p>
+                            )}
+                        </div>
+                        <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                Payment method
+                            </span>
+                            {canApprove ? (
+                                <div className="mt-2">
+                                    {isOilPayablePaymentMode(accountsAmountMode) ? (
+                                        <SegmentedToggle
+                                            options={OIL_PAYMENT_METHOD_OPTIONS}
+                                            value={normalizeOilPaymentMethod(accountsPaymentMethod)}
+                                            selectedFallback="cash"
+                                            onChange={setAccountsPaymentMethod}
+                                            disabled={busy}
+                                        />
+                                    ) : (
+                                        <p className="mt-1 text-sm font-bold text-gray-500">—</p>
+                                    )}
+                                </div>
+                            ) : (
+                                <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {paymentMethodLabel}
+                                </p>
+                            )}
+                        </div>
                     </div>
 
                     {accountsDone && stage !== 'pending_accounts' ? (
                         <p className="mt-4 text-sm font-semibold text-emerald-700">
                             Approved{amount > 0 ? ` with amount AED ${formatAed(amount)}` : ''}
                             {quoteLabel && quoteLabel !== '—' ? ` · ${quoteLabel}` : ''}
+                            {paymentTypeLabel ? ` · ${paymentTypeLabel}` : ''}
+                            {paymentMethodLabel && paymentMethodLabel !== '—'
+                                ? ` · ${paymentMethodLabel}`
+                                : ''}
                         </p>
                     ) : canApprove ? (
                         <div className="mt-4 flex justify-end">

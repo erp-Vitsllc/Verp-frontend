@@ -200,12 +200,17 @@ export function buildBodyWorkDetailFormState(service, asset, { flowchartRows = [
               : 'company');
 
     const employeeLiabilityRows =
-        Array.isArray(remark.employeeLiabilityRows) && remark.employeeLiabilityRows.length
-            ? remark.employeeLiabilityRows.map((row) => ({
+        Array.isArray(remark.hrReviewEmployeeRows) && remark.hrReviewEmployeeRows.length
+            ? remark.hrReviewEmployeeRows.map((row) => ({
                   employeeId: String(row.employeeId || ''),
                   paidAmount: row.paidAmount != null ? String(row.paidAmount) : '',
               }))
-            : defaultEmployeeRows(assigneeIdStr);
+            : Array.isArray(remark.employeeLiabilityRows) && remark.employeeLiabilityRows.length
+              ? remark.employeeLiabilityRows.map((row) => ({
+                    employeeId: String(row.employeeId || ''),
+                    paidAmount: row.paidAmount != null ? String(row.paidAmount) : '',
+                }))
+              : defaultEmployeeRows(assigneeIdStr);
 
     const state = {
         ...base,
@@ -252,9 +257,11 @@ export function buildBodyWorkDetailFormState(service, asset, { flowchartRows = [
                     ? '0'
                     : '50',
         estimatedCost:
-            remark.estimatedCost != null && remark.estimatedCost !== ''
-                ? String(remark.estimatedCost)
-                : base.quotation1Amount || (base.value != null && base.value !== '' ? String(base.value) : ''),
+            remark.hrReviewApprovedAmount != null && remark.hrReviewApprovedAmount !== ''
+                ? String(remark.hrReviewApprovedAmount)
+                : remark.estimatedCost != null && remark.estimatedCost !== ''
+                  ? String(remark.estimatedCost)
+                  : base.quotation1Amount || (base.value != null && base.value !== '' ? String(base.value) : ''),
         employeeLiabilityRows,
         serviceIssue: base.serviceIssue || remark.serviceIssue || '',
         vendorName: remark.vendorName || base.vendorName || '',
@@ -268,13 +275,35 @@ export function buildBodyWorkDetailFormState(service, asset, { flowchartRows = [
         bodyWorkImages: [],
     };
 
+    // Prefer absolute HR pay amounts when present (keep Initiate in sync with HR Approval).
+    const absCompany = remark.hrReviewCompanyPay ?? remark.companyPayAmount;
+    const absEmployee = remark.hrReviewEmployeePay ?? remark.employeePayAmount;
+    const absApproved = Number(state.estimatedCost) || 0;
+    if (
+        absApproved > 0 &&
+        ((absCompany != null && absCompany !== '') || (absEmployee != null && absEmployee !== ''))
+    ) {
+        const employee = Math.max(0, Number(absEmployee) || 0);
+        const employeePct = Math.min(100, Math.max(0, Math.round((employee / absApproved) * 100)));
+        state.employeePayPercent = String(employeePct);
+        state.companyPayPercent = String(Math.min(100, Math.max(0, 100 - employeePct)));
+        if (employee <= 0) state.paymentByMode = 'company';
+        else if ((Number(absCompany) || 0) <= 0) state.paymentByMode = 'person';
+        else state.paymentByMode = 'split';
+    }
+
     const estimatedForSplit = Number(state.estimatedCost);
     const employeePctForSplit = Number(state.employeePayPercent);
     const employeeShare =
-        Number.isFinite(estimatedForSplit) && Number.isFinite(employeePctForSplit)
-            ? Math.round((estimatedForSplit * employeePctForSplit) / 100)
-            : 0;
+        absEmployee != null && absEmployee !== ''
+            ? Math.max(0, Number(absEmployee) || 0)
+            : Number.isFinite(estimatedForSplit) && Number.isFinite(employeePctForSplit)
+              ? Math.round((estimatedForSplit * employeePctForSplit) / 100)
+              : 0;
+    const hasSavedHrRows =
+        Array.isArray(remark.hrReviewEmployeeRows) && remark.hrReviewEmployeeRows.length > 0;
     const rowsNeedAutoFill =
+        !hasSavedHrRows &&
         (state.paymentByMode === 'person' || state.paymentByMode === 'split') &&
         employeeShare > 0 &&
         (state.employeeLiabilityRows || []).every((row) => !String(row.paidAmount || '').trim());
@@ -285,11 +314,14 @@ export function buildBodyWorkDetailFormState(service, asset, { flowchartRows = [
         );
     }
 
-    if (state.paymentByMode === 'split') {
+    if (state.paymentByMode === 'split' && !hasSavedHrRows) {
         const synced = applyLinkedSplitPayPercent('company', state.companyPayPercent);
         if (synced.companyPayPercent !== undefined) state.companyPayPercent = synced.companyPayPercent;
         if (synced.employeePayPercent !== undefined) state.employeePayPercent = synced.employeePayPercent;
-        const target = computeEmployeePayTarget(state.estimatedCost, state.employeePayPercent);
+        const target =
+            absEmployee != null && absEmployee !== ''
+                ? Math.max(0, Number(absEmployee) || 0)
+                : computeEmployeePayTarget(state.estimatedCost, state.employeePayPercent);
         if (target > 0 && (state.paymentByMode === 'person' || state.paymentByMode === 'split')) {
             const rowSum = sumEmployeeLiabilityRows(state.employeeLiabilityRows);
             if (Math.abs(rowSum - target) > 0.01) {

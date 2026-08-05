@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
+import useAssessmentMediaUrl from '../hooks/useAssessmentMediaUrl';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
@@ -11,6 +12,29 @@ const WHEEL_ZOOM_STEP = 0.08;
 
 function clampZoom(value) {
     return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+}
+
+function ViewerPhoto({ photo, url, label }) {
+    const resolved = useAssessmentMediaUrl(photo || url);
+    const displayUrl = resolved.url;
+
+    if (resolved.loading && !displayUrl) {
+        return <Loader2 className="h-8 w-8 animate-spin text-slate-400" />;
+    }
+
+    if (!displayUrl) {
+        return <p className="text-sm text-slate-500">Photo unavailable</p>;
+    }
+
+    return (
+        <img
+            src={displayUrl}
+            alt={`${label} photo`}
+            className="max-h-[min(70vh,720px)] max-w-full object-contain pointer-events-none"
+            draggable={false}
+            onError={resolved.retry}
+        />
+    );
 }
 
 export default function VehicleHandoverAssessmentPhotoViewer({
@@ -65,29 +89,11 @@ export default function VehicleHandoverAssessmentPhotoViewer({
         };
     }, [open]);
 
-    useEffect(() => {
-        if (!open || !items.length) return undefined;
-
-        const preloadIndexes = new Set([
-            index,
-            index - 1,
-            index - 2,
-            index + 1,
-            index + 2,
-        ]);
-
-        preloadIndexes.forEach((i) => {
-            const url = items[i]?.url;
-            if (!url) return;
-            const img = new Image();
-            img.src = url;
-        });
-    }, [open, index, items]);
-
     const current = items[index] || null;
     const hasPrev = index > 0;
     const hasNext = index < items.length - 1;
     const canCompareCurrent = Boolean(current?.compare && onCompare);
+    const hasCurrentMedia = Boolean(current?.photo || current?.url);
 
     const goPrev = useCallback(() => {
         setIndex((prev) => Math.max(prev - 1, 0));
@@ -170,7 +176,7 @@ export default function VehicleHandoverAssessmentPhotoViewer({
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [open, hasPrev, hasNext, goPrev, goNext, onClose]);
 
-    if (!mounted || !open || !current?.url) return null;
+    if (!mounted || !open || !hasCurrentMedia) return null;
 
     const zoomPercent = Math.round(zoom * 100);
     const canPan = zoom > 1;
@@ -236,12 +242,11 @@ export default function VehicleHandoverAssessmentPhotoViewer({
                                     transition: isDragging ? 'none' : 'transform 120ms ease-out',
                                 }}
                             >
-                                <img
-                                    key={`${index}-${current.url}`}
-                                    src={current.url}
-                                    alt={`${current.label} photo`}
-                                    className="max-h-[min(70vh,720px)] max-w-full object-contain pointer-events-none"
-                                    draggable={false}
+                                <ViewerPhoto
+                                    key={`viewer-${index}-${current.key || current.label}`}
+                                    photo={current.photo}
+                                    url={current.url}
+                                    label={current.label}
                                 />
                             </div>
                         </div>

@@ -308,6 +308,7 @@ function VehicleTireChangeDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                liveHrReview={liveHrReview}
                                 onSaved={() => {
                                     void load({ silent: true, deferServiceSigning: true });
                                 }}

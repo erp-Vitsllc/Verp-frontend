@@ -123,7 +123,9 @@ function buildReviewAmountsFromAssignment(remark, service, approvedRow) {
 
 function mergeSavedHrReview(assignmentBase, remark) {
     const hasSaved =
-        remark?.hrReviewApprovedAmount != null && remark?.hrReviewApprovedAmount !== '';
+        (remark?.hrReviewApprovedAmount != null && remark?.hrReviewApprovedAmount !== '') ||
+        remark?.hrReviewCompanyPay != null ||
+        remark?.hrReviewEmployeePay != null;
     if (!hasSaved) return assignmentBase;
 
     const rows =
@@ -132,7 +134,12 @@ function mergeSavedHrReview(assignmentBase, remark) {
                   employeeId: String(row.employeeId || ''),
                   paidAmount: row.paidAmount != null ? String(row.paidAmount) : '',
               }))
-            : assignmentBase.employeeRows;
+            : Array.isArray(remark?.employeeLiabilityRows) && remark.employeeLiabilityRows.length
+              ? remark.employeeLiabilityRows.map((row) => ({
+                    employeeId: String(row.employeeId || ''),
+                    paidAmount: row.paidAmount != null ? String(row.paidAmount) : '',
+                }))
+              : assignmentBase.employeeRows;
 
     return {
         approvedAmount: String(remark.hrReviewApprovedAmount ?? assignmentBase.approvedAmount),
@@ -200,6 +207,8 @@ export default function VehicleTireChangeQuoteApprovalCard({
             }),
         [assignmentPending, stage, canActHr, canManageTireChange, canRespondToWorkflow],
     );
+    // After HR approve, company/employee pay may still be adjusted (with employee rows).
+    const canEditPaySplit = canEdit || canEditEmployeeRows;
 
     useEffect(() => {
         let active = true;
@@ -255,6 +264,8 @@ export default function VehicleTireChangeQuoteApprovalCard({
 
     useEffect(() => {
         if (assignmentPending) return;
+        // Keep local edits while the user is adjusting pay / rows (page reloads must not snap back).
+        if (rowsDirty) return;
         const fromAssignment = buildReviewAmountsFromAssignment(remark, service, approvedRow);
         const merged = mergeSavedHrReview(fromAssignment, remark);
         setDisplaySummary({
@@ -263,9 +274,9 @@ export default function VehicleTireChangeQuoteApprovalCard({
             employeePay: merged.employeePay,
         });
         setEmployeeRows(merged.employeeRows);
-        setRowsDirty(false);
     }, [
         assignmentPending,
+        rowsDirty,
         service?._id,
         service?.value,
         service?.remark,
@@ -388,7 +399,7 @@ export default function VehicleTireChangeQuoteApprovalCard({
         setEmployeeRows((prev) => {
             const rows = [...(prev || [])];
             rows[index] = { ...rows[index], [field]: value };
-            if (field === 'paidAmount' && canEdit) {
+            if (field === 'paidAmount' && canEditPaySplit) {
                 const synced = syncHrReviewPayFromEmployeeRows({
                     employeeRows: rows,
                     approvedAmount: displaySummary.approvedAmount,
@@ -461,11 +472,16 @@ export default function VehicleTireChangeQuoteApprovalCard({
         try {
             const { data } = await axiosInstance.put(
                 `/AssetItem/${vehicleId}/service/${serviceId}/tire-change/quote-employees`,
-                { employeeRows: buildEmployeeRowsPayload() },
+                {
+                    employeeRows: buildEmployeeRowsPayload(),
+                    approvedAmount: Number(displaySummary.approvedAmount) || 0,
+                    companyPay: Number(displaySummary.companyPay) || 0,
+                    employeePay: Number(displaySummary.employeePay) || 0,
+                },
             );
             toast({
-                title: 'Employee rows saved',
-                description: 'Paid amounts were updated without changing the approved quote totals.',
+                title: 'Pay amounts saved',
+                description: 'Employee / company pay and Initiate Service amounts were updated.',
             });
             setRowsDirty(false);
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
@@ -545,6 +561,7 @@ export default function VehicleTireChangeQuoteApprovalCard({
                           : 'Rejected',
                 description: data?.message || 'Workflow updated.',
             });
+            setRowsDirty(false);
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
             toast({
@@ -718,12 +735,12 @@ export default function VehicleTireChangeQuoteApprovalCard({
                             minHeightPx={fieldMinHeightPx}
                         >
                             <input
-                                className={canEdit ? tireMoneyInput : tireSummaryValue}
-                                readOnly={!canEdit}
-                                type={canEdit ? 'number' : 'text'}
-                                min={canEdit ? '0' : undefined}
+                                className={canEditPaySplit ? tireMoneyInput : tireSummaryValue}
+                                readOnly={!canEditPaySplit}
+                                type={canEditPaySplit ? 'number' : 'text'}
+                                min={canEditPaySplit ? '0' : undefined}
                                 value={
-                                    canEdit
+                                    canEditPaySplit
                                         ? displaySummary.companyPay || ''
                                         : displaySummary.companyPay
                                           ? formatAed(displaySummary.companyPay)
@@ -740,12 +757,12 @@ export default function VehicleTireChangeQuoteApprovalCard({
                             minHeightPx={fieldMinHeightPx}
                         >
                             <input
-                                className={canEdit ? tireMoneyInput : tireSummaryValue}
-                                readOnly={!canEdit}
-                                type={canEdit ? 'number' : 'text'}
-                                min={canEdit ? '0' : undefined}
+                                className={canEditPaySplit ? tireMoneyInput : tireSummaryValue}
+                                readOnly={!canEditPaySplit}
+                                type={canEditPaySplit ? 'number' : 'text'}
+                                min={canEditPaySplit ? '0' : undefined}
                                 value={
-                                    canEdit
+                                    canEditPaySplit
                                         ? displaySummary.employeePay || ''
                                         : displaySummary.employeePay
                                           ? formatAed(displaySummary.employeePay)

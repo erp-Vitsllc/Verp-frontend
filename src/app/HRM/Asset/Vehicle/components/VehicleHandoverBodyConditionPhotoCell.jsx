@@ -4,23 +4,28 @@ import { useRef } from 'react';
 import { ImageIcon, Loader2, Plus, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
-import { HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS } from '../utils/vehicleHandoverReceiverAssessment';
+import { HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS, hasAssessmentPhoto } from '../utils/vehicleHandoverReceiverAssessment';
+import useAssessmentMediaUrl from '../hooks/useAssessmentMediaUrl';
 
 export default function VehicleHandoverBodyConditionPhotoCell({
     label,
-    photoUrl,
+    photo = null,
+    photoUrl: photoUrlProp = null,
     readOnly = false,
     uploading = false,
     missing = false,
     onPreview,
     onOpenPicker,
 }) {
+    const resolved = useAssessmentMediaUrl(photo || photoUrlProp);
+    const photoUrl = resolved.url || (typeof photoUrlProp === 'string' && photoUrlProp.startsWith('data:') ? photoUrlProp : null);
+    const hasPhoto = hasAssessmentPhoto(photo) || Boolean(photoUrl);
     const boxClass = `${HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS} border bg-gray-100 ${
         missing ? 'border-amber-300' : 'border-gray-200'
     }`;
 
     if (readOnly) {
-        if (!photoUrl) {
+        if (!hasPhoto) {
             return (
                 <div className={`flex items-center justify-center ${boxClass} border-gray-100 bg-gray-50`}>
                     <ImageIcon size={20} className="text-gray-300" strokeWidth={1.5} />
@@ -34,13 +39,22 @@ export default function VehicleHandoverBodyConditionPhotoCell({
                     type="button"
                     onClick={onPreview}
                     disabled={!onPreview}
-                    className="absolute inset-0 block overflow-hidden text-left disabled:cursor-default"
+                    className="absolute inset-0 flex items-center justify-center overflow-hidden text-left disabled:cursor-default"
                 >
-                    <img
-                        src={photoUrl}
-                        alt={`${label} photo`}
-                        className="h-full w-full object-cover object-center"
-                    />
+                    {resolved.loading && !photoUrl ? (
+                        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                    ) : photoUrl ? (
+                        <img
+                            src={photoUrl}
+                            alt={`${label} photo`}
+                            className="h-full w-full object-cover object-center"
+                            loading="lazy"
+                            decoding="async"
+                            onError={resolved.retry}
+                        />
+                    ) : (
+                        <ImageIcon size={20} className="text-gray-300" strokeWidth={1.5} />
+                    )}
                 </button>
             </div>
         );
@@ -48,17 +62,28 @@ export default function VehicleHandoverBodyConditionPhotoCell({
 
     return (
         <div className={`relative ${boxClass}`}>
-            {photoUrl ? (
+            {hasPhoto ? (
                 <button
                     type="button"
                     onClick={onPreview}
-                    className="absolute inset-0 block overflow-hidden text-left transition-colors hover:ring-2 hover:ring-slate-300"
+                    className="absolute inset-0 flex items-center justify-center overflow-hidden text-left transition-colors hover:ring-2 hover:ring-slate-300"
                 >
-                    <img
-                        src={photoUrl}
-                        alt={`${label} photo`}
-                        className="h-full w-full object-cover object-center"
-                    />
+                    {resolved.loading && !photoUrl ? (
+                        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                    ) : photoUrl ? (
+                        <img
+                            src={photoUrl}
+                            alt={`${label} photo`}
+                            className="h-full w-full object-cover object-center"
+                            loading="lazy"
+                            decoding="async"
+                            onError={resolved.retry}
+                        />
+                    ) : uploading ? (
+                        <Loader2 size={20} className="animate-spin text-slate-400" />
+                    ) : (
+                        <ImageIcon size={20} className="text-gray-300" strokeWidth={1.5} />
+                    )}
                 </button>
             ) : (
                 <div
@@ -83,7 +108,7 @@ export default function VehicleHandoverBodyConditionPhotoCell({
                 disabled={uploading}
                 className="absolute bottom-1.5 right-1.5 z-10 inline-flex items-center gap-1 rounded-md bg-white/95 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-gray-700 shadow-sm ring-1 ring-gray-200 transition-colors hover:bg-white disabled:opacity-50"
             >
-                {photoUrl ? (
+                {hasPhoto ? (
                     <>
                         <Upload size={10} />
                         Change

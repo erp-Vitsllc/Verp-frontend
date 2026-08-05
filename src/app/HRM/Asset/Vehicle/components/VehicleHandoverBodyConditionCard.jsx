@@ -29,8 +29,8 @@ import {
     HANDOVER_BODY_CONDITION_GRID_CLASS,
     hasAssessmentPhoto,
     isReceiverAssessmentMarkedDone,
-    resolveAssessmentMediaUrl,
 } from '../utils/vehicleHandoverReceiverAssessment';
+import useAssessmentMediaUrl from '../hooks/useAssessmentMediaUrl';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import VehicleHandoverPhotoCompareViewer from './VehicleHandoverPhotoCompareViewer';
 import VehicleHandoverBodyConditionPhotoCell, {
@@ -58,34 +58,6 @@ function readFileAsDataUrl(file) {
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
-}
-
-function useImagePreload(url) {
-    const [state, setState] = useState({ loading: false, ready: false, failed: false });
-
-    useEffect(() => {
-        if (!url) {
-            setState({ loading: false, ready: false, failed: false });
-            return undefined;
-        }
-
-        let cancelled = false;
-        setState({ loading: true, ready: false, failed: false });
-        const img = new Image();
-        img.onload = () => {
-            if (!cancelled) setState({ loading: false, ready: true, failed: false });
-        };
-        img.onerror = () => {
-            if (!cancelled) setState({ loading: false, ready: false, failed: true });
-        };
-        img.src = url;
-
-        return () => {
-            cancelled = true;
-        };
-    }, [url]);
-
-    return state;
 }
 
 function resolveBodyConditionCardVisualStatus({
@@ -143,20 +115,23 @@ function ViewCellEditor({
     onCompare,
 }) {
     const [pickerOpen, setPickerOpen] = useState(false);
-    const photoUrl = resolveAssessmentMediaUrl(row?.photo);
-    const previousPhotoUrl = resolveAssessmentMediaUrl(previousRow?.photo);
+    const hasPhoto = hasAssessmentPhoto(row?.photo);
     const hasStoredPreviousPhoto = hasAssessmentPhoto(previousRow?.photo);
+    const {
+        url: photoUrl,
+        loading: photoLoading,
+    } = useAssessmentMediaUrl(row?.photo);
     const {
         loading: previousPhotoLoading,
         failed: previousPhotoFailed,
-    } = useImagePreload(hasStoredPreviousPhoto ? previousPhotoUrl : null);
-    const photoMissing = !photoUrl;
+    } = useAssessmentMediaUrl(hasStoredPreviousPhoto ? previousRow?.photo : null);
+    const photoMissing = !hasPhoto;
     const skipFineFlow = inspectionHandover || isFirstInspection;
     const commentRequired =
         !skipFineFlow &&
         row?.photoSource !== BODY_CONDITION_PHOTO_SOURCE.PREVIOUS &&
         row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
-        Boolean(photoUrl);
+        hasPhoto;
     const commentMissing = commentRequired && !String(row?.comment || '').trim();
     const visuals = handoverItemVisualClasses(visualStatus);
 
@@ -211,11 +186,11 @@ function ViewCellEditor({
                 <div className={`mt-1 shrink-0 rounded-lg ${visuals.frame}`}>
                     <VehicleHandoverBodyConditionPhotoCell
                         label={view.label}
-                        photoUrl={photoUrl}
+                        photo={row?.photo}
                         missing={photoMissing && !readOnly}
-                        uploading={uploading}
+                        uploading={uploading || (hasPhoto && photoLoading && !photoUrl)}
                         readOnly={readOnly}
-                        onPreview={photoUrl ? onPhotoPreview : undefined}
+                        onPreview={hasPhoto ? onPhotoPreview : undefined}
                         onOpenPicker={() => !readOnly && !uploading && setPickerOpen(true)}
                     />
                 </div>
@@ -254,13 +229,13 @@ function ViewCellEditor({
                 <p className="mt-1 min-h-[24px] text-[9px] font-medium leading-snug">
                     {photoMissing && !readOnly ? (
                         <span className="text-amber-600">Photo required</span>
-                    ) : visualStatus === 'serviceReplaced' && photoUrl ? (
+                    ) : visualStatus === 'serviceReplaced' && hasPhoto ? (
                         <span className="text-orange-700">Updated from service completion.</span>
-                    ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS && photoUrl ? (
+                    ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS && hasPhoto ? (
                         <span className="text-emerald-700">Matches previous assignment.</span>
                     ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
                       comparison?.hasPreviousBaseline &&
-                      photoUrl &&
+                      hasPhoto &&
                       !hasFine &&
                       !isWaived &&
                       !readOnly &&
@@ -390,9 +365,9 @@ export default function VehicleHandoverBodyConditionCard({
                     hasCurrentPhoto &&
                     photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
                     (!acceptedWithoutFine || serviceReplaced),
-                showCompare: Boolean(row.previous.photoUrl),
-                previousPhotoUrl: row.previous.photoUrl,
-                currentPhotoUrl: resolveAssessmentMediaUrl(formRow.photo),
+                showCompare: hasAssessmentPhoto(row.previous.photo),
+                previousPhoto: row.previous.photo,
+                currentPhoto: formRow.photo,
                 previousComment: row.previous.comment,
                 currentComment: String(formRow.comment || '').trim(),
             };
@@ -423,24 +398,25 @@ export default function VehicleHandoverBodyConditionCard({
     const galleryItems = useMemo(
         () =>
             BODY_CONDITION_VIEW_FIELDS.map((field) => {
-                const url = resolveAssessmentMediaUrl(form[field.key]?.photo);
+                const photo = form[field.key]?.photo;
+                if (!hasAssessmentPhoto(photo)) return null;
                 const comparison = comparisonByKey[field.key];
                 return {
                     key: field.key,
                     label: field.label,
-                    url,
+                    photo,
                     compare: comparison?.showCompare
                         ? {
                               viewLabel: field.label,
-                              previousPhotoUrl: comparison.previousPhotoUrl,
-                              currentPhotoUrl: comparison.currentPhotoUrl,
+                              previousPhoto: comparison.previousPhoto,
+                              currentPhoto: comparison.currentPhoto,
                               previousComment: comparison.previousComment,
                               currentComment: comparison.currentComment,
                               changed: comparison.changed,
                           }
                         : null,
                 };
-            }).filter((item) => item.url),
+            }).filter(Boolean),
         [form, comparisonByKey],
     );
 
@@ -608,8 +584,8 @@ export default function VehicleHandoverBodyConditionCard({
         const view = BODY_CONDITION_VIEW_FIELDS.find((field) => field.key === viewKey);
         setCompareView({
             viewLabel: view?.label || viewKey,
-            previousPhotoUrl: comparison.previousPhotoUrl,
-            currentPhotoUrl: comparison.currentPhotoUrl,
+            previousPhoto: comparison.previousPhoto,
+            currentPhoto: comparison.currentPhoto,
             previousComment: comparison.previousComment,
             currentComment: comparison.currentComment,
         });
@@ -834,8 +810,8 @@ export default function VehicleHandoverBodyConditionCard({
                                                           previousPhoto: prevRow.photo,
                                                           comment: formRow.comment,
                                                           previousComment: prevRow.comment,
-                                                          photoUrl: comparison?.currentPhotoUrl,
-                                                          previousPhotoUrl: comparison?.previousPhotoUrl,
+                                                          photoUrl: null,
+                                                          previousPhotoUrl: null,
                                                           photoChanged: comparison?.photoChanged,
                                                       });
                                                   }
@@ -906,8 +882,8 @@ export default function VehicleHandoverBodyConditionCard({
                     setViewerOpen(false);
                     setCompareView({
                         viewLabel: item.compare.viewLabel,
-                        previousPhotoUrl: item.compare.previousPhotoUrl,
-                        currentPhotoUrl: item.compare.currentPhotoUrl,
+                        previousPhoto: item.compare.previousPhoto,
+                        currentPhoto: item.compare.currentPhoto,
                         previousComment: item.compare.previousComment,
                         currentComment: item.compare.currentComment,
                     });
@@ -917,8 +893,8 @@ export default function VehicleHandoverBodyConditionCard({
             <VehicleHandoverPhotoCompareViewer
                 open={Boolean(compareView)}
                 viewLabel={compareView?.viewLabel}
-                previousPhotoUrl={compareView?.previousPhotoUrl}
-                currentPhotoUrl={compareView?.currentPhotoUrl}
+                previousPhoto={compareView?.previousPhoto}
+                currentPhoto={compareView?.currentPhoto}
                 previousComment={compareView?.previousComment}
                 currentComment={compareView?.currentComment}
                 onClose={() => setCompareView(null)}

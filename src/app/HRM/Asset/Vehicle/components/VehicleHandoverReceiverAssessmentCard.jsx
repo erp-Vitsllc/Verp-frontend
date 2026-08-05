@@ -730,12 +730,13 @@ export default function VehicleHandoverReceiverAssessmentCard({
         () =>
             RECEIVER_ASSESSMENT_ITEMS.map((item) => {
                 const row = form[item.key] || {};
+                if (!hasAssessmentPhoto(row.photo)) return null;
                 return {
                     key: item.key,
                     label: item.label,
-                    url: resolveAssessmentMediaUrl(row.photo),
+                    photo: row.photo,
                 };
-            }).filter((item) => item.url),
+            }).filter(Boolean),
         [form],
     );
 

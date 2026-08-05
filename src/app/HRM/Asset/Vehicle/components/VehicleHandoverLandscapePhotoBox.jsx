@@ -26,7 +26,10 @@ export default function VehicleHandoverLandscapePhotoBox({
 }) {
     const resolved = useAssessmentMediaUrl(photo || photoUrlProp);
     const { toast } = useToast();
-    const photoUrl = resolved.url || photoUrlProp;
+    // Never render Wasabi/http signed URLs directly — only data/blob from the proxy hook.
+    const photoUrl =
+        resolved.url ||
+        (typeof photoUrlProp === 'string' && photoUrlProp.startsWith('data:') ? photoUrlProp : null);
     const inputId = `${inputIdPrefix}-${String(label || 'photo').replace(/\s+/g, '-')}`;
     const boxClass = `${boxClassName} border bg-gray-100 ${
         missing ? 'border-amber-300' : 'border-gray-200'
