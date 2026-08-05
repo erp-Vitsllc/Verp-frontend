@@ -133,6 +133,13 @@ export default function VehicleAccidentRepairReturnCard({
 
     const canEditReturn = canEditAccidentRepairReturn(stage, canManage, isComplete, asset);
     const fieldsDisabled = !canEditReturn || saving || assignmentPending;
+    const hasMappedNewConditionPhotos = useMemo(
+        () =>
+            (formData.existingNewConditionImages || []).some((img) =>
+                String(img?.bodyPartKey || '').trim(),
+            ),
+        [formData.existingNewConditionImages],
+    );
 
     const { fieldMinHeightPx, gapClass } = ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
@@ -289,6 +296,31 @@ export default function VehicleAccidentRepairReturnCard({
             toast({
                 variant: 'destructive',
                 title: 'Could not submit',
+                description: error.response?.data?.message || 'Try again.',
+            });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleSyncHandoverPhotos = async () => {
+        if (!vehicleId || !serviceId || !canManage || saving) return;
+        setSaving(true);
+        try {
+            const { data } = await axiosInstance.post(
+                `/AssetItem/${vehicleId}/service/${serviceId}/sync-body-condition-photos`,
+            );
+            toast({
+                title: 'Handover photos updated',
+                description:
+                    data?.message ||
+                    'New condition photos were applied to the Body Condition Report.',
+            });
+            if (typeof onUpdated === 'function') onUpdated(data?.asset);
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not update handover photos',
                 description: error.response?.data?.message || 'Try again.',
             });
         } finally {
@@ -462,6 +494,17 @@ export default function VehicleAccidentRepairReturnCard({
                                 className={tireBtnPrimary}
                             >
                                 {saving ? 'Completing…' : 'Done'}
+                            </button>
+                        </div>
+                    ) : isComplete && canManage && hasMappedNewConditionPhotos ? (
+                        <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
+                            <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void handleSyncHandoverPhotos()}
+                                className={tireBtnPrimary}
+                            >
+                                {saving ? 'Updating…' : 'Update handover photos'}
                             </button>
                         </div>
                     ) : null}
