@@ -18,7 +18,10 @@ import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPho
 import { formatDisplayDate } from './VehicleAccidentRepairForm';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
-import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
+import {
+    isOilServiceAssignmentPending,
+    isVehicleServiceInitiateEditableStage,
+} from '../utils/vehicleOilServiceAccess';
 import {
     resolveFlowchartAdminEmployeeRef,
     resolveVehicleServiceAssignedOwnerId,
@@ -29,7 +32,9 @@ import {
     getAccidentRepairDetailFormMissingFields,
     isAccidentRepairDetailFormComplete,
     validateAccidentRepairDetailForm,
+    applyEmployeePayTargetToRows,
 } from '../utils/vehicleAccidentRepairDetailForm';
+import { resolveShopServicePayAmounts } from '../utils/vehicleShopHrReviewPay';
 import {
     ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT,
     tireAccent,
@@ -57,6 +62,29 @@ import {
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
 const PDF_ATTACHMENT_KINDS = new Set(['attachment', 'quotation2', 'quotation3']);
 const JPEG_ATTACHMENT_KINDS = new Set(['tireCondition']);
+const GARAGE_QUOTE_KIND_FIELDS = {
+    garageQuote1: {
+        name: 'garageQuote1Name',
+        base64: 'garageQuote1Base64',
+        mime: 'garageQuote1Mime',
+        existing: 'existingGarageQuote1Url',
+        amount: 'garageQuote1Amount',
+    },
+    garageQuote2: {
+        name: 'garageQuote2Name',
+        base64: 'garageQuote2Base64',
+        mime: 'garageQuote2Mime',
+        existing: 'existingGarageQuote2Url',
+        amount: 'garageQuote2Amount',
+    },
+    garageQuote3: {
+        name: 'garageQuote3Name',
+        base64: 'garageQuote3Base64',
+        mime: 'garageQuote3Mime',
+        existing: 'existingGarageQuote3Url',
+        amount: 'garageQuote3Amount',
+    },
+};
 
 function normalizeControllerEmployeeId(rawId) {
     const id = String(rawId || '').trim();
@@ -73,19 +101,10 @@ function formatShortDate(isoOrDate) {
 }
 
 function directAccidentImageSrc(img) {
-    const raw = String(img?.url || '').trim();
-    if (!raw) return '';
-    if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
-    // Protocol-less Wasabi/S3 hosts → https:// (avoid relative-path DNS failures)
-    let url = raw;
-    if (
-        !url.startsWith('http://') &&
-        !url.startsWith('https://') &&
-        (/^s3\./i.test(url) || /wasabisys\.com/i.test(url) || /\.amazonaws\.com/i.test(url))
-    ) {
-        url = `https://${url.replace(/^\/+/, '')}`;
-    }
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    const url = String(img?.url || img?.data || '').trim();
+    if (!url) return '';
+    // Only inline/blob URLs in <img>. Wasabi signed URLs fail on many office networks (DNS).
+    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
     return '';
 }
 
@@ -95,6 +114,32 @@ function AccidentPartyToggle({ value, onChange, disabled }) {
             {[
                 { id: 'self', label: 'SELF' },
                 { id: 'thirdParty', label: 'OTHER PARTY DAMAGE' },
+            ].map((opt) => (
+                <button
+                    key={opt.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onChange(opt.id)}
+                    className={`flex-1 rounded-md px-1 py-1.5 text-[10px] font-bold transition-all ${
+                        value === opt.id
+                            ? 'bg-white text-blue-600 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                    } disabled:opacity-60`}
+                >
+                    {opt.label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function FineSplitToggle({ value, onChange, disabled }) {
+    return (
+        <div className="inline-flex w-full rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            {[
+                { id: 'person', label: 'EMP' },
+                { id: 'company', label: 'CMPY' },
+                { id: 'split', label: 'EMP & CMPY' },
             ].map((opt) => (
                 <button
                     key={opt.id}
@@ -136,7 +181,9 @@ export default function VehicleAccidentRepairDetailForm({
     draftSubmitRef,
     onDraftStateChange,
     canEditAssignment = true,
+    workflowStage = '',
     flowchartRows = [],
+    liveHrReview = null,
     className = '',
 }) {
     const router = useRouter();
@@ -154,7 +201,10 @@ export default function VehicleAccidentRepairDetailForm({
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
-    const fieldsDisabled = !assignmentPending || saving || !canEditAssignment;
+    const initiateStageEditable = isVehicleServiceInitiateEditableStage(workflowStage);
+    const canEditInitiateFields =
+        canEditAssignment && (assignmentPending || initiateStageEditable);
+    const fieldsDisabled = !canEditInitiateFields || saving;
 
     const assetController = asset?.assetController || null;
     const assetControllerId = asset?.assetControllerId || null;
@@ -344,6 +394,76 @@ export default function VehicleAccidentRepairDetailForm({
     const otherFine = Number(formData.otherFineAmount || 0);
     const totalFines = insuranceExcess + policeFine + otherFine;
 
+    const setPaymentByMode = useCallback(
+        (mode) => {
+            setFormData((prev) => {
+                const companyPayPercent = mode === 'company' ? '100' : mode === 'person' ? '0' : '50';
+                const employeePayPercent = mode === 'person' ? '100' : mode === 'company' ? '0' : '50';
+                const costBase =
+                    Number(prev.estimatedCost) > 0
+                        ? Number(prev.estimatedCost)
+                        : totalFines > 0
+                          ? totalFines
+                          : 0;
+                return {
+                    ...prev,
+                    paymentByMode: mode,
+                    companyPayPercent,
+                    employeePayPercent,
+                    estimatedCost: costBase > 0 ? String(costBase) : prev.estimatedCost || '',
+                    employeeLiabilityRows: applyEmployeePayTargetToRows(
+                        prev.employeeLiabilityRows,
+                        costBase,
+                        employeePayPercent,
+                    ),
+                };
+            });
+        },
+        [totalFines],
+    );
+
+    useEffect(() => {
+        if (!formData.paymentByMode) return;
+        if (!(totalFines > 0)) return;
+        const liveAmt = Number(liveHrReview?.approvedAmount);
+        if (Number.isFinite(liveAmt) && liveAmt > 0) return;
+        setFormData((prev) => {
+            const current = Number(prev.estimatedCost) || 0;
+            if (current === totalFines) return prev;
+            return {
+                ...prev,
+                estimatedCost: String(totalFines),
+                employeeLiabilityRows: applyEmployeePayTargetToRows(
+                    prev.employeeLiabilityRows,
+                    totalFines,
+                    prev.employeePayPercent,
+                ),
+            };
+        });
+    }, [formData.paymentByMode, liveHrReview?.approvedAmount, totalFines]);
+
+    const estimatedCost = Number(formData.estimatedCost || 0) || totalFines || 0;
+    const companyPct = Number(formData.companyPayPercent || 0);
+    const employeePct = Number(formData.employeePayPercent || 0);
+    const resolvedPayAmounts = useMemo(
+        () =>
+            resolveShopServicePayAmounts({
+                estimatedCost,
+                companyPayPercent: companyPct,
+                employeePayPercent: employeePct,
+                remark,
+                liveHrReview,
+            }),
+        [estimatedCost, companyPct, employeePct, remark, liveHrReview],
+    );
+    const paymentByMode =
+        resolvedPayAmounts.paymentByMode || formData.paymentByMode || '';
+    const companyPayAmount = resolvedPayAmounts.companyPayAmount;
+    const employeePayAmount = resolvedPayAmounts.employeePayAmount;
+    const showFineSplitAmounts = Boolean(paymentByMode);
+    const showCompanyPay = paymentByMode && paymentByMode !== 'person';
+    const showEmployeePay = paymentByMode && paymentByMode !== 'company';
+
     const headerDateLabel = useMemo(() => formatDisplayDate(formData.date), [formData.date]);
 
     const handleFileChange = useCallback(
@@ -412,6 +532,36 @@ export default function VehicleAccidentRepairDetailForm({
                         remarkAttachmentName: '',
                     }));
                 }
+            };
+            reader.readAsDataURL(file);
+        },
+        [toast],
+    );
+
+    const handleGarageQuoteFile = useCallback(
+        (kind, file) => {
+            if (!file) return;
+            const fields = GARAGE_QUOTE_KIND_FIELDS[kind];
+            if (!fields) return;
+            const check = validateErpPdfFile(file);
+            if (!check.ok) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid file',
+                    description: check.message,
+                });
+                return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64 = String(reader.result || '').split(',')[1] || '';
+                setFormData((prev) => ({
+                    ...prev,
+                    [fields.name]: file.name,
+                    [fields.base64]: base64,
+                    [fields.mime]: file.type || 'application/pdf',
+                    [fields.existing]: '',
+                }));
             };
             reader.readAsDataURL(file);
         },
@@ -495,7 +645,7 @@ export default function VehicleAccidentRepairDetailForm({
             if (!vehicleId || !serviceId) return false;
             setSaving(true);
             try {
-                const body = buildAccidentRepairDetailSubmitBody(formData, { keepPending: true });
+                const body = buildAccidentRepairDetailSubmitBody(formData, { keepPending: assignmentPending });
                 await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
                 if (submitAfterSave) {
                     await axiosInstance.post(
@@ -514,7 +664,7 @@ export default function VehicleAccidentRepairDetailForm({
             } catch (error) {
                 toast({
                     variant: 'destructive',
-                    title: submitAfterSave ? 'Could not submit' : 'Could not save draft',
+                    title: submitAfterSave ? 'Could not submit' : 'Could not save',
                     description: error.response?.data?.message || 'Try again.',
                 });
                 return false;
@@ -522,7 +672,7 @@ export default function VehicleAccidentRepairDetailForm({
                 setSaving(false);
             }
         },
-        [formData, onSaved, serviceId, toast, vehicleId],
+        [assignmentPending, formData, onSaved, serviceId, toast, vehicleId],
     );
 
     const handleSubmit = useCallback(async () => {
@@ -531,6 +681,11 @@ export default function VehicleAccidentRepairDetailForm({
     }, [asset, assignmentPending, formData, persistForm]);
 
     const handleSaveDraft = async () => {
+        await persistForm({ submitAfterSave: false });
+    };
+
+    const handleSaveUpdates = async () => {
+        if (!canEditInitiateFields || assignmentPending) return;
         await persistForm({ submitAfterSave: false });
     };
 
@@ -546,8 +701,8 @@ export default function VehicleAccidentRepairDetailForm({
         assignmentPending && !saving && canEditAssignment && isAccidentRepairDetailFormComplete(formData, asset);
     const missingFields = useMemo(
         () =>
-            assignmentPending && canEditAssignment ? getAccidentRepairDetailFormMissingFields(formData, asset) : [],
-        [asset, formData, assignmentPending, canEditAssignment],
+            canEditInitiateFields ? getAccidentRepairDetailFormMissingFields(formData, asset) : [],
+        [asset, formData, canEditInitiateFields],
     );
 
     const submitHandlerRef = useRef(handleSubmit);
@@ -598,6 +753,59 @@ export default function VehicleAccidentRepairDetailForm({
         </div>
     );
 
+    const GarageQuoteUpload = ({ label, kind, fileName, existingUrl, amount = '' }) => {
+        const hasQuote = !!(fileName || existingUrl);
+        const amountField = GARAGE_QUOTE_KIND_FIELDS[kind]?.amount;
+
+        return (
+            <div
+                className={`flex flex-wrap items-center gap-2 min-h-[40px] rounded-lg border px-2 py-1.5 transition-colors ${
+                    hasQuote ? 'border-blue-200 bg-blue-50/40' : 'border-transparent'
+                }`}
+            >
+                {existingUrl ? (
+                    <button
+                        type="button"
+                        className={tireViewBtn}
+                        onClick={() => void openAttachmentInNewTab(existingUrl, { name: fileName || label })}
+                    >
+                        View
+                    </button>
+                ) : null}
+                {!fieldsDisabled ? (
+                    <label className={tireUploadBtn}>
+                        <Upload size={14} />
+                        {fileName || existingUrl ? 'Change' : 'Add'}
+                        <input
+                            type="file"
+                            className="sr-only"
+                            accept={ERP_PDF_ACCEPT}
+                            disabled={fieldsDisabled}
+                            onChange={(e) => {
+                                handleGarageQuoteFile(kind, e.target.files?.[0]);
+                                e.target.value = '';
+                            }}
+                        />
+                    </label>
+                ) : null}
+                {fileName ? <span className="text-[10px] text-gray-500 truncate">{fileName}</span> : null}
+                {amountField ? (
+                    <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className={`${tireMoneyInput} w-[110px] min-h-[32px] py-1`}
+                        placeholder="AED"
+                        value={formData[amountField] || ''}
+                        disabled={fieldsDisabled}
+                        onChange={(e) => set(amountField, e.target.value)}
+                        title={`${label} amount (optional)`}
+                    />
+                ) : null}
+            </div>
+        );
+    };
+
     const { fieldMinHeightPx, gapClass } = ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
 
@@ -609,12 +817,14 @@ export default function VehicleAccidentRepairDetailForm({
                     subtitle={
                         assignmentPending
                             ? `Dated: ${headerDateLabel || '—'} · Complete all fields, then click Send`
-                            : `Dated: ${headerDateLabel || '—'} · Submitted — continue Schedule / HR below`
+                            : initiateStageEditable
+                              ? `Dated: ${headerDateLabel || '—'} · Editable at HR / Accounts — update details, then Save Changes`
+                              : `Dated: ${headerDateLabel || '—'} · Submitted — continue Schedule / HR below`
                     }
                     icon={ClipboardList}
                     iconBg="bg-blue-50"
                     iconColor="text-blue-600"
-                    className={`w-full ${assignmentPending ? '' : 'opacity-[0.97]'}`}
+                    className={`w-full ${canEditInitiateFields ? '' : 'opacity-[0.97]'}`}
                 >
                     <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleAccidentRepairFormFieldCell
@@ -826,6 +1036,56 @@ export default function VehicleAccidentRepairDetailForm({
                         </VehicleAccidentRepairFormFieldCell>
                     </div>
 
+                    <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 ${gapClass} mt-2.5`}>
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Split Fine (optional)"
+                            accentClass={accent(1)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <FineSplitToggle
+                                value={formData.paymentByMode || ''}
+                                onChange={setPaymentByMode}
+                                disabled={fieldsDisabled}
+                            />
+                        </VehicleAccidentRepairFormFieldCell>
+                        {showFineSplitAmounts && showCompanyPay ? (
+                            <VehicleAccidentRepairFormFieldCell
+                                label="Company Pay"
+                                accentClass={accent(2)}
+                                minHeightPx={fieldMinHeightPx}
+                            >
+                                <input
+                                    type="text"
+                                    readOnly
+                                    value={
+                                        companyPayAmount
+                                            ? `${Number(companyPayAmount).toLocaleString()} AED`
+                                            : ''
+                                    }
+                                    className={`${tireMoneyInput} bg-gray-50`}
+                                />
+                            </VehicleAccidentRepairFormFieldCell>
+                        ) : null}
+                        {showFineSplitAmounts && showEmployeePay ? (
+                            <VehicleAccidentRepairFormFieldCell
+                                label="Employee Pay"
+                                accentClass={accent(0)}
+                                minHeightPx={fieldMinHeightPx}
+                            >
+                                <input
+                                    type="text"
+                                    readOnly
+                                    value={
+                                        employeePayAmount
+                                            ? `${Number(employeePayAmount).toLocaleString()} AED`
+                                            : ''
+                                    }
+                                    className={`${tireMoneyInput} bg-gray-50`}
+                                />
+                            </VehicleAccidentRepairFormFieldCell>
+                        ) : null}
+                    </div>
+
                     <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mt-2.5`}>
                         <VehicleServicePaymentTypeMethodFields
                             FieldCell={VehicleAccidentRepairFormFieldCell}
@@ -839,19 +1099,44 @@ export default function VehicleAccidentRepairDetailForm({
                         />
                     </div>
 
-                    <div className={`grid grid-cols-1 ${gapClass} mt-2.5`}>
+                    <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mt-2.5`}>
                         <VehicleAccidentRepairFormFieldCell
-                            label="Description (optional)"
+                            label="Quote 1 (optional)"
+                            accentClass={accent(1)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <GarageQuoteUpload
+                                label="Quote 1"
+                                kind="garageQuote1"
+                                fileName={formData.garageQuote1Name}
+                                existingUrl={formData.existingGarageQuote1Url}
+                                amount={formData.garageQuote1Amount || ''}
+                            />
+                        </VehicleAccidentRepairFormFieldCell>
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Quote 2 (optional)"
+                            accentClass={accent(2)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <GarageQuoteUpload
+                                label="Quote 2"
+                                kind="garageQuote2"
+                                fileName={formData.garageQuote2Name}
+                                existingUrl={formData.existingGarageQuote2Url}
+                                amount={formData.garageQuote2Amount || ''}
+                            />
+                        </VehicleAccidentRepairFormFieldCell>
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Quote 3 (optional)"
                             accentClass={accent(0)}
                             minHeightPx={fieldMinHeightPx}
                         >
-                            <textarea
-                                className={`${tireFieldInput} min-h-[72px] resize-y`}
-                                value={formData.serviceIssue || ''}
-                                onChange={(e) => set('serviceIssue', e.target.value)}
-                                disabled={fieldsDisabled}
-                                placeholder="Optional notes"
-                                rows={3}
+                            <GarageQuoteUpload
+                                label="Quote 3"
+                                kind="garageQuote3"
+                                fileName={formData.garageQuote3Name}
+                                existingUrl={formData.existingGarageQuote3Url}
+                                amount={formData.garageQuote3Amount || ''}
                             />
                         </VehicleAccidentRepairFormFieldCell>
                     </div>
@@ -968,7 +1253,24 @@ export default function VehicleAccidentRepairDetailForm({
                     </>
                     ) : null}
 
-                    {assignmentPending && canEditAssignment && missingFields.length > 0 ? (
+                    <div className="mt-4">
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Description (optional)"
+                            accentClass={accent(0)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <textarea
+                                className={`${tireFieldInput} min-h-[88px] w-full resize-y`}
+                                value={formData.serviceIssue || ''}
+                                onChange={(e) => set('serviceIssue', e.target.value)}
+                                disabled={fieldsDisabled}
+                                placeholder="Optional notes"
+                                rows={3}
+                            />
+                        </VehicleAccidentRepairFormFieldCell>
+                    </div>
+
+                    {canEditInitiateFields && missingFields.length > 0 ? (
                         <p className="mt-4 text-xs text-amber-700">
                             Still required: {missingFields.join(', ')}
                         </p>
@@ -999,6 +1301,27 @@ export default function VehicleAccidentRepairDetailForm({
                                 className={tireBtnPrimary}
                             >
                                 {saving ? 'Sending…' : 'Send'}
+                            </button>
+                        </div>
+                    ) : null}
+
+                    {!assignmentPending && initiateStageEditable && canEditAssignment ? (
+                        <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
+                            <button
+                                type="button"
+                                disabled={saving}
+                                onClick={handleCancel}
+                                className={tireBtnSecondary}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={saving || missingFields.length > 0}
+                                onClick={() => void handleSaveUpdates()}
+                                className={tireBtnPrimary}
+                            >
+                                {saving ? 'Saving…' : 'Save Changes'}
                             </button>
                         </div>
                     ) : null}

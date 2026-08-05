@@ -1,18 +1,22 @@
 ﻿export const TIRE_QUOTE_DRAG_TYPE = 'application/x-verp-tire-quote';
 
 export function quoteKindToKey(kind) {
+    if (kind === 'garageQuote1' || kind === 'q1') return 'q1';
+    if (kind === 'garageQuote2' || kind === 'q2') return 'q2';
+    if (kind === 'garageQuote3' || kind === 'q3') return 'q3';
+    // Legacy mappings (police docs) — kept for older drafts only.
     if (kind === 'attachment') return 'q1';
+    if (kind === 'quotation2') return 'q2';
     if (kind === 'quotation3') return 'q2';
     if (kind === 'tireCondition') return 'q3';
-    if (kind === 'quotation2') return 'q2';
     return '';
 }
 
 export function quoteKeyToLabel(key) {
-    if (key === 'q1') return 'Police Report';
-    if (key === 'q2') return 'Police Fine Document';
-    if (key === 'q3') return 'Other Document';
-    return 'Document';
+    if (key === 'q1') return 'Quote 1';
+    if (key === 'q2') return 'Quote 2';
+    if (key === 'q3') return 'Quote 3';
+    return 'Quote';
 }
 
 export function buildTireQuoteDragPayload({ key, label, fileName, amount }) {

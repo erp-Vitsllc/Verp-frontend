@@ -6,6 +6,12 @@ import {
     garageBillingFieldsFromRemark,
     garageBillingRemarkPatch,
 } from './vehicleGarageBillingFields';
+import {
+    paymentToGarageAttachmentBody,
+    paymentToGarageFieldsFromRemark,
+    paymentToGarageRemarkPatch,
+    validatePaymentToGarageFields,
+} from './vehicleGaragePaymentToGarageFields';
 
 export const DEFAULT_OIL_SERVICE_TYPE = 'Engine Oil';
 
@@ -160,6 +166,7 @@ export function buildOilServiceDetailFormState(service, asset, scheduleRow, { fl
                 remark.totalServiceCharge ||
                 (base.value != null && base.value !== '' ? base.value : ''),
         }),
+        ...paymentToGarageFieldsFromRemark(remark),
     };
 }
 
@@ -256,6 +263,7 @@ export function validateOilServiceScheduleForm(formData) {
         errors.serviceEndDate = 'Service end date is required';
     }
     // Description is optional for oil schedule / HR approval.
+    Object.assign(errors, validatePaymentToGarageFields(formData));
     return errors;
 }
 
@@ -267,6 +275,8 @@ export function getOilServiceScheduleMissingFields(formData) {
         garageContact: 'Garage contact',
         serviceStartDate: 'Service start date',
         serviceEndDate: 'Service end date',
+        paymentToGarageAmount: 'Payment to garage amount',
+        paymentToGarageAttachments: 'Payment to garage attachment',
     };
     return Object.keys(errors).map((key) => labels[key] || errors[key]);
 }
@@ -361,6 +371,12 @@ export function buildOilServiceDetailSubmitBody(formData, { initiated = false } 
         remark.serviceEndDate = `${String(formData.nextChangeMonth).slice(0, 7)}-01`;
     }
     Object.assign(remark, garageBillingRemarkPatch(payload));
+    Object.assign(remark, paymentToGarageRemarkPatch(formData));
+    // Oil schedule description field remains serviceIssue (optional).
+    if (formData.scheduleDescription !== undefined) {
+        const desc = String(formData.scheduleDescription || '').trim();
+        if (desc) remark.scheduleDescription = desc;
+    }
     if (warrantyVendor || payable) {
         const vendor = String(payload.garageName || payload.vendorName || '').trim();
         if (vendor) {
@@ -379,5 +395,6 @@ export function buildOilServiceDetailSubmitBody(formData, { initiated = false } 
         body.value = 0;
     }
     Object.assign(body, garageBillingAttachmentBody(formData));
+    Object.assign(body, paymentToGarageAttachmentBody(formData));
     return body;
 }

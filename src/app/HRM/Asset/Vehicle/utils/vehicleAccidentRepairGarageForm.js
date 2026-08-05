@@ -7,6 +7,12 @@ import {
     garageBillingRemarkPatch,
     validateGarageBillingFields,
 } from './vehicleGarageBillingFields';
+import {
+    paymentToGarageAttachmentBody,
+    paymentToGarageFieldsFromRemark,
+    paymentToGarageRemarkPatch,
+    validatePaymentToGarageFields,
+} from './vehicleGaragePaymentToGarageFields';
 
 export { OIL_SERVICE_GARAGE_VENDOR_OPTIONS as ACCIDENT_REPAIR_GARAGE_VENDOR_OPTIONS };
 
@@ -24,11 +30,8 @@ export function buildAccidentRepairGarageFormState(service, asset) {
             base.serviceStartDate ||
             (service?.date ? new Date(service.date).toISOString().slice(0, 10) : ''),
         serviceEndDate: remark.serviceEndDate || remark.serviceWindowEndDate || base.serviceEndDate || '',
-        quotation2Name: remark.quotation2Name || remark.claimReportName || '',
-        quotation2Base64: '',
-        quotation2Mime: '',
-        existingQuotation2Url: service?.quotation2 ? String(service.quotation2) : '',
         ...garageBillingFieldsFromRemark(service, remark),
+        ...paymentToGarageFieldsFromRemark(remark),
     };
 }
 
@@ -50,6 +53,7 @@ export function validateAccidentRepairGarageForm(formData) {
         errors.serviceEndDate = 'Service end date is required';
     }
     Object.assign(errors, validateGarageBillingFields(formData));
+    Object.assign(errors, validatePaymentToGarageFields(formData));
     return errors;
 }
 
@@ -64,8 +68,9 @@ export function buildAccidentRepairGarageUpdateBody(formData) {
     const serviceStartDate = String(formData.serviceStartDate || '').trim();
     const serviceEndDate = String(formData.serviceEndDate || '').trim();
     const billing = garageBillingRemarkPatch(formData);
+    const paymentToGarage = paymentToGarageRemarkPatch(formData);
 
-    const body = {
+    return {
         serviceType: 'Accident Repair',
         date: serviceStartDate || undefined,
         remark: JSON.stringify({
@@ -76,20 +81,10 @@ export function buildAccidentRepairGarageUpdateBody(formData) {
             serviceStartDate,
             serviceEndDate,
             scheduledServiceDate: serviceStartDate || undefined,
-            quotation2Name: String(formData.quotation2Name || '').trim() || undefined,
-            claimReportName: String(formData.quotation2Name || '').trim() || undefined,
             ...billing,
+            ...paymentToGarage,
         }),
         ...garageBillingAttachmentBody(formData),
+        ...paymentToGarageAttachmentBody(formData),
     };
-
-    if (formData.quotation2Base64 && formData.quotation2Name) {
-        body.quotation2 = {
-            name: formData.quotation2Name,
-            data: formData.quotation2Base64,
-            mimeType: formData.quotation2Mime || 'application/pdf',
-        };
-    }
-
-    return body;
 }

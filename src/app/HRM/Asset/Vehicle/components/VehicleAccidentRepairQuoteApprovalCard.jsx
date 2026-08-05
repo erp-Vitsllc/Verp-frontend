@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileCheck, GripVertical } from 'lucide-react';
+import { FileCheck } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
@@ -15,23 +15,46 @@ import {
     tireAccent,
     tireBtnDanger,
     tireBtnPrimary,
-    tireFieldSelect,
     tireMoneyInput,
     tireSummaryValue,
-    tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
 import { applyEmployeePayTargetToRows } from '../utils/vehicleAccidentRepairDetailForm';
+import { quoteKeyToLabel } from '../utils/vehicleAccidentRepairQuoteDrag';
 import {
-    buildTireQuoteDragPayload,
-    parseTireQuoteDragPayload,
-    quoteKeyToLabel,
-    TIRE_QUOTE_DRAG_TYPE,
-} from '../utils/vehicleAccidentRepairQuoteDrag';
+    buildHrReviewInitiateRemarkPatch,
+    syncHrReviewPayCalculation,
+} from '../utils/vehicleShopHrReviewPay';
 
 function formatAed(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '—';
     return `${n.toLocaleString()} AED`;
+}
+
+function FineSplitToggle({ value, onChange, disabled }) {
+    return (
+        <div className="inline-flex w-full rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            {[
+                { id: 'person', label: 'EMP' },
+                { id: 'company', label: 'CMPY' },
+                { id: 'split', label: 'EMP & CMPY' },
+            ].map((opt) => (
+                <button
+                    key={opt.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onChange(opt.id)}
+                    className={`flex-1 rounded-md px-1 py-1.5 text-[10px] font-bold transition-all ${
+                        value === opt.id
+                            ? 'bg-white text-emerald-700 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                    } disabled:opacity-60`}
+                >
+                    {opt.label}
+                </button>
+            ))}
+        </div>
+    );
 }
 
 function employeeLabel(emp) {
@@ -42,26 +65,29 @@ function employeeLabel(emp) {
 
 function buildQuoteRows(service, remark) {
     const rows = [];
-    const push = (key, label, url, name) => {
+    const garageQuotes = Array.isArray(remark?.accidentGarageQuotes) ? remark.accidentGarageQuotes : [];
+    const byKey = new Map(
+        garageQuotes
+            .filter((row) => row && ['q1', 'q2', 'q3'].includes(String(row.key || '').toLowerCase()))
+            .map((row) => [String(row.key).toLowerCase(), row]),
+    );
+
+    const add = (key, label, amountFallback) => {
+        const found = byKey.get(key);
+        const url = found?.url ? String(found.url) : '';
+        const name = found?.name ? String(found.name) : '';
+        const amount =
+            found?.amount != null && found?.amount !== ''
+                ? found.amount
+                : amountFallback;
         if (url || name) {
-            rows.push({ key, label, url: url || '', name: name || '', amount: '' });
+            rows.push({ key, label, url, name, amount: amount != null ? amount : '' });
         }
     };
 
-    push(
-        'q1',
-        'Police Report',
-        service?.attachment,
-        remark?.policeReportName || remark?.attachmentName || remark?.remarkAttachmentName,
-    );
-    push(
-        'q2',
-        'Police Fine Document',
-        service?.quotation3,
-        remark?.insuranceFineCopyName || remark?.quotation3Name,
-    );
-    push('q3', 'Other Document', service?.tireCondition, remark?.tireConditionName);
-
+    add('q1', 'Quote 1', remark?.quotation1Amount ?? remark?.estimatedCost ?? service?.value);
+    add('q2', 'Quote 2', remark?.quotation2Amount);
+    add('q3', 'Quote 3', remark?.quotation3Amount);
     return rows;
 }
 
@@ -94,11 +120,14 @@ function resolveQuoteAmount(remark, service, approvedRow) {
     return estimated > 0 ? estimated : 0;
 }
 
-function buildReviewAmountsFromAssignment(remark, service, approvedRow) {
+function buildReviewAmountsFromAssignment(remark, service, approvedRow, paymentByModeOverride) {
     const approvedAmount = resolveQuoteAmount(remark, service, approvedRow);
-    const paymentByMode = remark?.paymentByMode || 'company';
-    const companyPct = Number(remark?.companyPayPercent ?? 0);
-    const employeePct = Number(remark?.employeePayPercent ?? 0);
+    const paymentByMode =
+        paymentByModeOverride ||
+        remark?.paymentByMode ||
+        'company';
+    const companyPct = Number(remark?.companyPayPercent ?? (paymentByMode === 'split' ? 50 : paymentByMode === 'person' ? 0 : 100));
+    const employeePct = Number(remark?.employeePayPercent ?? (paymentByMode === 'split' ? 50 : paymentByMode === 'person' ? 100 : 0));
     const split = computePaySplit(approvedAmount, paymentByMode, companyPct, employeePct);
 
     const rowSource =
@@ -158,13 +187,13 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
     canManageAccidentRepair = false,
     workflowStage = '',
     onUpdated,
+    onReviewSummaryChange,
     className = '',
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [rowsSaving, setRowsSaving] = useState(false);
     const [rowsDirty, setRowsDirty] = useState(false);
-    const [isDragOver, setIsDragOver] = useState(false);
     const [employees, setEmployees] = useState([]);
     const [quoteState, setQuoteState] = useState({
         q1: { status: '', comment: '' },
@@ -178,13 +207,13 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         employeePay: '',
     });
     const [employeeRows, setEmployeeRows] = useState([]);
+    const [paymentByMode, setPaymentByMode] = useState('');
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const quoteRows = useMemo(() => buildQuoteRows(service, remark), [service, remark]);
-    const paymentByMode = remark?.paymentByMode || 'company';
-    const showCompanyPay = paymentByMode !== 'person';
-    const showEmployeePay = paymentByMode !== 'company';
+    const showCompanyPay = !paymentByMode || paymentByMode !== 'person';
+    const showEmployeePay = paymentByMode === 'person' || paymentByMode === 'split';
 
     const wf = asset?.activeServiceWorkflow || {};
     const wfMatch = normalizeMongoId(wf?.serviceRecordId) === normalizeMongoId(serviceId);
@@ -244,6 +273,10 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             },
         });
         setDescription(remark?.hrReviewDescription || remark?.quoteReviewDescription || '');
+        const modeRaw = String(remark?.paymentByMode || '').toLowerCase();
+        setPaymentByMode(
+            modeRaw === 'person' || modeRaw === 'company' || modeRaw === 'split' ? modeRaw : '',
+        );
     }, [service?._id, service?.remark, remark]);
 
     const approvedQuoteKey = useMemo(() => {
@@ -261,7 +294,12 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
 
     useEffect(() => {
         if (assignmentPending) return;
-        const fromAssignment = buildReviewAmountsFromAssignment(remark, service, approvedRow);
+        const fromAssignment = buildReviewAmountsFromAssignment(
+            remark,
+            service,
+            approvedRow,
+            paymentByMode || undefined,
+        );
         const merged = mergeSavedHrReview(fromAssignment, remark);
         setDisplaySummary({
             approvedAmount: merged.approvedAmount,
@@ -270,6 +308,8 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         });
         setEmployeeRows(merged.employeeRows);
         setRowsDirty(false);
+        // paymentByMode is applied via handleFineSplitChange; do not re-merge on every toggle.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
     }, [
         assignmentPending,
         service?._id,
@@ -278,6 +318,22 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         remark,
         approvedRow?.key,
         approvedRow?.amount,
+    ]);
+
+    useEffect(() => {
+        if (typeof onReviewSummaryChange !== 'function') return;
+        onReviewSummaryChange({
+            approvedAmount: displaySummary.approvedAmount,
+            companyPay: displaySummary.companyPay,
+            employeePay: displaySummary.employeePay,
+            paymentByMode: paymentByMode || undefined,
+        });
+    }, [
+        displaySummary.approvedAmount,
+        displaySummary.companyPay,
+        displaySummary.employeePay,
+        onReviewSummaryChange,
+        paymentByMode,
     ]);
 
     const resolveEmployeeName = useCallback(
@@ -306,21 +362,17 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
     );
 
     const applyApprovedAmountToSplit = useCallback(
-        (rawAmount, prevRows) => {
+        (rawAmount, prevRows, mode = paymentByMode) => {
             const amount = Number(rawAmount) || 0;
-            const split = computePaySplit(
-                amount,
-                paymentByMode,
-                remark?.companyPayPercent,
-                remark?.employeePayPercent,
-            );
+            const effectiveMode = mode || 'company';
+            const companyPct =
+                effectiveMode === 'person' ? 0 : effectiveMode === 'split' ? Number(remark?.companyPayPercent ?? 50) : 100;
+            const employeePct =
+                effectiveMode === 'person' ? 100 : effectiveMode === 'split' ? Number(remark?.employeePayPercent ?? 50) : 0;
+            const split = computePaySplit(amount, effectiveMode, companyPct, employeePct);
             const nextRows =
-                showEmployeePay && prevRows?.length
-                    ? applyEmployeePayTargetToRows(
-                          prevRows,
-                          amount,
-                          remark?.employeePayPercent,
-                      )
+                (effectiveMode === 'person' || effectiveMode === 'split') && prevRows?.length
+                    ? applyEmployeePayTargetToRows(prevRows, amount, employeePct)
                     : prevRows;
             return {
                 approvedAmount: rawAmount,
@@ -329,23 +381,61 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                 employeeRows: nextRows,
             };
         },
-        [paymentByMode, remark?.companyPayPercent, remark?.employeePayPercent, showEmployeePay],
+        [paymentByMode, remark?.companyPayPercent, remark?.employeePayPercent],
     );
 
     const setReviewField = (field, value) => {
-        setDisplaySummary((prev) => ({ ...prev, [field]: value }));
+        const synced = syncHrReviewPayCalculation({
+            field,
+            value,
+            approvedAmount: displaySummary.approvedAmount,
+            companyPay: displaySummary.companyPay,
+            employeePay: displaySummary.employeePay,
+            employeeRows,
+            paymentByMode: paymentByMode || 'company',
+        });
+        setDisplaySummary({
+            approvedAmount: synced.approvedAmount,
+            companyPay: synced.companyPay,
+            employeePay: synced.employeePay,
+        });
+        setEmployeeRows(synced.employeeRows);
+        if (synced.paymentByMode) {
+            setPaymentByMode(synced.paymentByMode);
+        }
+        setRowsDirty(true);
     };
 
     const setReviewApprovedAmount = (value) => {
-        const split = applyApprovedAmountToSplit(value, employeeRows);
+        const synced = syncHrReviewPayCalculation({
+            field: 'approvedAmount',
+            value,
+            approvedAmount: displaySummary.approvedAmount,
+            companyPay: displaySummary.companyPay,
+            employeePay: displaySummary.employeePay,
+            employeeRows,
+            paymentByMode: paymentByMode || 'company',
+        });
+        setDisplaySummary({
+            approvedAmount: synced.approvedAmount,
+            companyPay: synced.companyPay,
+            employeePay: synced.employeePay,
+        });
+        setEmployeeRows(synced.employeeRows);
+        setRowsDirty(true);
+    };
+
+    const handleFineSplitChange = (mode) => {
+        if (!canEdit || assignmentPending) return;
+        setPaymentByMode(mode);
+        const split = applyApprovedAmountToSplit(displaySummary.approvedAmount, employeeRows, mode);
         setDisplaySummary({
             approvedAmount: split.approvedAmount,
             companyPay: split.companyPay,
             employeePay: split.employeePay,
         });
-        if (showEmployeePay && split.employeeRows) {
-            setEmployeeRows(split.employeeRows);
-        }
+        setEmployeeRows(split.employeeRows);
+        setRowsDirty(true);
     };
 
     const updateReviewEmployeeRow = (index, field, value) => {
@@ -380,6 +470,18 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         });
     };
 
+    const selectQuote = (row) => {
+        if (!canEdit || assignmentPending || !row?.key) return;
+        setQuoteStatus(row.key, 'approved');
+        const quoteAmount = Number(row.amount);
+        const fineTotal = resolveAccidentFineTotal(remark);
+        const fallback = Number(remark?.estimatedCost ?? service?.value ?? 0);
+        const amount = quoteAmount > 0 ? quoteAmount : fineTotal > 0 ? fineTotal : fallback;
+        if (amount > 0) {
+            setReviewApprovedAmount(String(amount));
+        }
+    };
+
     const handleViewFile = async (row) => {
         if (!row?.url) return;
         const result = await openAttachmentInNewTab(row.url, {
@@ -392,45 +494,6 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                 title: 'Cannot open file',
                 description: result.error || 'File unavailable.',
             });
-        }
-    };
-
-    const handleDragOver = (event) => {
-        if (!canEdit || assignmentPending) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-        setIsDragOver(true);
-    };
-
-    const handleDragLeave = () => {
-        setIsDragOver(false);
-    };
-
-    const handleDrop = (event) => {
-        event.preventDefault();
-        setIsDragOver(false);
-        if (!canEdit || assignmentPending) return;
-
-        const payload = parseTireQuoteDragPayload(event.dataTransfer);
-        if (!payload?.key) return;
-
-        const row = quoteRows.find((r) => r.key === payload.key);
-        if (!row) {
-            toast({
-                variant: 'destructive',
-                title: 'Quote not available',
-                description: `${payload.label} must be uploaded in the assignment form first.`,
-            });
-            return;
-        }
-
-        setQuoteStatus(payload.key, 'approved');
-        const dragAmount = Number(payload.amount);
-        const fineTotal = resolveAccidentFineTotal(remark);
-        const fallback = Number(remark?.estimatedCost ?? service?.value ?? 0);
-        const amount = dragAmount > 0 ? dragAmount : fineTotal > 0 ? fineTotal : fallback;
-        if (amount > 0) {
-            setReviewApprovedAmount(String(amount));
         }
     };
 
@@ -470,25 +533,27 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
 
     const buildServiceUpdates = useCallback(() => {
         const selected = approvedQuoteKey;
+        const selectedRow = selected ? quoteRows.find((r) => r.key === selected) : null;
         const approvedAmountNum = Number(displaySummary.approvedAmount) || 0;
         const employeeRowsPayload = buildEmployeeRowsPayload();
+        const initiatePatch = buildHrReviewInitiateRemarkPatch({
+            approvedAmount: displaySummary.approvedAmount,
+            companyPay: displaySummary.companyPay,
+            employeePay: displaySummary.employeePay,
+            employeeRows: employeeRowsPayload,
+            paymentByMode: paymentByMode || undefined,
+        });
         return {
             remark: JSON.stringify({
                 ...remark,
                 approvedQuotationChoice: selected || undefined,
+                approvedQuoteKey: selected || undefined,
+                approvedQuoteLabel: selectedRow?.label || undefined,
+                approvedQuoteUrl: selectedRow?.url || undefined,
                 tireQuoteReview: quoteState,
                 hrReviewDescription: description.trim() || undefined,
                 quoteReviewDescription: description.trim() || undefined,
-                hrReviewApprovedAmount: approvedAmountNum || undefined,
-                hrReviewCompanyPay: Number(displaySummary.companyPay) || 0,
-                hrReviewEmployeePay: Number(displaySummary.employeePay) || 0,
-                hrReviewEmployeeRows: employeeRowsPayload,
-                employeeLiabilityRows: employeeRowsPayload,
-                employeeLiabilityTotal: employeeRowsPayload.reduce(
-                    (sum, row) => sum + (Number(row.paidAmount) || 0),
-                    0,
-                ),
-                estimatedCost: approvedAmountNum || remark?.estimatedCost,
+                ...initiatePatch,
             }),
             ...(selected ? { vendorName: remark?.vendorName || '' } : {}),
             ...(approvedAmountNum > 0 ? { value: approvedAmountNum } : {}),
@@ -498,18 +563,21 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         buildEmployeeRowsPayload,
         description,
         displaySummary,
+        paymentByMode,
+        quoteRows,
         quoteState,
         remark,
     ]);
 
     const handleWorkflow = async (action) => {
         if (!vehicleId || !canEdit) return;
-        if (action === 'approve') {
+        if (action === 'approve' && quoteRows.length > 0) {
             if (!approvedQuoteKey || quoteState[approvedQuoteKey]?.status !== 'approved') {
                 toast({
                     variant: 'destructive',
                     title: 'Quotation required',
-                    description: 'Drag a quote into Approved Quote and mark it Approved before continuing.',
+                    description:
+                        'Quotes were uploaded — select one quote below, or remove quotes on Initiate first.',
                 });
                 return;
             }
@@ -552,12 +620,14 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
     return (
         <div className={`w-full ${className}`.trim()}>
             <FineFormCard
-                title="Quotation Review"
+                title="HR Approval"
                 subtitle={
                     assignmentPending
-                        ? 'Available after the assignment is sent'
+                        ? 'Available after Initiate Service is sent'
                         : canEdit
-                          ? 'Drag a document from Vehicle Accident Form into Approved Quote, then approve'
+                          ? quoteRows.length
+                              ? 'Select one quotation, then approve'
+                              : 'No quotes uploaded — you can approve without a quotation'
                           : 'Submitted quotation review — view only'
                 }
                 icon={FileCheck}
@@ -567,99 +637,132 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             >
                 {assignmentPending ? (
                     <p className="mb-4 text-sm text-gray-500">
-                        Upload quotations in the assignment form above and click Send. This section will populate for HR
-                        review after the request is submitted.
+                        Optional quotes can be uploaded on Initiate Service. After Send, HR can select an
+                        approved quote here.
                     </p>
-                ) : null}
+                ) : (
+                    <p className="mb-4 text-sm text-gray-600">
+                        {quoteRows.length
+                            ? 'Select one quote from Initiate. Only that quote continues; other quotes are not used.'
+                            : 'No quotes uploaded — you can approve without selecting a quotation.'}
+                    </p>
+                )}
 
-                <div
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    className={`mb-4 rounded-xl border-2 border-dashed p-4 transition-colors ${
-                        isDragOver
-                            ? 'border-emerald-400 bg-emerald-50/80'
-                            : approvedRow
-                              ? 'border-emerald-200 bg-white'
-                              : 'border-gray-200 bg-gray-50/70'
-                    }`}
-                >
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Approved Quote</p>
-
-                    {!approvedRow ? (
-                        <div className="mt-3 flex min-h-[120px] flex-col items-center justify-center rounded-lg border border-gray-100 bg-white/80 px-4 py-6 text-center">
-                            <GripVertical size={22} className="mb-2 text-gray-300" />
-                            <p className="text-sm font-semibold text-gray-600">
-                                Drag Police Report, Police Fine Document, or Other Document here
-                            </p>
-                            <p className="mt-1 text-xs text-gray-400">
-                                From Vehicle Accident Form above
-                            </p>
-                        </div>
+                <div className="mb-4 space-y-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                        Quotations
+                    </span>
+                    {quoteRows.length === 0 ? (
+                        <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-sm text-gray-500">
+                            No quotations uploaded on Initiate yet.
+                        </p>
                     ) : (
-                        <div className="mt-3 space-y-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-sm font-bold text-gray-800">
-                                    {approvedRow.label || quoteKeyToLabel(approvedQuoteKey)}
-                                    {approvedRow.name ? (
-                                        <span className="ml-2 text-xs font-medium text-gray-500">
-                                            ({approvedRow.name})
+                        <div className="space-y-2" role="radiogroup" aria-label="Select quotation">
+                            {quoteRows.map((row) => {
+                                const selected = approvedQuoteKey === row.key;
+                                const amountLabel =
+                                    row.amount != null &&
+                                    row.amount !== '' &&
+                                    Number.isFinite(Number(row.amount))
+                                        ? `AED ${Number(row.amount).toLocaleString()}`
+                                        : null;
+                                return (
+                                    <div
+                                        key={row.key}
+                                        role="radio"
+                                        aria-checked={selected}
+                                        tabIndex={canEdit || selected ? 0 : -1}
+                                        onClick={() => {
+                                            if (!canEdit) return;
+                                            selectQuote(row);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (!canEdit) return;
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                selectQuote(row);
+                                            }
+                                        }}
+                                        className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                                            selected
+                                                ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200'
+                                                : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/40'
+                                        } ${!canEdit ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
+                                    >
+                                        <span
+                                            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                                                selected
+                                                    ? 'border-emerald-600 bg-emerald-600'
+                                                    : 'border-gray-300 bg-white'
+                                            }`}
+                                            aria-hidden
+                                        >
+                                            {selected ? (
+                                                <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                                            ) : null}
                                         </span>
-                                    ) : null}
-                                </p>
-                                {approvedRow?.amount != null && approvedRow.amount !== '' ? (
-                                    <p className="text-[11px] font-semibold text-emerald-700">
-                                        Amount: {formatAed(approvedRow.amount)}
-                                    </p>
-                                ) : null}
-                            </div>
-                            <button
-                                type="button"
-                                disabled={!approvedRow?.url}
-                                onClick={() => void handleViewFile(approvedRow)}
-                                className={`${tireViewBtn} w-full justify-center min-h-[36px]`}
-                            >
-                                View File
-                            </button>
-                            <div className="inline-flex w-full rounded-lg border border-gray-200 bg-gray-50 p-0.5 min-h-[36px]">
-                                <button
-                                    type="button"
-                                    disabled={!canEdit}
-                                    onClick={() => setQuoteStatus(approvedQuoteKey, 'approved')}
-                                    className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-bold transition-all ${
-                                        quoteState[approvedQuoteKey]?.status === 'approved'
-                                            ? 'bg-white text-emerald-600 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
-                                    } disabled:opacity-50`}
-                                >
-                                    Approved
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={!canEdit}
-                                    onClick={() => setQuoteStatus(approvedQuoteKey, 'rejected')}
-                                    className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-bold transition-all ${
-                                        quoteState[approvedQuoteKey]?.status === 'rejected'
-                                            ? 'bg-white text-orange-600 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
-                                    } disabled:opacity-50`}
-                                >
-                                    Rejected
-                                </button>
-                            </div>
-                            {canEdit ? (
-                                <p className="text-[10px] text-gray-400">
-                                    Drag another quote from the assignment card to replace this selection.
-                                </p>
-                            ) : null}
+                                        <span className="min-w-0 flex-1">
+                                            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                                <span className="text-sm font-bold text-gray-900">
+                                                    {row.label}
+                                                </span>
+                                                {amountLabel ? (
+                                                    <span className="text-xs font-semibold text-emerald-700">
+                                                        {amountLabel}
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                            {row.name ? (
+                                                <span className="mt-0.5 block truncate text-xs text-gray-500">
+                                                    {row.name}
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                        {row.url ? (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void handleViewFile(row);
+                                                }}
+                                                className="shrink-0 text-xs font-semibold text-sky-700 hover:underline"
+                                            >
+                                                View
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
+                    {!assignmentPending && approvedRow ? (
+                        <p className="text-xs font-semibold text-emerald-700">
+                            Selected {quoteKeyToLabel(approvedQuoteKey)}
+                            {approvedRow?.amount != null &&
+                            approvedRow.amount !== '' &&
+                            Number.isFinite(Number(approvedRow.amount))
+                                ? ` · AED ${Number(approvedRow.amount).toLocaleString()}`
+                                : ''}
+                            . Other quotes will not continue.
+                        </p>
+                    ) : null}
                 </div>
 
-                <div className={`grid grid-cols-1 sm:grid-cols-2 ${gapClass}`}>
+                <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 ${gapClass}`}>
+                    <VehicleAccidentRepairFormFieldCell
+                        label="Split Fine (optional)"
+                        accentClass={accent(0)}
+                        minHeightPx={fieldMinHeightPx}
+                    >
+                        <FineSplitToggle
+                            value={paymentByMode || ''}
+                            onChange={handleFineSplitChange}
+                            disabled={!canEdit}
+                        />
+                    </VehicleAccidentRepairFormFieldCell>
                     <VehicleAccidentRepairFormFieldCell
                         label="Approved Amount"
-                        accentClass={accent(0)}
+                        accentClass={accent(1)}
                         minHeightPx={fieldMinHeightPx}
                     >
                         <input
@@ -677,26 +780,50 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                             onChange={(e) => setReviewApprovedAmount(e.target.value)}
                         />
                     </VehicleAccidentRepairFormFieldCell>
-                    <VehicleAccidentRepairFormFieldCell
-                        label="Company Pay"
-                        accentClass={accent(1)}
-                        minHeightPx={fieldMinHeightPx}
-                    >
-                        <input
-                            className={canEdit ? tireMoneyInput : tireSummaryValue}
-                            readOnly={!canEdit}
-                            type={canEdit ? 'number' : 'text'}
-                            min={canEdit ? '0' : undefined}
-                            value={
-                                canEdit
-                                    ? displaySummary.companyPay || ''
-                                    : displaySummary.companyPay
-                                      ? formatAed(displaySummary.companyPay)
-                                      : '0 AED'
-                            }
-                            onChange={(e) => setReviewField('companyPay', e.target.value)}
-                        />
-                    </VehicleAccidentRepairFormFieldCell>
+                    {showCompanyPay ? (
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Company Pay"
+                            accentClass={accent(2)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <input
+                                className={canEdit ? tireMoneyInput : tireSummaryValue}
+                                readOnly={!canEdit}
+                                type={canEdit ? 'number' : 'text'}
+                                min={canEdit ? '0' : undefined}
+                                value={
+                                    canEdit
+                                        ? displaySummary.companyPay || ''
+                                        : displaySummary.companyPay
+                                          ? formatAed(displaySummary.companyPay)
+                                          : '0 AED'
+                                }
+                                onChange={(e) => setReviewField('companyPay', e.target.value)}
+                            />
+                        </VehicleAccidentRepairFormFieldCell>
+                    ) : null}
+                    {showEmployeePay ? (
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Employee Pay"
+                            accentClass={accent(0)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <input
+                                className={canEdit ? tireMoneyInput : tireSummaryValue}
+                                readOnly={!canEdit}
+                                type={canEdit ? 'number' : 'text'}
+                                min={canEdit ? '0' : undefined}
+                                value={
+                                    canEdit
+                                        ? displaySummary.employeePay || ''
+                                        : displaySummary.employeePay
+                                          ? formatAed(displaySummary.employeePay)
+                                          : '0 AED'
+                                }
+                                onChange={(e) => setReviewField('employeePay', e.target.value)}
+                            />
+                        </VehicleAccidentRepairFormFieldCell>
+                    ) : null}
                 </div>
 
                 {canEdit ? (

@@ -577,7 +577,14 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
             'complete',
         ].includes(stage);
     const accountsDone = isAccountsApproveDone(remark, stage, history);
-    const onServiceDone = live || ready || stage === 'pending_admin_return' || hrDone;
+    const onServiceDone =
+        live ||
+        ready ||
+        stage === 'pending_admin_return' ||
+        stage === 'scheduled_service' ||
+        stage === 'pending_billing' ||
+        stage === 'billed' ||
+        stage === 'complete';
     const completeDone =
         Boolean(String(remark.vehicleServiceCompletedAt || '').trim()) ||
         String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live' ||
@@ -589,7 +596,7 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
         String(remark.billingStatus || '').toLowerCase() === 'billed' ||
         Boolean(String(remark.zohoBillId || '').trim());
 
-    // Accident stage order: Initiate → Schedule → HR → Accounts → On Service → Complete → Payment
+    // Accident: Schedule + HR open together after Initiate (oil style).
     let currentActiveStepId = 1;
     if (paymentDone || stage === 'billed') currentActiveStepId = 8;
     else if (stage === 'pending_billing' || (completeDone && !paymentDone)) currentActiveStepId = 7;
@@ -597,9 +604,17 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
         currentActiveStepId = 6;
     else if (stage === 'scheduled_service' || (hrDone && accountsDone && !completeDone))
         currentActiveStepId = 5;
-    else if (stage === 'pending_accounts' || (hrDone && !accountsDone)) currentActiveStepId = 4;
+    else if (stage === 'pending_accounts' || (hrDone && scheduleDone && !accountsDone))
+        currentActiveStepId = 4;
+    // After Initiate: highlight Schedule while garage incomplete; HR stays Pending in parallel.
+    else if (
+        (stage === 'pending_hr' || stage === 'pending_admin_officer') &&
+        initiateDone &&
+        !scheduleDone
+    )
+        currentActiveStepId = 2;
     else if (stage === 'pending_hr' || (scheduleDone && !hrDone)) currentActiveStepId = 3;
-    else if (stage === 'pending_admin_officer' || (initiateDone && !scheduleDone)) currentActiveStepId = 2;
+    else if (stage === 'pending_admin_officer' || (hrDone && !scheduleDone)) currentActiveStepId = 2;
     else if (!initiateDone) currentActiveStepId = 1;
     else currentActiveStepId = 2;
 
@@ -662,9 +677,9 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
         }
         if (step.id === 3) {
             detail =
-                currentActiveStepId === 3
-                    ? 'Flowchart HR must approve On Service'
-                    : 'HR approved schedule';
+                currentActiveStepId === 3 || (currentActiveStepId === 2 && !hrDone)
+                    ? 'Flowchart HR must approve (opens with Schedule)'
+                    : 'HR approved';
         }
         if (step.id === 4) {
             detail =
@@ -700,5 +715,14 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
     });
 
     if (events.length) events[events.length - 1].isLast = true;
+
+    // Parallel open: show HR as Pending when Schedule is active and HR not done yet.
+    const hrEvent = events.find((e) => e.stepNumber === 3);
+    if (hrEvent && currentActiveStepId === 2 && !hrDone) {
+        hrEvent.badge = 'Pending';
+        hrEvent.badgeVariant = 'pending';
+        hrEvent.detail = 'Flowchart HR must approve (opens with Schedule)';
+    }
+
     return events;
 }

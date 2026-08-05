@@ -22,6 +22,7 @@ import {
     isOilServiceAssignmentPending,
     isOilServiceLive,
     isOilServiceScheduledWaiting,
+    isVehicleServiceInitiateEditableStage,
 } from '../utils/vehicleOilServiceAccess';
 import {
     resolveDefaultVehicleServiceAssignedOwnerLabel,
@@ -43,11 +44,6 @@ import {
     normalizeOilPaymentMethod,
     normalizeOilPaymentType,
 } from '../utils/vehicleOilServiceDetailForm';
-import {
-    OIL_QUOTE_DRAG_TYPE,
-    buildOilQuoteDragPayload,
-    oilQuoteKindToKey,
-} from '../utils/vehicleOilServiceQuoteDrag';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
@@ -98,10 +94,9 @@ function SegmentedToggle({ options, value, onChange, disabled, selectedFallback 
     );
 }
 
-function QuoteField({ existingUrl, fileName, disabled, onFile, dragPayload = null }) {
+function QuoteField({ existingUrl, fileName, disabled, onFile }) {
     const { toast } = useToast();
     const [viewing, setViewing] = useState(false);
-    const canDrag = Boolean(dragPayload && (existingUrl || fileName));
 
     const handleView = async () => {
         if (!existingUrl || viewing) return;
@@ -130,15 +125,7 @@ function QuoteField({ existingUrl, fileName, disabled, onFile, dragPayload = nul
     };
 
     return (
-        <div
-            className={`flex flex-col gap-1 ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
-            draggable={canDrag}
-            onDragStart={(event) => {
-                if (!canDrag || !dragPayload) return;
-                event.dataTransfer.setData(OIL_QUOTE_DRAG_TYPE, buildOilQuoteDragPayload(dragPayload));
-                event.dataTransfer.effectAllowed = 'copy';
-            }}
-        >
+        <div className="flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2 min-h-[32px]">
                 {existingUrl ? (
                     <button
@@ -171,10 +158,7 @@ function QuoteField({ existingUrl, fileName, disabled, onFile, dragPayload = nul
             {fileName ? (
                 <p className="truncate text-[10px] font-medium text-gray-500" title={fileName}>
                     {fileName}
-                    {canDrag ? ' · drag to HR Approval' : ''}
                 </p>
-            ) : canDrag ? (
-                <p className="text-[10px] font-medium text-blue-600">Drag to HR Approval card</p>
             ) : null}
         </div>
     );
@@ -356,6 +340,7 @@ export default function VehicleOilServiceDetailForm({
     onDraftStateChange,
     canEditAssignment = true,
     canEditServiceDates = false,
+    workflowStage = '',
     flowchartRows = [],
     className = '',
 }) {
@@ -374,7 +359,10 @@ export default function VehicleOilServiceDetailForm({
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const initiateDone = Boolean(String(remark.oilServiceInitiatedAt || '').trim()) || !assignmentPending;
-    const fieldsDisabled = !assignmentPending || saving || !canEditAssignment || initiateDone;
+    const initiateStageEditable = isVehicleServiceInitiateEditableStage(workflowStage);
+    const canEditInitiateFields =
+        canEditAssignment && ((assignmentPending && !initiateDone) || initiateStageEditable);
+    const fieldsDisabled = !canEditInitiateFields || saving;
 
     useEffect(() => {
         setFormData(buildOilServiceDetailFormState(service, asset, scheduleRow, { flowchartRows }));
@@ -419,7 +407,7 @@ export default function VehicleOilServiceDetailForm({
 
     // License-holders endpoint is enough for Initiate — skip full /employee list (heavy).
     const licensedEmployees = useDrivingLicenseHolders({
-        enabled: !initiateDone && canEditAssignment,
+        enabled: canEditInitiateFields,
         preserveEmployeeId: formData.carDrivenByEmployeeId,
         sourceEmployees: [],
     });
@@ -601,11 +589,52 @@ export default function VehicleOilServiceDetailForm({
         }
     }, [formData, assignmentPending, onSaved, saving, serviceId, toast, vehicleId]);
 
+    const handleSaveUpdates = useCallback(async () => {
+        if (!initiateStageEditable || !canEditAssignment || saving || !vehicleId || !serviceId) return;
+        if (!isOilServiceDetailFormComplete(formData)) {
+            toast({
+                variant: 'destructive',
+                title: 'Complete required fields',
+                description: 'Fill all Initiate Service fields before saving.',
+            });
+            return;
+        }
+        setSaving(true);
+        try {
+            const body = buildOilServiceDetailSubmitBody(formData, { initiated: false });
+            const { data } = await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
+            toast({
+                title: 'Changes saved',
+                description: 'Initiate Service details updated.',
+            });
+            if (typeof onSaved === 'function') {
+                onSaved(data?.asset || data || null);
+            }
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not save',
+                description: error.response?.data?.message || 'Try again in a moment.',
+            });
+        } finally {
+            setSaving(false);
+        }
+    }, [
+        canEditAssignment,
+        formData,
+        initiateStageEditable,
+        onSaved,
+        saving,
+        serviceId,
+        toast,
+        vehicleId,
+    ]);
+
     const canRequest =
         assignmentPending && !saving && canEditAssignment && !initiateDone && isOilServiceDetailFormComplete(formData);
     const missingFields = useMemo(
-        () => (assignmentPending && canEditAssignment ? getOilServiceDetailFormMissingFields(formData) : []),
-        [formData, assignmentPending, canEditAssignment],
+        () => (canEditInitiateFields ? getOilServiceDetailFormMissingFields(formData) : []),
+        [formData, canEditInitiateFields],
     );
     const submitHandlerRef = useRef(handleCreate);
     submitHandlerRef.current = handleCreate;
@@ -630,9 +659,11 @@ export default function VehicleOilServiceDetailForm({
             <FineFormCard
                 title="Initiate Service"
                 subtitle={
-                    assignmentPending
+                    !initiateDone && assignmentPending
                         ? 'Complete the required fields, then click Send to submit'
-                        : 'Submitted — vehicle, schedule, and service request information'
+                        : initiateStageEditable
+                          ? 'Editable at HR / Accounts — update details, then Save Changes'
+                          : 'Submitted — vehicle, schedule, and service request information'
                 }
                 icon={ClipboardList}
                 iconBg="bg-blue-50"
@@ -807,12 +838,6 @@ export default function VehicleOilServiceDetailForm({
                                     fileName={formData.attachmentName || formData.remarkAttachmentName}
                                     disabled={fieldsDisabled}
                                     onFile={(file) => handleQuoteFile('attachment', file)}
-                                    dragPayload={{
-                                        key: oilQuoteKindToKey('attachment'),
-                                        label: 'Quote 1',
-                                        fileName: formData.attachmentName || formData.remarkAttachmentName || '',
-                                        amount: formData.value || formData.quotation1Amount || '',
-                                    }}
                                 />
                             </FormFieldCell>
                             <FormFieldCell label="Quote 2 (optional)" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
@@ -821,12 +846,6 @@ export default function VehicleOilServiceDetailForm({
                                     fileName={formData.quotation2Name}
                                     disabled={fieldsDisabled}
                                     onFile={(file) => handleQuoteFile('quotation2', file)}
-                                    dragPayload={{
-                                        key: oilQuoteKindToKey('quotation2'),
-                                        label: 'Quote 2',
-                                        fileName: formData.quotation2Name || '',
-                                        amount: formData.quotation2Amount || '',
-                                    }}
                                 />
                             </FormFieldCell>
                             <FormFieldCell label="Quote 3 (optional)" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
@@ -835,19 +854,13 @@ export default function VehicleOilServiceDetailForm({
                                     fileName={formData.quotation3Name}
                                     disabled={fieldsDisabled}
                                     onFile={(file) => handleQuoteFile('quotation3', file)}
-                                    dragPayload={{
-                                        key: oilQuoteKindToKey('quotation3'),
-                                        label: 'Quote 3',
-                                        fileName: formData.quotation3Name || '',
-                                        amount: formData.quotation3Amount || '',
-                                    }}
                                 />
                             </FormFieldCell>
                         </>
                     ) : null}
                 </div>
 
-                {assignmentPending && canEditAssignment ? (
+                {assignmentPending && canEditAssignment && !initiateDone ? (
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         {missingFields.length > 0 ? (
                             <p className="mb-3 text-xs text-amber-700">
@@ -867,6 +880,26 @@ export default function VehicleOilServiceDetailForm({
                                 }
                             >
                                 {saving ? 'Sending...' : 'Send'}
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+
+                {initiateDone && initiateStageEditable && canEditAssignment ? (
+                    <div className="mt-4 border-t border-gray-100 pt-4">
+                        {missingFields.length > 0 ? (
+                            <p className="mb-3 text-xs text-amber-700">
+                                Still required: {missingFields.join(', ')}
+                            </p>
+                        ) : null}
+                        <div className="flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => void handleSaveUpdates()}
+                                disabled={saving || missingFields.length > 0}
+                                className="min-w-[140px] rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {saving ? 'Saving...' : 'Save Changes'}
                             </button>
                         </div>
                     </div>

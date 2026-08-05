@@ -23,7 +23,7 @@ export default function RewardFormCard1({ reward, employee, formatDate }) {
 
     const statusLabel = formatRewardStatusLabel(
         reward.rewardStatus || reward.approvalStatus,
-        reward.rewardType
+        reward
     );
     const paymentLabel = formatRewardPaymentLabel(reward);
 

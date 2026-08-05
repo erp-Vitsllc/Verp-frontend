@@ -7,6 +7,12 @@ import {
     garageBillingRemarkPatch,
     validateGarageBillingFields,
 } from './vehicleGarageBillingFields';
+import {
+    paymentToGarageAttachmentBody,
+    paymentToGarageFieldsFromRemark,
+    paymentToGarageRemarkPatch,
+    validatePaymentToGarageFields,
+} from './vehicleGaragePaymentToGarageFields';
 
 export { OIL_SERVICE_GARAGE_VENDOR_OPTIONS as TIRE_CHANGE_GARAGE_VENDOR_OPTIONS };
 
@@ -25,6 +31,7 @@ export function buildTireChangeGarageFormState(service, asset) {
             (service?.date ? new Date(service.date).toISOString().slice(0, 10) : ''),
         serviceEndDate: remark.serviceEndDate || remark.serviceWindowEndDate || base.serviceEndDate || '',
         ...garageBillingFieldsFromRemark(service, remark),
+        ...paymentToGarageFieldsFromRemark(remark),
     };
 }
 
@@ -46,6 +53,7 @@ export function validateTireChangeGarageForm(formData) {
         errors.serviceEndDate = 'Service end date is required';
     }
     Object.assign(errors, validateGarageBillingFields(formData));
+    Object.assign(errors, validatePaymentToGarageFields(formData));
     return errors;
 }
 
@@ -60,6 +68,7 @@ export function buildTireChangeGarageUpdateBody(formData) {
     const serviceStartDate = String(formData.serviceStartDate || '').trim();
     const serviceEndDate = String(formData.serviceEndDate || '').trim();
     const billing = garageBillingRemarkPatch(formData);
+    const paymentToGarage = paymentToGarageRemarkPatch(formData);
 
     return {
         serviceType: 'Tire Change',
@@ -73,7 +82,9 @@ export function buildTireChangeGarageUpdateBody(formData) {
             serviceEndDate,
             scheduledServiceDate: serviceStartDate || undefined,
             ...billing,
+            ...paymentToGarage,
         }),
         ...garageBillingAttachmentBody(formData),
+        ...paymentToGarageAttachmentBody(formData),
     };
 }

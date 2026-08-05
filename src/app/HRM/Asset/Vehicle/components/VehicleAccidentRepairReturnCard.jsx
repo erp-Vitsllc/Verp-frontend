@@ -47,18 +47,10 @@ import {
 } from '@/utils/uploadFileTypes';
 
 function directConditionImageSrc(img) {
-    const raw = String(img?.url || '').trim();
-    if (!raw) return '';
-    if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
-    let url = raw;
-    if (
-        !url.startsWith('http://') &&
-        !url.startsWith('https://') &&
-        (/^s3\./i.test(url) || /wasabisys\.com/i.test(url) || /\.amazonaws\.com/i.test(url))
-    ) {
-        url = `https://${url.replace(/^\/+/, '')}`;
-    }
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    const url = String(img?.url || img?.data || '').trim();
+    if (!url) return '';
+    // Only inline/blob URLs in <img>. Wasabi signed URLs fail on many office networks (DNS).
+    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
     return '';
 }
 

@@ -12,20 +12,8 @@ export function isCashOrGiftReward(reward) {
     );
 }
 
-export function canAccountsPayCashReward(reward, user) {
-    if (!reward || !user) return false;
-    if (!isCashOrGiftReward(reward)) return false;
-    const status = String(reward.rewardStatus || reward.approvalStatus || '');
-    if (status !== 'Approved') return false;
-    const amount = Number(reward.amount) || 0;
-    const paid = Number(reward.paidAmount) || 0;
-    if (amount <= 0 || amount - paid <= 0.01) return false;
-
-    if (user.isAdmin || user.role === 'admin') return true;
-    const dept = String(user.department || '').toLowerCase();
-    const designation = String(user.designation || '').toLowerCase();
-    if (dept.includes('finance') || dept.includes('account')) return true;
-    if (designation.includes('account')) return true;
+/** Pay via Payments module is disabled — Accounts approve marks the reward Paid. */
+export function canAccountsPayCashReward() {
     return false;
 }
 

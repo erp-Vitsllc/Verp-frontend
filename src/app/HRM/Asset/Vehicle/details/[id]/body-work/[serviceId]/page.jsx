@@ -25,6 +25,7 @@ import {
     canUserCreateOrInitiateVehicleService,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
+    isVehicleServiceInitiateEditableStage,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
 import { pickFlowchartHrRow, pickFlowchartAccountsRow } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflow';
 import {
@@ -160,8 +161,7 @@ function VehicleBodyWorkDetailPageContent() {
         [asset, currentUser],
     );
 
-    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
-    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageBodyWork;
+
 
     const isFlowchartHr = useMemo(() => {
         const hrRow = pickFlowchartHrRow(flowchartRows);
@@ -201,6 +201,18 @@ function VehicleBodyWorkDetailPageContent() {
         () => resolveBodyWorkWorkflowStage(asset, serviceId, service),
         [asset, serviceId, service],
     );
+
+    /** Pending: create/initiate users. At HR/Accounts/Zoho bill: those roles or managers may edit Initiate. */
+    const canEditAssignment = assignmentPending
+        ? Boolean(
+              canCreateOrInitiate ||
+                  (isVehicleServiceInitiateEditableStage(bodyWorkflowStage) &&
+                      (canManageBodyWork || isFlowchartHr || isFlowchartAccounts)),
+          )
+        : isVehicleServiceInitiateEditableStage(bodyWorkflowStage)
+          ? Boolean(canManageBodyWork || isFlowchartHr || isFlowchartAccounts)
+          : canManageBodyWork;
+
 
     const canRespondToBodyWorkflow = useMemo(() => {
         if (!asset || bodyWorkflowStage !== BODY_WORK_WORKFLOW_STAGES.HR) return false;
@@ -308,6 +320,7 @@ function VehicleBodyWorkDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                workflowStage={bodyWorkflowStage}
                                 liveHrReview={liveHrReview}
                                 onSaved={() => {
                                     void load({ silent: true, deferServiceSigning: true });

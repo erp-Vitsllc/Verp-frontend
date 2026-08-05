@@ -8691,8 +8691,8 @@ function EmployeeProfilePageContent() {
             `Return ${employeeName} from Left User?\n\n` +
                 '• Work status → Probation (6 months)\n' +
                 '• Profile status → Inactive (like a new joiner)\n' +
-                '• Previous passport, visa, salary, bank, and other live cards → archived under Old Documents\n' +
-                '• Live cards cleared — complete the profile again from scratch',
+                '• Salary, bank, signature, expired docs, and docs without expiry → Old Documents\n' +
+                '• Documents that still have a valid expiry date stay on Live Documents',
         );
         if (!confirmed) return;
 
@@ -8707,7 +8707,7 @@ function EmployeeProfilePageContent() {
                 title: 'User returned',
                 description:
                     data?.message ||
-                    'Employee is on Probation with inactive profile. Prior data is archived; complete the profile like a new joiner.',
+                    'Employee is on Probation with inactive profile. Prior data archived to Old Documents; valid-expiry docs remain on Live Documents.',
             });
         } catch (err) {
             toast({

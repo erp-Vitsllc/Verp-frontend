@@ -283,6 +283,8 @@ export default function EntityPaymentDetailsCard({
     /** When false, Pay is hidden (e.g. non-Accounts users). */
     allowPay = true,
     onPaymentSuccess,
+    /** Optional FineFormCard className (Reward uses this for Zoho red/green; Loan/Advance omit). */
+    cardClassName = '',
 }) {
     const pathname = usePathname();
     const router = useRouter();
@@ -490,9 +492,12 @@ export default function EntityPaymentDetailsCard({
                 subtitle={
                     isLoanLike
                         ? 'Employee repayments against this loan (not disbursement to employee)'
-                        : `Payments recorded against this ${typeLabel.toLowerCase()}`
+                        : entityType === 'Reward'
+                          ? 'Turns paid (green) after Zoho Expense posts on Accounts approval'
+                          : `Payments recorded against this ${typeLabel.toLowerCase()}`
                 }
                 headerAction={payButton}
+                className={cardClassName}
             >
                 {entityRecord && scheduleBoxes.length > 0 ? (
                     <EntityPaymentScheduleBoxes boxes={scheduleBoxes} />

@@ -104,6 +104,7 @@ import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingI
 import VehicleDispositionRequestModal from '../../components/VehicleDispositionRequestModal';
 import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
+import { collectVehicleProfilePendingItems } from '../../utils/resolveVehicleProfilePendingItems';
 import { HEADER_PAIR_CARD_FIXED, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import {
     evaluateVehicleHandoverCardActions,
@@ -2492,6 +2493,14 @@ function VehicleDetailsPageContent() {
 
     const vehicleExpirySources = resolveVehicleExpirySources(asset, vehicleDocumentLifecycleBuckets?.live);
 
+    const vehicleBlueCardServicePendingItems = useMemo(
+        () =>
+            collectVehicleProfilePendingItems(asset, { assetHistory }).filter(
+                (item) => item?.kind === 'service',
+            ),
+        [asset, assetHistory],
+    );
+
     const dispositionWorkflowStage = String(asset?.vehicleDispositionWorkflow?.stage || '').toLowerCase();
     const dispositionTargetLabel =
         String(asset?.vehicleDispositionWorkflow?.targetStatus || '').toLowerCase() === 'sold'
@@ -3854,6 +3863,7 @@ function VehicleDetailsPageContent() {
                                     insuranceExpirySrc={vehicleExpirySources.insuranceExpirySrc}
                                     warrantyExpirySrc={vehicleExpirySources.warrantyExpirySrc}
                                     serviceExpirySrc={vehicleExpirySources.serviceExpirySrc}
+                                    pendingServiceItems={vehicleBlueCardServicePendingItems}
                                     showExpirySummary={activeTab !== 'handover'}
                                     actionsAtTop={activeTab === 'handover'}
                                     actionButtons={

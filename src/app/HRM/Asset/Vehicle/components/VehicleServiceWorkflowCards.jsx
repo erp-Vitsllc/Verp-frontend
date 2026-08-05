@@ -1900,21 +1900,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
 
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                                     <div>
-                                        <span className={fieldLabel}>Claim Acknowledge</span>
-                                        {workflowServiceRecord?.quotation2 ? (
-                                            <a
-                                                href={workflowServiceRecord.quotation2}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className={uploadBtn}
-                                            >
-                                                View Claim Doc
-                                            </a>
-                                        ) : (
-                                            <span className="text-xs text-slate-500 font-medium block min-h-[36px] leading-[36px]">No document</span>
-                                        )}
-                                    </div>
-                                    <div>
                                         <span className={fieldLabel}>Garage Location</span>
                                         <input
                                             className={fieldInput}

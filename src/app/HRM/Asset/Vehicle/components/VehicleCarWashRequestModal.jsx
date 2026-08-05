@@ -395,7 +395,8 @@ export default function VehicleCarWashRequestModal({
     }, [isOpen, existingService, resetForm, assignedEmployee, todayIso]);
 
     const formReadOnly = Boolean(existingService && !accountsReviewMode);
-    const accountsFieldLocked = accountsReviewMode;
+    // Accounts review: initiate fields + Zoho Chart of Accounts stay editable.
+    const accountsFieldLocked = false;
 
     // Keep selected month at or after the minimum allowed (previous wash month + 1).
     useEffect(() => {

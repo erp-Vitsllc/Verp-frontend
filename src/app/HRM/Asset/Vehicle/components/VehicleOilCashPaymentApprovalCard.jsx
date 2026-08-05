@@ -867,15 +867,21 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                 ? `AED ${Number(row.amount).toLocaleString()}`
                                                 : null;
                                         return (
-                                            <button
+                                            <div
                                                 key={row.key}
-                                                type="button"
                                                 role="radio"
                                                 aria-checked={selected}
-                                                disabled={!canActOnHr && !hrDone}
+                                                tabIndex={canActOnHr || selected ? 0 : -1}
                                                 onClick={() => {
                                                     if (!canActOnHr) return;
                                                     setHrQuoteChoice(row.key);
+                                                }}
+                                                onKeyDown={(event) => {
+                                                    if (!canActOnHr) return;
+                                                    if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault();
+                                                        setHrQuoteChoice(row.key);
+                                                    }
                                                 }}
                                                 className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                                                     selected
@@ -924,7 +930,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                                                         View
                                                     </button>
                                                 ) : null}
-                                            </button>
+                                            </div>
                                         );
                                     })}
                                 </div>

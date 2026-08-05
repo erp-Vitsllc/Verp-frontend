@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ClipboardList, GripVertical, Loader2, Plus, Upload } from 'lucide-react';
+import { ClipboardList, Loader2, Plus, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -15,7 +15,10 @@ import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleBodyWorkFormFieldCell from './VehicleBodyWorkFormFieldCell';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
-import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
+import {
+    isOilServiceAssignmentPending,
+    isVehicleServiceInitiateEditableStage,
+} from '../utils/vehicleOilServiceAccess';
 import {
     resolveFlowchartAdminEmployeeRef,
     resolveVehicleServiceAssignedOwnerId,
@@ -47,11 +50,6 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleBodyWorkDetailUi';
-import {
-    buildTireQuoteDragPayload,
-    quoteKindToKey,
-    TIRE_QUOTE_DRAG_TYPE,
-} from '../utils/vehicleBodyWorkQuoteDrag';
 import VehicleServicePaymentTypeMethodFields from './VehicleServicePaymentTypeMethodFields';
 import { formatWarrantyExpiryFromAsset } from '../utils/vehicleOilServiceWarranty';
 import { isOilPayablePaymentMode } from '../utils/vehicleOilServiceDetailForm';
@@ -104,6 +102,7 @@ export default function VehicleBodyWorkDetailForm({
     draftSubmitRef,
     onDraftStateChange,
     canEditAssignment = true,
+    workflowStage = '',
     flowchartRows = [],
     liveHrReview = null,
     className = '',
@@ -122,7 +121,10 @@ export default function VehicleBodyWorkDetailForm({
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
-    const fieldsDisabled = !assignmentPending || saving || !canEditAssignment;
+    const initiateStageEditable = isVehicleServiceInitiateEditableStage(workflowStage);
+    const canEditInitiateFields =
+        canEditAssignment && (assignmentPending || initiateStageEditable);
+    const fieldsDisabled = !canEditInitiateFields || saving;
 
     useEffect(() => {
         setFormData(buildBodyWorkDetailFormState(service, asset, { flowchartRows }));
@@ -478,10 +480,12 @@ export default function VehicleBodyWorkDetailForm({
             if (!vehicleId || !serviceId) return false;
             setSaving(true);
             try {
-                const body = buildBodyWorkDetailSubmitBody(formData, { keepPending: true });
+                const body = buildBodyWorkDetailSubmitBody(formData, {
+                    keepPending: assignmentPending,
+                });
                 await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
                 if (submitAfterSave) {
-                    const submitRes = await axiosInstance.post(
+                    await axiosInstance.post(
                         `/AssetItem/${vehicleId}/service/${serviceId}/submit-request`,
                     );
                     toast({
@@ -491,14 +495,19 @@ export default function VehicleBodyWorkDetailForm({
                     });
                     if (typeof onSaved === 'function') onSaved();
                 } else {
-                    toast({ title: 'Draft saved', description: 'Body work assignment draft saved.' });
+                    toast({
+                        title: assignmentPending ? 'Draft saved' : 'Changes saved',
+                        description: assignmentPending
+                            ? 'Body work assignment draft saved.'
+                            : 'Initiate Service details updated.',
+                    });
                     if (typeof onSaved === 'function') onSaved();
                 }
                 return true;
             } catch (error) {
                 toast({
                     variant: 'destructive',
-                    title: submitAfterSave ? 'Could not submit' : 'Could not save draft',
+                    title: submitAfterSave ? 'Could not submit' : 'Could not save',
                     description: error.response?.data?.message || 'Try again.',
                 });
                 return false;
@@ -506,7 +515,7 @@ export default function VehicleBodyWorkDetailForm({
                 setSaving(false);
             }
         },
-        [formData, onSaved, serviceId, toast, vehicleId],
+        [assignmentPending, formData, onSaved, serviceId, toast, vehicleId],
     );
 
     const handleSubmit = useCallback(async () => {
@@ -515,6 +524,11 @@ export default function VehicleBodyWorkDetailForm({
     }, [asset, assignmentPending, formData, persistForm]);
 
     const handleSaveDraft = async () => {
+        await persistForm({ submitAfterSave: false });
+    };
+
+    const handleSaveUpdates = async () => {
+        if (!canEditInitiateFields || assignmentPending) return;
         await persistForm({ submitAfterSave: false });
     };
 
@@ -530,8 +544,8 @@ export default function VehicleBodyWorkDetailForm({
         assignmentPending && !saving && canEditAssignment && isBodyWorkDetailFormComplete(formData, asset);
     const missingFields = useMemo(
         () =>
-            assignmentPending && canEditAssignment ? getBodyWorkDetailFormMissingFields(formData, asset) : [],
-        [asset, formData, assignmentPending, canEditAssignment],
+            canEditInitiateFields ? getBodyWorkDetailFormMissingFields(formData, asset) : [],
+        [asset, formData, canEditInitiateFields],
     );
 
     const submitHandlerRef = useRef(handleSubmit);
@@ -545,25 +559,8 @@ export default function VehicleBodyWorkDetailForm({
         onDraftStateChange({ canRequest, requesting: saving });
     }, [canRequest, onDraftStateChange, saving]);
 
-    const QuoteUpload = ({ label, kind, fileName, existingUrl, amount = '' }) => {
+    const QuoteUpload = ({ label, kind, fileName, existingUrl }) => {
         const hasQuote = !!(fileName || existingUrl);
-        const dragKey = quoteKindToKey(kind);
-
-        const handleDragStart = (event) => {
-            if (!hasQuote || !dragKey) return;
-            event.dataTransfer.setData(
-                TIRE_QUOTE_DRAG_TYPE,
-                buildTireQuoteDragPayload({
-                    key: dragKey,
-                    label,
-                    fileName: fileName || label,
-                    amount,
-                }),
-            );
-            event.dataTransfer.effectAllowed = 'copy';
-        };
-
-        const quotesDraggable = hasQuote && !assignmentPending;
 
         return (
             <div
@@ -571,16 +568,6 @@ export default function VehicleBodyWorkDetailForm({
                     hasQuote ? 'border-blue-200 bg-blue-50/40' : 'border-transparent'
                 }`}
             >
-                {quotesDraggable ? (
-                    <span
-                        draggable
-                        onDragStart={handleDragStart}
-                        className="inline-flex cursor-grab items-center rounded-md border border-blue-100 bg-white px-1.5 py-1 text-blue-500 active:cursor-grabbing"
-                        title={`Drag ${label} to Approved Quote below`}
-                    >
-                        <GripVertical size={14} />
-                    </span>
-                ) : null}
                 {existingUrl ? (
                     <button
                         type="button"
@@ -622,12 +609,14 @@ export default function VehicleBodyWorkDetailForm({
                     subtitle={
                         assignmentPending
                             ? 'Complete all fields, then click Send / Submit for Approval'
-                            : 'Submitted — drag Quote 1, 2, or 3 below into HR Approval'
+                            : initiateStageEditable
+                              ? 'Editable at HR / Accounts — update details, then Save Changes'
+                              : 'Submitted — select Quote 1, 2, or 3 in HR Approval'
                     }
                     icon={ClipboardList}
                     iconBg="bg-blue-50"
                     iconColor="text-blue-600"
-                    className={`w-full ${assignmentPending ? '' : 'opacity-[0.97]'}`}
+                    className={`w-full ${canEditInitiateFields ? '' : 'opacity-[0.97]'}`}
                 >
                     <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleBodyWorkFormFieldCell
@@ -685,21 +674,6 @@ export default function VehicleBodyWorkDetailForm({
                             warrantyExpiryLabel={formatWarrantyExpiryFromAsset(asset)}
                             fieldInputClassName={tireFieldInput}
                         />
-
-                        <VehicleBodyWorkFormFieldCell
-                            label="Description (optional)"
-                            accentClass={accent(0)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <textarea
-                                className={`${tireFieldInput} min-h-[72px] resize-y`}
-                                value={formData.serviceIssue || ''}
-                                onChange={(e) => set('serviceIssue', e.target.value)}
-                                disabled={fieldsDisabled}
-                                placeholder="Optional notes"
-                                rows={3}
-                            />
-                        </VehicleBodyWorkFormFieldCell>
 
                         {isOilPayablePaymentMode(formData.amountMode) ? (
                         <>
@@ -1103,7 +1077,24 @@ export default function VehicleBodyWorkDetailForm({
                         </div>
                     </div>
 
-                    {assignmentPending && canEditAssignment && missingFields.length > 0 ? (
+                    <div className="mt-4">
+                        <VehicleBodyWorkFormFieldCell
+                            label="Description (optional)"
+                            accentClass={accent(0)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <textarea
+                                className={`${tireFieldInput} min-h-[88px] w-full resize-y`}
+                                value={formData.serviceIssue || ''}
+                                onChange={(e) => set('serviceIssue', e.target.value)}
+                                disabled={fieldsDisabled}
+                                placeholder="Optional notes"
+                                rows={3}
+                            />
+                        </VehicleBodyWorkFormFieldCell>
+                    </div>
+
+                    {canEditInitiateFields && missingFields.length > 0 ? (
                         <p className="mt-4 text-xs text-amber-700">
                             Still required: {missingFields.join(', ')}
                         </p>
@@ -1134,6 +1125,27 @@ export default function VehicleBodyWorkDetailForm({
                                 className={tireBtnPrimary}
                             >
                                 {saving ? 'Submitting…' : 'Submit for Approval'}
+                            </button>
+                        </div>
+                    ) : null}
+
+                    {!assignmentPending && initiateStageEditable && canEditAssignment ? (
+                        <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
+                            <button
+                                type="button"
+                                disabled={saving}
+                                onClick={handleCancel}
+                                className={tireBtnSecondary}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={saving || missingFields.length > 0}
+                                onClick={() => void handleSaveUpdates()}
+                                className={tireBtnPrimary}
+                            >
+                                {saving ? 'Saving…' : 'Save Changes'}
                             </button>
                         </div>
                     ) : null}

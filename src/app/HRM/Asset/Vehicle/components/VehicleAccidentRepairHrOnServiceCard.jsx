@@ -11,8 +11,8 @@ import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess'
 import { isAccidentRepairGarageSubmitted } from '../utils/vehicleAccidentRepairWorkflow';
 
 /**
- * Accident Repair: after Garage, flowchart HR must approve before On Service.
- * Always visible (Oil-style shell) — locked until garage is submitted / pending_hr.
+ * Accident Repair: Schedule + HR open together after Initiate (oil/body style).
+ * HR may approve before or after garage; garage still required before Accounts.
  */
 export default function VehicleAccidentRepairHrOnServiceCard({
     asset,
@@ -31,23 +31,28 @@ export default function VehicleAccidentRepairHrOnServiceCard({
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const garageDone = isAccidentRepairGarageSubmitted(asset, service);
 
+    const hrStamp = Boolean(String(remark.hrOnServiceApprovedAt || remark.hrApprovedAt || '').trim());
     const hrDone =
-        Boolean(String(remark.hrOnServiceApprovedAt || remark.hrApprovedAt || '').trim()) ||
+        hrStamp ||
         [
-            'scheduled_service',
             'pending_accounts',
+            'scheduled_service',
             'pending_admin_return',
             'pending_billing',
             'billed',
             'complete',
-        ].includes(stage);
+        ].includes(stage) ||
+        (stage === 'pending_admin_officer' && hrStamp);
 
-    const locked = assignmentPending || (!garageDone && stage !== 'pending_hr');
-    const lockMessage = assignmentPending
-        ? 'Complete Initiate Service and click Send first'
-        : 'Complete Schedule and Reschedule Service first';
+    // Oil-style: unlock with Schedule right after Initiate (not after garage).
+    const locked = assignmentPending;
+    const lockMessage = 'Complete Initiate Service first — Schedule and HR open together';
 
-    const canApprove = canActHr && stage === 'pending_hr' && !busy;
+    const canApprove =
+        canActHr &&
+        !busy &&
+        !hrDone &&
+        (stage === 'pending_hr' || (stage === 'pending_admin_officer' && !hrStamp));
 
     const start = remark.serviceStartDate || remark.scheduledServiceDate || '';
     const end = remark.serviceEndDate || '';
@@ -60,14 +65,19 @@ export default function VehicleAccidentRepairHrOnServiceCard({
                 `/AssetItem/${vehicleId}/service-workflow/respond`,
                 {
                     action: 'approve',
-                    comment: 'HR approved accident repair — ready for On Service',
+                    comment: garageDone
+                        ? 'HR approved accident repair — sent to Accounts Approve'
+                        : 'HR approved accident repair — Schedule/garage still open',
                     ...(serviceId ? { serviceRecordId: serviceId } : {}),
                 },
             );
             toast({
                 title: 'Approved',
                 description:
-                    data?.message || 'On Service will start on the service start date.',
+                    data?.message ||
+                    (garageDone
+                        ? 'Sent to Accounts Approve.'
+                        : 'HR approved. Admin can still complete Schedule.'),
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset || null);
         } catch (err) {
@@ -76,7 +86,7 @@ export default function VehicleAccidentRepairHrOnServiceCard({
                 title: 'Approval failed',
                 description:
                     err.response?.data?.message ||
-                    'Could not approve On Service. Check flowchart HR and signature.',
+                    'Could not approve. Check flowchart HR and signature.',
             });
         } finally {
             setBusy(false);
@@ -90,11 +100,13 @@ export default function VehicleAccidentRepairHrOnServiceCard({
                     title="HR Approval"
                     subtitle={
                         locked
-                            ? 'Locked until Schedule is submitted'
+                            ? 'Locked until Initiate Service is sent'
                             : hrDone
-                              ? 'HR approved On Service'
+                              ? 'HR approved'
                               : canApprove
-                                ? 'Approve to move this vehicle to On Service'
+                                ? garageDone
+                                    ? 'Garage submitted — approve to send to Accounts'
+                                    : 'Opens with Schedule after Initiate — approve once (Schedule can finish in parallel)'
                                 : 'Waiting for flowchart HR'
                     }
                     icon={ShieldCheck}
@@ -103,40 +115,43 @@ export default function VehicleAccidentRepairHrOnServiceCard({
                     className="h-full w-full"
                 >
                     <p className="text-sm text-gray-600">
-                        Garage details are submitted. Approve to move this vehicle to{' '}
-                        <span className="font-semibold text-gray-800">On Service</span>
-                        {start ? (
+                        {garageDone ? (
                             <>
-                                {' '}
-                                (start {String(start).slice(0, 10)}
-                                {end ? ` · end ${String(end).slice(0, 10)}` : ''})
+                                Garage details are submitted
+                                {start ? (
+                                    <>
+                                        {' '}
+                                        (start {String(start).slice(0, 10)}
+                                        {end ? ` · end ${String(end).slice(0, 10)}` : ''})
+                                    </>
+                                ) : null}
+                                . Approve to move this service to{' '}
+                                <span className="font-semibold text-gray-800">Accounts Approve</span>.
                             </>
-                        ) : null}
-                        .
+                        ) : (
+                            <>
+                                Schedule and HR open together after Initiate. You can approve now;
+                                Admin Officer can finish garage / dates in parallel.
+                            </>
+                        )}
                     </p>
 
-                    {hrDone && stage !== 'pending_hr' ? (
+                    {hrDone ? (
                         <p className="mt-4 text-sm font-semibold text-emerald-700">Approved</p>
                     ) : canApprove ? (
                         <div className="mt-4 flex justify-end">
                             <button
                                 type="button"
-                                onClick={() => void handleApprove()}
                                 disabled={busy}
-                                className="inline-flex min-w-[160px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                                onClick={() => void handleApprove()}
+                                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
                             >
-                                {busy ? (
-                                    <Loader2 size={16} className="animate-spin" />
-                                ) : (
-                                    <CheckCircle2 size={16} />
-                                )}
-                                {busy ? 'Working…' : 'Approve On Service'}
+                                {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                                Approve
                             </button>
                         </div>
                     ) : !locked ? (
-                        <p className="mt-3 text-xs text-amber-800">
-                            Waiting for flowchart HR to approve On Service.
-                        </p>
+                        <p className="mt-4 text-sm text-gray-500">Waiting for flowchart HR to approve.</p>
                     ) : null}
                 </FineFormCard>
             </VehicleServiceLockedSection>

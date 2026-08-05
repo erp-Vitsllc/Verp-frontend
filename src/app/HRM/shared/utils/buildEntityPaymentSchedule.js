@@ -181,14 +181,27 @@ export function buildEntityPaymentSchedule({
 
     if (totalAmount <= 0) return [];
 
+    // Reward: schedule box turns green only after Zoho Expense posts (not Payment module rows)
+    const paymentsPaid = payments.reduce((sum, p) => sum + (parseFloat(p.amount || 0) || 0), 0);
+    let effectivePaid = paymentsPaid;
+    if (entityType === 'Reward') {
+        const entityPaid = parseFloat(entity.paidAmount || 0) || 0;
+        const zohoSynced = Boolean(
+            String(entity.zohoExpenseId || '').trim() || String(entity.zohoJournalId || '').trim(),
+        );
+        // Green only when Zoho Expense succeeded; paidAmount alone stays red until Zoho
+        effectivePaid = zohoSynced
+            ? Math.max(entityPaid, paymentsPaid, totalAmount)
+            : Math.max(0, paymentsPaid);
+    }
+
     const startDate = parseStartMonth(startMonth);
     if (!startDate) {
-        const paidAmount = payments.reduce((sum, p) => sum + (parseFloat(p.amount || 0) || 0), 0);
-        const cappedPaid = Math.min(paidAmount, totalAmount);
+        const cappedPaid = Math.min(effectivePaid, totalAmount);
         const status = boxStatus(totalAmount, cappedPaid);
         return [{
             key: 'lump-sum',
-            label: 'Total',
+            label: entityType === 'Reward' ? 'Reward' : 'Total',
             monthlyAmount: totalAmount,
             paidAmount: cappedPaid,
             ...status,
@@ -196,7 +209,10 @@ export function buildEntityPaymentSchedule({
     }
 
     const monthlyAmount = totalAmount / duration;
-    const monthAllocations = assignPaymentsToMonths(duration, monthlyAmount, payments);
+    const monthAllocations =
+        entityType === 'Reward'
+            ? [{ paidAmount: Math.min(effectivePaid, monthlyAmount) }]
+            : assignPaymentsToMonths(duration, monthlyAmount, payments);
 
     return monthAllocations.map((allocation, index) => {
         const monthDate = new Date(startDate);

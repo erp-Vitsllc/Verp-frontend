@@ -13,7 +13,7 @@ import { ClipboardList, Loader2 } from 'lucide-react';
 import VehicleAccidentRepairDetailHeaderCards from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairDetailHeaderCards';
 import VehicleAccidentRepairDetailForm from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairDetailForm';
 import VehicleAccidentRepairGarageCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairGarageCard';
-import VehicleAccidentRepairHrOnServiceCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairHrOnServiceCard';
+import VehicleAccidentRepairQuoteApprovalCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairQuoteApprovalCard';
 import VehicleAccidentRepairReturnCard from '@/app/HRM/Asset/Vehicle/components/VehicleAccidentRepairReturnCard';
 import VehicleShopServiceAccountsApproveCard from '@/app/HRM/Asset/Vehicle/components/VehicleShopServiceAccountsApproveCard';
 import VehicleServiceAccountsZohoBillingCard from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAccountsZohoBillingCard';
@@ -25,6 +25,7 @@ import {
     canUserCreateOrInitiateVehicleService,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
+    isVehicleServiceInitiateEditableStage,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
 import {
     pickFlowchartAccountsRow,
@@ -33,6 +34,7 @@ import {
 import {
     resolveAccidentRepairWorkflowStage,
     showAccidentRepairGarageCard,
+    showAccidentRepairQuoteCard,
     showAccidentRepairReturnCard,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccidentRepairWorkflow';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflowTrackerConfig';
@@ -62,6 +64,7 @@ function VehicleAccidentRepairDetailPageContent() {
     const [currentUser, setCurrentUser] = useState(null);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [flowchartRows, setFlowchartRows] = useState([]);
+    const [liveHrReview, setLiveHrReview] = useState(null);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -74,6 +77,10 @@ function VehicleAccidentRepairDetailPageContent() {
             .get('/Flowchart')
             .then(({ data }) => setFlowchartRows(Array.isArray(data) ? data : []))
             .catch(() => setFlowchartRows([]));
+    }, []);
+
+    const handleHrReviewSummaryChange = useCallback((summary) => {
+        setLiveHrReview(summary);
     }, []);
 
     const handleDraftStateChange = useCallback((next) => {
@@ -156,8 +163,7 @@ function VehicleAccidentRepairDetailPageContent() {
         [asset, currentUser],
     );
 
-    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
-    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageAccidentRepair;
+
 
     const isFlowchartHr = useMemo(() => {
         const hrRow = pickFlowchartHrRow(flowchartRows);
@@ -199,6 +205,23 @@ function VehicleAccidentRepairDetailPageContent() {
         () => resolveAccidentRepairWorkflowStage(asset, serviceId, service),
         [asset, serviceId, service],
     );
+
+    const canRespondToAccidentWorkflow = useMemo(() => {
+        if (!asset || accidentRepairflowStage !== 'pending_hr') return false;
+        return asset.canRespondToServiceWorkflow === true;
+    }, [asset, accidentRepairflowStage]);
+
+    /** Pending: create/initiate users. At HR/Accounts/Zoho bill: those roles or managers may edit Initiate. */
+    const canEditAssignment = assignmentPending
+        ? Boolean(
+              canCreateOrInitiate ||
+                  (isVehicleServiceInitiateEditableStage(accidentRepairflowStage) &&
+                      (canManageAccidentRepair || isFlowchartHr || isFlowchartAccounts)),
+          )
+        : isVehicleServiceInitiateEditableStage(accidentRepairflowStage)
+          ? Boolean(canManageAccidentRepair || isFlowchartHr || isFlowchartAccounts)
+          : canManageAccidentRepair;
+
 
     const handleRequested = useCallback(() => {
         if (typeof draftSubmitRef.current === 'function') {
@@ -301,6 +324,8 @@ function VehicleAccidentRepairDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                workflowStage={accidentRepairflowStage}
+                                liveHrReview={liveHrReview}
                                 onSaved={() => {
                                     void load({ silent: true, deferServiceSigning: true });
                                 }}
@@ -326,19 +351,24 @@ function VehicleAccidentRepairDetailPageContent() {
                                 />
                             ) : null}
                             <div className="grid w-full shrink-0 grid-cols-1 gap-4 lg:grid-cols-2">
-                                <VehicleAccidentRepairHrOnServiceCard
-                                    asset={asset}
-                                    vehicleId={vehicleId}
-                                    serviceId={serviceId}
-                                    service={service}
-                                    canActHr={isFlowchartHr}
-                                    workflowStage={accidentRepairflowStage}
-                                    onUpdated={(updatedAsset) => {
-                                        if (updatedAsset) setAsset(updatedAsset);
-                                        void load({ silent: true, deferServiceSigning: true });
-                                    }}
-                                    className="w-full min-w-0"
-                                />
+                                {showAccidentRepairQuoteCard(assignmentPending) ? (
+                                    <VehicleAccidentRepairQuoteApprovalCard
+                                        asset={asset}
+                                        service={service}
+                                        vehicleId={vehicleId}
+                                        serviceId={serviceId}
+                                        canActHr={isFlowchartHr}
+                                        canRespondToWorkflow={canRespondToAccidentWorkflow}
+                                        canManageAccidentRepair={canManageAccidentRepair}
+                                        workflowStage={accidentRepairflowStage}
+                                        onReviewSummaryChange={handleHrReviewSummaryChange}
+                                        onUpdated={(updatedAsset) => {
+                                            if (updatedAsset) setAsset(updatedAsset);
+                                            void load({ silent: true, deferServiceSigning: true });
+                                        }}
+                                        className="w-full min-w-0"
+                                    />
+                                ) : null}
                                 <VehicleShopServiceAccountsApproveCard
                                     service={service}
                                     vehicleId={vehicleId}

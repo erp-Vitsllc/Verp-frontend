@@ -589,7 +589,7 @@ function RewardContent() {
                                                                             : 'bg-gray-100 text-gray-700'
                                                                     }`}
                                                             >
-                                                                {formatRewardStatusLabel(reward.rewardStatus, reward.rewardType) || 'N/A'}
+                                                                {formatRewardStatusLabel(reward.rewardStatus, reward) || 'N/A'}
                                                             </span>
                                                         </div>
                                                     </td>
@@ -698,7 +698,7 @@ function RewardContent() {
                                                 ? 'bg-yellow-100 text-yellow-700'
                                                 : 'bg-gray-100 text-gray-600'
                                             }`}>
-                                            {formatRewardStatusLabel(reward.rewardStatus, reward.rewardType)}
+                                            {formatRewardStatusLabel(reward.rewardStatus, reward)}
                                         </span>
                                         {reward.amount && (
                                             <span className="text-sm font-bold text-gray-800">

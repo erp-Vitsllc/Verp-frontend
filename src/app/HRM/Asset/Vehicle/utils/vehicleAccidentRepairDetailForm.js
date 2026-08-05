@@ -189,6 +189,40 @@ export function buildAccidentRepairDetailFormState(service, asset, { flowchartRo
     const paymentMethod =
         amountMode === 'warranty' ? '' : resolvedPay.paymentMethod || 'cash';
 
+    const garageQuotes = Array.isArray(remark.accidentGarageQuotes) ? remark.accidentGarageQuotes : [];
+    const quoteByKey = (key) =>
+        garageQuotes.find((row) => String(row?.key || '').toLowerCase() === key) || null;
+    const q1 = quoteByKey('q1');
+    const q2 = quoteByKey('q2');
+    const q3 = quoteByKey('q3');
+
+    const paymentByModeRaw = String(remark.paymentByMode || '').toLowerCase();
+    const paymentByMode =
+        paymentByModeRaw === 'person' || paymentByModeRaw === 'company' || paymentByModeRaw === 'split'
+            ? paymentByModeRaw
+            : '';
+    const liabilityRows = Array.isArray(remark.employeeLiabilityRows)
+        ? remark.employeeLiabilityRows.map((row) => ({
+              employeeId: String(row?.employeeId || ''),
+              paidAmount: row?.paidAmount != null ? String(row.paidAmount) : '',
+          }))
+        : defaultEmployeeRows(
+              String(remark.carDrivenByEmployeeId || remark.vehicleOwnerEmployeeId || assigneeIdStr || ''),
+          );
+
+    const insuranceFine = Number(remark.insuranceFineAmount) || 0;
+    const policeFine = Number(remark.policeFineAmount) || 0;
+    const otherFine = Number(remark.otherFineAmount) || 0;
+    const fineTotal = insuranceFine + policeFine + otherFine;
+    const estimatedFromRemark =
+        remark.hrReviewApprovedAmount != null && remark.hrReviewApprovedAmount !== ''
+            ? String(remark.hrReviewApprovedAmount)
+            : remark.estimatedCost != null && remark.estimatedCost !== ''
+              ? String(remark.estimatedCost)
+              : fineTotal > 0
+                ? String(fineTotal)
+                : '';
+
     return {
         ...base,
         serviceType: 'Accident Repair',
@@ -211,6 +245,59 @@ export function buildAccidentRepairDetailFormState(service, asset, { flowchartRo
                 : base.carDrivenByEmployeeId || assigneeIdStr,
         serviceIssue: base.serviceIssue || '',
         accidentImages: [],
+        paymentByMode,
+        companyPayPercent:
+            remark.companyPayPercent != null && remark.companyPayPercent !== ''
+                ? String(remark.companyPayPercent)
+                : paymentByMode === 'person'
+                  ? '0'
+                  : paymentByMode === 'split'
+                    ? '50'
+                    : paymentByMode === 'company'
+                      ? '100'
+                      : '',
+        employeePayPercent:
+            remark.employeePayPercent != null && remark.employeePayPercent !== ''
+                ? String(remark.employeePayPercent)
+                : paymentByMode === 'person'
+                  ? '100'
+                  : paymentByMode === 'split'
+                    ? '50'
+                    : paymentByMode === 'company'
+                      ? '0'
+                      : '',
+        estimatedCost: estimatedFromRemark,
+        employeeLiabilityRows: liabilityRows,
+        garageQuote1Name: q1?.name || '',
+        garageQuote1Base64: '',
+        garageQuote1Mime: '',
+        existingGarageQuote1Url: q1?.url ? String(q1.url) : '',
+        garageQuote1Amount:
+            q1?.amount != null && q1?.amount !== ''
+                ? String(q1.amount)
+                : remark.quotation1Amount != null
+                  ? String(remark.quotation1Amount)
+                  : '',
+        garageQuote2Name: q2?.name || '',
+        garageQuote2Base64: '',
+        garageQuote2Mime: '',
+        existingGarageQuote2Url: q2?.url ? String(q2.url) : '',
+        garageQuote2Amount:
+            q2?.amount != null && q2?.amount !== ''
+                ? String(q2.amount)
+                : remark.quotation2Amount != null
+                  ? String(remark.quotation2Amount)
+                  : '',
+        garageQuote3Name: q3?.name || '',
+        garageQuote3Base64: '',
+        garageQuote3Mime: '',
+        existingGarageQuote3Url: q3?.url ? String(q3.url) : '',
+        garageQuote3Amount:
+            q3?.amount != null && q3?.amount !== ''
+                ? String(q3.amount)
+                : remark.quotation3Amount != null
+                  ? String(remark.quotation3Amount)
+                  : '',
     };
 }
 
@@ -307,6 +394,119 @@ export function buildAccidentRepairDetailSubmitBody(formData, { keepPending = tr
     } else {
         delete remark.paymentMethod;
     }
+
+    const quoteDefs = [
+        {
+            key: 'q1',
+            name: formData.garageQuote1Name,
+            base64: formData.garageQuote1Base64,
+            mime: formData.garageQuote1Mime,
+            existingUrl: formData.existingGarageQuote1Url,
+            amount: formData.garageQuote1Amount,
+        },
+        {
+            key: 'q2',
+            name: formData.garageQuote2Name,
+            base64: formData.garageQuote2Base64,
+            mime: formData.garageQuote2Mime,
+            existingUrl: formData.existingGarageQuote2Url,
+            amount: formData.garageQuote2Amount,
+        },
+        {
+            key: 'q3',
+            name: formData.garageQuote3Name,
+            base64: formData.garageQuote3Base64,
+            mime: formData.garageQuote3Mime,
+            existingUrl: formData.existingGarageQuote3Url,
+            amount: formData.garageQuote3Amount,
+        },
+    ];
+
+    const remarkQuotes = [];
+    const uploadQuotes = [];
+    for (const q of quoteDefs) {
+        const name = String(q.name || '').trim();
+        const existingUrl = String(q.existingUrl || '').trim();
+        const amountRaw = String(q.amount ?? '').trim();
+        const amount = amountRaw !== '' && Number.isFinite(Number(amountRaw)) ? Number(amountRaw) : undefined;
+        if (q.base64 && name) {
+            uploadQuotes.push({
+                key: q.key,
+                name,
+                data: q.base64,
+                mimeType: q.mime || 'application/pdf',
+                ...(amount !== undefined ? { amount } : {}),
+            });
+            remarkQuotes.push({
+                key: q.key,
+                name,
+                url: existingUrl || undefined,
+                ...(amount !== undefined ? { amount } : {}),
+            });
+        } else if (existingUrl || name || amount !== undefined) {
+            remarkQuotes.push({
+                key: q.key,
+                name: name || undefined,
+                url: existingUrl || undefined,
+                ...(amount !== undefined ? { amount } : {}),
+            });
+        }
+    }
+
+    if (remarkQuotes.length) {
+        remark.accidentGarageQuotes = remarkQuotes.filter((row) => row.url || row.name || row.amount != null);
+    } else {
+        delete remark.accidentGarageQuotes;
+    }
+
+    if (formData.garageQuote1Amount !== '' && formData.garageQuote1Amount != null) {
+        remark.quotation1Amount = Number(formData.garageQuote1Amount) || 0;
+    }
+    if (formData.garageQuote2Amount !== '' && formData.garageQuote2Amount != null) {
+        remark.quotation2Amount = Number(formData.garageQuote2Amount) || 0;
+    }
+    if (formData.garageQuote3Amount !== '' && formData.garageQuote3Amount != null) {
+        remark.quotation3Amount = Number(formData.garageQuote3Amount) || 0;
+    }
+
+    const paymentByModeRaw = String(formData.paymentByMode || '').toLowerCase();
+    if (paymentByModeRaw === 'person' || paymentByModeRaw === 'company' || paymentByModeRaw === 'split') {
+        remark.paymentByMode = paymentByModeRaw;
+        remark.liableOn = paymentByModeRaw;
+        const companyPct =
+            paymentByModeRaw === 'company' ? 100 : paymentByModeRaw === 'person' ? 0 : Number(formData.companyPayPercent) || 50;
+        const employeePct =
+            paymentByModeRaw === 'person' ? 100 : paymentByModeRaw === 'company' ? 0 : Number(formData.employeePayPercent) || 50;
+        remark.companyPayPercent = String(companyPct);
+        remark.employeePayPercent = String(employeePct);
+
+        const estimated =
+            formData.estimatedCost !== '' && formData.estimatedCost != null
+                ? Number(formData.estimatedCost)
+                : NaN;
+        if (Number.isFinite(estimated) && estimated > 0) {
+            remark.estimatedCost = estimated;
+            remark.companyPayAmount = Math.round((estimated * companyPct) / 100);
+            remark.employeePayAmount = Math.round((estimated * employeePct) / 100);
+        }
+
+        const rows = Array.isArray(formData.employeeLiabilityRows)
+            ? formData.employeeLiabilityRows
+                  .filter((row) => String(row?.employeeId || '').trim())
+                  .map((row) => ({
+                      employeeId: String(row.employeeId),
+                      paidAmount: Number(row.paidAmount) || 0,
+                  }))
+            : [];
+        if (rows.length) {
+            remark.employeeLiabilityRows = rows;
+            remark.employeeLiabilityTotal = rows.reduce((sum, row) => sum + (Number(row.paidAmount) || 0), 0);
+        }
+    }
+
     body.remark = JSON.stringify(remark);
+    if (uploadQuotes.length) {
+        body.accidentGarageQuotes = uploadQuotes;
+    }
     return body;
 }

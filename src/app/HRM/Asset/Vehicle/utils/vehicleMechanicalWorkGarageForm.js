@@ -8,6 +8,12 @@ import {
     garageBillingRemarkPatch,
     validateGarageBillingFields,
 } from './vehicleGarageBillingFields';
+import {
+    paymentToGarageAttachmentBody,
+    paymentToGarageFieldsFromRemark,
+    paymentToGarageRemarkPatch,
+    validatePaymentToGarageFields,
+} from './vehicleGaragePaymentToGarageFields';
 
 export { OIL_SERVICE_GARAGE_VENDOR_OPTIONS as MECHANICAL_WORK_GARAGE_VENDOR_OPTIONS };
 
@@ -35,6 +41,7 @@ export function buildMechanicalWorkGarageFormState(service, asset) {
                 '',
         ),
         ...garageBillingFieldsFromRemark(service, remark),
+        ...paymentToGarageFieldsFromRemark(remark),
     };
 }
 
@@ -56,6 +63,7 @@ export function validateMechanicalWorkGarageForm(formData) {
         errors.serviceEndDate = 'Service end date is required';
     }
     Object.assign(errors, validateGarageBillingFields(formData));
+    Object.assign(errors, validatePaymentToGarageFields(formData));
     return errors;
 }
 
@@ -70,6 +78,7 @@ export function buildMechanicalWorkGarageUpdateBody(formData) {
     const serviceStartDate = String(formData.serviceStartDate || '').trim();
     const serviceEndDate = String(formData.serviceEndDate || '').trim();
     const billing = garageBillingRemarkPatch(formData);
+    const paymentToGarage = paymentToGarageRemarkPatch(formData);
 
     return {
         serviceType: 'Mechanical Work',
@@ -83,7 +92,9 @@ export function buildMechanicalWorkGarageUpdateBody(formData) {
             serviceEndDate,
             scheduledServiceDate: serviceStartDate || undefined,
             ...billing,
+            ...paymentToGarage,
         }),
         ...garageBillingAttachmentBody(formData),
+        ...paymentToGarageAttachmentBody(formData),
     };
 }

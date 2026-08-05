@@ -25,12 +25,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import { calculateDaysUntilExpiry, calculateTenure, formatDurationParts, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
-import { Download, Check, X, Edit, Loader2, Lock, Send, Trash2, FileText, Paperclip, Wallet } from 'lucide-react';
+import { Download, Check, X, Edit, Loader2, Lock, Send, Trash2, FileText, Paperclip } from 'lucide-react';
 import CertificateEditModal from '../components/CertificateEditModal';
 import RewardFormCards from '../components/RewardFormCards';
 import RewardAttachmentTab from '../components/RewardAttachmentTab';
-import { formatRewardStatusLabel, isRewardPaymentEligible, formatRewardPaymentLabel } from '../utils/rewardStatusDisplay';
-import { canAccountsPayCashReward, buildRewardPaymentPrefill } from '../utils/rewardPaymentPrefill';
+import { formatRewardStatusLabel, formatRewardPaymentLabel } from '../utils/rewardStatusDisplay';
 import { canEditRewardCertificate } from '../utils/rewardPermissionAccess';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -351,8 +350,8 @@ export default function RewardDetailsPage({ params }) {
         if (status === 'Pending') return "Pending Authorization";
         // Management → Accounts (Cash/Gift) or Approved (Certificate)
         if (status === 'Pending Authorization') return isCashOrGift ? "Pending Accounts" : "Approved";
-        // Accounts → Approved
-        if (status === 'Pending Accounts') return "Approved";
+        // Accounts → Approved (Paid) directly after expense details + Zoho
+        if (status === 'Pending Accounts') return "Approved (Paid)";
         return "Approved";
     };
 
@@ -433,14 +432,14 @@ export default function RewardDetailsPage({ params }) {
             const type = (reward?.rewardType || '').toLowerCase();
             const isCashOrGift = type.includes('cash') || type.includes('gift');
 
-            // Draft → Pending → Pending Authorization → [Pending Accounts] → Approved
-            if (status === 'Approved') {
+            // Draft → Pending → Pending Authorization → [Pending Accounts] → Approved (Paid)
+            if (status === 'Approved' || status === 'Approved (Paid)') {
                 if (currentStatus === 'Pending') {
                     finalStatus = 'Pending Authorization';
                 } else if (currentStatus === 'Pending Authorization') {
                     finalStatus = isCashOrGift ? 'Pending Accounts' : 'Approved';
                 } else if (currentStatus === 'Pending Accounts') {
-                    finalStatus = 'Approved';
+                    finalStatus = 'Approved (Paid)';
                 }
             } else if (status === 'Rejected') {
                 finalStatus = 'Rejected';
@@ -448,9 +447,9 @@ export default function RewardDetailsPage({ params }) {
                 finalStatus = 'Cancelled';
             }
 
-            // Accounts approve gate (Loan-style): Expense Account + Paid Through required
+            // Accounts approve gate: Expense Account + Paid Through required
             if (
-                finalStatus === 'Approved' &&
+                (finalStatus === 'Approved' || finalStatus === 'Approved (Paid)') &&
                 currentStatus === 'Pending Accounts' &&
                 isCashOrGift
             ) {
@@ -496,7 +495,10 @@ export default function RewardDetailsPage({ params }) {
             const desig = (currentUser?.designation || '').toLowerCase();
             const isCEO = dept === 'management' && ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(desig);
 
-            const shouldGeneratePDF = finalStatus === 'Approved' || (status === 'Approved' && (isSuperUser || isCEO));
+            const shouldGeneratePDF =
+                finalStatus === 'Approved' ||
+                finalStatus === 'Approved (Paid)' ||
+                ((status === 'Approved' || status === 'Approved (Paid)') && (isSuperUser || isCEO));
 
             console.log(`DEBUG: Status Update. Action: ${status}, Current: ${currentStatus}, Target: ${finalStatus}`);
 
@@ -548,8 +550,13 @@ export default function RewardDetailsPage({ params }) {
 
             const approverId = currentUser.id || currentUser._id;
             if (approverId) {
-                if (status === 'Approved' || finalStatus === 'Approved') {
-                    // Final approve: Management (Certificate) or Accounts (Cash/Gift)
+                if (
+                    status === 'Approved' ||
+                    status === 'Approved (Paid)' ||
+                    finalStatus === 'Approved' ||
+                    finalStatus === 'Approved (Paid)'
+                ) {
+                    // Final approve: Management (Certificate) or Accounts (Cash/Gift → Paid)
                     if (
                         currentStatus === 'Pending Authorization' ||
                         currentStatus === 'Pending Accounts'
@@ -559,11 +566,21 @@ export default function RewardDetailsPage({ params }) {
                 }
             }
 
-            await axiosInstance.put(`/Reward/${reward._id}/status`, updatePayload);
-            toast({
-                title: "Success",
-                description: `Reward ${finalStatus === 'Pending Authorization' ? 'authorized' : finalStatus.toLowerCase()} successfully`,
-            });
+            const updateRes = await axiosInstance.put(`/Reward/${reward._id}/status`, updatePayload);
+            if (updateRes.data?.zohoSyncFailed) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Zoho Expense failed',
+                    description:
+                        updateRes.data?.message ||
+                        'Reward stays Pending Accounts until Zoho Expense succeeds. Fix Expense Account / Paid Through and approve again.',
+                });
+            } else {
+                toast({
+                    title: "Success",
+                    description: `Reward ${finalStatus === 'Pending Authorization' ? 'authorized' : finalStatus.toLowerCase()} successfully`,
+                });
+            }
             fetchData();
             setTimeout(() => {
                 window.location.reload();
@@ -882,10 +899,8 @@ export default function RewardDetailsPage({ params }) {
                                     const totalAmount = Number(reward?.amount || 0);
                                     const paidAmount = Number(reward?.paidAmount || 0);
                                     const remainingAmount = Math.max(0, totalAmount - paidAmount);
-                                    const awaitingPay = isRewardPaymentEligible(reward);
-                                    const canPayReward = canAccountsPayCashReward(reward, currentUser);
                                     const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
-                                    const statusLabel = formatRewardStatusLabel(status, reward?.rewardType);
+                                    const statusLabel = formatRewardStatusLabel(status, reward);
                                     const paymentLabel = formatRewardPaymentLabel(reward);
 
                                     const statusBoxClass =
@@ -938,48 +953,10 @@ export default function RewardDetailsPage({ params }) {
                                             <div key="done" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
                                                 <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>
                                                 <span className="text-sm font-bold flex items-center gap-1 ml-2">
-                                                    <Check className="w-4 h-4" /> {awaitingPay ? 'Awaiting Pay' : 'Completed'}
+                                                    <Check className="w-4 h-4" /> Completed
                                                                                                 </span>
                                                                                             </div>
                                         );
-                                        if (canPayReward) {
-                                            cells.push(
-                                                <button
-                                                    key="pay-reward"
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const companyId = String(
-                                                            employee?.company?._id ||
-                                                                employee?.company ||
-                                                                employee?.companyId ||
-                                                                '',
-                                                        ).trim();
-                                                        const prefill = buildRewardPaymentPrefill(reward, {
-                                                            returnTo:
-                                                                typeof window !== 'undefined'
-                                                                    ? `${window.location.pathname}${window.location.search}`
-                                                                    : '',
-                                                            companyId,
-                                                        });
-                                                        try {
-                                                            sessionStorage.setItem(
-                                                                'rewardPaymentPrefill',
-                                                                JSON.stringify(prefill),
-                                                            );
-                                                        } catch (err) {
-                                                            console.error(err);
-                                                        }
-                                                        router.push('/Accounts/Payments?addRewardPay=1');
-                                                    }}
-                                                    className={`${compactBox} border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100`}
-                                                >
-                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">
-                                                        Pay
-                                                    </span>
-                                                    <Wallet className="w-5 h-5 shrink-0" />
-                                                </button>,
-                                            );
-                                        }
                                         if (paymentLabel !== '—') {
                                             const paymentPaid = paymentLabel === 'Paid';
                                             cells.push(
@@ -1114,8 +1091,6 @@ export default function RewardDetailsPage({ params }) {
                             canEditPartyPayables={(() => {
                                 if (!reward || !currentUser) return false;
                                 const status = String(reward.rewardStatus || reward.approvalStatus || '');
-                                const amount = Number(reward.amount) || 0;
-                                const paid = Number(reward.paidAmount) || 0;
                                 const hasZoho = Boolean(
                                     String(reward.zohoExpenseId || '').trim() ||
                                         String(reward.zohoJournalId || '').trim()
@@ -1124,16 +1099,13 @@ export default function RewardDetailsPage({ params }) {
                                 const canFixFailedZoho =
                                     !hasZoho &&
                                     syncErr &&
-                                    (status === 'Approved (Paid)' ||
-                                        status === 'Paid' ||
-                                        (amount > 0 && paid >= amount - 0.01));
-                                const atAccounts = status === 'Pending Accounts' && canPerformAction();
-                                const beforePay =
-                                    status === 'Approved' &&
-                                    amount > 0 &&
-                                    amount - paid > 0.01 &&
-                                    canAccountsPayCashReward(reward, currentUser);
-                                return atAccounts || beforePay || canFixFailedZoho;
+                                    (status === 'Pending Accounts' ||
+                                        status === 'Approved (Paid)' ||
+                                        status === 'Paid');
+                                const atAccounts =
+                                    (status === 'Pending Accounts' || canFixFailedZoho) &&
+                                    canPerformAction();
+                                return atAccounts || canFixFailedZoho;
                             })()}
                             onPartyPayableChange={(next) => {
                                 if (!next) return;
@@ -1154,7 +1126,6 @@ export default function RewardDetailsPage({ params }) {
                                 );
                             }}
                             onPartyPayableSaved={() => fetchData()}
-                            allowPay={canAccountsPayCashReward(reward, currentUser)}
                         />
                                 </div>
 
@@ -1213,9 +1184,9 @@ export default function RewardDetailsPage({ params }) {
                                 : pendingStatus === 'Pending Authorization' && reward?.rewardStatus === 'Pending'
                                     ? "This will verify the reward and send it to Management for authorization."
                                     : pendingStatus === 'Pending Accounts' && reward?.rewardStatus === 'Pending Authorization'
-                                        ? "This will send the reward to Accounts. Accounts must set Expense Account and Paid Through before approving."
-                                        : pendingStatus === 'Approved' && reward?.rewardStatus === 'Pending Accounts'
-                                            ? "Accounts approval will post to Zoho Expenses (reference & description = reward description) and mark the reward Approved."
+                                        ? "This will send the reward to Accounts. The employee and primary reportee will be emailed; Accounts will get a notification to set Expense Account and Paid Through, then approve."
+                                        : (pendingStatus === 'Approved' || pendingStatus === 'Approved (Paid)') && reward?.rewardStatus === 'Pending Accounts'
+                                            ? "Accounts approval will post to Zoho Expenses and mark the reward Approved (Paid). No separate Pay step."
                                             : pendingStatus === 'Approved' && reward?.rewardStatus === 'Pending Authorization'
                                                 ? "This will finalize and approve the reward. A certificate will be generated."
                                                 : pendingStatus === 'Rejected'

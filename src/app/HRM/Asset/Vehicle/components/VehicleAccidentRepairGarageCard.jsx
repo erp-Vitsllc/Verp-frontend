@@ -1,13 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Loader2, Upload } from 'lucide-react';
+import { CalendarClock, Loader2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { DatePicker } from '@/components/ui/date-picker';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
-import { parseVehicleServiceRemark, normalizeMongoId } from './vehicleServiceUtils';
+import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import {
     canApproveAccidentRepairGarageAccounts,
@@ -28,11 +27,9 @@ import {
     tireBtnPrimary,
     tireDatePickerClass,
     tireFieldSelect,
-    tireUploadBtn,
-    tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
-import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import VehicleGarageBillingFields from './VehicleGarageBillingFields';
+import VehicleGaragePaymentToGarageFields from './VehicleGaragePaymentToGarageFields';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 
 export default function VehicleAccidentRepairGarageCard({
@@ -76,36 +73,6 @@ export default function VehicleAccidentRepairGarageCard({
         setFormData((prev) => ({ ...prev, [key]: value }));
     }, []);
 
-    const handleClaimUpload = useCallback(
-        (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            const check = validateErpPdfFile(file);
-            if (!check.ok) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Invalid file',
-                    description: check.message,
-                });
-                if (e.target) e.target.value = '';
-                return;
-            }
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64 = String(reader.result || '').split(',')[1] || '';
-                setFormData((prev) => ({
-                    ...prev,
-                    quotation2Name: file.name,
-                    quotation2Base64: base64,
-                    quotation2Mime: file.type || 'application/pdf',
-                    existingQuotation2Url: '',
-                }));
-            };
-            reader.readAsDataURL(file);
-        },
-        [toast],
-    );
-
     const handleUpdate = async () => {
         if (!vehicleId || !serviceId || !canEditGarage) return;
         if (!isAccidentRepairGarageFormComplete(formData)) {
@@ -127,7 +94,10 @@ export default function VehicleAccidentRepairGarageCard({
             );
             toast({
                 title: 'Garage details saved',
-                description: 'Sent to flowchart HR to approve On Service.',
+                description:
+                    stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR
+                        ? 'Saved. HR Approval stays open in parallel until HR approves.'
+                        : 'Sent to Accounts Approve.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
@@ -175,7 +145,7 @@ export default function VehicleAccidentRepairGarageCard({
 
     const subtitle =
         stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR
-            ? 'Garage details — completed by Admin Officer after assignment is submitted'
+            ? 'Opens with HR after Initiate — complete garage vendor, dates, pay account, then Done'
             : stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER
               ? 'Admin Officer — complete garage vendor, pay account, amount, attachment and service window, then click Done'
               : stage === 'pending_billing'
@@ -206,50 +176,6 @@ export default function VehicleAccidentRepairGarageCard({
                     onUpdated={onUpdated}
                 />
                 <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mb-2.5`}>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Claim Acknowledge"
-                            accentClass="border-gray-200 bg-white"
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <div className="flex flex-wrap items-center gap-2 min-h-[40px]">
-                                {formData.existingQuotation2Url ? (
-                                    <button
-                                        type="button"
-                                        className={tireViewBtn}
-                                        onClick={() =>
-                                            void openAttachmentInNewTab(formData.existingQuotation2Url, {
-                                                name: formData.quotation2Name || 'Claim Acknowledge',
-                                            })
-                                        }
-                                    >
-                                        View
-                                    </button>
-                                ) : null}
-                                {!fieldsDisabled ? (
-                                    <label className={tireUploadBtn}>
-                                        <Upload size={14} />
-                                        {formData.quotation2Name || formData.existingQuotation2Url
-                                            ? 'Change'
-                                            : 'Upload'}
-                                        <input
-                                            type="file"
-                                            className="sr-only"
-                                            accept={ERP_PDF_ACCEPT}
-                                            disabled={fieldsDisabled}
-                                            onChange={(e) => {
-                                                handleClaimUpload(e);
-                                                e.target.value = '';
-                                            }}
-                                        />
-                                    </label>
-                                ) : null}
-                                {formData.quotation2Name ? (
-                                    <span className="text-[10px] text-gray-500 truncate">
-                                        {formData.quotation2Name}
-                                    </span>
-                                ) : null}
-                            </div>
-                        </VehicleAccidentRepairFormFieldCell>
                         <VehicleAccidentRepairFormFieldCell
                             label="Garage Location"
                             accentClass="border-gray-200 bg-white"
@@ -335,6 +261,16 @@ export default function VehicleAccidentRepairGarageCard({
                             // Admin Officer must enter amount when HR skip / no approved value
                             // (empty read-only amount keeps Done permanently disabled).
                             amountReadOnly={!canEditGarage}
+                        />
+                        <VehicleGaragePaymentToGarageFields
+                            formData={formData}
+                            setField={set}
+                            setFormData={setFormData}
+                            fieldsDisabled={fieldsDisabled}
+                            FieldCell={VehicleAccidentRepairFormFieldCell}
+                            accent={accent}
+                            fieldMinHeightPx={fieldMinHeightPx}
+                            fieldClassName={tireFieldSelect}
                         />
                     </div>
 

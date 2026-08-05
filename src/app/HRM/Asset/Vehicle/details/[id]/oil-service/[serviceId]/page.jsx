@@ -24,6 +24,7 @@ import {
     canUserEditOilServiceDates,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
+    isVehicleServiceInitiateEditableStage,
     resolveOilServiceWorkflowStage,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflowTrackerConfig';
@@ -192,8 +193,7 @@ function VehicleOilServiceDetailPageContent() {
         [asset, currentUser],
     );
 
-    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
-    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageOilService;
+
 
     const canEditServiceDates = useMemo(
         () =>
@@ -246,6 +246,18 @@ function VehicleOilServiceDetailPageContent() {
         const myCode = norm(currentUser.employeeId || '');
         return !!(rowCode && myCode && rowCode === myCode);
     }, [currentUser, flowchartRows]);
+
+    /** Pending: create/initiate users. At HR/Accounts/Zoho bill: those roles or managers may edit Initiate. */
+    const canEditAssignment = assignmentPending
+        ? Boolean(
+              canCreateOrInitiate ||
+                  (isVehicleServiceInitiateEditableStage(oilWorkflowStage) &&
+                      (canManageOilService || isFlowchartHr || isFlowchartAccounts)),
+          )
+        : isVehicleServiceInitiateEditableStage(oilWorkflowStage)
+          ? Boolean(canManageOilService || isFlowchartHr || isFlowchartAccounts)
+          : canManageOilService;
+
 
     const handleRequested = useCallback(() => {
         if (typeof draftSubmitRef.current === 'function') {
@@ -363,8 +375,9 @@ function VehicleOilServiceDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                workflowStage={oilWorkflowStage}
                                 canEditServiceDates={canEditServiceDates}
-                                    onSaved={refreshAfterMutation}
+                                onSaved={refreshAfterMutation}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}
                                 flowchartRows={flowchartRows}

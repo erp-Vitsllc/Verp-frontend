@@ -15,7 +15,10 @@ import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleTireChangeFormFieldCell from './VehicleTireChangeFormFieldCell';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
-import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
+import {
+    isOilServiceAssignmentPending,
+    isVehicleServiceInitiateEditableStage,
+} from '../utils/vehicleOilServiceAccess';
 import {
     resolveFlowchartAdminEmployeeRef,
     resolveVehicleServiceAssignedOwnerId,
@@ -99,6 +102,7 @@ export default function VehicleTireChangeDetailForm({
     draftSubmitRef,
     onDraftStateChange,
     canEditAssignment = true,
+    workflowStage = '',
     flowchartRows = [],
     liveHrReview = null,
     className = '',
@@ -117,7 +121,10 @@ export default function VehicleTireChangeDetailForm({
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
-    const fieldsDisabled = !assignmentPending || saving || !canEditAssignment;
+    const initiateStageEditable = isVehicleServiceInitiateEditableStage(workflowStage);
+    const canEditInitiateFields =
+        canEditAssignment && (assignmentPending || initiateStageEditable);
+    const fieldsDisabled = !canEditInitiateFields || saving;
 
     useEffect(() => {
         setFormData(buildTireChangeDetailFormState(service, asset, { flowchartRows }));
@@ -473,7 +480,7 @@ export default function VehicleTireChangeDetailForm({
             if (!vehicleId || !serviceId) return false;
             setSaving(true);
             try {
-                const body = buildTireChangeDetailSubmitBody(formData, { keepPending: true });
+                const body = buildTireChangeDetailSubmitBody(formData, { keepPending: assignmentPending });
                 await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
                 if (submitAfterSave) {
                     const submitRes = await axiosInstance.post(
@@ -493,7 +500,7 @@ export default function VehicleTireChangeDetailForm({
             } catch (error) {
                 toast({
                     variant: 'destructive',
-                    title: submitAfterSave ? 'Could not submit' : 'Could not save draft',
+                    title: submitAfterSave ? 'Could not submit' : 'Could not save',
                     description: error.response?.data?.message || 'Try again.',
                 });
                 return false;
@@ -501,7 +508,7 @@ export default function VehicleTireChangeDetailForm({
                 setSaving(false);
             }
         },
-        [formData, onSaved, serviceId, toast, vehicleId],
+        [assignmentPending, formData, onSaved, serviceId, toast, vehicleId],
     );
 
     const handleSubmit = useCallback(async () => {
@@ -510,6 +517,11 @@ export default function VehicleTireChangeDetailForm({
     }, [asset, assignmentPending, formData, persistForm]);
 
     const handleSaveDraft = async () => {
+        await persistForm({ submitAfterSave: false });
+    };
+
+    const handleSaveUpdates = async () => {
+        if (!canEditInitiateFields || assignmentPending) return;
         await persistForm({ submitAfterSave: false });
     };
 
@@ -525,8 +537,8 @@ export default function VehicleTireChangeDetailForm({
         assignmentPending && !saving && canEditAssignment && isTireChangeDetailFormComplete(formData, asset);
     const missingFields = useMemo(
         () =>
-            assignmentPending && canEditAssignment ? getTireChangeDetailFormMissingFields(formData, asset) : [],
-        [asset, formData, assignmentPending, canEditAssignment],
+            canEditInitiateFields ? getTireChangeDetailFormMissingFields(formData, asset) : [],
+        [asset, formData, canEditInitiateFields],
     );
 
     const submitHandlerRef = useRef(handleSubmit);
@@ -590,12 +602,14 @@ export default function VehicleTireChangeDetailForm({
                     subtitle={
                         assignmentPending
                             ? 'Complete all fields, then click Send / Submit for Approval'
-                            : 'Submitted — select Quote 1, 2, or 3 in HR Approval'
+                            : initiateStageEditable
+                              ? 'Editable at HR / Accounts — update details, then Save Changes'
+                              : 'Submitted — select Quote 1, 2, or 3 in HR Approval'
                     }
                     icon={ClipboardList}
                     iconBg="bg-blue-50"
                     iconColor="text-blue-600"
-                    className={`w-full ${assignmentPending ? '' : 'opacity-[0.97]'}`}
+                    className={`w-full ${canEditInitiateFields ? '' : 'opacity-[0.97]'}`}
                 >
                     <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleTireChangeFormFieldCell
@@ -653,21 +667,6 @@ export default function VehicleTireChangeDetailForm({
                             warrantyExpiryLabel={formatWarrantyExpiryFromAsset(asset)}
                             fieldInputClassName={tireFieldInput}
                         />
-
-                        <VehicleTireChangeFormFieldCell
-                            label="Description (optional)"
-                            accentClass={accent(0)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <textarea
-                                className={`${tireFieldInput} min-h-[72px] resize-y`}
-                                value={formData.serviceIssue || ''}
-                                onChange={(e) => set('serviceIssue', e.target.value)}
-                                disabled={fieldsDisabled}
-                                placeholder="Optional notes"
-                                rows={3}
-                            />
-                        </VehicleTireChangeFormFieldCell>
 
                         {isOilPayablePaymentMode(formData.amountMode) ? (
                         <>
@@ -1068,7 +1067,24 @@ export default function VehicleTireChangeDetailForm({
                         </div>
                     </div>
 
-                    {assignmentPending && canEditAssignment && missingFields.length > 0 ? (
+                    <div className="mt-4">
+                        <VehicleTireChangeFormFieldCell
+                            label="Description (optional)"
+                            accentClass={accent(0)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <textarea
+                                className={`${tireFieldInput} min-h-[88px] w-full resize-y`}
+                                value={formData.serviceIssue || ''}
+                                onChange={(e) => set('serviceIssue', e.target.value)}
+                                disabled={fieldsDisabled}
+                                placeholder="Optional notes"
+                                rows={3}
+                            />
+                        </VehicleTireChangeFormFieldCell>
+                    </div>
+
+                    {canEditInitiateFields && missingFields.length > 0 ? (
                         <p className="mt-4 text-xs text-amber-700">
                             Still required: {missingFields.join(', ')}
                         </p>
@@ -1099,6 +1115,27 @@ export default function VehicleTireChangeDetailForm({
                                 className={tireBtnPrimary}
                             >
                                 {saving ? 'Submitting…' : 'Submit for Approval'}
+                            </button>
+                        </div>
+                    ) : null}
+
+                    {!assignmentPending && initiateStageEditable && canEditAssignment ? (
+                        <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
+                            <button
+                                type="button"
+                                disabled={saving}
+                                onClick={handleCancel}
+                                className={tireBtnSecondary}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={saving || missingFields.length > 0}
+                                onClick={() => void handleSaveUpdates()}
+                                className={tireBtnPrimary}
+                            >
+                                {saving ? 'Saving…' : 'Save Changes'}
                             </button>
                         </div>
                     ) : null}

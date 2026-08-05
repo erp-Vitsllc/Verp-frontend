@@ -5,6 +5,7 @@ import {
     formatVehicleExpiryCountdown,
     isVehicleExpiryDatePast,
 } from '../utils/vehicleExpirySources';
+import { formatVehicleProfilePendingStatusText } from '../utils/resolveVehicleProfilePendingItems';
 
 /**
  * Blue fleet summary: expiry countdowns on the left, assignment actions on the right
@@ -15,6 +16,7 @@ export default function VehicleExpirySummaryCard({
     insuranceExpirySrc,
     warrantyExpirySrc,
     serviceExpirySrc,
+    pendingServiceItems = [],
     actionButtons = [],
     showExpirySummary = true,
     actionsAtTop = false,
@@ -31,6 +33,13 @@ export default function VehicleExpirySummaryCard({
         hasDate: date != null && String(date).trim() !== '',
         expired: isVehicleExpiryDatePast(date),
     }));
+
+    const servicePendingLines = (Array.isArray(pendingServiceItems) ? pendingServiceItems : [])
+        .map((item) => ({
+            key: `${item?.kind}-${item?.label}-${item?.pendingFor}`,
+            text: formatVehicleProfilePendingStatusText(item),
+        }))
+        .filter((line) => line.text);
 
     const hasActions = actionButtons.length > 0;
     const showExpiry = showExpirySummary !== false;
@@ -78,6 +87,20 @@ export default function VehicleExpirySummaryCard({
                                 </span>
                             </div>
                         ))}
+
+                        {servicePendingLines.length > 0 ? (
+                            <div className="mt-1 flex flex-col gap-1 border-t border-white/25 pt-1.5">
+                                {servicePendingLines.map((line) => (
+                                    <div
+                                        key={line.key}
+                                        className="rounded-md bg-white/15 px-1.5 py-0.5 text-[10px] sm:text-[11px] font-black leading-snug text-white tracking-tight"
+                                        title={line.text}
+                                    >
+                                        {line.text}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                 ) : null}
 

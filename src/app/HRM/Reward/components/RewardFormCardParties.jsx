@@ -171,10 +171,11 @@ export default function RewardFormCardParties({
     const hasZohoPosted = Boolean(
         String(reward?.zohoExpenseId || '').trim() || String(reward?.zohoJournalId || '').trim()
     );
+    const rewardStatus = String(reward?.rewardStatus || reward?.approvalStatus || '');
     const needsZohoRetry =
-        ['Approved (Paid)', 'Paid'].includes(String(reward?.rewardStatus || reward?.approvalStatus || '')) &&
         !hasZohoPosted &&
-        Boolean(zohoSyncError);
+        Boolean(zohoSyncError) &&
+        ['Pending Accounts', 'Approved (Paid)', 'Paid'].includes(rewardStatus);
     const dropdownsEnabled = Boolean(canEditPartyPayables || needsZohoRetry);
     const typeLabel = String(reward?.rewardType || 'Reward').trim() || 'Reward';
     const partyName =
@@ -537,7 +538,7 @@ export default function RewardFormCardParties({
             return { label: 'Posted to Zoho (not paid)', className: 'text-emerald-700' };
         }
         if ((status === 'Approved (Paid)' || status === 'Paid' || (total > 0 && paid >= total - 0.01)) && syncErr) {
-            return { label: 'Paid — Zoho failed', className: 'text-red-700' };
+            return { label: 'Zoho failed — not Paid', className: 'text-red-700' };
         }
         if (status === 'Approved (Paid)' || status === 'Paid' || (total > 0 && paid >= total - 0.01)) {
             return { label: 'Paid / Posted', className: 'text-emerald-700' };
@@ -774,8 +775,9 @@ export default function RewardFormCardParties({
 
             {needsZohoRetry ? (
                 <div className="mb-3 text-[10px] text-red-800 bg-red-50 rounded-lg px-3 py-2">
-                    <strong>Zoho journal not created.</strong> {zohoSyncError} Fix Expense Account /
-                    Paid Through, then record payment again from Payment Details.
+                    <strong>Zoho expense not created — status is not Paid.</strong> {zohoSyncError}{' '}
+                    Fix Expense Account / Paid Through, save, then Approve again. The payment schedule
+                    turns green only after Zoho succeeds.
                 </div>
             ) : null}
 

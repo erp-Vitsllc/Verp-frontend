@@ -257,6 +257,17 @@ export function isOilServiceAssignmentPending(remark = {}) {
     return status === 'draft' || status === 'pending';
 }
 
+/**
+ * HR, Accounts Approve, and Zoho Make Payment stages — Initiate Service stays editable.
+ * Covers oil cash (pending_accounts) and shop services (pending_billing for Zoho bill).
+ */
+export function isVehicleServiceInitiateEditableStage(stage) {
+    const s = String(stage || '')
+        .toLowerCase()
+        .trim();
+    return s === 'pending_hr' || s === 'pending_accounts' || s === 'pending_billing';
+}
+
 export function isOilServiceAssignmentSubmitted(remark = {}) {
     return String(remark?.requestStatus || '').toLowerCase() === 'submitted';
 }

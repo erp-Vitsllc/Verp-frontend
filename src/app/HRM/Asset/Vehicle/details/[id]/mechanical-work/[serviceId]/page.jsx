@@ -25,6 +25,7 @@ import {
     canUserCreateOrInitiateVehicleService,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
+    isVehicleServiceInitiateEditableStage,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
 import { pickFlowchartHrRow, pickFlowchartAccountsRow } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflow';
 import {
@@ -160,8 +161,7 @@ function VehicleMechanicalWorkDetailPageContent() {
         [asset, currentUser],
     );
 
-    /** Pending: anyone may edit + initiate. After initiate: managers only for later steps. */
-    const canEditAssignment = assignmentPending ? canCreateOrInitiate : canManageMechanicalWork;
+
 
     const isFlowchartHr = useMemo(() => {
         const hrRow = pickFlowchartHrRow(flowchartRows);
@@ -201,6 +201,18 @@ function VehicleMechanicalWorkDetailPageContent() {
         () => resolveMechanicalWorkWorkflowStage(asset, serviceId, service),
         [asset, serviceId, service],
     );
+
+    /** Pending: create/initiate users. At HR/Accounts/Zoho bill: those roles or managers may edit Initiate. */
+    const canEditAssignment = assignmentPending
+        ? Boolean(
+              canCreateOrInitiate ||
+                  (isVehicleServiceInitiateEditableStage(mechanicalWorkflowStage) &&
+                      (canManageMechanicalWork || isFlowchartHr || isFlowchartAccounts)),
+          )
+        : isVehicleServiceInitiateEditableStage(mechanicalWorkflowStage)
+          ? Boolean(canManageMechanicalWork || isFlowchartHr || isFlowchartAccounts)
+          : canManageMechanicalWork;
+
 
     const canRespondToMechanicalWorkflow = useMemo(() => {
         if (!asset || mechanicalWorkflowStage !== MECHANICAL_WORK_WORKFLOW_STAGES.HR) return false;
@@ -308,6 +320,7 @@ function VehicleMechanicalWorkDetailPageContent() {
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}
                                 canEditAssignment={canEditAssignment}
+                                workflowStage={mechanicalWorkflowStage}
                                 liveHrReview={liveHrReview}
                                 onSaved={() => {
                                     void load({ silent: true, deferServiceSigning: true });

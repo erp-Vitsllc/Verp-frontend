@@ -1,11 +1,12 @@
 ﻿'use client';
 
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Upload, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import VehicleCarDrivenBySelect from './VehicleCarDrivenBySelect';
 import { applyCarDrivenBySelection } from '../utils/vehicleCarDrivenBySelect';
+import { extractStorageReference, loadStorageFileBlob } from '@/utils/attachmentPreview';
 import {
     ERP_JPEG_ACCEPT,
     ERP_PDF_ACCEPT,
@@ -116,7 +117,49 @@ function UploadField({ label, fileName, existingUrl, onChange, error, accept = E
 
 function PhotoStrip({ existingImages = [], newImages = [], onAdd, onPreview }) {
     const slots = 7;
+    const [resolvedExistingSrc, setResolvedExistingSrc] = useState({});
     const cells = [];
+
+    useEffect(() => {
+        const existing = existingImages || [];
+        if (!existing.length) {
+            setResolvedExistingSrc({});
+            return undefined;
+        }
+
+        let cancelled = false;
+        const objectUrls = [];
+
+        (async () => {
+            const next = {};
+            for (let idx = 0; idx < existing.length; idx += 1) {
+                const img = existing[idx];
+                const key = `existing-${idx}`;
+                const inline = String(img?.url || img?.data || '').trim();
+                if (inline.startsWith('data:') || inline.startsWith('blob:')) {
+                    next[key] = inline;
+                    continue;
+                }
+                const storageKey = extractStorageReference(img)?.key;
+                if (!storageKey) continue;
+                try {
+                    const blob = await loadStorageFileBlob(storageKey);
+                    const objectUrl = URL.createObjectURL(blob);
+                    objectUrls.push(objectUrl);
+                    next[key] = objectUrl;
+                } catch {
+                    /* storage key could not be loaded */
+                }
+            }
+            if (!cancelled) setResolvedExistingSrc(next);
+        })();
+
+        return () => {
+            cancelled = true;
+            objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        };
+    }, [existingImages]);
+
     if (typeof onAdd === 'function') {
         cells.push(
             <button
@@ -131,7 +174,7 @@ function PhotoStrip({ existingImages = [], newImages = [], onAdd, onPreview }) {
         );
     }
     (existingImages || []).forEach((img, idx) => {
-        const src = img?.url || '';
+        const src = resolvedExistingSrc[`existing-${idx}`] || '';
         if (!src) return;
         cells.push(
             <button
@@ -554,12 +597,6 @@ export default function VehicleAccidentRepairForm({
             <section className="rounded-lg p-4 sm:p-5" style={{ backgroundColor: '#d4efd4' }}>
                 <p className={sectionTitle}>Garage/Service Details</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-                    <UploadField
-                        label="Claim Acknowledge"
-                        fileName={formData.quotation2Name}
-                        existingUrl={formData.existingQuotation2Url}
-                        onChange={(e) => handleFileChange(e, 'quotation2')}
-                    />
                     <div>
                         <span className={fieldLabel}>Garage Location</span>
                         <input

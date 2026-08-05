@@ -8,6 +8,7 @@ import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { DatePicker } from '@/components/ui/date-picker';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import VehicleOilServiceLockedSection from './VehicleOilServiceLockedSection';
+import VehicleGaragePaymentToGarageFields from './VehicleGaragePaymentToGarageFields';
 import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import {
@@ -27,6 +28,10 @@ import {
     getOilServiceScheduleMissingFields,
     isOilServiceScheduleFormComplete,
 } from '../utils/vehicleOilServiceDetailForm';
+import {
+    paymentToGarageAttachmentBody,
+    paymentToGarageRemarkPatch,
+} from '../utils/vehicleGaragePaymentToGarageFields';
 
 const fieldInput =
     'w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed';
@@ -123,6 +128,8 @@ export default function VehicleOilServiceScheduleCard({
         if (!canUpdateSchedule || !vehicleId || !serviceId) return;
         setSaving(true);
         try {
+            const paymentBody = paymentToGarageAttachmentBody(formData);
+            const paymentRemark = paymentToGarageRemarkPatch(formData);
             const { data } = await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}/oil-dates`, {
                 serviceStartDate: formData.serviceStartDate || '',
                 serviceEndDate: formData.serviceEndDate || '',
@@ -131,8 +138,13 @@ export default function VehicleOilServiceScheduleCard({
                 garageContact: formData.garageContact || '',
                 zohoVendorId: formData.zohoVendorId || '',
                 serviceIssue: formData.serviceIssue || '',
+                paymentToGarage: paymentRemark.paymentToGarage,
+                paymentToGarageAmount: paymentRemark.paymentToGarageAmount,
+                scheduleDescription: paymentRemark.scheduleDescription || formData.scheduleDescription || '',
+                remark: JSON.stringify(paymentRemark),
+                ...paymentBody,
             });
-            toast({ title: 'Schedule updated', description: 'Garage and dates were saved.' });
+            toast({ title: 'Schedule updated', description: 'Garage, payment, and dates were saved.' });
             if (typeof onUpdated === 'function') onUpdated(data?.asset || asset);
         } catch (error) {
             toast({
@@ -255,6 +267,17 @@ export default function VehicleOilServiceScheduleCard({
                         disabled={fieldsDisabled}
                     />
                 </FormFieldCell>
+                <VehicleGaragePaymentToGarageFields
+                    formData={formData}
+                    setField={set}
+                    setFormData={setFormData}
+                    fieldsDisabled={fieldsDisabled}
+                    FieldCell={FormFieldCell}
+                    accent={accent}
+                    fieldMinHeightPx={fieldMinHeightPx}
+                    fieldClassName={fieldInput}
+                    showDescription={false}
+                />
             </div>
 
             <div className="mt-4 border-t border-gray-100 pt-4">

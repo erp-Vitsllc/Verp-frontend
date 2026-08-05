@@ -33,6 +33,7 @@ import {
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
 import VehicleGarageBillingFields from './VehicleGarageBillingFields';
+import VehicleGaragePaymentToGarageFields from './VehicleGaragePaymentToGarageFields';
 
 export default function VehicleBodyWorkGarageCard({
     asset,
@@ -220,6 +221,16 @@ export default function VehicleBodyWorkGarageCard({
                     fieldMinHeightPx={fieldMinHeightPx}
                     fieldClassName={bodyFieldSelect}
                     amountReadOnly={approvedAmount > 0}
+                />
+                <VehicleGaragePaymentToGarageFields
+                    formData={formData}
+                    setField={set}
+                    setFormData={setFormData}
+                    fieldsDisabled={fieldsDisabled}
+                    FieldCell={VehicleBodyWorkFormFieldCell}
+                    accent={accent}
+                    fieldMinHeightPx={fieldMinHeightPx}
+                    fieldClassName={bodyFieldSelect}
                 />
             </div>
 

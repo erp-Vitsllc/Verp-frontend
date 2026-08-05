@@ -577,6 +577,19 @@ export function buildBodyWorkDetailSubmitBody(formData, { keepPending = true } =
     remark.companyPayPercent = Number(normalized.companyPayPercent || 0);
     remark.employeePayPercent = Number(normalized.employeePayPercent || 0);
     remark.estimatedCost = Number(normalized.estimatedCost || 0);
+    {
+        const cost = Number(normalized.estimatedCost || 0);
+        const cPct = Number(normalized.companyPayPercent || 0);
+        const ePct = Number(normalized.employeePayPercent || 0);
+        const companyPayAmount = Number.isFinite(cost) ? Math.round((cost * cPct) / 100) : 0;
+        const employeePayAmount = Number.isFinite(cost) ? Math.round((cost * ePct) / 100) : 0;
+        remark.companyPayAmount = companyPayAmount;
+        remark.employeePayAmount = employeePayAmount;
+        // Keep HR absolute mirrors aligned with Initiate edits so pay display is not stuck.
+        remark.hrReviewApprovedAmount = cost || undefined;
+        remark.hrReviewCompanyPay = companyPayAmount;
+        remark.hrReviewEmployeePay = employeePayAmount;
+    }
     remark.employeeLiabilityRows = (normalized.employeeLiabilityRows || []).map((row) => ({
         employeeId: row.employeeId,
         paidAmount: Number(row.paidAmount || 0),

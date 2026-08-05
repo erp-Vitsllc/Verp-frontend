@@ -3,19 +3,27 @@
 import { format } from 'date-fns';
 import { Check, X, History } from 'lucide-react';
 
+function personName(person, fallback = '') {
+    if (!person) return fallback;
+    if (person.name) return String(person.name).trim();
+    const first = person.firstName || '';
+    const last = person.lastName || '';
+    const full = `${first} ${last}`.trim();
+    return full || fallback;
+}
+
 function buildRewardSteps(reward) {
     const type = (reward.rewardType || '').toLowerCase();
     const isCashOrGift = type.includes('cash') || type.includes('gift');
     const steps = [
         { id: 1, label: 'Created', role: 'Created' },
         { id: 2, label: 'Requester', role: 'Requester' },
-        { id: 3, label: 'Reportee', role: 'Manager' },
+        { id: 3, label: 'Primary Reportee', role: 'Manager' },
         { id: 4, label: 'Management', role: 'Management' },
     ];
-    // Cash/Gift: Accounts after Management (expense + paid-through → Zoho Expense)
+    // Cash/Gift: Accounts after Management (expense + paid-through → Zoho Expense → Paid)
     if (isCashOrGift) {
         steps.push({ id: 5, label: 'Accounts', role: 'Accounts' });
-        steps.push({ id: 6, label: 'Payment', role: 'Payment' });
     }
     return { steps, isCashOrGift };
 }
@@ -28,7 +36,7 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
 
     const isGreen = (() => {
         if (isFullyPaid) return true;
-        if (reward.rewardStatus === 'Approved' && step.role !== 'Payment') return true;
+        if (reward.rewardStatus === 'Approved') return true;
         if (step.id === 1) return true;
         if (step.id === 2) return (reward.rewardStatus || '').toLowerCase() !== 'draft';
         if (step.id === 3) return workflow.some((w) => w.role === 'Manager' && w.status === 'Approved');
@@ -48,7 +56,6 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
                 ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus)
             );
         }
-        if (isCashOrGift && step.role === 'Payment') return isFullyPaid;
         return false;
     })();
 
@@ -73,50 +80,50 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
                 ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus)
             );
         }
-        if (isCashOrGift && nextId === 6) {
-            return ['Approved', 'Approved (Paid)'].includes(reward.rewardStatus);
-        }
         return false;
     })();
 
     let stepName = '';
     if (step.id === 1) stepName = 'System';
     else if (step.id === 2) {
-        const creator = reward.createdBy;
-        stepName = creator
-            ? creator.name ||
-              (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester')
-            : 'Unknown';
+        stepName = personName(reward.createdBy, 'Requester');
     } else if (step.id === 3) {
         const managerStep = workflow.find((w) => w.role === 'Manager');
-        if (managerStep?.assignedTo?.firstName) {
-            stepName = `${managerStep.assignedTo.firstName} ${managerStep.assignedTo.lastName || ''}`.trim();
-        } else if (managerStep?.assignedTo?.name) stepName = managerStep.assignedTo.name;
-        else if (employee?.primaryReportee?.firstName) {
-            stepName = `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}`.trim();
-        } else stepName = 'Reportee';
+        // Prefer primary reportee from employee profile; workflow assignee after action
+        if (managerStep?.status === 'Approved') {
+            stepName =
+                personName(managerStep.assignedTo) ||
+                personName(employee?.primaryReportee, 'Primary Reportee');
+        } else {
+            stepName =
+                personName(employee?.primaryReportee) ||
+                personName(managerStep?.assignedTo, 'Primary Reportee');
+        }
     } else if (step.id === 4) {
         const managementStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
-        if (managementStep?.assignedTo?.firstName) {
-            stepName = `${managementStep.assignedTo.firstName} ${managementStep.assignedTo.lastName || ''}`.trim();
-        } else if (reward.approvedBy) {
+        const hodName =
+            reward.ceoName && reward.ceoName !== 'Unknown' ? String(reward.ceoName).trim() : '';
+        // Until Management acts, show FlowChart Management HOD — avoid wrong workflow fallbacks
+        if (managementStep?.status === 'Approved') {
             stepName =
-                reward.approvedBy.name ||
-                (reward.approvedBy.firstName
-                    ? `${reward.approvedBy.firstName} ${reward.approvedBy.lastName || ''}`.trim()
-                    : '');
-        } else if (reward.ceoName && reward.ceoName !== 'Unknown') stepName = reward.ceoName;
-        else stepName = 'Management';
+                personName(managementStep.assignedTo) ||
+                personName(reward.approvedBy) ||
+                hodName ||
+                'Management';
+        } else {
+            stepName = hodName || personName(managementStep?.assignedTo, 'Management');
+        }
     } else if (isCashOrGift && step.id === 5) {
         const accountsStep = workflow.find((w) => w.role === 'Accounts');
-        if (accountsStep?.assignedTo?.firstName) {
-            stepName = `${accountsStep.assignedTo.firstName} ${accountsStep.assignedTo.lastName || ''}`.trim();
-        } else if (accountsStep?.assignedTo?.name) stepName = accountsStep.assignedTo.name;
-        else if (reward.accountsHODName && reward.accountsHODName !== 'Unknown') {
-            stepName = reward.accountsHODName;
-        } else stepName = 'Accounts HOD';
-    } else if (isCashOrGift && step.role === 'Payment') {
-        stepName = reward.rewardStatus === 'Approved (Paid)' ? 'Paid' : 'Accounts';
+        const hodName =
+            reward.accountsHODName && reward.accountsHODName !== 'Unknown'
+                ? String(reward.accountsHODName).trim()
+                : '';
+        if (accountsStep?.status === 'Approved') {
+            stepName = personName(accountsStep.assignedTo) || hodName || 'Accounts HOD';
+        } else {
+            stepName = hodName || personName(accountsStep?.assignedTo, 'Accounts HOD');
+        }
     }
 
     let dateValue = null;
@@ -162,12 +169,18 @@ function getStepMeta(step, reward, employee, workflow, isCashOrGift, currentActi
             if (start && !end && currentActive === 5) isLive = true;
         } else if (isCashOrGift && step.id === 5) {
             const accountsStep = workflow.find((w) => w.role === 'Accounts');
-            start = accountsStep?.actionedAt;
-            if (start && reward.rewardStatus === 'Approved') isLive = false;
+            start = accountsStep?.actionedAt || accountsStep?.assignedAt;
+            if (
+                start &&
+                (reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)')
+            ) {
+                isLive = false;
+            }
             end =
                 reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)'
                     ? accountsStep?.actionedAt || reward.approvedDate || reward.updatedAt
                     : null;
+            if (start && !end && currentActive === 5) isLive = true;
         }
 
         const effectiveEnd = end || (isLive ? new Date() : null);
@@ -207,8 +220,8 @@ export default function RewardTrackerPanel({ reward, employee, orientation = 'ho
     const workflow = reward.workflow || [];
     const { steps, isCashOrGift } = buildRewardSteps(reward);
     const internalStatus = reward.approvalStatus || reward.rewardStatus;
-    // Cash/Gift: Created→Requester→Reportee→Management→Accounts→Payment
-    // Certificate: Created→Requester→Reportee→Management
+    // Cash/Gift: Created → Requester → Primary Reportee → Management → Accounts (Paid)
+    // Certificate: Created → Requester → Primary Reportee → Management
     const statusMap = {
         Draft: 2,
         Pending: 3,
@@ -216,7 +229,7 @@ export default function RewardTrackerPanel({ reward, employee, orientation = 'ho
         'Pending Authorization': 4,
         'Pending Accounts': isCashOrGift ? 5 : 4,
         Approved: isCashOrGift ? 6 : 5,
-        'Approved (Paid)': isCashOrGift ? 7 : 5,
+        'Approved (Paid)': isCashOrGift ? 6 : 5,
     };
     const currentActive = statusMap[internalStatus] || 1;
     const isVertical = orientation === 'vertical';

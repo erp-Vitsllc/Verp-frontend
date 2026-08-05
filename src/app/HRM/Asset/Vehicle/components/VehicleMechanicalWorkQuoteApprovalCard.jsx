@@ -635,13 +635,22 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                                         ? `AED ${Number(row.amount).toLocaleString()}`
                                         : null;
                                 return (
-                                    <button
+                                    <div
                                         key={row.key}
-                                        type="button"
                                         role="radio"
                                         aria-checked={selected}
-                                        disabled={!canEdit && !selected}
-                                        onClick={() => selectQuote(row)}
+                                        tabIndex={canEdit || selected ? 0 : -1}
+                                        onClick={() => {
+                                            if (!canEdit) return;
+                                            selectQuote(row);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (!canEdit) return;
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                selectQuote(row);
+                                            }
+                                        }}
                                         className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                                             selected
                                                 ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-200'
@@ -689,7 +698,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                                                 View
                                             </button>
                                         ) : null}
-                                    </button>
+                                    </div>
                                 );
                             })}
                         </div>

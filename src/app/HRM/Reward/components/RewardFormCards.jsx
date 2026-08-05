@@ -17,7 +17,6 @@ export default function RewardFormCards({
     formatDate,
     onPaymentSuccess,
     canEditPartyPayables = false,
-    allowPay = false,
     onPartyPayableChange,
     onPartyPayableSaved,
 }) {
@@ -32,7 +31,6 @@ export default function RewardFormCards({
                 <RewardPaymentTab
                     reward={reward}
                     onPaymentSuccess={onPaymentSuccess}
-                    allowPay={Boolean(allowPay)}
                 />
             </div>
             <div className="w-full lg:w-1/2 min-w-0 flex flex-col gap-6 lg:sticky lg:top-4">

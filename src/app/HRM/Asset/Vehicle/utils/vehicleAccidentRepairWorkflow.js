@@ -46,7 +46,8 @@ export function isAccidentRepairGarageSubmitted(asset, service) {
 export function canEditAccidentRepairGarage(stage, canManageAccidentRepair, { asset, service } = {}) {
     if (!canManageAccidentRepair) return false;
     if (asset && service && isAccidentRepairGarageSubmitted(asset, service)) return false;
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return false;
+    // Parallel with HR after Initiate (oil cash style).
+    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return true;
     if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
     if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS) return true;
     return false;
