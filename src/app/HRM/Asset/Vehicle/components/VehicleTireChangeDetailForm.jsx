@@ -661,6 +661,7 @@ export default function VehicleTireChangeDetailForm({
                         </VehicleTireChangeFormFieldCell>
 
                         {isOilPayablePaymentMode(formData.amountMode) ? (
+                        <>
                         <div className={`${costRowGridClass} ${gapClass}`}>
                                     <VehicleTireChangeFormFieldCell
                                         label="Estimated Cost"
@@ -992,8 +993,9 @@ export default function VehicleTireChangeDetailForm({
                                         existingUrl={formData.existingQuotation3Url}
                                     />
                                 </VehicleTireChangeFormFieldCell>
-                    </div>
+                        </>
                         ) : null}
+                    </div>
 
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">

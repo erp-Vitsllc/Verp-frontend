@@ -693,6 +693,7 @@ export default function VehicleBodyWorkDetailForm({
                         </VehicleBodyWorkFormFieldCell>
 
                         {isOilPayablePaymentMode(formData.amountMode) ? (
+                        <>
                         <div className={`${costRowGridClass} ${gapClass}`}>
                                     <VehicleBodyWorkFormFieldCell
                                         label="Estimated Cost"
@@ -1027,8 +1028,9 @@ export default function VehicleBodyWorkDetailForm({
                                         amount={formData.quotation3Amount || ''}
                                     />
                                 </VehicleBodyWorkFormFieldCell>
-                    </div>
+                        </>
                         ) : null}
+                    </div>
 
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
