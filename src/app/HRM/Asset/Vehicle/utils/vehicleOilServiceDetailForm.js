@@ -1,4 +1,5 @@
 import { validateVehicleServiceForm, mapServiceRecordToFormData, buildAddServiceBody } from '../components/vehicleServicePayload';
+import { resolveVehicleServiceAssignedOwnerId } from './vehicleServiceAssignedOwner';
 import { formatWarrantyExpiryFromAsset, resolveDefaultPaymentMode } from './vehicleOilServiceWarranty';
 import {
     garageBillingAttachmentBody,
@@ -90,7 +91,7 @@ export const OIL_SERVICE_VENDOR_OPTIONS = [
 /** Static garage / vendor list for oil service assignment (API later). */
 export const OIL_SERVICE_GARAGE_VENDOR_OPTIONS = OIL_SERVICE_VENDOR_OPTIONS;
 
-export function buildOilServiceDetailFormState(service, asset, scheduleRow) {
+export function buildOilServiceDetailFormState(service, asset, scheduleRow, { flowchartRows = [] } = {}) {
     const base = mapServiceRecordToFormData(service, asset?.assignedTo);
     const remark = (() => {
         try {
@@ -102,6 +103,11 @@ export function buildOilServiceDetailFormState(service, asset, scheduleRow) {
 
     const assigneeId = asset?.assignedTo?._id || asset?.assignedTo;
     const assigneeIdStr = assigneeId ? String(assigneeId) : '';
+    const defaultOwnerId = resolveVehicleServiceAssignedOwnerId(
+        asset,
+        flowchartRows,
+        remark.vehicleOwnerEmployeeId,
+    );
     const resolved = resolveOilPaymentFields(remark, base);
     const amountMode = resolved.amountMode || resolveDefaultPaymentMode(asset);
     const paymentMethod =
@@ -124,10 +130,7 @@ export function buildOilServiceDetailFormState(service, asset, scheduleRow) {
                   : asset?.currentKilometer != null
                     ? String(asset.currentKilometer)
                     : '',
-        vehicleOwnerEmployeeId:
-            remark.vehicleOwnerEmployeeId != null && String(remark.vehicleOwnerEmployeeId).trim() !== ''
-                ? String(remark.vehicleOwnerEmployeeId)
-                : assigneeIdStr,
+        vehicleOwnerEmployeeId: defaultOwnerId || assigneeIdStr,
         carDrivenByEmployeeId:
             remark.carDrivenByEmployeeId != null && String(remark.carDrivenByEmployeeId).trim() !== ''
                 ? String(remark.carDrivenByEmployeeId)

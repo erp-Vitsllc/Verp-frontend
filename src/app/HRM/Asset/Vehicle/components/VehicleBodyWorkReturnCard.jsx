@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ClipboardCheck, Loader2, Plus, Upload } from 'lucide-react';
+import { ClipboardCheck, Loader2, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import VehicleServiceLockedSection from './VehicleServiceLockedSection';
+import VehicleServiceNewConditionPhotoStrip from './VehicleServiceNewConditionPhotoStrip';
 import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
@@ -47,8 +48,6 @@ import {
     filterErpUploadFiles,
     validateErpUploadFile,
 } from '@/utils/uploadFileTypes';
-
-const PHOTO_SLOTS = 8;
 
 function directConditionImageSrc(img) {
     const url = String(img?.url || img?.data || '').trim();
@@ -100,42 +99,6 @@ function UploadField({ label, fileName, existingUrl, disabled, onFile }) {
             {fileName ? <span className="text-[10px] text-gray-500 truncate max-w-full">{fileName}</span> : null}
         </div>
     );
-}
-
-function PhotoStrip({ existingImages = [], newImages = [], resolvedExistingSrc = {}, disabled, onAdd, onPreview }) {
-    const cells = [];
-    if (!disabled && typeof onAdd === 'function') {
-        cells.push(
-            <button key="add" type="button" onClick={onAdd} className={tirePhotoAddBtn} aria-label="Add photo">
-                <Plus size={20} />
-            </button>,
-        );
-    }
-    (existingImages || []).forEach((img, idx) => {
-        const src = resolvedExistingSrc[`existing-${idx}`] || directConditionImageSrc(img);
-        if (!src) return;
-        cells.push(
-            <button key={`ex-${idx}`} type="button" onClick={() => onPreview(src)} className={tirePhotoThumb}>
-                <img src={src} alt="" className="w-full h-full object-cover" />
-            </button>,
-        );
-    });
-    (newImages || []).forEach((img, idx) => {
-        const mime = img?.mimeType || 'image/jpeg';
-        const src = img?.data ? `data:${mime};base64,${img.data}` : '';
-        if (!src) return;
-        cells.push(
-            <button key={`nw-${idx}`} type="button" onClick={() => onPreview(src)} className={tirePhotoThumb}>
-                <img src={src} alt="" className="w-full h-full object-cover" />
-            </button>,
-        );
-    });
-    while (cells.length < PHOTO_SLOTS) {
-        cells.push(
-            <div key={`empty-${cells.length}`} className={`${tirePhotoThumb} bg-gray-50 border-dashed`} />,
-        );
-    }
-    return <div className="flex flex-wrap gap-2 items-center">{cells.slice(0, PHOTO_SLOTS)}</div>;
 }
 
 export default function VehicleBodyWorkReturnCard({
@@ -271,10 +234,19 @@ export default function VehicleBodyWorkReturnCard({
                     ...prev,
                     newConditionImages: [
                         ...(prev.newConditionImages || []),
-                        { name: f.name, data: base64, mimeType: f.type || 'image/jpeg' },
+                        { name: f.name, data: base64, mimeType: f.type || 'image/jpeg', bodyPartKey: '' },
                     ],
                 }));
             });
+        });
+    };
+
+    const setNewConditionBodyPart = (index, bodyPartKey) => {
+        setFormData((prev) => {
+            const list = [...(prev.newConditionImages || [])];
+            if (!list[index]) return prev;
+            list[index] = { ...list[index], bodyPartKey: bodyPartKey || '' };
+            return { ...prev, newConditionImages: list };
         });
     };
 
@@ -437,14 +409,21 @@ export default function VehicleBodyWorkReturnCard({
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                             New Condition Photos
                         </span>
+                        <p className="mt-1 text-[10px] text-gray-500">
+                            After upload, choose Replace to — each handover body part can be selected only once.
+                        </p>
                         <div className="mt-2">
-                            <PhotoStrip
+                            <VehicleServiceNewConditionPhotoStrip
                                 existingImages={formData.existingNewConditionImages}
                                 newImages={formData.newConditionImages}
                                 resolvedExistingSrc={resolvedExistingPhotoSrc}
                                 disabled={fieldsDisabled}
+                                photoAddBtnClass={tirePhotoAddBtn}
+                                photoThumbClass={tirePhotoThumb}
+                                fieldSelectClass={tireFieldSelect}
                                 onAdd={() => photoInputRef.current?.click()}
                                 onPreview={setLightboxSrc}
+                                onBodyPartChange={setNewConditionBodyPart}
                             />
                             <input
                                 ref={photoInputRef}

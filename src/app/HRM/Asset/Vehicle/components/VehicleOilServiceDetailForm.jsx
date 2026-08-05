@@ -24,6 +24,11 @@ import {
     isOilServiceScheduledWaiting,
 } from '../utils/vehicleOilServiceAccess';
 import {
+    resolveDefaultVehicleServiceAssignedOwnerLabel,
+    resolveFlowchartAdminEmployeeRef,
+    resolveVehicleServiceAssignedOwnerId,
+} from '../utils/vehicleServiceAssignedOwner';
+import {
     formatWarrantyExpiryFromAsset,
 } from '../utils/vehicleOilServiceWarranty';
 import {
@@ -351,13 +356,16 @@ export default function VehicleOilServiceDetailForm({
     onDraftStateChange,
     canEditAssignment = true,
     canEditServiceDates = false,
+    flowchartRows = [],
     className = '',
 }) {
     const { toast } = useToast();
     const [oilTypes, setOilTypes] = useState([DEFAULT_OIL_SERVICE_TYPE]);
     const [saving, setSaving] = useState(false);
     const [mounted, setMounted] = useState(false);
-    const [formData, setFormData] = useState(() => buildOilServiceDetailFormState(service, asset, scheduleRow));
+    const [formData, setFormData] = useState(() =>
+        buildOilServiceDetailFormState(service, asset, scheduleRow, { flowchartRows }),
+    );
 
     useEffect(() => {
         setMounted(true);
@@ -369,8 +377,21 @@ export default function VehicleOilServiceDetailForm({
     const fieldsDisabled = !assignmentPending || saving || !canEditAssignment || initiateDone;
 
     useEffect(() => {
-        setFormData(buildOilServiceDetailFormState(service, asset, scheduleRow));
-    }, [service?._id, service?.updatedAt, service?.remark, asset?._id, asset?.assignedTo, scheduleRow]);
+        setFormData(buildOilServiceDetailFormState(service, asset, scheduleRow, { flowchartRows }));
+    }, [service?._id, service?.updatedAt, service?.remark, asset?._id, asset?.assignedTo, scheduleRow, flowchartRows]);
+
+    // When flowchart loads after first paint, fill Admin Officer if still unassigned.
+    useEffect(() => {
+        if (!assignmentPending || initiateDone) return;
+        const saved = String(remark.vehicleOwnerEmployeeId || '').trim();
+        if (saved) return;
+        const nextId = resolveVehicleServiceAssignedOwnerId(asset, flowchartRows, '');
+        if (!nextId) return;
+        setFormData((prev) => {
+            if (String(prev.vehicleOwnerEmployeeId || '').trim()) return prev;
+            return { ...prev, vehicleOwnerEmployeeId: nextId };
+        });
+    }, [assignmentPending, initiateDone, asset, flowchartRows, remark.vehicleOwnerEmployeeId]);
 
     const cashPaymentMode = isOilPayablePaymentMode(formData.amountMode);
 
@@ -437,11 +458,15 @@ export default function VehicleOilServiceDetailForm({
             );
         }
         const assignee = asset?.assignedTo;
-        if (assignee && typeof assignee === 'object') {
+        if (assignee && typeof assignee === 'object' && String(assignee._id || assignee.id || '') === String(id)) {
             return `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim() || assignee.employeeId || '—';
         }
-        return '—';
-    }, [asset?.assignedTo, licensedEmployees, formData.vehicleOwnerEmployeeId]);
+        const admin = resolveFlowchartAdminEmployeeRef(flowchartRows);
+        if (admin.id && String(admin.id) === String(id)) {
+            return admin.label;
+        }
+        return resolveDefaultVehicleServiceAssignedOwnerLabel(asset, flowchartRows);
+    }, [asset?.assignedTo, licensedEmployees, formData.vehicleOwnerEmployeeId, flowchartRows]);
 
     const oilTypeOptions = useMemo(() => {
         const set = new Set(oilTypes);

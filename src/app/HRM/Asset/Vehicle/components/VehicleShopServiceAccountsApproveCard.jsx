@@ -34,12 +34,15 @@ function resolveApprovedQuoteKey(remark = {}) {
     return '';
 }
 
-function quoteLabelFromRemark(remark) {
-    const key = resolveApprovedQuoteKey(remark);
+function quoteLabelFromKey(key, remark = {}) {
     if (key === 'q1') return 'Quote 1';
     if (key === 'q2') return 'Quote 2';
     if (key === 'q3') return 'Quote 3';
     return remark.approvedQuoteLabel || '—';
+}
+
+function quoteLabelFromRemark(remark) {
+    return quoteLabelFromKey(resolveApprovedQuoteKey(remark), remark);
 }
 
 function isAccountsApprovalDone(remark = {}, stage = '') {
@@ -66,6 +69,8 @@ export default function VehicleShopServiceAccountsApproveCard({
     assignmentPending = false,
     workflowStage = '',
     serviceTypeLabel = 'Service',
+    /** Live HR Approval draft — keeps Accounts totals in sync while HR edits. */
+    liveHrReview = null,
     onUpdated,
     className = '',
 }) {
@@ -82,15 +87,25 @@ export default function VehicleShopServiceAccountsApproveCard({
     });
 
     const amount =
+        Number(liveHrReview?.approvedAmount) ||
         Number(remark.hrReviewApprovedAmount) ||
         Number(remark.approvedAmount) ||
         Number(remark.estimatedCost) ||
         Number(service?.value) ||
         0;
-    const companyPay = Number(remark.hrReviewCompanyPay ?? remark.companyPay ?? 0);
-    const employeePay = Number(remark.hrReviewEmployeePay ?? remark.employeePay ?? 0);
-    const approvedQuoteKey = resolveApprovedQuoteKey(remark);
-    const quoteLabel = quoteLabelFromRemark(remark);
+    const companyPay =
+        liveHrReview?.companyPay != null && liveHrReview?.companyPay !== ''
+            ? Number(liveHrReview.companyPay) || 0
+            : Number(remark.hrReviewCompanyPay ?? remark.companyPay ?? 0);
+    const employeePay =
+        liveHrReview?.employeePay != null && liveHrReview?.employeePay !== ''
+            ? Number(liveHrReview.employeePay) || 0
+            : Number(remark.hrReviewEmployeePay ?? remark.employeePay ?? 0);
+    const approvedQuoteKey =
+        (['q1', 'q2', 'q3'].includes(liveHrReview?.approvedQuoteKey)
+            ? liveHrReview.approvedQuoteKey
+            : '') || resolveApprovedQuoteKey(remark);
+    const quoteLabel = quoteLabelFromKey(approvedQuoteKey, remark);
     const quoteUrl =
         remark.approvedQuoteUrl ||
         (approvedQuoteKey === 'q2'

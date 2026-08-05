@@ -20,6 +20,10 @@ import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import {
+    resolveFlowchartAdminEmployeeRef,
+    resolveVehicleServiceAssignedOwnerId,
+} from '../utils/vehicleServiceAssignedOwner';
+import {
     buildAccidentRepairDetailFormState,
     buildAccidentRepairDetailSubmitBody,
     getAccidentRepairDetailFormMissingFields,
@@ -40,6 +44,8 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
+import VehicleServicePaymentTypeMethodFields from './VehicleServicePaymentTypeMethodFields';
+import { formatWarrantyExpiryFromAsset } from '../utils/vehicleOilServiceWarranty';
 import { applyCarDrivenBySelection } from '../utils/vehicleCarDrivenBySelect';
 import {
     ERP_JPEG_ACCEPT,
@@ -130,6 +136,7 @@ export default function VehicleAccidentRepairDetailForm({
     draftSubmitRef,
     onDraftStateChange,
     canEditAssignment = true,
+    flowchartRows = [],
     className = '',
 }) {
     const router = useRouter();
@@ -141,7 +148,9 @@ export default function VehicleAccidentRepairDetailForm({
     const [viewerOpen, setViewerOpen] = useState(false);
     const [viewerStartIndex, setViewerStartIndex] = useState(0);
     const [resolvedExistingPhotoSrc, setResolvedExistingPhotoSrc] = useState({});
-    const [formData, setFormData] = useState(() => buildAccidentRepairDetailFormState(service, asset));
+    const [formData, setFormData] = useState(() =>
+        buildAccidentRepairDetailFormState(service, asset, { flowchartRows }),
+    );
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
@@ -152,6 +161,8 @@ export default function VehicleAccidentRepairDetailForm({
     const resolvedAssetControllerEmployeeId = normalizeControllerEmployeeId(
         assetController?._id || assetController?.id || assetController?.employeeId || assetControllerId,
     );
+
+    const adminOfficerRef = resolveFlowchartAdminEmployeeRef(flowchartRows);
 
     const assetControllerName = useMemo(() => {
         const toLabel = (emp) => {
@@ -196,8 +207,21 @@ export default function VehicleAccidentRepairDetailForm({
     }, [employees, resolvedAssetControllerEmployeeId]);
 
     useEffect(() => {
-        setFormData(buildAccidentRepairDetailFormState(service, asset));
-    }, [service?._id, service?.updatedAt, service?.remark, asset]);
+        setFormData(buildAccidentRepairDetailFormState(service, asset, { flowchartRows }));
+    }, [service?._id, service?.updatedAt, service?.remark, asset, flowchartRows]);
+
+    useEffect(() => {
+        if (!assignmentPending) return;
+        const saved = String(remark.vehicleOwnerEmployeeId || '').trim();
+        if (saved && saved !== ASSET_CONTROLLER_VALUE) return;
+        const nextId = resolveVehicleServiceAssignedOwnerId(asset, flowchartRows, '');
+        if (!nextId) return;
+        setFormData((prev) => {
+            const cur = String(prev.vehicleOwnerEmployeeId || '').trim();
+            if (cur && cur !== ASSET_CONTROLLER_VALUE) return prev;
+            return { ...prev, vehicleOwnerEmployeeId: nextId };
+        });
+    }, [assignmentPending, asset, flowchartRows, remark.vehicleOwnerEmployeeId]);
 
     useEffect(() => {
         const existing = formData.existingAccidentImages || [];
@@ -649,6 +673,9 @@ export default function VehicleAccidentRepairDetailForm({
                                 onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
                                 disabled={fieldsDisabled}
                             >
+                                {adminOfficerRef.id ? (
+                                    <option value={adminOfficerRef.id}>{adminOfficerRef.label}</option>
+                                ) : null}
                                 {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
                                     <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
                                 ) : null}
@@ -795,6 +822,36 @@ export default function VehicleAccidentRepairDetailForm({
                                 readOnly
                                 value={totalFines ? `${totalFines} AED` : ''}
                                 className={`${tireMoneyInput} bg-gray-50`}
+                            />
+                        </VehicleAccidentRepairFormFieldCell>
+                    </div>
+
+                    <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mt-2.5`}>
+                        <VehicleServicePaymentTypeMethodFields
+                            FieldCell={VehicleAccidentRepairFormFieldCell}
+                            accent={accent}
+                            fieldMinHeightPx={fieldMinHeightPx}
+                            formData={formData}
+                            onChange={(key, value) => set(key, value)}
+                            disabled={fieldsDisabled}
+                            warrantyExpiryLabel={formatWarrantyExpiryFromAsset(asset)}
+                            fieldInputClassName={tireFieldInput}
+                        />
+                    </div>
+
+                    <div className={`grid grid-cols-1 ${gapClass} mt-2.5`}>
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Description (optional)"
+                            accentClass={accent(0)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <textarea
+                                className={`${tireFieldInput} min-h-[72px] resize-y`}
+                                value={formData.serviceIssue || ''}
+                                onChange={(e) => set('serviceIssue', e.target.value)}
+                                disabled={fieldsDisabled}
+                                placeholder="Optional notes"
+                                rows={3}
                             />
                         </VehicleAccidentRepairFormFieldCell>
                     </div>

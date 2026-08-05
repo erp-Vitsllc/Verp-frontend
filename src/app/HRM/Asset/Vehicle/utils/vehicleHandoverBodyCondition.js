@@ -79,6 +79,7 @@ function pickViewBlock(source, key) {
                 ? block.photoSource
                 : null,
         userSelected: block.userSelected === true,
+        replacedByService: block.replacedByService === true,
     };
 }
 
@@ -183,6 +184,7 @@ export function inferBodyConditionPhotoSource(currentRow, previousRow) {
 /** True when the assignee explicitly chose Previous / New via Add (not auto-seeded). */
 export function isBodyConditionRowUserSelected(cur, previousRow) {
     if (cur?.userSelected === true) return true;
+    if (cur?.replacedByService === true) return true;
     if (String(cur?.comment || '').trim()) return true;
     if (!hasAssessmentPhoto(cur?.photo)) return false;
 
@@ -222,6 +224,7 @@ export function buildBodyConditionEditableFormState(historyEntry, options = {}) 
                 photo: null,
                 photoSource: null,
                 userSelected: false,
+                replacedByService: false,
             };
             return;
         }
@@ -231,6 +234,7 @@ export function buildBodyConditionEditableFormState(historyEntry, options = {}) 
             photo: cur.photo ?? null,
             photoSource: resolveBodyConditionRowPhotoSource(cur, previous[field.key], { sectionDone }),
             userSelected: cur.userSelected === true,
+            replacedByService: cur.replacedByService === true,
         };
     });
 
@@ -338,6 +342,7 @@ export function buildBodyConditionPayload(form) {
             photo: row.photo || null,
             ...(photoSource ? { photoSource } : {}),
             ...(userSelected ? { userSelected: true } : {}),
+            ...(row.replacedByService === true ? { replacedByService: true } : {}),
         };
     });
     return payload;
@@ -349,6 +354,7 @@ export function normalizeBodyConditionFormRow(row = {}) {
         photo: row.photo ?? null,
         photoSource: row.photoSource ?? null,
         userSelected: row.userSelected === true,
+        replacedByService: row.replacedByService === true,
     };
 }
 
@@ -401,6 +407,7 @@ export function mergeBodyConditionRowIntoEntry(historyEntry, key, row) {
             row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW
                 ? { userSelected: true }
                 : {}),
+            ...(row?.replacedByService === true ? { replacedByService: true } : {}),
         },
     });
 }

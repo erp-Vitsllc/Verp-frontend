@@ -442,7 +442,8 @@ export function hasHandoverApprovalFineItems({
         const rawChanged =
             hasCurrentPhoto &&
             formRow.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
-            hasPreviousBaseline;
+            hasPreviousBaseline &&
+            formRow.replacedByService !== true;
         const changed = resolveHandoverComparisonChanged(rawChanged, historyEntry);
         if (
             isHandoverItemIncludedInApprovalFine({
@@ -537,7 +538,8 @@ export function buildHandoverApprovalFineInitialData({
         const rawChanged =
             hasCurrentPhoto &&
             formRow.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
-            hasPreviousBaseline;
+            hasPreviousBaseline &&
+            formRow.replacedByService !== true;
         const changed = resolveHandoverComparisonChanged(rawChanged, historyEntry);
         const hasFine = Boolean(existingFine);
 
@@ -691,7 +693,8 @@ export function listHandoverApprovalFineDecisionItems({
         const rawChanged =
             hasCurrentPhoto &&
             formRow.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
-            hasPreviousBaseline;
+            hasPreviousBaseline &&
+            formRow.replacedByService !== true;
         const changed = resolveHandoverComparisonChanged(rawChanged, historyEntry);
 
         if (!changed && !existingFine && !isIncluded && !isWaived) return;
@@ -781,6 +784,14 @@ export function handoverItemVisualClasses(status) {
             frame: 'ring-2 ring-red-400 ring-offset-1',
             badge: 'bg-red-100 text-red-700',
             badgeLabel: 'Added in fine',
+        };
+    }
+    if (status === 'serviceReplaced') {
+        return {
+            card: 'border-2 border-orange-400 bg-orange-50/40 shadow-sm shadow-orange-100',
+            frame: 'ring-2 ring-orange-400 ring-offset-1',
+            badge: 'bg-orange-100 text-orange-800',
+            badgeLabel: 'Service updated',
         };
     }
     if (status === 'changed') {

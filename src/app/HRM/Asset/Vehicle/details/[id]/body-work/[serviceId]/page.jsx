@@ -61,6 +61,7 @@ function VehicleBodyWorkDetailPageContent() {
     const [currentUser, setCurrentUser] = useState(null);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [flowchartRows, setFlowchartRows] = useState([]);
+    const [liveHrReview, setLiveHrReview] = useState(null);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -73,6 +74,10 @@ function VehicleBodyWorkDetailPageContent() {
             .get('/Flowchart')
             .then(({ data }) => setFlowchartRows(Array.isArray(data) ? data : []))
             .catch(() => setFlowchartRows([]));
+    }, []);
+
+    const handleHrReviewSummaryChange = useCallback((summary) => {
+        setLiveHrReview(summary);
     }, []);
 
     const handleDraftStateChange = useCallback((next) => {
@@ -308,6 +313,7 @@ function VehicleBodyWorkDetailPageContent() {
                                 }}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}
+                                flowchartRows={flowchartRows}
                                 className="w-full shrink-0"
                             />
                             {showBodyWorkGarageCard(assignmentPending, bodyWorkflowStage) ? (
@@ -336,6 +342,7 @@ function VehicleBodyWorkDetailPageContent() {
                                         canRespondToWorkflow={canRespondToBodyWorkflow}
                                         canManageBodyWork={canManageBodyWork}
                                         workflowStage={bodyWorkflowStage}
+                                        onReviewSummaryChange={handleHrReviewSummaryChange}
                                         onUpdated={(updatedAsset) => {
                                             if (updatedAsset) {
                                                 setAsset(updatedAsset);
@@ -354,6 +361,7 @@ function VehicleBodyWorkDetailPageContent() {
                                     assignmentPending={assignmentPending}
                                     workflowStage={bodyWorkflowStage}
                                     serviceTypeLabel="Body Work"
+                                    liveHrReview={liveHrReview}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
                                         void load({ silent: true, deferServiceSigning: true });

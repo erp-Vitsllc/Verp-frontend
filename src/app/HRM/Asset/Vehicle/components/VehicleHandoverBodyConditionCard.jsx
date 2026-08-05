@@ -96,10 +96,12 @@ function resolveBodyConditionCardVisualStatus({
     isIncluded = false,
     acceptedWithoutFine,
     hasPhoto,
+    replacedByService = false,
 }) {
     if (isWaived) return 'unchanged';
     if (hasFine || isIncluded) return 'fined';
     if (!hasPhoto) return 'neutral';
+    if (replacedByService) return 'serviceReplaced';
     if (photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS) return 'unchanged';
     if (photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW) {
         if (acceptedWithoutFine && comparison?.hasPreviousBaseline) return 'unchanged';
@@ -221,11 +223,17 @@ function ViewCellEditor({
                 {comparison?.canCompare &&
                 !skipFineFlow &&
                 !isWaived &&
-                (visualStatus === 'changed' || visualStatus === 'fined') ? (
+                (visualStatus === 'changed' ||
+                    visualStatus === 'fined' ||
+                    visualStatus === 'serviceReplaced') ? (
                     <button
                         type="button"
                         onClick={onCompare}
-                        className="mt-2 w-full rounded-lg border border-red-300 bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-50"
+                        className={`mt-2 w-full rounded-lg border bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                            visualStatus === 'serviceReplaced'
+                                ? 'border-orange-300 text-orange-800 hover:bg-orange-50'
+                                : 'border-red-300 text-red-700 hover:bg-red-50'
+                        }`}
                     >
                         Compare to Previous
                     </button>
@@ -246,6 +254,8 @@ function ViewCellEditor({
                 <p className="mt-1 min-h-[24px] text-[9px] font-medium leading-snug">
                     {photoMissing && !readOnly ? (
                         <span className="text-amber-600">Photo required</span>
+                    ) : visualStatus === 'serviceReplaced' && photoUrl ? (
+                        <span className="text-orange-700">Updated from service completion.</span>
                     ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS && photoUrl ? (
                         <span className="text-emerald-700">Matches previous assignment.</span>
                     ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
@@ -352,10 +362,12 @@ export default function VehicleHandoverBodyConditionCard({
                 hasAssessmentPhoto(row.previous.photo) || Boolean(row.previous.photoUrl);
             const photoSource = formRow.photoSource ?? null;
             const hasCurrentPhoto = hasAssessmentPhoto(formRow.photo);
+            const serviceReplaced = formRow.replacedByService === true;
             const changed =
                 hasCurrentPhoto &&
                 photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
-                hasPreviousBaseline;
+                hasPreviousBaseline &&
+                !serviceReplaced;
 
             map[row.key] = {
                 hasPreviousBaseline,
@@ -363,6 +375,8 @@ export default function VehicleHandoverBodyConditionCard({
                     ? 'neutral'
                     : !hasCurrentPhoto
                       ? 'neutral'
+                      : serviceReplaced
+                        ? 'serviceReplaced'
                       : photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS
                         ? 'unchanged'
                         : photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW
@@ -375,7 +389,7 @@ export default function VehicleHandoverBodyConditionCard({
                     hasPreviousBaseline &&
                     hasCurrentPhoto &&
                     photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
-                    !acceptedWithoutFine,
+                    (!acceptedWithoutFine || serviceReplaced),
                 showCompare: Boolean(row.previous.photoUrl),
                 previousPhotoUrl: row.previous.photoUrl,
                 currentPhotoUrl: resolveAssessmentMediaUrl(formRow.photo),
@@ -768,10 +782,13 @@ export default function VehicleHandoverBodyConditionCard({
                                           isIncluded,
                                           acceptedWithoutFine: comparison?.acceptedWithoutFine,
                                           hasPhoto: hasAssessmentPhoto(formRow.photo),
+                                          replacedByService: formRow.replacedByService === true,
                                       });
                                 const showFineAction = skipFineFlow
                                     ? false
-                                    : shouldShowHandoverItemFineActions({
+                                    : formRow.replacedByService === true
+                                      ? false
+                                      : shouldShowHandoverItemFineActions({
                                           canManageItemFines,
                                           changed: comparison?.changed || visualStatus === 'changed',
                                           hasFine: Boolean(existingFine),

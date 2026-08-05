@@ -367,6 +367,7 @@ function VehicleOilServiceDetailPageContent() {
                                     onSaved={refreshAfterMutation}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}
+                                flowchartRows={flowchartRows}
                                 className="w-full shrink-0"
                             />
 

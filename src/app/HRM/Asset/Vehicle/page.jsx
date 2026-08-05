@@ -358,27 +358,34 @@ export default function VehicleAssetPage() {
             saveVehicleListCache(erpRows);
             if (!silent) setLoading(false);
 
-            // Optional GPS merge — do not await for spinner.
-            void axiosInstance
-                .get('/locator/vehicle-list', {
-                    skipToast: true,
-                    timeout: 10000,
-                })
-                .then((locatorRes) => {
-                    const payload = locatorRes.data?.data;
-                    if (
-                        payload?.configured &&
-                        Array.isArray(payload.vehicles) &&
-                        payload.vehicles.length > 0
-                    ) {
-                        const merged = payload.vehicles.filter(
-                            (row) => !isToolsAssetNotFleetVehicle(row),
-                        );
-                        setVehicles(merged);
-                        saveVehicleListCache(merged);
-                    }
-                })
-                .catch(() => {});
+            // Optional GPS merge — wait until ERP rows are on screen, then enrich.
+            const enrichLocator = () =>
+                axiosInstance
+                    .get('/locator/vehicle-list', {
+                        skipToast: true,
+                        timeout: 10000,
+                    })
+                    .then((locatorRes) => {
+                        const payload = locatorRes.data?.data;
+                        if (
+                            payload?.configured &&
+                            Array.isArray(payload.vehicles) &&
+                            payload.vehicles.length > 0
+                        ) {
+                            const merged = payload.vehicles.filter(
+                                (row) => !isToolsAssetNotFleetVehicle(row),
+                            );
+                            setVehicles(merged);
+                            saveVehicleListCache(merged);
+                        }
+                    })
+                    .catch(() => {});
+
+            if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                window.requestIdleCallback(() => void enrichLocator(), { timeout: 2500 });
+            } else {
+                setTimeout(() => void enrichLocator(), 400);
+            }
         } catch (error) {
             if (!hasCachedRows) {
                 toast({

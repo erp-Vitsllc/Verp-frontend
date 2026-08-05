@@ -236,6 +236,7 @@ export default function VehicleAssetProfileHeader({
     };
 
     const name = truncate(asset?.name || 'Vehicle', 80);
+    const fleetAssetId = String(asset?.assetId || '').trim();
     const subParts = [getVehicleBrandLabel(asset), asset?.vehicleCode, asset?.modelYear].filter(
         (x) => x && String(x).trim()
     );
@@ -410,29 +411,39 @@ export default function VehicleAssetProfileHeader({
                         </div>
                     </div>
                 </div>
-                <div className="w-full max-w-[140px] sm:w-[150px] lg:w-[168px] mt-1.5 flex items-center justify-center gap-1 px-0.5">
-                    {assigneeName ? (
-                        <>
-                            <User size={12} className="text-blue-500 shrink-0" aria-hidden />
-                            <span
-                                className="truncate text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-slate-700"
-                                title={
-                                    assignmentDuration
-                                        ? `${assigneeName} — ${assignmentDuration}`
-                                        : assigneeName
-                                }
-                            >
-                                {assigneeName}
-                            </span>
-                        </>
-                    ) : (
-                        <>
-                            <UserX size={12} className="text-slate-400 shrink-0" aria-hidden />
-                            <span className="truncate text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                                Unassigned
-                            </span>
-                        </>
-                    )}
+                <div className="w-full max-w-[140px] sm:w-[150px] lg:w-[168px] mt-1.5 flex flex-col items-center gap-0.5 px-0.5">
+                    {fleetAssetId ? (
+                        <p
+                            className="w-full truncate text-center text-[10px] sm:text-[11px] lg:text-[12px] font-black text-red-500 tracking-[0.12em] uppercase leading-tight"
+                            title={fleetAssetId}
+                        >
+                            {fleetAssetId}
+                        </p>
+                    ) : null}
+                    <div className="w-full flex items-center justify-center gap-1 min-w-0">
+                        {assigneeName ? (
+                            <>
+                                <User size={12} className="text-blue-500 shrink-0" aria-hidden />
+                                <span
+                                    className="truncate text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-slate-700"
+                                    title={
+                                        assignmentDuration
+                                            ? `${assigneeName} — ${assignmentDuration}`
+                                            : assigneeName
+                                    }
+                                >
+                                    {assigneeName}
+                                </span>
+                            </>
+                        ) : (
+                            <>
+                                <UserX size={12} className="text-slate-400 shrink-0" aria-hidden />
+                                <span className="truncate text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                    Unassigned
+                                </span>
+                            </>
+                        )}
+                    </div>
                 </div>
                 </div>
 

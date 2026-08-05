@@ -17,6 +17,10 @@ import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPho
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import {
+    resolveFlowchartAdminEmployeeRef,
+    resolveVehicleServiceAssignedOwnerId,
+} from '../utils/vehicleServiceAssignedOwner';
+import {
     buildMechanicalWorkDetailFormState,
     buildMechanicalWorkDetailSubmitBody,
     applyEmployeePayTargetToRows,
@@ -34,6 +38,7 @@ import {
     tireAccent,
     tireBtnPrimary,
     tireBtnSecondary,
+    tireFieldInput,
     tireFieldSelect,
     tireMoneyInput,
     tirePhotoAddBtn,
@@ -46,6 +51,9 @@ import {
     quoteKindToKey,
     TIRE_QUOTE_DRAG_TYPE,
 } from '../utils/vehicleMechanicalWorkQuoteDrag';
+import VehicleServicePaymentTypeMethodFields from './VehicleServicePaymentTypeMethodFields';
+import { formatWarrantyExpiryFromAsset } from '../utils/vehicleOilServiceWarranty';
+import { isOilPayablePaymentMode } from '../utils/vehicleOilServiceDetailForm';
 import {
     ERP_JPEG_ACCEPT,
     ERP_PDF_ACCEPT,
@@ -95,6 +103,7 @@ export default function VehicleMechanicalWorkDetailForm({
     draftSubmitRef,
     onDraftStateChange,
     canEditAssignment = true,
+    flowchartRows = [],
     className = '',
 }) {
     const router = useRouter();
@@ -105,15 +114,29 @@ export default function VehicleMechanicalWorkDetailForm({
     const [viewerOpen, setViewerOpen] = useState(false);
     const [viewerStartIndex, setViewerStartIndex] = useState(0);
     const [resolvedExistingPhotoSrc, setResolvedExistingPhotoSrc] = useState({});
-    const [formData, setFormData] = useState(() => buildMechanicalWorkDetailFormState(service, asset));
+    const [formData, setFormData] = useState(() =>
+        buildMechanicalWorkDetailFormState(service, asset, { flowchartRows }),
+    );
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const fieldsDisabled = !assignmentPending || saving || !canEditAssignment;
 
     useEffect(() => {
-        setFormData(buildMechanicalWorkDetailFormState(service, asset));
-    }, [service?._id, service?.updatedAt, service?.remark, asset]);
+        setFormData(buildMechanicalWorkDetailFormState(service, asset, { flowchartRows }));
+    }, [service?._id, service?.updatedAt, service?.remark, asset, flowchartRows]);
+
+    useEffect(() => {
+        if (!assignmentPending) return;
+        const saved = String(remark.vehicleOwnerEmployeeId || '').trim();
+        if (saved) return;
+        const nextId = resolveVehicleServiceAssignedOwnerId(asset, flowchartRows, '');
+        if (!nextId) return;
+        setFormData((prev) => {
+            if (String(prev.vehicleOwnerEmployeeId || '').trim()) return prev;
+            return { ...prev, vehicleOwnerEmployeeId: nextId };
+        });
+    }, [assignmentPending, asset, flowchartRows, remark.vehicleOwnerEmployeeId]);
 
     useEffect(() => {
         const existing = formData.existingBodyWorkImages || [];
@@ -296,6 +319,16 @@ export default function VehicleMechanicalWorkDetailForm({
             {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
         </option>
     ));
+
+    const adminOfficerRef = resolveFlowchartAdminEmployeeRef(flowchartRows);
+    const adminOfficerInEmployees = Boolean(
+        adminOfficerRef.id &&
+            employees.some(
+                (emp) =>
+                    String(emp._id) === String(adminOfficerRef.id) ||
+                    String(emp.employeeId || '') === String(adminOfficerRef.code || ''),
+            ),
+    );
 
     const drivenByEmployeeOptions = licensedEmployees.map((emp) => (
         <option key={emp._id} value={String(emp._id)}>
@@ -600,6 +633,9 @@ export default function VehicleMechanicalWorkDetailForm({
                                 disabled={fieldsDisabled}
                             >
                                 <option value="">Select employee</option>
+                                {adminOfficerRef.id && !adminOfficerInEmployees ? (
+                                    <option value={adminOfficerRef.id}>{adminOfficerRef.label}</option>
+                                ) : null}
                                 {employeeOptions}
                             </select>
                         </VehicleMechanicalWorkFormFieldCell>
@@ -630,6 +666,33 @@ export default function VehicleMechanicalWorkDetailForm({
                             />
                         </VehicleMechanicalWorkFormFieldCell>
 
+                        <VehicleServicePaymentTypeMethodFields
+                            FieldCell={VehicleMechanicalWorkFormFieldCell}
+                            accent={accent}
+                            fieldMinHeightPx={fieldMinHeightPx}
+                            formData={formData}
+                            onChange={(key, value) => set(key, value)}
+                            disabled={fieldsDisabled}
+                            warrantyExpiryLabel={formatWarrantyExpiryFromAsset(asset)}
+                            fieldInputClassName={tireFieldInput}
+                        />
+
+                        <VehicleMechanicalWorkFormFieldCell
+                            label="Description (optional)"
+                            accentClass={accent(0)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <textarea
+                                className={`${tireFieldInput} min-h-[72px] resize-y`}
+                                value={formData.serviceIssue || ''}
+                                onChange={(e) => set('serviceIssue', e.target.value)}
+                                disabled={fieldsDisabled}
+                                placeholder="Optional notes"
+                                rows={3}
+                            />
+                        </VehicleMechanicalWorkFormFieldCell>
+
+                        {isOilPayablePaymentMode(formData.amountMode) ? (
                         <div className={`${costRowGridClass} ${gapClass}`}>
                                     <VehicleMechanicalWorkFormFieldCell
                                         label="Estimated Cost"
@@ -965,6 +1028,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                     />
                                 </VehicleMechanicalWorkFormFieldCell>
                     </div>
+                        ) : null}
 
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">

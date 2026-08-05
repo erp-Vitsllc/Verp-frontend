@@ -32,6 +32,11 @@ import {
     quoteKeyToLabel,
     TIRE_QUOTE_DRAG_TYPE,
 } from '../utils/vehicleMechanicalWorkQuoteDrag';
+import {
+    buildHrReviewInitiateRemarkPatch,
+    syncHrReviewPayCalculation,
+    syncHrReviewPayFromEmployeeRows,
+} from '../utils/vehicleShopHrReviewPay';
 
 function formatAed(value) {
     const n = Number(value);
@@ -153,6 +158,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
     canManageMechanicalWork = false,
     workflowStage = '',
     onUpdated,
+    onReviewSummaryChange,
     className = '',
 }) {
     const { toast } = useToast();
@@ -275,6 +281,22 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         approvedRow?.amount,
     ]);
 
+    useEffect(() => {
+        if (typeof onReviewSummaryChange !== 'function') return;
+        onReviewSummaryChange({
+            approvedAmount: displaySummary.approvedAmount,
+            companyPay: displaySummary.companyPay,
+            employeePay: displaySummary.employeePay,
+            approvedQuoteKey: approvedQuoteKey || '',
+        });
+    }, [
+        approvedQuoteKey,
+        displaySummary.approvedAmount,
+        displaySummary.companyPay,
+        displaySummary.employeePay,
+        onReviewSummaryChange,
+    ]);
+
     const resolveEmployeeName = useCallback(
         (employeeId) => {
             const id = String(employeeId || '').trim();
@@ -328,30 +350,67 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
     );
 
     const setReviewField = (field, value) => {
-        setDisplaySummary((prev) => ({ ...prev, [field]: value }));
+        const synced = syncHrReviewPayCalculation({
+            field,
+            value,
+            approvedAmount: displaySummary.approvedAmount,
+            companyPay: displaySummary.companyPay,
+            employeePay: displaySummary.employeePay,
+            employeeRows,
+            paymentByMode,
+        });
+        setDisplaySummary({
+            approvedAmount: synced.approvedAmount,
+            companyPay: synced.companyPay,
+            employeePay: synced.employeePay,
+        });
+        if (showEmployeePay) {
+            setEmployeeRows(synced.employeeRows);
+        }
+        setRowsDirty(true);
     };
 
     const setReviewApprovedAmount = (value) => {
-        const split = applyApprovedAmountToSplit(value, employeeRows);
-        setDisplaySummary({
-            approvedAmount: split.approvedAmount,
-            companyPay: split.companyPay,
-            employeePay: split.employeePay,
+        const synced = syncHrReviewPayCalculation({
+            field: 'approvedAmount',
+            value,
+            approvedAmount: displaySummary.approvedAmount,
+            companyPay: displaySummary.companyPay,
+            employeePay: displaySummary.employeePay,
+            employeeRows,
+            paymentByMode,
         });
-        if (showEmployeePay && split.employeeRows) {
-            setEmployeeRows(split.employeeRows);
+        setDisplaySummary({
+            approvedAmount: synced.approvedAmount,
+            companyPay: synced.companyPay,
+            employeePay: synced.employeePay,
+        });
+        if (showEmployeePay) {
+            setEmployeeRows(synced.employeeRows);
         }
+        setRowsDirty(true);
     };
 
     const updateReviewEmployeeRow = (index, field, value) => {
         setEmployeeRows((prev) => {
             const rows = [...(prev || [])];
             rows[index] = { ...rows[index], [field]: value };
+            if (field === 'paidAmount' && canEdit) {
+                const synced = syncHrReviewPayFromEmployeeRows({
+                    employeeRows: rows,
+                    approvedAmount: displaySummary.approvedAmount,
+                    paymentByMode,
+                });
+                setDisplaySummary({
+                    approvedAmount: synced.approvedAmount,
+                    companyPay: synced.companyPay,
+                    employeePay: synced.employeePay,
+                });
+                return synced.employeeRows;
+            }
             return rows;
         });
-        if (!canEdit) {
-            setRowsDirty(true);
-        }
+        setRowsDirty(true);
     };
 
     const setQuoteField = (key, field, value) => {
@@ -466,6 +525,13 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         const selected = approvedQuoteKey;
         const approvedAmountNum = Number(displaySummary.approvedAmount) || 0;
         const employeeRowsPayload = buildEmployeeRowsPayload();
+        const initiatePatch = buildHrReviewInitiateRemarkPatch({
+            approvedAmount: displaySummary.approvedAmount,
+            companyPay: displaySummary.companyPay,
+            employeePay: displaySummary.employeePay,
+            employeeRows: employeeRowsPayload,
+            paymentByMode,
+        });
         return {
             remark: JSON.stringify({
                 ...remark,
@@ -473,16 +539,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
                 tireQuoteReview: quoteState,
                 hrReviewDescription: description.trim() || undefined,
                 quoteReviewDescription: description.trim() || undefined,
-                hrReviewApprovedAmount: approvedAmountNum || undefined,
-                hrReviewCompanyPay: Number(displaySummary.companyPay) || 0,
-                hrReviewEmployeePay: Number(displaySummary.employeePay) || 0,
-                hrReviewEmployeeRows: employeeRowsPayload,
-                employeeLiabilityRows: employeeRowsPayload,
-                employeeLiabilityTotal: employeeRowsPayload.reduce(
-                    (sum, row) => sum + (Number(row.paidAmount) || 0),
-                    0,
-                ),
-                estimatedCost: approvedAmountNum || remark?.estimatedCost,
+                ...initiatePatch,
             }),
             ...(selected ? { vendorName: remark?.vendorName || '' } : {}),
             ...(approvedAmountNum > 0 ? { value: approvedAmountNum } : {}),
@@ -492,6 +549,7 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         buildEmployeeRowsPayload,
         description,
         displaySummary,
+        paymentByMode,
         quoteState,
         remark,
     ]);

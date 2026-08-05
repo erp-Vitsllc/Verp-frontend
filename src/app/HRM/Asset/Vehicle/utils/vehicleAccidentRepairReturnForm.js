@@ -1,6 +1,10 @@
 ﻿import { mapServiceRecordToFormData } from '../components/vehicleServicePayload';
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import { resolveShopServiceReturnDate } from './vehicleShopWorkStatus';
+import {
+    buildNewConditionImagesPayload,
+    validateNewConditionBodyPartMappings,
+} from './vehicleServiceNewConditionPhotos';
 
 export function buildAccidentRepairReturnFormState(service, asset) {
     const base = mapServiceRecordToFormData(service, asset?.assignedTo);
@@ -52,6 +56,8 @@ export function validateAccidentRepairReturnForm(formData) {
     if (existingPhotos + newPhotos === 0) {
         errors.newConditionImages = 'New condition photos are required';
     }
+
+    Object.assign(errors, validateNewConditionBodyPartMappings(formData));
 
     // Description is optional on Complete / return.
 
@@ -106,13 +112,9 @@ export function buildAccidentRepairReturnUpdateBody(formData) {
     if (shopInvoice) body.shopInvoice = shopInvoice;
     if (returnOtherDoc) body.returnOtherDoc = returnOtherDoc;
 
-    const freshImages = (formData.newConditionImages || []).filter((img) => img?.data && img?.name);
+    const freshImages = buildNewConditionImagesPayload(formData.newConditionImages);
     if (freshImages.length) {
-        body.newConditionImages = freshImages.map((img) => ({
-            name: img.name,
-            data: img.data,
-            mimeType: img.mimeType || 'image/jpeg',
-        }));
+        body.newConditionImages = freshImages;
     }
 
     return body;

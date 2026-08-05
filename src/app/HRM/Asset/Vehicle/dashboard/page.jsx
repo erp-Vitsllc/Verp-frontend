@@ -22,6 +22,7 @@ export default function VehicleFleetDashboardPage() {
     const [fleetDashboard, setFleetDashboard] = useState(null);
     const [dashboardLoading, setDashboardLoading] = useState(true);
     const [dashboardError, setDashboardError] = useState(null);
+    const [locatorEnabled, setLocatorEnabled] = useState(false);
 
     const [vehicleInboxOpen, setVehicleInboxOpen] = useState(false);
     const [vehicleInboxCount, setVehicleInboxCount] = useState(0);
@@ -75,12 +76,20 @@ export default function VehicleFleetDashboardPage() {
         loading: locatorLoading,
         error: locatorError,
         reload: reloadLocatorDashboard,
-    } = useLocatorFleetDashboard();
+    } = useLocatorFleetDashboard({
+        // Start GPS after first fleet paint so the two heavy APIs don't contend.
+        enabled: locatorEnabled,
+    });
 
     useEffect(() => {
         setMounted(true);
         fetchFleetDashboard();
     }, [fetchFleetDashboard]);
+
+    useEffect(() => {
+        if (!mounted || dashboardLoading || locatorEnabled) return;
+        setLocatorEnabled(true);
+    }, [mounted, dashboardLoading, locatorEnabled]);
 
     useEffect(() => {
         if (!mounted || dashboardLoading) return;

@@ -10,7 +10,14 @@ import {
     vehicleServiceTypeKey,
 } from '../components/vehicleServiceUtils';
 import { formatWarrantyExpiryFromAsset } from './vehicleOilServiceWarranty';
-import { OIL_SERVICE_VENDOR_OPTIONS } from './vehicleOilServiceDetailForm';
+import {
+    OIL_SERVICE_VENDOR_OPTIONS,
+    isOilPayablePaymentMode,
+    normalizeOilPaymentMethod,
+    normalizeOilPaymentType,
+    resolveOilPaymentFields,
+} from './vehicleOilServiceDetailForm';
+import { resolveVehicleServiceAssignedOwnerId } from './vehicleServiceAssignedOwner';
 
 export { OIL_SERVICE_VENDOR_OPTIONS as TIRE_CHANGE_VENDOR_OPTIONS, formatWarrantyExpiryFromAsset };
 
@@ -166,7 +173,7 @@ export function buildEmployeeRowBreakdowns(rows) {
     });
 }
 
-export function buildTireChangeDetailFormState(service, asset) {
+export function buildTireChangeDetailFormState(service, asset, { flowchartRows = [] } = {}) {
     const base = mapServiceRecordToFormData(service, asset?.assignedTo);
     const remark = parseVehicleServiceRemark(service) || {};
     const lastCompleted = getLastCompletedTireServiceForAsset(asset, { excludeServiceId: service?._id });
@@ -174,7 +181,15 @@ export function buildTireChangeDetailFormState(service, asset) {
 
     const assigneeId = asset?.assignedTo?._id || asset?.assignedTo;
     const assigneeIdStr = assigneeId ? String(assigneeId) : '';
-    const amountMode = 'amount';
+    const defaultOwnerId = resolveVehicleServiceAssignedOwnerId(
+        asset,
+        flowchartRows,
+        remark.vehicleOwnerEmployeeId || base.vehicleOwnerEmployeeId,
+    );
+    const resolvedPay = resolveOilPaymentFields(remark, base);
+    const amountMode = resolvedPay.amountMode || 'amount';
+    const paymentMethod =
+        amountMode === 'warranty' ? '' : resolvedPay.paymentMethod || 'cash';
 
     const paymentByMode =
         remark.paymentByMode ||
@@ -196,6 +211,7 @@ export function buildTireChangeDetailFormState(service, asset) {
         ...base,
         serviceType: 'Tire Change',
         amountMode,
+        paymentMethod,
         date: base.date || (service?.date ? new Date(service.date).toISOString().slice(0, 10) : ''),
         previousChangeKm:
             remark.previousChangeKm != null && remark.previousChangeKm !== ''
@@ -213,10 +229,7 @@ export function buildTireChangeDetailFormState(service, asset) {
                   : asset?.currentKilometer != null
                     ? String(asset.currentKilometer)
                     : '',
-        vehicleOwnerEmployeeId:
-            remark.vehicleOwnerEmployeeId != null && String(remark.vehicleOwnerEmployeeId).trim() !== ''
-                ? String(remark.vehicleOwnerEmployeeId)
-                : assigneeIdStr,
+        vehicleOwnerEmployeeId: defaultOwnerId || assigneeIdStr,
         carDrivenByEmployeeId:
             remark.carDrivenByEmployeeId != null && String(remark.carDrivenByEmployeeId).trim() !== ''
                 ? String(remark.carDrivenByEmployeeId)
@@ -295,6 +308,8 @@ const TIRE_CHANGE_FIELD_LABELS = {
     vehicleOwnerEmployeeId: 'Vehicle assigned',
     carDrivenByEmployeeId: 'Car driven by',
     paymentByMode: 'Payment by',
+    amountMode: 'Payment type',
+    paymentMethod: 'Payment method',
     estimatedCost: 'Estimated cost',
     companyPayPercent: 'Company pay %',
     employeePayPercent: 'Employee pay %',
@@ -349,11 +364,16 @@ function withTireConditionFromPhotos(formData) {
 
 export function validateTireChangeDetailForm(formData, asset = null) {
     const normalized = withTireConditionFromPhotos(formData);
+    const amountMode = normalizeOilPaymentType(normalized.amountMode) || 'amount';
+    const payable = isOilPayablePaymentMode(amountMode);
 
     const payload = {
         ...normalized,
         serviceType: 'Tire Change',
-        amountMode: 'amount',
+        amountMode,
+        paymentMethod: payable
+            ? normalizeOilPaymentMethod(normalized.paymentMethod) || 'cash'
+            : '',
         serviceIssue: String(normalized.serviceIssue || '').trim(),
         currentKm: normalized.currentKm || asset?.currentKilometer || 0,
         previousChangeKm: normalized.previousChangeKm || 0,
@@ -378,9 +398,12 @@ export function validateTireChangeDetailForm(formData, asset = null) {
     if (!formData.paymentByMode) {
         e.paymentByMode = 'Payment by is required';
     }
+    if (payable && !normalizeOilPaymentMethod(formData.paymentMethod)) {
+        e.paymentMethod = 'Payment method is required';
+    }
 
     const estimated = Number(formData.estimatedCost);
-    if (!Number.isFinite(estimated) || estimated <= 0) {
+    if (payable && (!Number.isFinite(estimated) || estimated <= 0)) {
         e.estimatedCost = 'Estimated cost is required';
     }
 
@@ -392,13 +415,14 @@ export function validateTireChangeDetailForm(formData, asset = null) {
             ? Math.round((estimated * employeePct) / 100)
             : 0;
 
-    if (paymentByMode === 'company' || paymentByMode === 'split') {
+    if (payable && (paymentByMode === 'company' || paymentByMode === 'split')) {
         if (!Number.isFinite(companyPct) || companyPct < 0) e.companyPayPercent = 'Company pay % is required';
     }
-    if (paymentByMode === 'person' || paymentByMode === 'split') {
+    if (payable && (paymentByMode === 'person' || paymentByMode === 'split')) {
         if (!Number.isFinite(employeePct) || employeePct < 0) e.employeePayPercent = 'Employee pay % is required';
     }
     if (
+        payable &&
         paymentByMode === 'split' &&
         Number.isFinite(companyPct) &&
         Number.isFinite(employeePct) &&
@@ -408,7 +432,7 @@ export function validateTireChangeDetailForm(formData, asset = null) {
     }
 
     const rows = Array.isArray(formData.employeeLiabilityRows) ? formData.employeeLiabilityRows : [];
-    if (paymentByMode === 'person' || paymentByMode === 'split') {
+    if (payable && (paymentByMode === 'person' || paymentByMode === 'split')) {
         if (!rows.length) {
             e.employeeLiabilityRows = 'Add at least one employee row';
         } else {
@@ -430,7 +454,7 @@ export function validateTireChangeDetailForm(formData, asset = null) {
 
     const hasQ1 =
         !!(formData.attachmentBase64 && formData.attachmentName) || !!formData.existingAttachmentUrl;
-    if (!hasQ1) e.attachment = 'Quote 1 is required';
+    if (payable && !hasQ1) e.attachment = 'Quote 1 is required';
 
     if (!hasRectificationPhotos(formData)) {
         e.bodyWorkImages = 'Rectification area photos are required';
@@ -445,6 +469,15 @@ export function validateTireChangeDetailForm(formData, asset = null) {
     if (paymentByMode === 'company') {
         delete e.employeePayPercent;
         delete e.employeeLiabilityRows;
+    }
+    if (!payable) {
+        delete e.estimatedCost;
+        delete e.companyPayPercent;
+        delete e.employeePayPercent;
+        delete e.employeeLiabilityRows;
+        delete e.attachment;
+        delete e.value;
+        delete e.paymentMethod;
     }
 
     return e;
@@ -469,17 +502,25 @@ export function buildTireChangeDetailSubmitBody(formData, { keepPending = true }
               : 'company';
 
     const normalized = withTireConditionFromPhotos(formData);
+    const amountMode = normalizeOilPaymentType(normalized.amountMode) || 'amount';
+    const payable = isOilPayablePaymentMode(amountMode);
+    const paymentMethod = payable
+        ? normalizeOilPaymentMethod(normalized.paymentMethod) || 'cash'
+        : '';
     const payload = {
         ...normalized,
         serviceType: 'Tire Change',
-        amountMode: 'amount',
+        amountMode,
+        paymentMethod,
         serviceIssue: String(normalized.serviceIssue || '').trim(),
         liableOn,
         liablePersonId:
             normalized.paymentByMode === 'person'
                 ? normalized.employeeLiabilityRows?.[0]?.employeeId || normalized.carDrivenByEmployeeId
                 : '',
-        value: normalized.estimatedCost || normalized.quotation1Amount || normalized.value,
+        value: payable
+            ? normalized.estimatedCost || normalized.quotation1Amount || normalized.value
+            : 0,
         quotation1Amount: normalized.quotation1Amount || normalized.estimatedCost,
         date: normalized.date || new Date().toISOString().slice(0, 10),
     };
@@ -494,7 +535,12 @@ export function buildTireChangeDetailSubmitBody(formData, { keepPending = true }
     })();
 
     remark.requestStatus = keepPending ? 'pending' : remark.requestStatus || 'pending';
-    remark.amountMode = 'amount';
+    remark.amountMode = amountMode;
+    if (paymentMethod) {
+        remark.paymentMethod = paymentMethod;
+    } else {
+        delete remark.paymentMethod;
+    }
     remark.paymentByMode = normalized.paymentByMode;
     remark.companyPayPercent = Number(normalized.companyPayPercent || 0);
     remark.employeePayPercent = Number(normalized.employeePayPercent || 0);

@@ -43,6 +43,7 @@ export default function VehicleCarWashRequestTable({
             <table className="w-full text-sm border-collapse min-w-[1040px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
+                        <th className="px-4 py-3 whitespace-nowrap">SL</th>
                         <th className="px-4 py-3 whitespace-nowrap">VSR-No</th>
                         <th className="px-4 py-3 whitespace-nowrap">Vehicle asset no</th>
                         <th className="px-4 py-3 whitespace-nowrap">Vehicle no</th>
@@ -84,6 +85,9 @@ export default function VehicleCarWashRequestTable({
                             }`}
                             title={onRowClick ? 'Click to open car wash request' : undefined}
                         >
+                            <td className="px-4 py-2.5 text-slate-600 tabular-nums font-semibold">
+                                {row.slNo ?? '—'}
+                            </td>
                             <td className="px-4 py-2.5 font-mono text-xs text-slate-700">
                                 {row.serviceReqNo || '—'}
                             </td>

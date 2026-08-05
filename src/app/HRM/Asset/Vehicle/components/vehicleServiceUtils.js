@@ -144,6 +144,39 @@ export function compareVehicleServiceListRows(a, b) {
     return tb - ta;
 }
 
+/** Chronology for vehicle Service tab SL: oldest service = SL 1. */
+function vehicleServiceChronologyMs(row) {
+    const candidates = [row?.createdAt, row?.requestDate, row?.date];
+    for (const c of candidates) {
+        if (c == null || c === '') continue;
+        const t = new Date(c).getTime();
+        if (Number.isFinite(t)) return t;
+    }
+    const id = normalizeMongoId(row?.serviceId || row?.id);
+    if (/^[a-f0-9]{24}$/i.test(id)) {
+        return parseInt(id.slice(0, 8), 16) * 1000;
+    }
+    return 0;
+}
+
+/**
+ * Assign SL 1 to the first (oldest) service, then return rows with largest SL first.
+ */
+export function assignAndSortByVehicleServiceSl(rows) {
+    const list = Array.isArray(rows) ? [...rows] : [];
+    list.sort((a, b) => {
+        const ta = vehicleServiceChronologyMs(a);
+        const tb = vehicleServiceChronologyMs(b);
+        if (ta !== tb) return ta - tb;
+        return String(normalizeMongoId(a?.serviceId || a?.id)).localeCompare(
+            String(normalizeMongoId(b?.serviceId || b?.id)),
+        );
+    });
+    const withSl = list.map((row, idx) => ({ ...row, slNo: idx + 1 }));
+    withSl.sort((a, b) => (Number(b.slNo) || 0) - (Number(a.slNo) || 0));
+    return withSl;
+}
+
 export function vehicleServiceTypeKey(service) {
     if (!service) return '';
     const st = String(service.serviceType || '').trim();
@@ -443,6 +476,7 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
         statusTone: statusInfo.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : nextOilServiceDate || null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
+        createdAt: service?.createdAt || service?.date || null,
     };
 }
 
@@ -450,11 +484,12 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
 export function buildOilServiceRequestRowsFromAsset(asset) {
     if (!asset) return [];
     const services = Array.isArray(asset.services) ? asset.services : [];
-    return services
-        .filter((s) => vehicleServiceTypeKey(s) === 'Oil Service')
-        .filter((s) => isOilServiceRequestTableRow(s, asset))
-        .map((s) => buildOilServiceScheduleRowFromAsset(asset, { service: s }))
-        .sort(compareVehicleServiceListRows);
+    return assignAndSortByVehicleServiceSl(
+        services
+            .filter((s) => vehicleServiceTypeKey(s) === 'Oil Service')
+            .filter((s) => isOilServiceRequestTableRow(s, asset))
+            .map((s) => buildOilServiceScheduleRowFromAsset(asset, { service: s })),
+    );
 }
 
 export function findOpenOilServiceDraft(asset) {
@@ -578,6 +613,7 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
         statusTone: statusInfo.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
+        createdAt: service?.createdAt || service?.date || null,
         serviceRecord: service || null,
     };
 }
@@ -585,11 +621,12 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
 export function buildCarWashRequestRowsFromAsset(asset) {
     if (!asset) return [];
     const services = Array.isArray(asset.services) ? asset.services : [];
-    return services
-        .filter((s) => vehicleServiceTypeKey(s) === 'Car Wash')
-        .filter((s) => isCarWashRequestTableRow(s, asset))
-        .map((s) => buildCarWashRequestRowFromAsset(asset, { service: s }))
-        .sort(compareVehicleServiceListRows);
+    return assignAndSortByVehicleServiceSl(
+        services
+            .filter((s) => vehicleServiceTypeKey(s) === 'Car Wash')
+            .filter((s) => isCarWashRequestTableRow(s, asset))
+            .map((s) => buildCarWashRequestRowFromAsset(asset, { service: s })),
+    );
 }
 
 function isVehicleServiceTabRequestTableRow(service, asset) {
@@ -637,6 +674,7 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
         statusTone: statusInfo.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
+        createdAt: service?.createdAt || service?.date || null,
         serviceRecord: service || null,
     };
 }
@@ -644,11 +682,12 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
 export function buildVehicleServiceTabRequestRowsFromAsset(asset, serviceType) {
     if (!asset || !isVehicleServiceTabRequestType(serviceType)) return [];
     const services = Array.isArray(asset.services) ? asset.services : [];
-    return services
-        .filter((s) => vehicleServiceTypeKey(s) === serviceType)
-        .filter((s) => isVehicleServiceTabRequestTableRow(s, asset))
-        .map((s) => buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { service: s }))
-        .sort(compareVehicleServiceListRows);
+    return assignAndSortByVehicleServiceSl(
+        services
+            .filter((s) => vehicleServiceTypeKey(s) === serviceType)
+            .filter((s) => isVehicleServiceTabRequestTableRow(s, asset))
+            .map((s) => buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { service: s })),
+    );
 }
 
 export function findOpenVehicleServiceTabDraft(asset, serviceType) {

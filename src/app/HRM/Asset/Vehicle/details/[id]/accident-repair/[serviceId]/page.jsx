@@ -306,6 +306,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                 }}
                                 draftSubmitRef={draftSubmitRef}
                                 onDraftStateChange={handleDraftStateChange}
+                                flowchartRows={flowchartRows}
                                 className="w-full shrink-0"
                             />
                             {showAccidentRepairGarageCard(assignmentPending, accidentRepairflowStage) ? (

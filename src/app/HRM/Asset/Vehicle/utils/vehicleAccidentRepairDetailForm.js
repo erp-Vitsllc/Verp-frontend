@@ -11,7 +11,14 @@ import {
     vehicleServiceTypeKey,
 } from '../components/vehicleServiceUtils';
 import { formatWarrantyExpiryFromAsset } from './vehicleOilServiceWarranty';
-import { OIL_SERVICE_VENDOR_OPTIONS } from './vehicleOilServiceDetailForm';
+import {
+    OIL_SERVICE_VENDOR_OPTIONS,
+    isOilPayablePaymentMode,
+    normalizeOilPaymentMethod,
+    normalizeOilPaymentType,
+    resolveOilPaymentFields,
+} from './vehicleOilServiceDetailForm';
+import { resolveVehicleServiceAssignedOwnerId } from './vehicleServiceAssignedOwner';
 
 export { OIL_SERVICE_VENDOR_OPTIONS as ACCIDENT_REPAIR_VENDOR_OPTIONS, formatWarrantyExpiryFromAsset };
 
@@ -167,14 +174,26 @@ export function buildEmployeeRowBreakdowns(rows) {
     });
 }
 
-export function buildAccidentRepairDetailFormState(service, asset) {
+export function buildAccidentRepairDetailFormState(service, asset, { flowchartRows = [] } = {}) {
     const base = mapServiceRecordToFormData(service, asset?.assignedTo);
     const assigneeId = asset?.assignedTo?._id || asset?.assignedTo;
     const assigneeIdStr = assigneeId ? String(assigneeId) : '';
+    const remark = parseVehicleServiceRemark(service) || {};
+    const defaultOwnerId = resolveVehicleServiceAssignedOwnerId(
+        asset,
+        flowchartRows,
+        remark.vehicleOwnerEmployeeId || base.vehicleOwnerEmployeeId,
+    );
+    const resolvedPay = resolveOilPaymentFields(remark, base);
+    const amountMode = resolvedPay.amountMode || 'amount';
+    const paymentMethod =
+        amountMode === 'warranty' ? '' : resolvedPay.paymentMethod || 'cash';
 
     return {
         ...base,
         serviceType: 'Accident Repair',
+        amountMode,
+        paymentMethod,
         policyNumber: '',
         insuranceExpiryDate: '',
         date: base.date || (service?.date ? new Date(service.date).toISOString().slice(0, 10) : ''),
@@ -184,7 +203,7 @@ export function buildAccidentRepairDetailFormState(service, asset) {
                 : asset?.currentKilometer != null
                   ? String(asset.currentKilometer)
                   : '',
-        vehicleOwnerEmployeeId: base.vehicleOwnerEmployeeId || assigneeIdStr,
+        vehicleOwnerEmployeeId: defaultOwnerId || assigneeIdStr,
         carDrivenByType: base.carDrivenByType || (base.carDrivenByCompanyId ? 'company' : 'employee'),
         carDrivenByEmployeeId:
             base.carDrivenByType === 'company' || base.carDrivenByCompanyId
@@ -202,10 +221,12 @@ const ACCIDENT_REPAIR_FIELD_LABELS = {
     vehicleOwnerEmployeeId: 'Vehicle assigned',
     carDrivenByEmployeeId: 'Car driven by',
     accidentOwnerType: 'Accident party',
+    amountMode: 'Payment type',
+    paymentMethod: 'Payment method',
     attachment: 'Police report',
     policeFineAmount: 'Police fine',
     accidentImages: 'Accident photos',
-    serviceIssue: 'Accident description',
+    serviceIssue: 'Description',
 };
 
 function hasAccidentPhotos(formData) {
@@ -239,6 +260,11 @@ export function validateAccidentRepairDetailForm(formData, asset = null) {
     // Description is optional on Accident Repair details.
     delete e.serviceIssue;
 
+    const amountMode = normalizeOilPaymentType(formData.amountMode) || 'amount';
+    if (isOilPayablePaymentMode(amountMode) && !normalizeOilPaymentMethod(formData.paymentMethod)) {
+        e.paymentMethod = 'Payment method is required';
+    }
+
     return e;
 }
 
@@ -253,9 +279,16 @@ export function isAccidentRepairDetailFormComplete(formData, asset = null) {
 }
 
 export function buildAccidentRepairDetailSubmitBody(formData, { keepPending = true } = {}) {
+    const amountMode = normalizeOilPaymentType(formData.amountMode) || 'amount';
+    const payable = isOilPayablePaymentMode(amountMode);
+    const paymentMethod = payable
+        ? normalizeOilPaymentMethod(formData.paymentMethod) || 'cash'
+        : '';
     const payload = {
         ...formData,
         serviceType: 'Accident Repair',
+        amountMode,
+        paymentMethod,
         serviceIssue: String(formData.serviceIssue || '').trim(),
         date: formData.date || formData.accidentDate || new Date().toISOString().slice(0, 10),
     };
@@ -268,6 +301,12 @@ export function buildAccidentRepairDetailSubmitBody(formData, { keepPending = tr
         remark = {};
     }
     remark.requestStatus = keepPending ? 'pending' : remark.requestStatus || 'pending';
+    remark.amountMode = amountMode;
+    if (paymentMethod) {
+        remark.paymentMethod = paymentMethod;
+    } else {
+        delete remark.paymentMethod;
+    }
     body.remark = JSON.stringify(remark);
     return body;
 }
