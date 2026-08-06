@@ -32,8 +32,6 @@ import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
-import VehicleGarageBillingFields from './VehicleGarageBillingFields';
-import VehicleGaragePaymentToGarageFields from './VehicleGaragePaymentToGarageFields';
 
 export default function VehicleBodyWorkGarageCard({
     asset,
@@ -65,12 +63,6 @@ export default function VehicleBodyWorkGarageCard({
 
     const { fieldMinHeightPx, gapClass } = BODY_WORK_DETAIL_GRID_LAYOUT;
     const accent = bodyAccent;
-    const approvedAmount =
-        Number(remark.hrReviewApprovedAmount) ||
-        Number(remark.approvedAmount) ||
-        Number(remark.estimatedCost) ||
-        Number(service?.value) ||
-        0;
 
     useEffect(() => {
         setFormData(buildBodyWorkGarageFormState(service, asset));
@@ -126,9 +118,9 @@ export default function VehicleBodyWorkGarageCard({
           ? 'Waiting for flowchart Admin Officer to schedule / reschedule'
           : stage === BODY_WORK_WORKFLOW_STAGES.HR ||
               stage === BODY_WORK_WORKFLOW_STAGES.ADMIN_OFFICER
-            ? 'Garage and dates are required â€” then click OK (open with HR Approval)'
+            ? 'Garage and dates are required — then click OK (open with HR Approval)'
             : isComplete || stage === 'billed'
-              ? 'Schedule locked â€” service is complete'
+              ? 'Schedule locked — service is complete'
               : 'Admin Officer can update garage or dates until Complete Service';
 
     const card = (
@@ -213,24 +205,19 @@ export default function VehicleBodyWorkGarageCard({
                         disabled={fieldsDisabled}
                     />
                 </VehicleBodyWorkFormFieldCell>
-                <VehicleGarageBillingFields
-                    formData={formData}
-                    setField={set}
-                    fieldsDisabled={fieldsDisabled}
-                    accent={accent}
-                    fieldMinHeightPx={fieldMinHeightPx}
-                    fieldClassName={bodyFieldSelect}
-                    amountReadOnly={approvedAmount > 0}
-                />
-                <VehicleGaragePaymentToGarageFields
-                    formData={formData}
-                    setField={set}
-                    setFormData={setFormData}
-                    fieldsDisabled={fieldsDisabled}
-                    FieldCell={VehicleBodyWorkFormFieldCell}
-                    accent={accent}
-                    fieldMinHeightPx={fieldMinHeightPx}
-                    fieldClassName={bodyFieldSelect}
+            </div>
+
+            <div className="mt-4 border-t border-gray-100 pt-4">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                    Description (optional)
+                </span>
+                <textarea
+                    className={`${bodyFieldSelect} mt-1.5 min-h-[88px] resize-y font-medium`}
+                    rows={3}
+                    value={formData.serviceIssue || ''}
+                    onChange={(e) => set('serviceIssue', e.target.value)}
+                    disabled={fieldsDisabled}
+                    placeholder="Enter work description"
                 />
             </div>
 
@@ -267,4 +254,3 @@ export default function VehicleBodyWorkGarageCard({
         </div>
     );
 }
-

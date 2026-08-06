@@ -76,12 +76,8 @@ export function canEditMechanicalWorkQuoteCard(assignmentPending, stage, { canAc
 }
 
 export function canEditMechanicalWorkQuoteEmployeeRows(assignmentPending, stage, { canActHr, canManageMechanicalWork, canRespondToWorkflow }) {
+    // Lock after HR Approval — employee rows only editable while HR stage is open.
     if (assignmentPending) return false;
-    if ([MECHANICAL_WORK_WORKFLOW_STAGES.COMPLETE, MECHANICAL_WORK_WORKFLOW_STAGES.REJECTED].includes(stage)) {
-        return false;
-    }
-    if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.HR) {
-        return Boolean(canActHr || canRespondToWorkflow || canManageMechanicalWork);
-    }
-    return Boolean(canActHr || canManageMechanicalWork);
+    if (stage !== MECHANICAL_WORK_WORKFLOW_STAGES.HR) return false;
+    return Boolean(canActHr || canRespondToWorkflow || canManageMechanicalWork);
 }

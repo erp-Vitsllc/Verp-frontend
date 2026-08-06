@@ -9,7 +9,6 @@ import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import {
-    canApproveAccidentRepairGarageAccounts,
     canEditAccidentRepairGarage,
     ACCIDENT_REPAIR_WORKFLOW_STAGES,
 } from '../utils/vehicleAccidentRepairWorkflow';
@@ -28,8 +27,6 @@ import {
     tireDatePickerClass,
     tireFieldSelect,
 } from '../utils/vehicleAccidentRepairDetailUi';
-import VehicleGarageBillingFields from './VehicleGarageBillingFields';
-import VehicleGaragePaymentToGarageFields from './VehicleGaragePaymentToGarageFields';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
 
 export default function VehicleAccidentRepairGarageCard({
@@ -38,7 +35,6 @@ export default function VehicleAccidentRepairGarageCard({
     vehicleId,
     serviceId,
     canManage = false,
-    canActAccounts = false,
     workflowStage = '',
     onUpdated,
     className = '',
@@ -53,12 +49,10 @@ export default function VehicleAccidentRepairGarageCard({
     const isComplete = stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.COMPLETE;
 
     const canEditGarage = canEditAccidentRepairGarage(stage, canManage, { asset, service });
-    const canApproveAccounts = canApproveAccidentRepairGarageAccounts(stage, canActAccounts);
     const garageFormComplete = isAccidentRepairGarageFormComplete(formData);
     const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending;
 
     const { fieldMinHeightPx, gapClass } = ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT;
-    const accent = () => 'border-gray-200 bg-white';
 
     useEffect(() => {
         setFormData(buildAccidentRepairGarageFormState(service, asset));
@@ -94,10 +88,9 @@ export default function VehicleAccidentRepairGarageCard({
             );
             toast({
                 title: 'Garage details saved',
-                description:
-                    stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR
-                        ? 'Saved. HR Approval stays open in parallel until HR approves.'
-                        : 'Sent to Accounts Approve.',
+                description: canEditGarage
+                    ? 'Schedule updated. You can reschedule anytime until Complete Service.'
+                    : 'Garage details saved.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
@@ -111,52 +104,19 @@ export default function VehicleAccidentRepairGarageCard({
         }
     };
 
-    const handleAccountsApprove = async () => {
-        if (!vehicleId || !canApproveAccounts) return;
-        setSaving(true);
-        try {
-            const { data } = await axiosInstance.post(`/AssetItem/${vehicleId}/service-workflow/respond`, {
-                action: 'approve',
-                comment: 'Garage and service dates approved',
-                ...(serviceId ? { serviceRecordId: serviceId } : {}),
-            });
-            toast({
-                title: 'Approved',
-                description:
-                    data?.message ||
-                    data?.zohoBillMessage ||
-                    (stage === 'pending_billing'
-                        ? 'Zoho bill created — Billed.'
-                        : 'Service scheduled. Zoho billing happens after End Service.'),
-            });
-            if (typeof onUpdated === 'function') onUpdated(data?.asset);
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Accounts approval blocked',
-                description:
-                    error.response?.data?.message ||
-                    'Zoho bill must be created successfully before Accounts can approve.',
-            });
-        } finally {
-            setSaving(false);
-        }
-    };
-
     const subtitle =
         stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR
-            ? 'Opens with HR after Initiate — complete garage vendor, dates, pay account, then Done'
+            ? 'Opens with HR after Initiate — complete garage vendor and dates, then Done'
             : stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER
-              ? 'Admin Officer — complete garage vendor, pay account, amount, attachment and service window, then click Done'
-              : stage === 'pending_billing'
-                ? 'Service completed — use Accounts Billing card below for Zoho'
-                : stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS
-                  ? canApproveAccounts
-                      ? 'Legacy — Accounts garage schedule approval (Zoho is after End Service)'
-                      : 'Garage details submitted — awaiting Accounts schedule approval'
+              ? 'Admin Officer — complete garage vendor and service window, then click Done'
+                : stage === 'pending_billing' ||
+                    String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live'
+                  ? 'Complete Service done — Schedule locked. Use Make Payment below for Zoho billing'
                   : isComplete || stage === 'billed'
                     ? 'Garage details locked'
-                    : 'Garage vendor, pay account, amount, attachment, and scheduled service window';
+                    : canEditGarage
+                      ? 'Reschedule anytime until Complete Service — update garage / dates then Done'
+                      : 'Garage vendor and scheduled service window';
 
     return (
         <div className={`w-full ${className}`.trim()}>
@@ -166,7 +126,7 @@ export default function VehicleAccidentRepairGarageCard({
                 icon={CalendarClock}
                 iconBg="bg-violet-50"
                 iconColor="text-violet-600"
-                className={`w-full ${fieldsDisabled && !canApproveAccounts ? 'opacity-[0.97]' : ''}`}
+                className={`w-full ${fieldsDisabled ? 'opacity-[0.97]' : ''}`}
             >
                 <VehicleGarageZohoBillRetry
                     vehicleId={vehicleId}
@@ -176,103 +136,96 @@ export default function VehicleAccidentRepairGarageCard({
                     onUpdated={onUpdated}
                 />
                 <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mb-2.5`}>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Garage Location"
-                            accentClass="border-gray-200 bg-white"
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <input
-                                className={tireFieldSelect}
-                                type="text"
-                                value={formData.garageLocation || ''}
-                                onChange={(e) => set('garageLocation', e.target.value)}
-                                disabled={fieldsDisabled}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Garage Contact"
-                            accentClass="border-gray-200 bg-white"
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <input
-                                className={tireFieldSelect}
-                                type="text"
-                                value={formData.garageContact || ''}
-                                onChange={(e) => set('garageContact', e.target.value)}
-                                disabled={fieldsDisabled}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                    </div>
+                    <VehicleAccidentRepairFormFieldCell
+                        label="Garage Location"
+                        accentClass="border-gray-200 bg-white"
+                        minHeightPx={fieldMinHeightPx}
+                    >
+                        <input
+                            className={tireFieldSelect}
+                            type="text"
+                            value={formData.garageLocation || ''}
+                            onChange={(e) => set('garageLocation', e.target.value)}
+                            disabled={fieldsDisabled}
+                        />
+                    </VehicleAccidentRepairFormFieldCell>
+                    <VehicleAccidentRepairFormFieldCell
+                        label="Garage Contact"
+                        accentClass="border-gray-200 bg-white"
+                        minHeightPx={fieldMinHeightPx}
+                    >
+                        <input
+                            className={tireFieldSelect}
+                            type="text"
+                            value={formData.garageContact || ''}
+                            onChange={(e) => set('garageContact', e.target.value)}
+                            disabled={fieldsDisabled}
+                        />
+                    </VehicleAccidentRepairFormFieldCell>
+                </div>
 
-                    <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass}`}>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Garage Name (Vendor)"
-                            accentClass="border-gray-200 bg-white"
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <ZohoVendorSelect
-                                className="w-full"
-                                value={formData.garageName || ''}
-                                onChange={(nextValue, vendor) => {
-                                    set('garageName', nextValue);
-                                    set(
-                                        'zohoVendorId',
-                                        String(vendor?.id || vendor?.zohoContactId || vendor?.value || '').trim(),
-                                    );
-                                }}
-                                disabled={fieldsDisabled}
-                                placeholder="Select vendor"
-                                extraOptions={garageOptions}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Service Start Date"
-                            accentClass="border-gray-200 bg-white"
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <DatePicker
-                                value={formData.serviceStartDate || ''}
-                                onChange={(value) => set('serviceStartDate', value || '')}
-                                placeholder="dd/mm/yyyy"
-                                className={tireDatePickerClass}
-                                disabled={fieldsDisabled}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Service End Date"
-                            accentClass="border-gray-200 bg-white"
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <DatePicker
-                                value={formData.serviceEndDate || ''}
-                                onChange={(value) => set('serviceEndDate', value || '')}
-                                placeholder="dd/mm/yyyy"
-                                className={tireDatePickerClass}
-                                disabled={fieldsDisabled}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                        <VehicleGarageBillingFields
-                            formData={formData}
-                            setField={set}
-                            fieldsDisabled={fieldsDisabled}
-                            accent={accent}
-                            fieldMinHeightPx={fieldMinHeightPx}
-                            fieldClassName={tireFieldSelect}
-                            // Admin Officer must enter amount when HR skip / no approved value
-                            // (empty read-only amount keeps Done permanently disabled).
-                            amountReadOnly={!canEditGarage}
+                <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass}`}>
+                    <VehicleAccidentRepairFormFieldCell
+                        label="Garage Name (Vendor)"
+                        accentClass="border-gray-200 bg-white"
+                        minHeightPx={fieldMinHeightPx}
+                    >
+                        <ZohoVendorSelect
+                            className="w-full"
+                            value={formData.garageName || ''}
+                            onChange={(nextValue, vendor) => {
+                                set('garageName', nextValue);
+                                set(
+                                    'zohoVendorId',
+                                    String(vendor?.id || vendor?.zohoContactId || vendor?.value || '').trim(),
+                                );
+                            }}
+                            disabled={fieldsDisabled}
+                            placeholder="Select vendor"
+                            extraOptions={garageOptions}
                         />
-                        <VehicleGaragePaymentToGarageFields
-                            formData={formData}
-                            setField={set}
-                            setFormData={setFormData}
-                            fieldsDisabled={fieldsDisabled}
-                            FieldCell={VehicleAccidentRepairFormFieldCell}
-                            accent={accent}
-                            fieldMinHeightPx={fieldMinHeightPx}
-                            fieldClassName={tireFieldSelect}
+                    </VehicleAccidentRepairFormFieldCell>
+                    <VehicleAccidentRepairFormFieldCell
+                        label="Service Start Date"
+                        accentClass="border-gray-200 bg-white"
+                        minHeightPx={fieldMinHeightPx}
+                    >
+                        <DatePicker
+                            value={formData.serviceStartDate || ''}
+                            onChange={(value) => set('serviceStartDate', value || '')}
+                            placeholder="dd/mm/yyyy"
+                            className={tireDatePickerClass}
+                            disabled={fieldsDisabled}
                         />
-                    </div>
+                    </VehicleAccidentRepairFormFieldCell>
+                    <VehicleAccidentRepairFormFieldCell
+                        label="Service End Date"
+                        accentClass="border-gray-200 bg-white"
+                        minHeightPx={fieldMinHeightPx}
+                    >
+                        <DatePicker
+                            value={formData.serviceEndDate || ''}
+                            onChange={(value) => set('serviceEndDate', value || '')}
+                            placeholder="dd/mm/yyyy"
+                            className={tireDatePickerClass}
+                            disabled={fieldsDisabled}
+                        />
+                    </VehicleAccidentRepairFormFieldCell>
+                </div>
+
+                <div className="mt-4 border-t border-gray-100 pt-4">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                        Description (optional)
+                    </span>
+                    <textarea
+                        className={`${tireFieldSelect} mt-1.5 min-h-[88px] resize-y font-medium`}
+                        rows={3}
+                        value={formData.serviceIssue || ''}
+                        onChange={(e) => set('serviceIssue', e.target.value)}
+                        disabled={fieldsDisabled}
+                        placeholder="Enter work description"
+                    />
+                </div>
 
                 {canEditGarage ? (
                     <div className="mt-4 flex justify-end border-t border-gray-100 pt-4">
@@ -289,26 +242,6 @@ export default function VehicleAccidentRepairGarageCard({
                                 </span>
                             ) : (
                                 'Done'
-                            )}
-                        </button>
-                    </div>
-                ) : null}
-
-                {canApproveAccounts ? (
-                    <div className="mt-4 flex justify-end border-t border-gray-100 pt-4">
-                        <button
-                            type="button"
-                            disabled={saving}
-                            onClick={() => void handleAccountsApprove()}
-                            className={tireBtnPrimary}
-                        >
-                            {saving ? (
-                                <span className="inline-flex items-center justify-center gap-2">
-                                    <Loader2 size={14} className="animate-spin" />
-                                    Approving...
-                                </span>
-                            ) : (
-                                'Approve'
                             )}
                         </button>
                     </div>

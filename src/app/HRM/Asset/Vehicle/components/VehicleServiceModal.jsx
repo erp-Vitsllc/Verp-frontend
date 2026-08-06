@@ -1051,11 +1051,11 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                             ) : null}
                         </div>
 
-                        {isOilService || isMechanicalWork ? (
+                        {isOilService ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                        {isMechanicalWork ? 'Payment Type' : 'Amount Type'}
+                                        Payment Type
                                     </label>
                                     <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
                                         <button
@@ -1066,7 +1066,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                 : 'text-slate-500 hover:text-slate-700'
                                                 }`}
                                         >
-                                            {isMechanicalWork ? 'Cash' : 'Amount'}
+                                            Cash
                                         </button>
                                         <button
                                             type="button"

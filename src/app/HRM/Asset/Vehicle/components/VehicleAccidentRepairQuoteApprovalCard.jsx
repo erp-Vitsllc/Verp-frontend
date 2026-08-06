@@ -1,15 +1,16 @@
 ﻿'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileCheck } from 'lucide-react';
+import { FileCheck, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { parseVehicleServiceRemark, normalizeMongoId } from './vehicleServiceUtils';
 import VehicleAccidentRepairFormFieldCell from './VehicleAccidentRepairFormFieldCell';
+import SearchableEmployeeSelect from './SearchableEmployeeSelect';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
-import { canEditAccidentRepairQuoteCard, canEditAccidentRepairQuoteEmployeeRows } from '../utils/vehicleAccidentRepairWorkflow';
+import { canEditAccidentRepairQuoteCard } from '../utils/vehicleAccidentRepairWorkflow';
 import {
     ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT,
     tireAccent,
@@ -23,17 +24,18 @@ import { quoteKeyToLabel } from '../utils/vehicleAccidentRepairQuoteDrag';
 import {
     buildHrReviewInitiateRemarkPatch,
     syncHrReviewPayCalculation,
+    syncHrReviewPayFromEmployeeRows,
 } from '../utils/vehicleShopHrReviewPay';
 
 function formatAed(value) {
     const n = Number(value);
-    if (!Number.isFinite(n)) return '—';
+    if (!Number.isFinite(n)) return '-';
     return `${n.toLocaleString()} AED`;
 }
 
 function FineSplitToggle({ value, onChange, disabled }) {
     return (
-        <div className="inline-flex w-full rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+        <div className="inline-flex w-full min-h-[44px] items-stretch rounded-lg border border-gray-200 bg-gray-50 p-1 gap-0.5">
             {[
                 { id: 'person', label: 'EMP' },
                 { id: 'company', label: 'CMPY' },
@@ -44,10 +46,10 @@ function FineSplitToggle({ value, onChange, disabled }) {
                     type="button"
                     disabled={disabled}
                     onClick={() => onChange(opt.id)}
-                    className={`flex-1 rounded-md px-1 py-1.5 text-[10px] font-bold transition-all ${
+                    className={`flex flex-1 items-center justify-center rounded-md px-2.5 py-2.5 text-xs font-bold leading-tight whitespace-nowrap transition-all ${
                         value === opt.id
                             ? 'bg-white text-emerald-700 shadow-sm'
-                            : 'text-gray-500 hover:text-gray-700'
+                            : 'text-gray-600 hover:text-gray-800'
                     } disabled:opacity-60`}
                 >
                     {opt.label}
@@ -58,9 +60,9 @@ function FineSplitToggle({ value, onChange, disabled }) {
 }
 
 function employeeLabel(emp) {
-    if (!emp || typeof emp !== 'object') return '—';
+    if (!emp || typeof emp !== 'object') return '-';
     const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
-    return name || emp.employeeId || '—';
+    return name || emp.employeeId || '-';
 }
 
 function buildQuoteRows(service, remark) {
@@ -192,8 +194,6 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
-    const [rowsSaving, setRowsSaving] = useState(false);
-    const [rowsDirty, setRowsDirty] = useState(false);
     const [employees, setEmployees] = useState([]);
     const [quoteState, setQuoteState] = useState({
         q1: { status: '', comment: '' },
@@ -214,6 +214,8 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
     const quoteRows = useMemo(() => buildQuoteRows(service, remark), [service, remark]);
     const showCompanyPay = !paymentByMode || paymentByMode !== 'person';
     const showEmployeePay = paymentByMode === 'person' || paymentByMode === 'split';
+    const totalPay =
+        (Number(displaySummary.companyPay) || 0) + (Number(displaySummary.employeePay) || 0);
 
     const wf = asset?.activeServiceWorkflow || {};
     const wfMatch = normalizeMongoId(wf?.serviceRecordId) === normalizeMongoId(serviceId);
@@ -225,15 +227,6 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                 canRespondToWorkflow,
             }),
         [assignmentPending, stage, canActHr, canRespondToWorkflow],
-    );
-    const canEditEmployeeRows = useMemo(
-        () =>
-            canEditAccidentRepairQuoteEmployeeRows(assignmentPending, stage, {
-                canActHr,
-                canManageAccidentRepair,
-                canRespondToWorkflow,
-            }),
-        [assignmentPending, stage, canActHr, canManageAccidentRepair, canRespondToWorkflow],
     );
 
     useEffect(() => {
@@ -307,7 +300,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             employeePay: merged.employeePay,
         });
         setEmployeeRows(merged.employeeRows);
-        setRowsDirty(false);
+        
         // paymentByMode is applied via handleFineSplitChange; do not re-merge on every toggle.
         // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
     }, [
@@ -327,11 +320,16 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             companyPay: displaySummary.companyPay,
             employeePay: displaySummary.employeePay,
             paymentByMode: paymentByMode || undefined,
+            employeeRows: (employeeRows || []).map((row) => ({
+                employeeId: String(row.employeeId || ''),
+                paidAmount: row.paidAmount != null ? String(row.paidAmount) : '',
+            })),
         });
     }, [
         displaySummary.approvedAmount,
         displaySummary.companyPay,
         displaySummary.employeePay,
+        employeeRows,
         onReviewSummaryChange,
         paymentByMode,
     ]);
@@ -339,26 +337,16 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
     const resolveEmployeeName = useCallback(
         (employeeId) => {
             const id = String(employeeId || '').trim();
-            if (!id) return '—';
+            if (!id) return '-';
             const fromList = employees.find((emp) => String(emp._id) === id);
             if (fromList) return employeeLabel(fromList);
             const assignee = asset?.assignedTo;
             if (assignee && typeof assignee === 'object' && String(assignee._id) === id) {
                 return employeeLabel(assignee);
             }
-            return '—';
+            return '-';
         },
         [asset?.assignedTo, employees],
-    );
-
-    const employeeOptions = useMemo(
-        () =>
-            employees.map((emp) => (
-                <option key={emp._id} value={String(emp._id)}>
-                    {employeeLabel(emp)}
-                </option>
-            )),
-        [employees],
     );
 
     const applyApprovedAmountToSplit = useCallback(
@@ -370,9 +358,20 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             const employeePct =
                 effectiveMode === 'person' ? 100 : effectiveMode === 'split' ? Number(remark?.employeePayPercent ?? 50) : 0;
             const split = computePaySplit(amount, effectiveMode, companyPct, employeePct);
+            const seedRows =
+                prevRows?.length
+                    ? prevRows
+                    : [
+                          {
+                              employeeId: String(
+                                  remark?.carDrivenByEmployeeId || remark?.vehicleOwnerEmployeeId || '',
+                              ),
+                              paidAmount: '',
+                          },
+                      ];
             const nextRows =
-                (effectiveMode === 'person' || effectiveMode === 'split') && prevRows?.length
-                    ? applyEmployeePayTargetToRows(prevRows, amount, employeePct)
+                effectiveMode === 'person' || effectiveMode === 'split'
+                    ? applyEmployeePayTargetToRows(seedRows, amount, employeePct)
                     : prevRows;
             return {
                 approvedAmount: rawAmount,
@@ -381,7 +380,13 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                 employeeRows: nextRows,
             };
         },
-        [paymentByMode, remark?.companyPayPercent, remark?.employeePayPercent],
+        [
+            paymentByMode,
+            remark?.carDrivenByEmployeeId,
+            remark?.companyPayPercent,
+            remark?.employeePayPercent,
+            remark?.vehicleOwnerEmployeeId,
+        ],
     );
 
     const setReviewField = (field, value) => {
@@ -403,7 +408,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         if (synced.paymentByMode) {
             setPaymentByMode(synced.paymentByMode);
         }
-        setRowsDirty(true);
+        
     };
 
     const setReviewApprovedAmount = (value) => {
@@ -422,7 +427,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             employeePay: synced.employeePay,
         });
         setEmployeeRows(synced.employeeRows);
-        setRowsDirty(true);
+        
     };
 
     const handleFineSplitChange = (mode) => {
@@ -435,18 +440,59 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             employeePay: split.employeePay,
         });
         setEmployeeRows(split.employeeRows);
-        setRowsDirty(true);
+        
     };
+
+    const syncPayTotalsFromEmployeeRows = useCallback(
+        (rows, mode = paymentByMode, companyPayValue = displaySummary.companyPay) => {
+            return syncHrReviewPayFromEmployeeRows({
+                employeeRows: rows,
+                approvedAmount: displaySummary.approvedAmount,
+                companyPay: companyPayValue,
+                paymentByMode: mode || 'company',
+            });
+        },
+        [displaySummary.approvedAmount, displaySummary.companyPay, paymentByMode],
+    );
 
     const updateReviewEmployeeRow = (index, field, value) => {
         setEmployeeRows((prev) => {
             const rows = [...(prev || [])];
             rows[index] = { ...rows[index], [field]: value };
+            if (field === 'paidAmount') {
+                const synced = syncPayTotalsFromEmployeeRows(rows);
+                setDisplaySummary({
+                    approvedAmount: synced.approvedAmount,
+                    companyPay: synced.companyPay,
+                    employeePay: synced.employeePay,
+                });
+            }
             return rows;
         });
-        if (!canEdit) {
-            setRowsDirty(true);
-        }
+        
+    };
+
+    const addEmployeeRow = () => {
+        setEmployeeRows((prev) => [...(prev || []), { employeeId: '', paidAmount: '' }]);
+        
+    };
+
+    const removeEmployeeRow = (index) => {
+        setEmployeeRows((prev) => {
+            const rows = [...(prev || [])];
+            const nextRows =
+                rows.length <= 1
+                    ? [{ employeeId: '', paidAmount: '' }]
+                    : rows.filter((_, i) => i !== index);
+            const synced = syncPayTotalsFromEmployeeRows(nextRows);
+            setDisplaySummary({
+                approvedAmount: synced.approvedAmount,
+                companyPay: synced.companyPay,
+                employeePay: synced.employeePay,
+            });
+            return nextRows;
+        });
+        
     };
 
     const setQuoteField = (key, field, value) => {
@@ -506,31 +552,6 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         [employeeRows],
     );
 
-    const handleSaveEmployeeRows = async () => {
-        if (!vehicleId || !serviceId || !canEditEmployeeRows) return;
-        setRowsSaving(true);
-        try {
-            const { data } = await axiosInstance.put(
-                `/AssetItem/${vehicleId}/service/${serviceId}/accident-repair/quote-employees`,
-                { employeeRows: buildEmployeeRowsPayload() },
-            );
-            toast({
-                title: 'Employee rows saved',
-                description: 'Paid amounts were updated without changing the approved quote totals.',
-            });
-            setRowsDirty(false);
-            if (typeof onUpdated === 'function') onUpdated(data?.asset);
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Could not save employee rows',
-                description: error.response?.data?.message || 'Try again.',
-            });
-        } finally {
-            setRowsSaving(false);
-        }
-    };
-
     const buildServiceUpdates = useCallback(() => {
         const selected = approvedQuoteKey;
         const selectedRow = selected ? quoteRows.find((r) => r.key === selected) : null;
@@ -577,7 +598,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                     variant: 'destructive',
                     title: 'Quotation required',
                     description:
-                        'Quotes were uploaded — select one quote below, or remove quotes on Initiate first.',
+                        'Quotes were uploaded - select one quote below, or remove quotes on Initiate first.',
                 });
                 return;
             }
@@ -627,8 +648,8 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                         : canEdit
                           ? quoteRows.length
                               ? 'Select one quotation, then approve'
-                              : 'No quotes uploaded — you can approve without a quotation'
-                          : 'Submitted quotation review — view only'
+                              : 'No quotes uploaded - you can approve without a quotation'
+                          : 'Submitted quotation review - view only'
                 }
                 icon={FileCheck}
                 iconBg="bg-emerald-50"
@@ -644,7 +665,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                     <p className="mb-4 text-sm text-gray-600">
                         {quoteRows.length
                             ? 'Select one quote from Initiate. Only that quote continues; other quotes are not used.'
-                            : 'No quotes uploaded — you can approve without selecting a quotation.'}
+                            : 'No quotes uploaded - you can approve without selecting a quotation.'}
                     </p>
                 )}
 
@@ -741,7 +762,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                             {approvedRow?.amount != null &&
                             approvedRow.amount !== '' &&
                             Number.isFinite(Number(approvedRow.amount))
-                                ? ` · AED ${Number(approvedRow.amount).toLocaleString()}`
+                                ? ` - AED ${Number(approvedRow.amount).toLocaleString()}`
                                 : ''}
                             . Other quotes will not continue.
                         </p>
@@ -750,9 +771,10 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
 
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 ${gapClass}`}>
                     <VehicleAccidentRepairFormFieldCell
-                        label="Split Fine (optional)"
+                        label="Payment to Whom"
                         accentClass={accent(0)}
-                        minHeightPx={fieldMinHeightPx}
+                        minHeightPx={Math.max(fieldMinHeightPx, 72)}
+                        className="sm:col-span-2 min-w-0"
                     >
                         <FineSplitToggle
                             value={paymentByMode || ''}
@@ -763,7 +785,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                     <VehicleAccidentRepairFormFieldCell
                         label="Approved Amount"
                         accentClass={accent(1)}
-                        minHeightPx={fieldMinHeightPx}
+                        minHeightPx={Math.max(fieldMinHeightPx, 72)}
                     >
                         <input
                             className={canEdit ? tireMoneyInput : tireSummaryValue}
@@ -775,16 +797,21 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                                     ? displaySummary.approvedAmount || ''
                                     : displaySummary.approvedAmount
                                       ? formatAed(displaySummary.approvedAmount)
-                                      : '—'
+                                      : '-'
                             }
                             onChange={(e) => setReviewApprovedAmount(e.target.value)}
                         />
+                        {!canEdit && totalPay > 0 ? (
+                            <p className="mt-1 text-[10px] font-semibold text-gray-500">
+                                Total Pay: {formatAed(totalPay)}
+                            </p>
+                        ) : null}
                     </VehicleAccidentRepairFormFieldCell>
                     {showCompanyPay ? (
                         <VehicleAccidentRepairFormFieldCell
                             label="Company Pay"
                             accentClass={accent(2)}
-                            minHeightPx={fieldMinHeightPx}
+                            minHeightPx={Math.max(fieldMinHeightPx, 72)}
                         >
                             <input
                                 className={canEdit ? tireMoneyInput : tireSummaryValue}
@@ -806,7 +833,7 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                         <VehicleAccidentRepairFormFieldCell
                             label="Employee Pay"
                             accentClass={accent(0)}
-                            minHeightPx={fieldMinHeightPx}
+                            minHeightPx={Math.max(fieldMinHeightPx, 72)}
                         >
                             <input
                                 className={canEdit ? tireMoneyInput : tireSummaryValue}
@@ -824,6 +851,144 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                             />
                         </VehicleAccidentRepairFormFieldCell>
                     ) : null}
+                    {canEdit && (showCompanyPay || showEmployeePay) ? (
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Total Pay"
+                            accentClass={accent(1)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <input
+                                className={tireSummaryValue}
+                                readOnly
+                                disabled
+                                value={totalPay > 0 ? formatAed(totalPay) : '-'}
+                            />
+                        </VehicleAccidentRepairFormFieldCell>
+                    ) : null}
+                </div>
+
+                {showEmployeePay ? (
+                    <div className="mt-3 rounded-lg border border-gray-200 bg-white overflow-hidden">
+                        <div className="grid grid-cols-2 border-b border-gray-200 bg-slate-50">
+                            {['Employee Name', 'Amount'].map((heading) => (
+                                <div
+                                    key={heading}
+                                    className="px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 border-r border-gray-200 last:border-r-0"
+                                >
+                                    {heading}
+                                </div>
+                            ))}
+                        </div>
+                        {(employeeRows || []).length ? (
+                            (employeeRows || []).map((row, index) => {
+                                const canEditRow = canEdit;
+                                const isLastRow = index === (employeeRows || []).length - 1;
+                                return (
+                                    <div
+                                        key={`hr-emp-row-${index}`}
+                                        className="grid grid-cols-2 border-b border-gray-100 last:border-b-0"
+                                    >
+                                        <div className="flex items-center gap-1 border-r border-gray-100 p-2">
+                                            {canEditRow ? (
+                                                <SearchableEmployeeSelect
+                                                    employees={employees}
+                                                    value={row.employeeId || ''}
+                                                    onChange={(nextId) =>
+                                                        updateReviewEmployeeRow(
+                                                            index,
+                                                            'employeeId',
+                                                            nextId,
+                                                        )
+                                                    }
+                                                    disabled={loading}
+                                                    placeholder="Select employee"
+                                                />
+                                            ) : (
+                                                <span className="block px-1 py-1 text-sm font-semibold text-gray-800">
+                                                    {resolveEmployeeName(row.employeeId)}
+                                                </span>
+                                            )}
+                                            {canEditRow && (employeeRows || []).length > 1 ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeEmployeeRow(index)}
+                                                    className="shrink-0 rounded-md px-1.5 py-1 text-[10px] font-bold text-red-500 hover:bg-red-50"
+                                                    title="Remove employee"
+                                                    disabled={loading}
+                                                >
+                                                    {'\u00d7'}
+                                                </button>
+                                            ) : null}
+                                        </div>
+                                        <div className="flex items-center gap-1 p-2">
+                                            {canEditRow ? (
+                                                <input
+                                                    className={`${tireMoneyInput} min-h-[36px] py-1 flex-1`}
+                                                    type="number"
+                                                    min="0"
+                                                    value={row.paidAmount || ''}
+                                                    onChange={(e) =>
+                                                        updateReviewEmployeeRow(
+                                                            index,
+                                                            'paidAmount',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                    disabled={loading}
+                                                    placeholder="AED"
+                                                />
+                                            ) : (
+                                                <span className="block px-1 py-1 text-sm font-semibold text-gray-800">
+                                                    {row.paidAmount ? formatAed(row.paidAmount) : '-'}
+                                                </span>
+                                            )}
+                                            {canEditRow && isLastRow ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={addEmployeeRow}
+                                                    className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 text-[11px] font-bold text-blue-600 hover:bg-blue-100"
+                                                    title="Add more employees"
+                                                    disabled={loading}
+                                                >
+                                                    <Plus size={14} />
+                                                    Add more emp
+                                                </button>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="flex items-center justify-between gap-2 px-3 py-3">
+                                <p className="text-sm text-gray-400">Select an employee name</p>
+                                {canEdit ? (
+                                    <button
+                                        type="button"
+                                        onClick={addEmployeeRow}
+                                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[11px] font-bold text-blue-600 hover:bg-blue-100"
+                                        disabled={loading}
+                                    >
+                                        <Plus size={14} />
+                                        Add more emp
+                                    </button>
+                                ) : null}
+                            </div>
+                        )}
+                    </div>
+                ) : null}
+
+                <div className="mt-4 border-t border-gray-100 pt-4">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                        Description (optional)
+                    </span>
+                    <textarea
+                        className="mt-1.5 w-full min-h-[88px] resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 placeholder:text-gray-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-600"
+                        rows={3}
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        disabled={!canEdit}
+                        placeholder="Enter review notes..."
+                    />
                 </div>
 
                 {canEdit ? (

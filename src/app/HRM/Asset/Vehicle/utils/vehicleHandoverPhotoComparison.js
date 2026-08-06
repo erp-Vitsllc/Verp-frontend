@@ -34,7 +34,13 @@ function pickAssessmentBlock(source, key) {
 
 function pickBodyBlock(source, key) {
     if (!source || typeof source !== 'object') {
-        return { comment: '', photo: null, photoSource: null };
+        return {
+            comment: '',
+            photo: null,
+            photoSource: null,
+            replacedByService: false,
+            serviceBaselinePhoto: null,
+        };
     }
     const block = source[key];
     if (!block || typeof block !== 'object') {
@@ -42,6 +48,8 @@ function pickBodyBlock(source, key) {
             comment: String(source[`${key}Comment`] || '').trim(),
             photo: source[`${key}Photo`] ?? null,
             photoSource: null,
+            replacedByService: false,
+            serviceBaselinePhoto: null,
         };
     }
     return {
@@ -51,6 +59,8 @@ function pickBodyBlock(source, key) {
             block.photoSource === 'previous' || block.photoSource === 'new'
                 ? block.photoSource
                 : null,
+        replacedByService: block.replacedByService === true,
+        serviceBaselinePhoto: block.serviceBaselinePhoto ?? null,
     };
 }
 
@@ -243,7 +253,16 @@ export function buildBodyConditionComparisonRows(historyEntry, assetHistory = []
 
     return BODY_CONDITION_VIEW_FIELDS.map((field) => {
         const current = pickBodyBlock(currentSource, field.key);
-        const previous = pickBodyBlock(previousSource, field.key);
+        const previousFromHistory = pickBodyBlock(previousSource, field.key);
+        // Service Complete stores the pre-replace photo on the same row — prefer that for Prev.
+        const previous =
+            current.replacedByService && current.serviceBaselinePhoto
+                ? {
+                      comment: previousFromHistory.comment || '',
+                      photo: current.serviceBaselinePhoto,
+                      photoSource: null,
+                  }
+                : previousFromHistory;
         const hasPreviousBaseline = Boolean(previous.photo) || Boolean(previous.comment);
         const photoChanged = hasPreviousBaseline && photosDiffer(previous.photo, current.photo);
         const commentChanged =

@@ -50,9 +50,6 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleBodyWorkDetailUi';
-import VehicleServicePaymentTypeMethodFields from './VehicleServicePaymentTypeMethodFields';
-import { formatWarrantyExpiryFromAsset } from '../utils/vehicleOilServiceWarranty';
-import { isOilPayablePaymentMode } from '../utils/vehicleOilServiceDetailForm';
 import {
     ERP_JPEG_ACCEPT,
     ERP_PDF_ACCEPT,
@@ -295,12 +292,17 @@ export default function VehicleBodyWorkDetailForm({
     const photoGalleryItems = useMemo(() => {
         const items = [];
         (formData.existingBodyWorkImages || []).forEach((img, idx) => {
-            const url = resolvedExistingPhotoSrc[`existing-${idx}`] || directBodyWorkImageSrc(img);
-            if (!url) return;
+            const thumb =
+                resolvedExistingPhotoSrc[`existing-${idx}`] || directBodyWorkImageSrc(img);
+            const dataUrl = thumb?.startsWith('data:') ? thumb : '';
+            // Pass storage photo (not blob:) so the shared handover viewer can proxy-load it.
+            const photo = dataUrl || img;
+            if (!photo && !thumb) return;
             items.push({
                 key: `existing-${idx}`,
                 label: `Rectification photo ${items.length + 1}`,
-                url,
+                photo,
+                ...(dataUrl ? { url: dataUrl } : {}),
             });
         });
         (formData.bodyWorkImages || []).forEach((img, idx) => {
@@ -311,6 +313,7 @@ export default function VehicleBodyWorkDetailForm({
             items.push({
                 key: `new-${idx}`,
                 label: `Rectification photo ${items.length + 1}`,
+                photo: url,
                 url,
             });
         });
@@ -660,24 +663,12 @@ export default function VehicleBodyWorkDetailForm({
                             minHeightPx={fieldMinHeightPx}
                         >
                             <PaymentByToggle
-                                value={formData.paymentByMode || 'company'}
+                                value={paymentByMode || 'company'}
                                 onChange={setPaymentByMode}
                                 disabled={fieldsDisabled}
                             />
                         </VehicleBodyWorkFormFieldCell>
 
-                        <VehicleServicePaymentTypeMethodFields
-                            FieldCell={VehicleBodyWorkFormFieldCell}
-                            accent={accent}
-                            fieldMinHeightPx={fieldMinHeightPx}
-                            formData={formData}
-                            onChange={(key, value) => set(key, value)}
-                            disabled={fieldsDisabled}
-                            warrantyExpiryLabel={formatWarrantyExpiryFromAsset(asset)}
-                            fieldInputClassName={tireFieldInput}
-                        />
-
-                        {isOilPayablePaymentMode(formData.amountMode) ? (
                         <>
                         <div className={`${costRowGridClass} ${gapClass}`}>
                                     <VehicleBodyWorkFormFieldCell
@@ -1014,7 +1005,6 @@ export default function VehicleBodyWorkDetailForm({
                                     />
                                 </VehicleBodyWorkFormFieldCell>
                         </>
-                        ) : null}
                     </div>
 
                     <div className="mt-4 border-t border-gray-100 pt-4">

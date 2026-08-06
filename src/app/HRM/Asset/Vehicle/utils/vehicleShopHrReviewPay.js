@@ -140,21 +140,50 @@ export function syncHrReviewPayCalculation({
     };
 }
 
-/** After editing a single employee paid-amount row, keep Employee/Company totals consistent. */
+/** After editing employee paid-amount rows, keep Employee / Company / Approved totals in sync. */
 export function syncHrReviewPayFromEmployeeRows({
     employeeRows,
     approvedAmount,
+    companyPay,
     paymentByMode = 'split',
 }) {
-    const approved = Number(approvedAmount) || 0;
     const employee = Math.max(0, Math.round(sumHrEmployeeRowPaidAmounts(employeeRows)));
-    const cappedEmployee = approved > 0 ? Math.min(employee, approved) : employee;
-    const company = Math.max(0, approved - cappedEmployee);
-    const percents = derivePayPercents(approved, company, cappedEmployee, paymentByMode);
+    const mode = String(paymentByMode || 'split').toLowerCase();
+
+    if (mode === 'person') {
+        const percents = derivePayPercents(employee, 0, employee, 'person');
+        return {
+            approvedAmount: employee ? String(employee) : '',
+            companyPay: '0',
+            employeePay: String(employee),
+            employeeRows,
+            ...percents,
+        };
+    }
+
+    if (mode === 'company') {
+        const approved = Number(approvedAmount) || employee;
+        const percents = derivePayPercents(approved, approved, 0, 'company');
+        return {
+            approvedAmount: approved ? String(approved) : '',
+            companyPay: approved ? String(approved) : '0',
+            employeePay: '0',
+            employeeRows,
+            ...percents,
+        };
+    }
+
+    // split: employee rows drive employee total; company stays; approved = company + employee
+    const company =
+        companyPay != null && companyPay !== ''
+            ? Math.max(0, Math.round(Number(companyPay) || 0))
+            : Math.max(0, Math.round((Number(approvedAmount) || 0) - employee));
+    const approved = company + employee;
+    const percents = derivePayPercents(approved, company, employee, 'split');
     return {
         approvedAmount: approved ? String(approved) : '',
         companyPay: String(company),
-        employeePay: String(cappedEmployee),
+        employeePay: String(employee),
         employeeRows,
         ...percents,
     };
@@ -261,18 +290,18 @@ export function resolveShopServicePayAmounts({
     const liveApproved = liveHrReview?.approvedAmount;
     const liveCompany = liveHrReview?.companyPay;
     const liveEmployee = liveHrReview?.employeePay;
+    const liveMode = String(liveHrReview?.paymentByMode || '').toLowerCase();
     const hasLive =
         (liveCompany != null && liveCompany !== '') ||
         (liveEmployee != null && liveEmployee !== '') ||
-        (liveApproved != null && liveApproved !== '');
+        (liveApproved != null && liveApproved !== '') ||
+        liveMode === 'person' ||
+        liveMode === 'company' ||
+        liveMode === 'split';
 
-    // Same gate as saved HR amounts: only keep live absolutes while cost and pay % still match.
-    // Otherwise Initiate Service toggles (e.g. EMP & CMPY) stay stuck on company-only pay.
-    if (
-        hasLive &&
-        amountsMatchCost(liveApproved, liveCompany, liveEmployee) &&
-        percentsMatchAmounts(liveApproved, liveCompany, liveEmployee)
-    ) {
+    // Prefer live HR absolutes while they still match Initiate estimated cost.
+    // If Initiate cost diverges (e.g. employee row edits), recalculate from percents.
+    if (hasLive && amountsMatchCost(liveApproved, liveCompany, liveEmployee)) {
         const approved =
             Number(liveApproved) ||
             cost ||
@@ -281,11 +310,13 @@ export function resolveShopServicePayAmounts({
             0;
         const company = liveCompany != null && liveCompany !== '' ? Number(liveCompany) || 0 : 0;
         const employee = liveEmployee != null && liveEmployee !== '' ? Number(liveEmployee) || 0 : 0;
+        const liveModeExplicit =
+            liveMode === 'person' || liveMode === 'company' || liveMode === 'split';
         return {
             estimatedCost: approved,
             companyPayAmount: company,
             employeePayAmount: employee,
-            paymentByMode: deriveMode(company, employee),
+            paymentByMode: liveModeExplicit ? liveMode : deriveMode(company, employee),
         };
     }
 

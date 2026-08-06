@@ -344,7 +344,8 @@ export default function VehicleAssetPage() {
             // Keep cached rows visible — only show spinner when there is nothing to paint.
             if (!silent && !hasCachedRows) setLoading(true);
 
-            // Fast path: ERP list only. Locator GPS enrichment is background (never blocks the table).
+            // Fast path: ERP list only — GPS lives on AssetItem from the 30-min Locator sync.
+            // Do NOT call live Locator here; that was freezing Vehicle Asset pages.
             const fleetRes = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard', {
                 params: { scope: 'list' },
                 timeout: 20000,
@@ -357,35 +358,6 @@ export default function VehicleAssetPage() {
             setVehicles(erpRows);
             saveVehicleListCache(erpRows);
             if (!silent) setLoading(false);
-
-            // Optional GPS merge — wait until ERP rows are on screen, then enrich.
-            const enrichLocator = () =>
-                axiosInstance
-                    .get('/locator/vehicle-list', {
-                        skipToast: true,
-                        timeout: 10000,
-                    })
-                    .then((locatorRes) => {
-                        const payload = locatorRes.data?.data;
-                        if (
-                            payload?.configured &&
-                            Array.isArray(payload.vehicles) &&
-                            payload.vehicles.length > 0
-                        ) {
-                            const merged = payload.vehicles.filter(
-                                (row) => !isToolsAssetNotFleetVehicle(row),
-                            );
-                            setVehicles(merged);
-                            saveVehicleListCache(merged);
-                        }
-                    })
-                    .catch(() => {});
-
-            if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
-                window.requestIdleCallback(() => void enrichLocator(), { timeout: 2500 });
-            } else {
-                setTimeout(() => void enrichLocator(), 400);
-            }
         } catch (error) {
             if (!hasCachedRows) {
                 toast({

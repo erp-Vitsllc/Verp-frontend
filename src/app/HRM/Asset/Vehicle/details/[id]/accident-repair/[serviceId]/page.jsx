@@ -25,7 +25,6 @@ import {
     canUserCreateOrInitiateVehicleService,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
-    isVehicleServiceInitiateEditableStage,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
 import {
     pickFlowchartAccountsRow,
@@ -211,16 +210,10 @@ function VehicleAccidentRepairDetailPageContent() {
         return asset.canRespondToServiceWorkflow === true;
     }, [asset, accidentRepairflowStage]);
 
-    /** Pending: create/initiate users. At HR/Accounts/Zoho bill: those roles or managers may edit Initiate. */
+    /** Pending initiate only — after Send, Initiate card is view-only. */
     const canEditAssignment = assignmentPending
-        ? Boolean(
-              canCreateOrInitiate ||
-                  (isVehicleServiceInitiateEditableStage(accidentRepairflowStage) &&
-                      (canManageAccidentRepair || isFlowchartHr || isFlowchartAccounts)),
-          )
-        : isVehicleServiceInitiateEditableStage(accidentRepairflowStage)
-          ? Boolean(canManageAccidentRepair || isFlowchartHr || isFlowchartAccounts)
-          : canManageAccidentRepair;
+        ? Boolean(canCreateOrInitiate || canManageAccidentRepair)
+        : false;
 
 
     const handleRequested = useCallback(() => {
@@ -341,7 +334,6 @@ function VehicleAccidentRepairDetailPageContent() {
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
                                     canManage={canManageAccidentRepair}
-                                    canActAccounts={isFlowchartAccounts}
                                     workflowStage={accidentRepairflowStage}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
@@ -377,6 +369,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                     assignmentPending={assignmentPending}
                                     workflowStage={accidentRepairflowStage}
                                     serviceTypeLabel="Accident Repair"
+                                    liveHrReview={liveHrReview}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
                                         void load({ silent: true, deferServiceSigning: true });

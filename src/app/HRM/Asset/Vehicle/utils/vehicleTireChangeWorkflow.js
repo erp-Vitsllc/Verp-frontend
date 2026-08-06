@@ -74,18 +74,10 @@ export function canEditTireChangeQuoteCard(assignmentPending, stage, { canActHr,
 }
 
 export function canEditTireChangeQuoteEmployeeRows(assignmentPending, stage, { canActHr, canManageTireChange, canRespondToWorkflow }) {
+    // Lock after HR Approval — employee rows only editable while HR stage is open.
     if (assignmentPending) return false;
-    if (
-        [TIRE_CHANGE_WORKFLOW_STAGES.COMPLETE, TIRE_CHANGE_WORKFLOW_STAGES.REJECTED, 'billed'].includes(
-            stage,
-        )
-    ) {
-        return false;
-    }
-    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.HR) {
-        return Boolean(canActHr || canRespondToWorkflow || canManageTireChange);
-    }
-    return Boolean(canActHr || canManageTireChange);
+    if (stage !== TIRE_CHANGE_WORKFLOW_STAGES.HR) return false;
+    return Boolean(canActHr || canRespondToWorkflow || canManageTireChange);
 }
 
 export function isTireChangeGarageSubmitted(asset, service) {

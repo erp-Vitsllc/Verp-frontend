@@ -130,15 +130,19 @@ export default function VehicleShopServiceAccountsApproveCard({
     const [accountsPaymentMethod, setAccountsPaymentMethod] = useState(
         () => resolvedPayment.paymentMethod || 'cash',
     );
+    const [accountsDescription, setAccountsDescription] = useState(() =>
+        String(remark.accountsReviewDescription || '').trim(),
+    );
 
     useEffect(() => {
         const next = resolveOilPaymentFields(remark);
         setAccountsAmountMode(next.amountMode || 'amount');
         setAccountsPaymentMethod(next.paymentMethod || 'cash');
+        setAccountsDescription(String(remark.accountsReviewDescription || '').trim());
     }, [service?._id, service?.updatedAt, service?.remark, remark]);
 
-    const canApprove = canActAccounts && stage === 'pending_accounts' && !busy;
     const accountsDone = isAccountsApprovalDone(remark, stage) || Boolean(gate.done);
+    const canApprove = canActAccounts && stage === 'pending_accounts' && !busy && !accountsDone;
     const accountsCashMode = isOilPayablePaymentMode(
         accountsDone ? remark.amountMode || accountsAmountMode : accountsAmountMode,
     );
@@ -173,9 +177,12 @@ export default function VehicleShopServiceAccountsApproveCard({
 
         setBusy(true);
         try {
+            const description = String(accountsDescription || '').trim();
             const { data } = await axiosInstance.post(`/AssetItem/${vehicleId}/service-workflow/respond`, {
                 action: 'approve',
-                comment: `${serviceTypeLabel} — Accounts approved schedule / quotation`,
+                comment:
+                    description ||
+                    `${serviceTypeLabel} — Accounts approved schedule / quotation`,
                 ...(serviceId ? { serviceRecordId: serviceId } : {}),
                 serviceUpdates: {
                     remark: JSON.stringify({
@@ -183,6 +190,7 @@ export default function VehicleShopServiceAccountsApproveCard({
                         ...(amountMode === 'warranty'
                             ? { paymentMethod: '' }
                             : { paymentMethod }),
+                        ...(description ? { accountsReviewDescription: description } : {}),
                     }),
                 },
             });
@@ -214,7 +222,7 @@ export default function VehicleShopServiceAccountsApproveCard({
                               ? 'Quotation / schedule approved'
                               : canApprove
                                 ? 'Review amount, payment method, and quotation — then approve'
-                                : 'Waiting for Accounts'
+                                : 'Waiting for Accounts (opens after HR Approval)'
                     }
                     icon={Wallet}
                     iconBg="bg-sky-50"
@@ -259,6 +267,18 @@ export default function VehicleShopServiceAccountsApproveCard({
                             </span>
                             <p className="mt-1 text-sm font-bold text-gray-900">
                                 {employeePay > 0 ? `AED ${formatAed(employeePay)}` : '—'}
+                            </p>
+                        </div>
+                        <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                Total Pay
+                            </span>
+                            <p className="mt-1 text-sm font-bold text-gray-900">
+                                {companyPay + employeePay > 0
+                                    ? `AED ${formatAed(companyPay + employeePay)}`
+                                    : amount > 0
+                                      ? `AED ${formatAed(amount)}`
+                                      : '—'}
                             </p>
                         </div>
                         <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
@@ -314,6 +334,28 @@ export default function VehicleShopServiceAccountsApproveCard({
                                 </p>
                             )}
                         </div>
+                    </div>
+
+                    <div className="mt-4">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                            Description (optional)
+                        </span>
+                        {canApprove ? (
+                            <textarea
+                                className="mt-1.5 w-full min-h-[88px] resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 placeholder:text-gray-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-600"
+                                rows={3}
+                                value={accountsDescription}
+                                onChange={(e) => setAccountsDescription(e.target.value)}
+                                disabled={busy}
+                                placeholder="Enter review notes..."
+                            />
+                        ) : String(remark.accountsReviewDescription || accountsDescription || '').trim() ? (
+                            <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-800">
+                                {String(remark.accountsReviewDescription || accountsDescription).trim()}
+                            </p>
+                        ) : (
+                            <p className="mt-1.5 text-sm text-gray-400">—</p>
+                        )}
                     </div>
 
                     {accountsDone && stage !== 'pending_accounts' ? (

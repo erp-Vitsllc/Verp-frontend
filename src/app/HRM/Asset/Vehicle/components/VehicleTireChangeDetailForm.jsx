@@ -50,9 +50,6 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleTireChangeDetailUi';
-import VehicleServicePaymentTypeMethodFields from './VehicleServicePaymentTypeMethodFields';
-import { formatWarrantyExpiryFromAsset } from '../utils/vehicleOilServiceWarranty';
-import { isOilPayablePaymentMode } from '../utils/vehicleOilServiceDetailForm';
 import {
     ERP_JPEG_ACCEPT,
     ERP_PDF_ACCEPT,
@@ -653,24 +650,12 @@ export default function VehicleTireChangeDetailForm({
                             minHeightPx={fieldMinHeightPx}
                         >
                             <PaymentByToggle
-                                value={formData.paymentByMode || 'company'}
+                                value={paymentByMode || 'company'}
                                 onChange={setPaymentByMode}
                                 disabled={fieldsDisabled}
                             />
                         </VehicleTireChangeFormFieldCell>
 
-                        <VehicleServicePaymentTypeMethodFields
-                            FieldCell={VehicleTireChangeFormFieldCell}
-                            accent={accent}
-                            fieldMinHeightPx={fieldMinHeightPx}
-                            formData={formData}
-                            onChange={(key, value) => set(key, value)}
-                            disabled={fieldsDisabled}
-                            warrantyExpiryLabel={formatWarrantyExpiryFromAsset(asset)}
-                            fieldInputClassName={tireFieldInput}
-                        />
-
-                        {isOilPayablePaymentMode(formData.amountMode) ? (
                         <>
                         <div className={`${costRowGridClass} ${gapClass}`}>
                                     <VehicleTireChangeFormFieldCell
@@ -1004,7 +989,6 @@ export default function VehicleTireChangeDetailForm({
                                     />
                                 </VehicleTireChangeFormFieldCell>
                         </>
-                        ) : null}
                     </div>
 
                     <div className="mt-4 border-t border-gray-100 pt-4">

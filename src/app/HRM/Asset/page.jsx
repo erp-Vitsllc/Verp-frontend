@@ -70,6 +70,7 @@ import {
     buildAssetActionUser,
     resolveAdminInCompanyFlowchart,
 } from './utils/canPerformAssetAction';
+import { getToolsAssetTotalValue } from './utils/getToolsAssetTotalValue';
 
 import {
 
@@ -1746,7 +1747,7 @@ function AssetPageContent() {
         });
         const ldRows = rows.filter((t) => itemHasAnyLossDamage(t));
 
-        const sumVal = (arr) => arr.reduce((acc, t) => acc + (Number(t.assetValue) || 0), 0);
+        const sumVal = (arr) => arr.reduce((acc, t) => acc + getToolsAssetTotalValue(t), 0);
 
         const parkingRows = rows.filter((t) => isLeaveActive(t));
         const accessoryCount = accessoryCatalog.length;
@@ -2865,7 +2866,7 @@ function AssetPageContent() {
 
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
 
-                                                                {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(item.assetValue || 0)}
+                                                                {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(getToolsAssetTotalValue(item))}
 
                                                             </td>
 
@@ -3577,7 +3578,7 @@ function AssetPageContent() {
                                                                     </td>
                                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">
-                                                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(item.assetValue || 0)}
+                                                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(getToolsAssetTotalValue(item))}
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">

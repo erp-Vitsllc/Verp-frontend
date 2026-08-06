@@ -24,6 +24,7 @@ export function buildOilServiceHrServiceUpdates(service, formPayload) {
         ...existing,
         returnDate: String(formPayload.returnDate || '').trim() || undefined,
         handOverDate: String(formPayload.handOverDate || '').trim() || undefined,
+        returnDescription: String(formPayload.returnDescription || '').trim() || undefined,
         nextChangeKm: Number.isFinite(nextKm) ? nextKm : undefined,
         nextServiceDate: String(formPayload.nextServiceDate || '').trim().slice(0, 10) || undefined,
         nextChangeMonth:

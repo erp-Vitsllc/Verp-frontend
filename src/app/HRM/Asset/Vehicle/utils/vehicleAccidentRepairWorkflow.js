@@ -45,12 +45,23 @@ export function isAccidentRepairGarageSubmitted(asset, service) {
 
 export function canEditAccidentRepairGarage(stage, canManageAccidentRepair, { asset, service } = {}) {
     if (!canManageAccidentRepair) return false;
-    if (asset && service && isAccidentRepairGarageSubmitted(asset, service)) return false;
-    // Parallel with HR after Initiate (oil cash style).
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return true;
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ACCOUNTS) return true;
-    return false;
+    const s = String(stage || '').toLowerCase();
+    // After Complete Service the flow moves to billing — Schedule stays locked from then on.
+    if (
+        !s ||
+        s === 'rejected' ||
+        s === ACCIDENT_REPAIR_WORKFLOW_STAGES.COMPLETE ||
+        s === ACCIDENT_REPAIR_WORKFLOW_STAGES.PENDING_BILLING ||
+        s === 'billed'
+    ) {
+        return false;
+    }
+    const remark = parseVehicleServiceRemark(service) || {};
+    if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live') {
+        return false;
+    }
+    if (s === 'pending' || s === 'draft') return false;
+    return true;
 }
 
 export function canApproveAccidentRepairGarageAccounts(stage, isFlowchartAccounts) {
@@ -80,16 +91,8 @@ export function canEditAccidentRepairQuoteEmployeeRows(
     stage,
     { canActHr, canManageAccidentRepair, canRespondToWorkflow },
 ) {
+    // Lock after HR Approval — employee rows only editable while HR stage is open.
     if (assignmentPending) return false;
-    if (
-        [ACCIDENT_REPAIR_WORKFLOW_STAGES.COMPLETE, ACCIDENT_REPAIR_WORKFLOW_STAGES.REJECTED, 'billed'].includes(
-            stage,
-        )
-    ) {
-        return false;
-    }
-    if (stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) {
-        return Boolean(canActHr || canRespondToWorkflow || canManageAccidentRepair);
-    }
-    return Boolean(canActHr || canManageAccidentRepair);
+    if (stage !== ACCIDENT_REPAIR_WORKFLOW_STAGES.HR) return false;
+    return Boolean(canActHr || canRespondToWorkflow || canManageAccidentRepair);
 }

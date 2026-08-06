@@ -14,13 +14,13 @@ import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { DatePicker } from '@/components/ui/date-picker';
 import VehicleAccidentRepairFormFieldCell from './VehicleAccidentRepairFormFieldCell';
 import VehicleCarDrivenBySelect from './VehicleCarDrivenBySelect';
+import SearchableEmployeeSelect from './SearchableEmployeeSelect';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import { formatDisplayDate } from './VehicleAccidentRepairForm';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import {
     isOilServiceAssignmentPending,
-    isVehicleServiceInitiateEditableStage,
 } from '../utils/vehicleOilServiceAccess';
 import {
     resolveFlowchartAdminEmployeeRef,
@@ -33,6 +33,8 @@ import {
     isAccidentRepairDetailFormComplete,
     validateAccidentRepairDetailForm,
     applyEmployeePayTargetToRows,
+    sumEmployeeLiabilityRows,
+    sumOtherFineRows,
 } from '../utils/vehicleAccidentRepairDetailForm';
 import { resolveShopServicePayAmounts } from '../utils/vehicleShopHrReviewPay';
 import {
@@ -49,8 +51,6 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
-import VehicleServicePaymentTypeMethodFields from './VehicleServicePaymentTypeMethodFields';
-import { formatWarrantyExpiryFromAsset } from '../utils/vehicleOilServiceWarranty';
 import { applyCarDrivenBySelection } from '../utils/vehicleCarDrivenBySelect';
 import {
     ERP_JPEG_ACCEPT,
@@ -59,6 +59,50 @@ import {
     validateErpJpegFile,
     validateErpPdfFile,
 } from '@/utils/uploadFileTypes';
+const GARAGE_QUOTE_SLOTS = [
+    {
+        key: 'q1',
+        label: 'Quote 1',
+        kind: 'garageQuote1',
+        name: 'garageQuote1Name',
+        existing: 'existingGarageQuote1Url',
+        amount: 'garageQuote1Amount',
+        base64: 'garageQuote1Base64',
+        mime: 'garageQuote1Mime',
+    },
+    {
+        key: 'q2',
+        label: 'Quote 2',
+        kind: 'garageQuote2',
+        name: 'garageQuote2Name',
+        existing: 'existingGarageQuote2Url',
+        amount: 'garageQuote2Amount',
+        base64: 'garageQuote2Base64',
+        mime: 'garageQuote2Mime',
+    },
+    {
+        key: 'q3',
+        label: 'Quote 3',
+        kind: 'garageQuote3',
+        name: 'garageQuote3Name',
+        existing: 'existingGarageQuote3Url',
+        amount: 'garageQuote3Amount',
+        base64: 'garageQuote3Base64',
+        mime: 'garageQuote3Mime',
+    },
+];
+
+function countVisibleGarageQuotes(data = {}) {
+    let count = 0;
+    for (let i = 0; i < GARAGE_QUOTE_SLOTS.length; i += 1) {
+        const slot = GARAGE_QUOTE_SLOTS[i];
+        const hasFile = String(data[slot.name] || '').trim() || String(data[slot.existing] || '').trim();
+        const hasAmount = String(data[slot.amount] || '').trim() !== '';
+        if (hasFile || hasAmount) count = i + 1;
+    }
+    return count;
+}
+
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
 const PDF_ATTACHMENT_KINDS = new Set(['attachment', 'quotation2', 'quotation3']);
 const JPEG_ATTACHMENT_KINDS = new Set(['tireCondition']);
@@ -198,12 +242,16 @@ export default function VehicleAccidentRepairDetailForm({
     const [formData, setFormData] = useState(() =>
         buildAccidentRepairDetailFormState(service, asset, { flowchartRows }),
     );
+    const [visibleQuoteCount, setVisibleQuoteCount] = useState(() =>
+        countVisibleGarageQuotes(
+            buildAccidentRepairDetailFormState(service, asset, { flowchartRows }),
+        ),
+    );
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
-    const initiateStageEditable = isVehicleServiceInitiateEditableStage(workflowStage);
-    const canEditInitiateFields =
-        canEditAssignment && (assignmentPending || initiateStageEditable);
+    // After Send, Initiate is view-only. HR amount changes still sync in via liveHrReview.
+    const canEditInitiateFields = Boolean(canEditAssignment && assignmentPending);
     const fieldsDisabled = !canEditInitiateFields || saving;
 
     const assetController = asset?.assetController || null;
@@ -257,7 +305,9 @@ export default function VehicleAccidentRepairDetailForm({
     }, [employees, resolvedAssetControllerEmployeeId]);
 
     useEffect(() => {
-        setFormData(buildAccidentRepairDetailFormState(service, asset, { flowchartRows }));
+        const next = buildAccidentRepairDetailFormState(service, asset, { flowchartRows });
+        setFormData(next);
+        setVisibleQuoteCount(countVisibleGarageQuotes(next));
     }, [service?._id, service?.updatedAt, service?.remark, asset, flowchartRows]);
 
     useEffect(() => {
@@ -391,7 +441,7 @@ export default function VehicleAccidentRepairDetailForm({
     const isSelfParty = formData.accidentOwnerType !== 'thirdParty';
     const insuranceExcess = isSelfParty ? Number(formData.insuranceFineAmount || 0) : 0;
     const policeFine = Number(formData.policeFineAmount || 0);
-    const otherFine = Number(formData.otherFineAmount || 0);
+    const otherFine = sumOtherFineRows(formData.otherFineRows);
     const totalFines = insuranceExcess + policeFine + otherFine;
 
     const setPaymentByMode = useCallback(
@@ -442,6 +492,99 @@ export default function VehicleAccidentRepairDetailForm({
         });
     }, [formData.paymentByMode, liveHrReview?.approvedAmount, totalFines]);
 
+    // Mirror live HR Approval edits into Initiate Service (mode, amounts, employees).
+    useEffect(() => {
+        if (!liveHrReview) return;
+        const modeRaw = String(liveHrReview.paymentByMode || '').toLowerCase();
+        const mode =
+            modeRaw === 'person' || modeRaw === 'company' || modeRaw === 'split' ? modeRaw : '';
+        const approvedNum = Number(liveHrReview.approvedAmount);
+        const companyNum =
+            liveHrReview.companyPay != null && liveHrReview.companyPay !== ''
+                ? Number(liveHrReview.companyPay) || 0
+                : null;
+        const employeeNum =
+            liveHrReview.employeePay != null && liveHrReview.employeePay !== ''
+                ? Number(liveHrReview.employeePay) || 0
+                : null;
+        const hasAmount =
+            (Number.isFinite(approvedNum) && approvedNum > 0) ||
+            companyNum != null ||
+            employeeNum != null;
+        const liveRows = Array.isArray(liveHrReview.employeeRows)
+            ? liveHrReview.employeeRows.map((row) => ({
+                  employeeId: String(row?.employeeId || ''),
+                  paidAmount: row?.paidAmount != null ? String(row.paidAmount) : '',
+              }))
+            : null;
+        if (!mode && !hasAmount && !liveRows) return;
+
+        setFormData((prev) => {
+            const companyPay = companyNum != null ? companyNum : 0;
+            const employeePay = employeeNum != null ? employeeNum : 0;
+            const base =
+                Number.isFinite(approvedNum) && approvedNum > 0
+                    ? approvedNum
+                    : companyPay + employeePay > 0
+                      ? companyPay + employeePay
+                      : Number(prev.estimatedCost) || 0;
+            const nextMode = mode || prev.paymentByMode || '';
+            let companyPayPercent = prev.companyPayPercent;
+            let employeePayPercent = prev.employeePayPercent;
+            if (nextMode === 'company') {
+                companyPayPercent = '100';
+                employeePayPercent = '0';
+            } else if (nextMode === 'person') {
+                companyPayPercent = '0';
+                employeePayPercent = '100';
+            } else if (nextMode === 'split' && base > 0) {
+                const pct = Math.round((companyPay / base) * 100);
+                companyPayPercent = String(Math.min(100, Math.max(0, pct)));
+                employeePayPercent = String(Math.max(0, 100 - Number(companyPayPercent)));
+            }
+
+            const nextRows = liveRows
+                ? liveRows.length
+                    ? liveRows
+                    : prev.employeeLiabilityRows
+                : prev.employeeLiabilityRows;
+
+            const next = {
+                ...prev,
+                ...(nextMode ? { paymentByMode: nextMode } : {}),
+                ...(base > 0 ? { estimatedCost: String(base) } : {}),
+                companyPayPercent,
+                employeePayPercent,
+                employeeLiabilityRows: nextRows,
+            };
+
+            const sameRows =
+                JSON.stringify(next.employeeLiabilityRows || []) ===
+                JSON.stringify(prev.employeeLiabilityRows || []);
+            if (
+                next.paymentByMode === prev.paymentByMode &&
+                next.estimatedCost === prev.estimatedCost &&
+                next.companyPayPercent === prev.companyPayPercent &&
+                next.employeePayPercent === prev.employeePayPercent &&
+                sameRows
+            ) {
+                return prev;
+            }
+            return next;
+        });
+    }, [
+        liveHrReview?.approvedAmount,
+        liveHrReview?.companyPay,
+        liveHrReview?.employeePay,
+        liveHrReview?.paymentByMode,
+        // Serialize rows so employee edits from HR update Initiate without object-identity traps.
+        Array.isArray(liveHrReview?.employeeRows)
+            ? liveHrReview.employeeRows
+                  .map((row) => `${row?.employeeId || ''}:${row?.paidAmount ?? ''}`)
+                  .join('|')
+            : '',
+    ]);
+
     const estimatedCost = Number(formData.estimatedCost || 0) || totalFines || 0;
     const companyPct = Number(formData.companyPayPercent || 0);
     const employeePct = Number(formData.employeePayPercent || 0);
@@ -463,6 +606,106 @@ export default function VehicleAccidentRepairDetailForm({
     const showFineSplitAmounts = Boolean(paymentByMode);
     const showCompanyPay = paymentByMode && paymentByMode !== 'person';
     const showEmployeePay = paymentByMode && paymentByMode !== 'company';
+    const isSplitPayment = paymentByMode === 'split';
+    const employeeLiabilitySum = sumEmployeeLiabilityRows(formData.employeeLiabilityRows);
+    const payTableTotal = useMemo(() => {
+        const companyPart = showCompanyPay ? Number(companyPayAmount) || 0 : 0;
+        const employeePart = showEmployeePay
+            ? employeeLiabilitySum > 0
+                ? employeeLiabilitySum
+                : Number(employeePayAmount) || 0
+            : 0;
+        return companyPart + employeePart;
+    }, [showCompanyPay, showEmployeePay, companyPayAmount, employeePayAmount, employeeLiabilitySum]);
+
+    const companyDisplayName = useMemo(() => {
+        const c = asset?.assignedCompany;
+        if (!c) return 'Company';
+        return (
+            c.nickName ||
+            c.companyShortName ||
+            c.companyName ||
+            c.name ||
+            'Company'
+        );
+    }, [asset?.assignedCompany]);
+
+    const applyEmployeeRowsToPayTotals = useCallback((prev, rows) => {
+        const empTotal = sumEmployeeLiabilityRows(rows);
+        const mode = String(prev.paymentByMode || '').toLowerCase();
+        if (mode === 'person') {
+            return {
+                ...prev,
+                employeeLiabilityRows: rows,
+                estimatedCost: empTotal > 0 ? String(empTotal) : prev.estimatedCost,
+                companyPayPercent: '0',
+                employeePayPercent: '100',
+            };
+        }
+        if (mode === 'split') {
+            const prevCost = Number(prev.estimatedCost) || 0;
+            const companyPct = Number(prev.companyPayPercent) || 0;
+            const companyAmount =
+                prevCost > 0 ? Math.round((prevCost * companyPct) / 100) : 0;
+            const nextCost = companyAmount + empTotal;
+            const nextCompanyPct =
+                nextCost > 0 ? String(Math.min(100, Math.max(0, Math.round((companyAmount / nextCost) * 100)))) : prev.companyPayPercent;
+            const nextEmployeePct =
+                nextCost > 0 ? String(Math.max(0, 100 - Number(nextCompanyPct))) : prev.employeePayPercent;
+            return {
+                ...prev,
+                employeeLiabilityRows: rows,
+                estimatedCost: nextCost > 0 ? String(nextCost) : prev.estimatedCost,
+                companyPayPercent: nextCompanyPct,
+                employeePayPercent: nextEmployeePct,
+            };
+        }
+        return { ...prev, employeeLiabilityRows: rows };
+    }, []);
+
+    const setEmployeeRowPaidAmount = useCallback((index, value) => {
+        setFormData((prev) => {
+            const rows = [...(prev.employeeLiabilityRows || [])];
+            rows[index] = { ...rows[index], paidAmount: value };
+            return applyEmployeeRowsToPayTotals(prev, rows);
+        });
+    }, [applyEmployeeRowsToPayTotals]);
+
+    const finalizeEmployeeRowPaidAmount = useCallback((index) => {
+        setFormData((prev) => {
+            const rows = [...(prev.employeeLiabilityRows || [])];
+            const raw = rows[index]?.paidAmount ?? '';
+            if (String(raw).trim() !== '') return prev;
+            rows[index] = { ...rows[index], paidAmount: '0' };
+            return applyEmployeeRowsToPayTotals(prev, rows);
+        });
+    }, [applyEmployeeRowsToPayTotals]);
+
+    const updateEmployeeRow = useCallback((index, key, value) => {
+        setFormData((prev) => {
+            const rows = [...(prev.employeeLiabilityRows || [])];
+            rows[index] = { ...rows[index], [key]: value };
+            return { ...prev, employeeLiabilityRows: rows };
+        });
+    }, []);
+
+    const addEmployeeRow = useCallback(() => {
+        setFormData((prev) => {
+            const nextRows = [...(prev.employeeLiabilityRows || []), { employeeId: '', paidAmount: '' }];
+            return { ...prev, employeeLiabilityRows: nextRows };
+        });
+    }, []);
+
+    const removeEmployeeRow = useCallback((index) => {
+        setFormData((prev) => {
+            const rows = [...(prev.employeeLiabilityRows || [])];
+            if (rows.length <= 1) {
+                return applyEmployeeRowsToPayTotals(prev, [{ employeeId: '', paidAmount: '' }]);
+            }
+            rows.splice(index, 1);
+            return applyEmployeeRowsToPayTotals(prev, rows);
+        });
+    }, [applyEmployeeRowsToPayTotals]);
 
     const headerDateLabel = useMemo(() => formatDisplayDate(formData.date), [formData.date]);
 
@@ -645,7 +888,9 @@ export default function VehicleAccidentRepairDetailForm({
             if (!vehicleId || !serviceId) return false;
             setSaving(true);
             try {
-                const body = buildAccidentRepairDetailSubmitBody(formData, { keepPending: assignmentPending });
+                const body = buildAccidentRepairDetailSubmitBody(formData, {
+                    keepPending: assignmentPending && !submitAfterSave,
+                });
                 await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
                 if (submitAfterSave) {
                     await axiosInstance.post(
@@ -657,7 +902,10 @@ export default function VehicleAccidentRepairDetailForm({
                             'Vehicle Accident Form was sent. Admin Officer was emailed to complete Garage / Service Details.',
                     });
                 } else {
-                    toast({ title: 'Draft saved', description: 'Accident repair assignment draft saved.' });
+                    toast({
+                        title: 'Changes saved',
+                        description: 'Initiate Service details updated.',
+                    });
                 }
                 if (typeof onSaved === 'function') onSaved();
                 return true;
@@ -679,15 +927,6 @@ export default function VehicleAccidentRepairDetailForm({
         if (!assignmentPending || !isAccidentRepairDetailFormComplete(formData, asset)) return;
         await persistForm({ submitAfterSave: true });
     }, [asset, assignmentPending, formData, persistForm]);
-
-    const handleSaveDraft = async () => {
-        await persistForm({ submitAfterSave: false });
-    };
-
-    const handleSaveUpdates = async () => {
-        if (!canEditInitiateFields || assignmentPending) return;
-        await persistForm({ submitAfterSave: false });
-    };
 
     const handleCancel = () => {
         if (vehicleId) {
@@ -753,9 +992,8 @@ export default function VehicleAccidentRepairDetailForm({
         </div>
     );
 
-    const GarageQuoteUpload = ({ label, kind, fileName, existingUrl, amount = '' }) => {
+    const GarageQuoteUpload = ({ label, kind, fileName, existingUrl }) => {
         const hasQuote = !!(fileName || existingUrl);
-        const amountField = GARAGE_QUOTE_KIND_FIELDS[kind]?.amount;
 
         return (
             <div
@@ -789,19 +1027,6 @@ export default function VehicleAccidentRepairDetailForm({
                     </label>
                 ) : null}
                 {fileName ? <span className="text-[10px] text-gray-500 truncate">{fileName}</span> : null}
-                {amountField ? (
-                    <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className={`${tireMoneyInput} w-[110px] min-h-[32px] py-1`}
-                        placeholder="AED"
-                        value={formData[amountField] || ''}
-                        disabled={fieldsDisabled}
-                        onChange={(e) => set(amountField, e.target.value)}
-                        title={`${label} amount (optional)`}
-                    />
-                ) : null}
             </div>
         );
     };
@@ -817,9 +1042,7 @@ export default function VehicleAccidentRepairDetailForm({
                     subtitle={
                         assignmentPending
                             ? `Dated: ${headerDateLabel || '—'} · Complete all fields, then click Send`
-                            : initiateStageEditable
-                              ? `Dated: ${headerDateLabel || '—'} · Editable at HR / Accounts — update details, then Save Changes`
-                              : `Dated: ${headerDateLabel || '—'} · Submitted — continue Schedule / HR below`
+                            : `Dated: ${headerDateLabel || '—'} · Submitted — view only (HR amount changes sync here)`
                     }
                     icon={ClipboardList}
                     iconBg="bg-blue-50"
@@ -966,179 +1189,486 @@ export default function VehicleAccidentRepairDetailForm({
                         </VehicleAccidentRepairFormFieldCell>
                     </div>
 
-                    <div
-                        className={`grid grid-cols-2 ${isSelfParty ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} ${gapClass} mt-2.5`}
-                    >
+                    <div className={`mt-6 grid grid-cols-1 sm:grid-cols-2 ${gapClass}`}>
                         {isSelfParty ? (
-                            <VehicleAccidentRepairFormFieldCell
-                                label="Insurance Excess"
-                                accentClass={accent(0)}
-                                minHeightPx={fieldMinHeightPx}
+                            <div
+                                className={`flex items-stretch overflow-hidden rounded-lg border ${accent(0)}`}
+                                style={{ minHeight: `${fieldMinHeightPx}px` }}
                             >
-                                <AutoFillField
-                                    value={
-                                        formData.insuranceFineAmount !== '' && formData.insuranceFineAmount != null
-                                            ? `${formData.insuranceFineAmount} AED`
-                                            : ''
-                                    }
-                                />
-                            </VehicleAccidentRepairFormFieldCell>
+                                <div className="flex w-[42%] min-w-[110px] items-center border-r border-gray-200 bg-white px-3 text-xs font-bold text-gray-700">
+                                    Insurance Excess
+                                </div>
+                                <div className="relative flex min-w-0 flex-1 items-center p-2">
+                                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                        AED
+                                    </span>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        disabled
+                                        value={
+                                            formData.insuranceFineAmount !== '' &&
+                                            formData.insuranceFineAmount != null
+                                                ? formData.insuranceFineAmount
+                                                : ''
+                                        }
+                                        placeholder="0.00"
+                                        className={`${tireMoneyInput} pl-11 bg-gray-50`}
+                                    />
+                                </div>
+                            </div>
                         ) : null}
 
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Police Fine"
-                            accentClass={accent(1)}
-                            minHeightPx={fieldMinHeightPx}
+                        <div
+                            className={`flex items-stretch overflow-hidden rounded-lg border ${accent(1)}`}
+                            style={{ minHeight: `${fieldMinHeightPx}px` }}
                         >
-                            <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={formData.policeFineAmount}
-                                onChange={(e) => set('policeFineAmount', e.target.value)}
-                                disabled={fieldsDisabled || formData.accidentOwnerType !== 'self'}
-                                placeholder="AED"
-                                className={tireMoneyInput}
-                            />
-                            {errors.policeFineAmount ? (
-                                <p className="text-[10px] text-red-500 font-bold mt-1">{errors.policeFineAmount}</p>
-                            ) : null}
-                        </VehicleAccidentRepairFormFieldCell>
+                            <div className="flex w-[42%] min-w-[110px] items-center border-r border-gray-200 bg-white px-3 text-xs font-bold text-gray-700">
+                                Police Fine
+                            </div>
+                            <div className="flex min-w-0 flex-1 items-center gap-2 p-2">
+                                <div className="relative min-w-0 flex-1">
+                                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                        AED
+                                    </span>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        step="0.01"
+                                        value={formData.policeFineAmount}
+                                        onChange={(e) => set('policeFineAmount', e.target.value)}
+                                        disabled={fieldsDisabled || formData.accidentOwnerType !== 'self'}
+                                        placeholder="0.00"
+                                        className={`${tireMoneyInput} pl-11`}
+                                    />
+                                </div>
+                                {!fieldsDisabled ? (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                otherFineRows: [
+                                                    ...(Array.isArray(prev.otherFineRows)
+                                                        ? prev.otherFineRows
+                                                        : []),
+                                                    { name: '', amount: '' },
+                                                ],
+                                            }))
+                                        }
+                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
+                                        title="Add other fine"
+                                    >
+                                        <Plus size={16} />
+                                    </button>
+                                ) : null}
+                            </div>
+                        </div>
+                        {errors.policeFineAmount ? (
+                            <p className="sm:col-span-2 -mt-1 text-[10px] font-bold text-red-500">
+                                {errors.policeFineAmount}
+                            </p>
+                        ) : null}
 
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Other Fine"
-                            accentClass={accent(2)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={formData.otherFineAmount || ''}
-                                onChange={(e) => set('otherFineAmount', e.target.value)}
-                                disabled={fieldsDisabled}
-                                placeholder="AED"
-                                className={tireMoneyInput}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Total"
-                            accentClass={accent(0)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <input
-                                type="text"
-                                readOnly
-                                value={totalFines ? `${totalFines} AED` : ''}
-                                className={`${tireMoneyInput} bg-gray-50`}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                    </div>
-
-                    <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 ${gapClass} mt-2.5`}>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Split Fine (optional)"
-                            accentClass={accent(1)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <FineSplitToggle
-                                value={formData.paymentByMode || ''}
-                                onChange={setPaymentByMode}
-                                disabled={fieldsDisabled}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                        {showFineSplitAmounts && showCompanyPay ? (
-                            <VehicleAccidentRepairFormFieldCell
-                                label="Company Pay"
-                                accentClass={accent(2)}
-                                minHeightPx={fieldMinHeightPx}
+                        {(formData.otherFineRows || []).map((row, index) => (
+                            <div
+                                key={`other-fine-${index}`}
+                                className={`flex items-stretch overflow-hidden rounded-lg border ${accent(index % 3)}`}
+                                style={{ minHeight: `${fieldMinHeightPx}px` }}
                             >
+                                <div className="flex w-[42%] min-w-[110px] items-center border-r border-gray-200 bg-white p-2">
+                                    <input
+                                        type="text"
+                                        value={row.name || ''}
+                                        onChange={(e) =>
+                                            setFormData((prev) => {
+                                                const rows = [
+                                                    ...(Array.isArray(prev.otherFineRows)
+                                                        ? prev.otherFineRows
+                                                        : []),
+                                                ];
+                                                rows[index] = {
+                                                    ...rows[index],
+                                                    name: e.target.value,
+                                                };
+                                                return { ...prev, otherFineRows: rows };
+                                            })
+                                        }
+                                        disabled={fieldsDisabled}
+                                        placeholder="Fine name"
+                                        className={`${tireFieldInput} border-0 bg-transparent px-1 shadow-none focus:ring-0`}
+                                    />
+                                </div>
+                                <div className="flex min-w-0 flex-1 items-center gap-2 p-2">
+                                    <div className="relative min-w-0 flex-1">
+                                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                            AED
+                                        </span>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            step="0.01"
+                                            value={row.amount || ''}
+                                            onChange={(e) =>
+                                                setFormData((prev) => {
+                                                    const rows = [
+                                                        ...(Array.isArray(prev.otherFineRows)
+                                                            ? prev.otherFineRows
+                                                            : []),
+                                                    ];
+                                                    rows[index] = {
+                                                        ...rows[index],
+                                                        amount: e.target.value,
+                                                    };
+                                                    return { ...prev, otherFineRows: rows };
+                                                })
+                                            }
+                                            disabled={fieldsDisabled}
+                                            placeholder="0.00"
+                                            className={`${tireMoneyInput} pl-11`}
+                                        />
+                                    </div>
+                                    {!fieldsDisabled ? (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setFormData((prev) => {
+                                                    const rows = [
+                                                        ...(Array.isArray(prev.otherFineRows)
+                                                            ? prev.otherFineRows
+                                                            : []),
+                                                    ];
+                                                    rows.splice(index, 1);
+                                                    return { ...prev, otherFineRows: rows };
+                                                })
+                                            }
+                                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-red-500 hover:bg-red-50"
+                                            title="Remove fine"
+                                        >
+                                            ×
+                                        </button>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ))}
+
+                        <div
+                            className={`flex items-stretch overflow-hidden rounded-lg border ${accent(1)}`}
+                            style={{ minHeight: `${fieldMinHeightPx}px` }}
+                        >
+                            <div className="flex w-[42%] min-w-[110px] items-center border-r border-gray-200 bg-white px-3 text-xs font-bold uppercase tracking-wide text-gray-700">
+                                Total
+                            </div>
+                            <div className="relative flex min-w-0 flex-1 items-center p-2">
+                                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                    AED
+                                </span>
                                 <input
                                     type="text"
                                     readOnly
-                                    value={
-                                        companyPayAmount
-                                            ? `${Number(companyPayAmount).toLocaleString()} AED`
-                                            : ''
-                                    }
-                                    className={`${tireMoneyInput} bg-gray-50`}
+                                    value={totalFines ? String(totalFines) : ''}
+                                    className={`${tireMoneyInput} pl-11 bg-gray-50 font-semibold`}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className={`mt-6 flex flex-wrap ${gapClass}`}>
+                        <div className="w-full min-w-[200px] flex-1 basis-[240px]">
+                            <VehicleAccidentRepairFormFieldCell
+                                label="Split Fine (optional)"
+                                accentClass={accent(1)}
+                                minHeightPx={fieldMinHeightPx}
+                            >
+                                <FineSplitToggle
+                                    value={paymentByMode || ''}
+                                    onChange={setPaymentByMode}
+                                    disabled={fieldsDisabled}
                                 />
                             </VehicleAccidentRepairFormFieldCell>
-                        ) : null}
+                        </div>
                         {showFineSplitAmounts && showEmployeePay ? (
-                            <VehicleAccidentRepairFormFieldCell
-                                label="Employee Pay"
-                                accentClass={accent(0)}
-                                minHeightPx={fieldMinHeightPx}
-                            >
-                                <input
-                                    type="text"
-                                    readOnly
-                                    value={
-                                        employeePayAmount
-                                            ? `${Number(employeePayAmount).toLocaleString()} AED`
-                                            : ''
-                                    }
-                                    className={`${tireMoneyInput} bg-gray-50`}
-                                />
-                            </VehicleAccidentRepairFormFieldCell>
+                            <div className="w-full min-w-[200px] flex-1 basis-[240px]">
+                                <VehicleAccidentRepairFormFieldCell
+                                    label="Employee Pay"
+                                    accentClass={accent(0)}
+                                    minHeightPx={fieldMinHeightPx}
+                                >
+                                    <div className="relative">
+                                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                            AED
+                                        </span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={
+                                                (employeeLiabilitySum > 0
+                                                    ? employeeLiabilitySum
+                                                    : employeePayAmount)
+                                                    ? Number(
+                                                          employeeLiabilitySum > 0
+                                                              ? employeeLiabilitySum
+                                                              : employeePayAmount,
+                                                      ).toLocaleString()
+                                                    : ''
+                                            }
+                                            className={`${tireMoneyInput} w-full pl-11 bg-gray-50`}
+                                        />
+                                    </div>
+                                </VehicleAccidentRepairFormFieldCell>
+                            </div>
+                        ) : null}
+                        {showFineSplitAmounts && showCompanyPay ? (
+                            <div className="w-full min-w-[200px] flex-1 basis-[240px]">
+                                <VehicleAccidentRepairFormFieldCell
+                                    label="Company Pay"
+                                    accentClass={accent(2)}
+                                    minHeightPx={fieldMinHeightPx}
+                                >
+                                    <div className="relative">
+                                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                            AED
+                                        </span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={
+                                                companyPayAmount
+                                                    ? Number(companyPayAmount).toLocaleString()
+                                                    : ''
+                                            }
+                                            className={`${tireMoneyInput} w-full pl-11 bg-gray-50`}
+                                        />
+                                    </div>
+                                </VehicleAccidentRepairFormFieldCell>
+                            </div>
                         ) : null}
                     </div>
 
-                    <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mt-2.5`}>
-                        <VehicleServicePaymentTypeMethodFields
-                            FieldCell={VehicleAccidentRepairFormFieldCell}
-                            accent={accent}
-                            fieldMinHeightPx={fieldMinHeightPx}
-                            formData={formData}
-                            onChange={(key, value) => set(key, value)}
-                            disabled={fieldsDisabled}
-                            warrantyExpiryLabel={formatWarrantyExpiryFromAsset(asset)}
-                            fieldInputClassName={tireFieldInput}
-                        />
-                    </div>
+                    {showFineSplitAmounts ? (
+                        <div className="mt-4 rounded-lg border border-gray-200 bg-white overflow-hidden">
+                            <div className="grid grid-cols-2 border-b border-gray-200 bg-slate-50">
+                                {['Select', 'Amount'].map((heading) => (
+                                    <div
+                                        key={heading}
+                                        className="px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 border-r border-gray-200 last:border-r-0"
+                                    >
+                                        {heading}
+                                    </div>
+                                ))}
+                            </div>
 
-                    <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mt-2.5`}>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Quote 1 (optional)"
-                            accentClass={accent(1)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <GarageQuoteUpload
-                                label="Quote 1"
-                                kind="garageQuote1"
-                                fileName={formData.garageQuote1Name}
-                                existingUrl={formData.existingGarageQuote1Url}
-                                amount={formData.garageQuote1Amount || ''}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Quote 2 (optional)"
-                            accentClass={accent(2)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <GarageQuoteUpload
-                                label="Quote 2"
-                                kind="garageQuote2"
-                                fileName={formData.garageQuote2Name}
-                                existingUrl={formData.existingGarageQuote2Url}
-                                amount={formData.garageQuote2Amount || ''}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
-                        <VehicleAccidentRepairFormFieldCell
-                            label="Quote 3 (optional)"
-                            accentClass={accent(0)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <GarageQuoteUpload
-                                label="Quote 3"
-                                kind="garageQuote3"
-                                fileName={formData.garageQuote3Name}
-                                existingUrl={formData.existingGarageQuote3Url}
-                                amount={formData.garageQuote3Amount || ''}
-                            />
-                        </VehicleAccidentRepairFormFieldCell>
+                            {showCompanyPay ? (
+                                <div className="grid grid-cols-2 border-b border-gray-100">
+                                    <div className="border-r border-gray-100 p-2">
+                                        <input
+                                            className={`${tireFieldSelect} min-h-[36px] py-1 bg-gray-50`}
+                                            readOnly
+                                            value={companyDisplayName}
+                                            title="Company"
+                                        />
+                                    </div>
+                                    <div className="p-2">
+                                        <div className="relative">
+                                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                                AED
+                                            </span>
+                                            <input
+                                                className={`${tireMoneyInput} min-h-[36px] py-1 pl-11 bg-gray-50 font-semibold`}
+                                                readOnly
+                                                value={
+                                                    companyPayAmount
+                                                        ? Number(companyPayAmount).toLocaleString()
+                                                        : ''
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
+
+                            {showEmployeePay
+                                ? (formData.employeeLiabilityRows || []).map((row, index) => {
+                                      const isLastRow =
+                                          index === (formData.employeeLiabilityRows || []).length - 1;
+                                      return (
+                                          <div
+                                              key={`emp-row-${index}`}
+                                              className="grid grid-cols-2 border-b border-gray-100 last:border-b-0"
+                                          >
+                                              <div className="flex items-center gap-1 border-r border-gray-100 p-2">
+                                                  <SearchableEmployeeSelect
+                                                      employees={employees}
+                                                      value={row.employeeId || ''}
+                                                      onChange={(nextId) =>
+                                                          updateEmployeeRow(
+                                                              index,
+                                                              'employeeId',
+                                                              nextId,
+                                                          )
+                                                      }
+                                                      disabled={fieldsDisabled}
+                                                      placeholder="Select employee"
+                                                  />
+                                                  {!fieldsDisabled &&
+                                                  (formData.employeeLiabilityRows || []).length > 1 ? (
+                                                      <button
+                                                          type="button"
+                                                          onClick={() => removeEmployeeRow(index)}
+                                                          className="shrink-0 rounded-md px-1.5 py-1 text-[10px] font-bold text-red-500 hover:bg-red-50"
+                                                          title="Remove row"
+                                                      >
+                                                          ×
+                                                      </button>
+                                                  ) : null}
+                                              </div>
+                                              <div className="flex items-center gap-1 p-2">
+                                                  <div className="relative flex-1">
+                                                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                                          AED
+                                                      </span>
+                                                      <input
+                                                          className={`${tireMoneyInput} min-h-[36px] py-1 pl-11`}
+                                                          type="number"
+                                                          min="0"
+                                                          step="0.01"
+                                                          value={row.paidAmount || ''}
+                                                          onChange={(e) =>
+                                                              setEmployeeRowPaidAmount(
+                                                                  index,
+                                                                  e.target.value,
+                                                              )
+                                                          }
+                                                          onBlur={() =>
+                                                              finalizeEmployeeRowPaidAmount(index)
+                                                          }
+                                                          disabled={fieldsDisabled}
+                                                          placeholder="0.00"
+                                                      />
+                                                  </div>
+                                                  {!fieldsDisabled && isLastRow ? (
+                                                      <button
+                                                          type="button"
+                                                          onClick={addEmployeeRow}
+                                                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
+                                                          title="Add employee"
+                                                      >
+                                                          <Plus size={16} />
+                                                      </button>
+                                                  ) : null}
+                                              </div>
+                                          </div>
+                                      );
+                                  })
+                                : null}
+
+                            <div className="grid grid-cols-2 border-t border-gray-200 bg-slate-50/80">
+                                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-500 border-r border-gray-200">
+                                    Total
+                                </div>
+                                <div className="p-2">
+                                    <div className="relative">
+                                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                            AED
+                                        </span>
+                                        <input
+                                            className={`${tireMoneyInput} min-h-[36px] py-1 pl-11 bg-white font-semibold ${
+                                                isSplitPayment &&
+                                                employeePayAmount > 0 &&
+                                                Math.abs(employeeLiabilitySum - employeePayAmount) > 0.01
+                                                    ? 'text-amber-700'
+                                                    : ''
+                                            }`}
+                                            readOnly
+                                            value={
+                                                payTableTotal
+                                                    ? Number(payTableTotal).toLocaleString()
+                                                    : ''
+                                            }
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <div className={`mt-2.5 flex flex-wrap items-start ${gapClass}`}>
+                        {GARAGE_QUOTE_SLOTS.slice(0, visibleQuoteCount).map((slot, index) => (
+                            <div key={slot.key} className="w-full min-w-[200px] flex-1 basis-[220px] max-w-sm">
+                                <VehicleAccidentRepairFormFieldCell
+                                    label={`${slot.label} (optional)`}
+                                    accentClass={accent(index % 3)}
+                                    minHeightPx={fieldMinHeightPx}
+                                >
+                                    <div className="flex items-start gap-2">
+                                        <div className="min-w-0 flex-1">
+                                            <GarageQuoteUpload
+                                                label={slot.label}
+                                                kind={slot.kind}
+                                                fileName={formData[slot.name]}
+                                                existingUrl={formData[slot.existing]}
+                                            />
+                                        </div>
+                                        {!fieldsDisabled ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setFormData((prev) => {
+                                                        const kept = GARAGE_QUOTE_SLOTS.map((s) => ({
+                                                            name: prev[s.name] || '',
+                                                            existing: prev[s.existing] || '',
+                                                            amount: prev[s.amount] || '',
+                                                            base64: prev[s.base64] || '',
+                                                            mime: prev[s.mime] || '',
+                                                        })).filter((_, i) => i !== index);
+                                                        while (kept.length < GARAGE_QUOTE_SLOTS.length) {
+                                                            kept.push({
+                                                                name: '',
+                                                                existing: '',
+                                                                amount: '',
+                                                                base64: '',
+                                                                mime: '',
+                                                            });
+                                                        }
+                                                        const next = { ...prev };
+                                                        GARAGE_QUOTE_SLOTS.forEach((s, i) => {
+                                                            next[s.name] = kept[i].name;
+                                                            next[s.existing] = kept[i].existing;
+                                                            next[s.amount] = kept[i].amount;
+                                                            next[s.base64] = kept[i].base64;
+                                                            next[s.mime] = kept[i].mime;
+                                                        });
+                                                        return next;
+                                                    });
+                                                    setVisibleQuoteCount((prev) => Math.max(0, prev - 1));
+                                                }}
+                                                className="mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-500 hover:bg-red-50"
+                                                title={`Remove ${slot.label}`}
+                                            >
+                                                ×
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                </VehicleAccidentRepairFormFieldCell>
+                            </div>
+                        ))}
+                        {!fieldsDisabled && visibleQuoteCount < GARAGE_QUOTE_SLOTS.length ? (
+                            <div className="flex items-center pt-6">
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setVisibleQuoteCount((prev) =>
+                                            Math.min(GARAGE_QUOTE_SLOTS.length, prev + 1),
+                                        )
+                                    }
+                                    className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-600 hover:bg-blue-100"
+                                    title="Add quote"
+                                >
+                                    <Plus size={16} />
+                                    Add Quote
+                                </button>
+                            </div>
+                        ) : null}
                     </div>
 
                     <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mt-2.5`}>
@@ -1185,8 +1715,6 @@ export default function VehicleAccidentRepairDetailForm({
                         </VehicleAccidentRepairFormFieldCell>
                     </div>
 
-                    {assignmentPending ? (
-                    <>
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                             Accident Photos
@@ -1250,8 +1778,6 @@ export default function VehicleAccidentRepairDetailForm({
                             <p className="text-[10px] text-red-500 font-bold mt-1">{errors.accidentImages}</p>
                         ) : null}
                     </div>
-                    </>
-                    ) : null}
 
                     <div className="mt-4">
                         <VehicleAccidentRepairFormFieldCell
@@ -1281,14 +1807,6 @@ export default function VehicleAccidentRepairDetailForm({
                             <button
                                 type="button"
                                 disabled={saving}
-                                onClick={() => void handleSaveDraft()}
-                                className={tireBtnSecondary}
-                            >
-                                Save Draft
-                            </button>
-                            <button
-                                type="button"
-                                disabled={saving}
                                 onClick={handleCancel}
                                 className={tireBtnSecondary}
                             >
@@ -1301,27 +1819,6 @@ export default function VehicleAccidentRepairDetailForm({
                                 className={tireBtnPrimary}
                             >
                                 {saving ? 'Sending…' : 'Send'}
-                            </button>
-                        </div>
-                    ) : null}
-
-                    {!assignmentPending && initiateStageEditable && canEditAssignment ? (
-                        <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
-                            <button
-                                type="button"
-                                disabled={saving}
-                                onClick={handleCancel}
-                                className={tireBtnSecondary}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                disabled={saving || missingFields.length > 0}
-                                onClick={() => void handleSaveUpdates()}
-                                className={tireBtnPrimary}
-                            >
-                                {saving ? 'Saving…' : 'Save Changes'}
                             </button>
                         </div>
                     ) : null}

@@ -32,8 +32,6 @@ import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
-import VehicleGarageBillingFields from './VehicleGarageBillingFields';
-import VehicleGaragePaymentToGarageFields from './VehicleGaragePaymentToGarageFields';
 
 export default function VehicleTireChangeGarageCard({
     asset,
@@ -65,12 +63,6 @@ export default function VehicleTireChangeGarageCard({
 
     const { fieldMinHeightPx, gapClass } = TIRE_CHANGE_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
-    const approvedAmount =
-        Number(remark.hrReviewApprovedAmount) ||
-        Number(remark.approvedAmount) ||
-        Number(remark.estimatedCost) ||
-        Number(service?.value) ||
-        0;
 
     useEffect(() => {
         setFormData(buildTireChangeGarageFormState(service, asset));
@@ -213,24 +205,19 @@ export default function VehicleTireChangeGarageCard({
                         disabled={fieldsDisabled}
                     />
                 </VehicleTireChangeFormFieldCell>
-                <VehicleGarageBillingFields
-                    formData={formData}
-                    setField={set}
-                    fieldsDisabled={fieldsDisabled}
-                    accent={accent}
-                    fieldMinHeightPx={fieldMinHeightPx}
-                    fieldClassName={tireFieldSelect}
-                    amountReadOnly={approvedAmount > 0}
-                />
-                <VehicleGaragePaymentToGarageFields
-                    formData={formData}
-                    setField={set}
-                    setFormData={setFormData}
-                    fieldsDisabled={fieldsDisabled}
-                    FieldCell={VehicleTireChangeFormFieldCell}
-                    accent={accent}
-                    fieldMinHeightPx={fieldMinHeightPx}
-                    fieldClassName={tireFieldSelect}
+            </div>
+
+            <div className="mt-4 border-t border-gray-100 pt-4">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                    Description (optional)
+                </span>
+                <textarea
+                    className={`${tireFieldSelect} mt-1.5 min-h-[88px] resize-y font-medium`}
+                    rows={3}
+                    value={formData.serviceIssue || ''}
+                    onChange={(e) => set('serviceIssue', e.target.value)}
+                    disabled={fieldsDisabled}
+                    placeholder="Enter work description"
                 />
             </div>
 

@@ -879,31 +879,7 @@ function VehicleDetailsPageContent() {
                 router.replace(nextPath, { scroll: false });
             }
 
-            if (!locatorRoute && merged?.locatorDeviceId && !merged?.locator) {
-                void axiosInstance
-                    .get(`/locator/device-overlay/${merged.locatorDeviceId}`, {
-                        skipToast: true,
-                        timeout: 12000,
-                    })
-                    .then((overlayRes) => {
-                        if (ticket !== fetchAssetDetailsTicketRef.current) return;
-                        const overlay = overlayRes.data?.data;
-                        if (!overlay) return;
-                        locatorOverlayRef.current = overlay;
-                        setAsset((prev) => {
-                            if (!prev || String(prev._id) !== String(merged._id)) return prev;
-                            return {
-                                ...prev,
-                                ...overlay,
-                                currentKilometer:
-                                    overlay.currentKilometer != null
-                                        ? overlay.currentKilometer
-                                        : prev.currentKilometer,
-                            };
-                        });
-                    })
-                    .catch(() => {});
-            }
+            // GPS overlay comes from ERP cached fields (30-min sync) — no live Locator call.
 
             return merged;
         } catch (error) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ClipboardCheck, Loader2, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -9,6 +9,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import VehicleServiceLockedSection from './VehicleServiceLockedSection';
 import VehicleServiceNewConditionPhotoStrip from './VehicleServiceNewConditionPhotoStrip';
+import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
@@ -31,21 +32,20 @@ import {
     validateBodyWorkReturnForm,
 } from '../utils/vehicleBodyWorkReturnForm';
 import {
+    labelForServiceBodyPartKey,
+} from '../utils/vehicleServiceNewConditionPhotos';
+import {
     BODY_WORK_DETAIL_GRID_LAYOUT,
     tireAccent,
     tireBtnPrimary,
     tireBtnSecondary,
     tireDatePickerClass,
     tireFieldSelect,
-    tirePhotoAddBtn,
-    tirePhotoThumb,
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleBodyWorkDetailUi';
 import {
     ERP_ATTACHMENT_ACCEPT,
-    ERP_JPEG_ACCEPT,
-    filterErpUploadFiles,
     validateErpUploadFile,
 } from '@/utils/uploadFileTypes';
 
@@ -113,9 +113,10 @@ export default function VehicleBodyWorkReturnCard({
 }) {
     const router = useRouter();
     const { toast } = useToast();
-    const photoInputRef = useRef(null);
     const [saving, setSaving] = useState(false);
-    const [lightboxSrc, setLightboxSrc] = useState(null);
+    const [viewerOpen, setViewerOpen] = useState(false);
+    const [viewerStartIndex, setViewerStartIndex] = useState(0);
+    const [viewerExtraItems, setViewerExtraItems] = useState([]);
     const [resolvedExistingPhotoSrc, setResolvedExistingPhotoSrc] = useState({});
     const [formData, setFormData] = useState(() => buildBodyWorkReturnFormState(service, asset));
 
@@ -130,13 +131,73 @@ export default function VehicleBodyWorkReturnCard({
 
     const canEditReturn = canEditBodyWorkReturn(stage, canManage, isComplete, asset);
     const fieldsDisabled = !canEditReturn || saving || assignmentPending;
-    const hasMappedNewConditionPhotos = useMemo(
-        () =>
-            (formData.existingNewConditionImages || []).some((img) =>
-                String(img?.bodyPartKey || '').trim(),
-            ),
-        [formData.existingNewConditionImages],
+
+    const photoGalleryItems = useMemo(() => {
+        const items = [];
+        (formData.existingNewConditionImages || []).forEach((img, idx) => {
+            const thumb =
+                resolvedExistingPhotoSrc[`existing-${idx}`] || directConditionImageSrc(img);
+            const dataUrl = thumb?.startsWith('data:') ? thumb : '';
+            const photo = dataUrl || img;
+            if (!photo && !thumb) return;
+            items.push({
+                key: `existing-${idx}`,
+                label:
+                    labelForServiceBodyPartKey(img?.bodyPartKey) ||
+                    `Condition photo ${items.length + 1}`,
+                photo,
+                matchSrc: thumb,
+                ...(dataUrl ? { url: dataUrl } : {}),
+            });
+        });
+        (formData.newConditionImages || []).forEach((img, idx) => {
+            const url = img?.data
+                ? `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
+                : '';
+            if (!url) return;
+            items.push({
+                key: `new-${idx}`,
+                label:
+                    labelForServiceBodyPartKey(img?.bodyPartKey) ||
+                    `Condition photo ${items.length + 1}`,
+                photo: url,
+                url,
+                matchSrc: url,
+            });
+        });
+        return items;
+    }, [
+        formData.existingNewConditionImages,
+        formData.newConditionImages,
+        resolvedExistingPhotoSrc,
+    ]);
+
+    const openPhotoViewer = useCallback(
+        (src) => {
+            if (!src) return;
+            const index = photoGalleryItems.findIndex((item) => item.matchSrc === src);
+            if (index >= 0) {
+                setViewerExtraItems([]);
+                setViewerStartIndex(index);
+                setViewerOpen(true);
+                return;
+            }
+            setViewerExtraItems([
+                {
+                    key: 'preview-extra',
+                    label: 'Condition photo',
+                    photo: src,
+                    url: src,
+                    matchSrc: src,
+                },
+            ]);
+            setViewerStartIndex(0);
+            setViewerOpen(true);
+        },
+        [photoGalleryItems],
     );
+
+    const viewerItems = viewerExtraItems.length ? viewerExtraItems : photoGalleryItems;
 
     const { fieldMinHeightPx, gapClass } = BODY_WORK_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
@@ -227,35 +288,28 @@ export default function VehicleBodyWorkReturnCard({
         });
     };
 
-    const appendPhotos = (files) => {
-        const { accepted, firstError } = filterErpUploadFiles(files, {
-            allowPdf: false,
-            allowJpeg: true,
-        });
-        if (firstError) {
-            toast({ variant: 'destructive', title: 'Invalid file', description: firstError });
-        }
-        accepted.forEach((file) => {
-            readUploadFile(file, (f, base64) => {
-                setFormData((prev) => ({
-                    ...prev,
-                    newConditionImages: [
-                        ...(prev.newConditionImages || []),
-                        { name: f.name, data: base64, mimeType: f.type || 'image/jpeg', bodyPartKey: '' },
-                    ],
-                }));
-            });
-        });
-    };
-
-    const setNewConditionBodyPart = (index, bodyPartKey) => {
+    const setBodyPartNewImage = useCallback((bodyPartKey, image) => {
+        const key = String(bodyPartKey || '').trim();
+        if (!key || !image) return;
         setFormData((prev) => {
-            const list = [...(prev.newConditionImages || [])];
-            if (!list[index]) return prev;
-            list[index] = { ...list[index], bodyPartKey: bodyPartKey || '' };
+            const list = [...(prev.newConditionImages || [])].filter(
+                (img) => String(img?.bodyPartKey || '').trim() !== key,
+            );
+            list.push({ ...image, bodyPartKey: key });
             return { ...prev, newConditionImages: list };
         });
-    };
+    }, []);
+
+    const clearBodyPartNewImage = useCallback((bodyPartKey) => {
+        const key = String(bodyPartKey || '').trim();
+        if (!key) return;
+        setFormData((prev) => ({
+            ...prev,
+            newConditionImages: (prev.newConditionImages || []).filter(
+                (img) => String(img?.bodyPartKey || '').trim() !== key,
+            ),
+        }));
+    }, []);
 
     const handleCancel = () => {
         if (vehicleId) {
@@ -293,31 +347,6 @@ export default function VehicleBodyWorkReturnCard({
             toast({
                 variant: 'destructive',
                 title: 'Could not submit',
-                description: error.response?.data?.message || 'Try again.',
-            });
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const handleSyncHandoverPhotos = async () => {
-        if (!vehicleId || !serviceId || !canManage || saving) return;
-        setSaving(true);
-        try {
-            const { data } = await axiosInstance.post(
-                `/AssetItem/${vehicleId}/service/${serviceId}/sync-body-condition-photos`,
-            );
-            toast({
-                title: 'Handover photos updated',
-                description:
-                    data?.message ||
-                    'New condition photos were applied to the Body Condition Report.',
-            });
-            if (typeof onUpdated === 'function') onUpdated(data?.asset);
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Could not update handover photos',
                 description: error.response?.data?.message || 'Try again.',
             });
         } finally {
@@ -420,6 +449,15 @@ export default function VehicleBodyWorkReturnCard({
                                 placeholder="dd/mm/yyyy"
                                 className={tireDatePickerClass}
                                 disabled={fieldsDisabled}
+                                disabledDays={
+                                    formData.serviceEndDate
+                                        ? {
+                                              before: new Date(
+                                                  `${String(formData.serviceEndDate).slice(0, 10)}T00:00:00`,
+                                              ),
+                                          }
+                                        : undefined
+                                }
                             />
                         </VehicleBodyWorkFormFieldCell>
                         <VehicleBodyWorkFormFieldCell
@@ -433,6 +471,15 @@ export default function VehicleBodyWorkReturnCard({
                                 placeholder="dd/mm/yyyy"
                                 className={tireDatePickerClass}
                                 disabled={fieldsDisabled}
+                                disabledDays={
+                                    formData.serviceEndDate
+                                        ? {
+                                              before: new Date(
+                                                  `${String(formData.serviceEndDate).slice(0, 10)}T00:00:00`,
+                                              ),
+                                          }
+                                        : undefined
+                                }
                             />
                         </VehicleBodyWorkFormFieldCell>
                     </div>
@@ -441,34 +488,31 @@ export default function VehicleBodyWorkReturnCard({
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                             New Condition Photos
                         </span>
-                        <p className="mt-1 text-[10px] text-gray-500">
-                            After upload, choose Replace to — each handover body part can be selected only once.
-                        </p>
                         <div className="mt-2">
                             <VehicleServiceNewConditionPhotoStrip
                                 existingImages={formData.existingNewConditionImages}
                                 newImages={formData.newConditionImages}
                                 resolvedExistingSrc={resolvedExistingPhotoSrc}
                                 disabled={fieldsDisabled}
-                                photoAddBtnClass={tirePhotoAddBtn}
-                                photoThumbClass={tirePhotoThumb}
-                                fieldSelectClass={tireFieldSelect}
-                                onAdd={() => photoInputRef.current?.click()}
-                                onPreview={setLightboxSrc}
-                                onBodyPartChange={setNewConditionBodyPart}
-                            />
-                            <input
-                                ref={photoInputRef}
-                                type="file"
-                                multiple
-                                className="hidden"
-                                accept={ERP_JPEG_ACCEPT}
-                                onChange={(e) => {
-                                    appendPhotos(e.target.files);
-                                    e.target.value = '';
-                                }}
+                                onPreview={openPhotoViewer}
+                                onSetBodyPartImage={setBodyPartNewImage}
+                                onClearBodyPartImage={clearBodyPartNewImage}
                             />
                         </div>
+                    </div>
+
+                    <div className="mt-4 border-t border-gray-100 pt-4">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                            Description (optional)
+                        </span>
+                        <textarea
+                            className="mt-1.5 w-full min-h-[88px] resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 placeholder:text-gray-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-600"
+                            rows={3}
+                            value={formData.returnDescription || ''}
+                            onChange={(e) => set('returnDescription', e.target.value)}
+                            disabled={fieldsDisabled}
+                            placeholder="Enter completion notes..."
+                        />
                     </div>
 
                     {missingFields.length > 0 ? (
@@ -491,17 +535,6 @@ export default function VehicleBodyWorkReturnCard({
                                 {saving ? 'Completing…' : 'Complete'}
                             </button>
                         </div>
-                    ) : isComplete && canManage && hasMappedNewConditionPhotos ? (
-                        <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
-                            <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => void handleSyncHandoverPhotos()}
-                                className={tireBtnPrimary}
-                            >
-                                {saving ? 'Updating…' : 'Update handover photos'}
-                            </button>
-                        </div>
                     ) : null}
 
                     {saving ? (
@@ -514,14 +547,15 @@ export default function VehicleBodyWorkReturnCard({
                 </VehicleServiceLockedSection>
             </div>
 
-            {lightboxSrc ? (
-                <div
-                    className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
-                    onClick={() => setLightboxSrc(null)}
-                >
-                    <img src={lightboxSrc} alt="" className="max-h-[90vh] max-w-full rounded-lg" />
-                </div>
-            ) : null}
+            <VehicleHandoverAssessmentPhotoViewer
+                open={viewerOpen}
+                items={viewerItems}
+                startIndex={viewerStartIndex}
+                onClose={() => {
+                    setViewerOpen(false);
+                    setViewerExtraItems([]);
+                }}
+            />
         </>
     );
 }

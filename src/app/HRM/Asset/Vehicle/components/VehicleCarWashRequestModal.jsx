@@ -984,6 +984,17 @@ export default function VehicleCarWashRequestModal({
                             </div>
                         </FormField>
 
+                        <FormField label="Description (optional)">
+                            <textarea
+                                rows={3}
+                                value={formData.serviceIssue || ''}
+                                onChange={(e) => set('serviceIssue', e.target.value)}
+                                placeholder="Enter description..."
+                                disabled={formReadOnly}
+                                className={`${fieldControl} min-h-[88px] resize-y ${formReadOnly ? 'opacity-70 cursor-not-allowed bg-slate-50' : ''}`}
+                            />
+                        </FormField>
+
                         {accountsReviewMode ? (
                             <>
                                 <FormField label="Name (auto)">

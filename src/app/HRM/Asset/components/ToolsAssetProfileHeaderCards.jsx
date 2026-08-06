@@ -3,6 +3,7 @@
 import { User } from 'lucide-react';
 import { HEADER_PAIR_CARD, HEADER_PAIR_CARD_BODY, HEADER_PAIR_CARD_PADDING, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import { resolveAssetPrimaryPhoto } from '../utils/resolveAssetPrimaryPhoto';
+import { getAttachedAccessoriesValueTotal } from '../utils/getToolsAssetTotalValue';
 import StorageImage from '@/components/StorageImage';
 
 const ACTION_BTN_BASE =
@@ -32,11 +33,9 @@ export default function ToolsAssetProfileHeaderCards({
     onOpenReturnActions,
     returnActionsDisabled = false,
 }) {
-    const accessoryTotal = (accessoriesVisibleOnAssetPage || []).reduce(
-        (sum, acc) => sum + (Number(acc.amount) || 0),
-        0,
-    );
-    const totalValue = (Number(asset?.assetValue) || 0) + accessoryTotal;
+    const totalValue =
+        (Number(asset?.assetValue) || 0) +
+        getAttachedAccessoriesValueTotal(accessoriesVisibleOnAssetPage, asset?.status);
     const primaryPhoto = resolveAssetPrimaryPhoto(asset);
 
     return (

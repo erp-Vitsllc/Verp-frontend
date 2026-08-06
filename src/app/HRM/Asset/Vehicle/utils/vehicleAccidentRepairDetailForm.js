@@ -1,4 +1,4 @@
-﻿import {
+import {
     mapServiceRecordToFormData,
     validateVehicleServiceForm,
     buildAddServiceBody,
@@ -87,6 +87,25 @@ export function applyEmployeePayTargetToRows(rows, estimatedCost, employeePayPer
     const list = Array.isArray(rows) ? rows : [];
     if (!list.length || target <= 0) return list;
     return redistributeEmployeeLiabilityRows(list, target);
+}
+
+export function normalizeOtherFineRows(rows, legacyOtherFineAmount) {
+    if (Array.isArray(rows) && rows.length) {
+        return rows.map((row) => ({
+            name: String(row?.name || '').trim(),
+            amount: row?.amount != null && row?.amount !== '' ? String(row.amount) : '',
+        }));
+    }
+    const legacy = Number(legacyOtherFineAmount);
+    if (Number.isFinite(legacy) && legacy > 0) {
+        return [{ name: 'Other Fine', amount: String(legacy) }];
+    }
+    return [];
+}
+
+export function sumOtherFineRows(rows) {
+    if (!Array.isArray(rows)) return 0;
+    return rows.reduce((sum, row) => sum + (Number(row?.amount) || 0), 0);
 }
 
 /** After one row's paid amount changes, only rows below it are rebalanced to hit the target. */
@@ -212,7 +231,8 @@ export function buildAccidentRepairDetailFormState(service, asset, { flowchartRo
 
     const insuranceFine = Number(remark.insuranceFineAmount) || 0;
     const policeFine = Number(remark.policeFineAmount) || 0;
-    const otherFine = Number(remark.otherFineAmount) || 0;
+    const otherFineRows = normalizeOtherFineRows(remark.otherFineRows, remark.otherFineAmount);
+    const otherFine = sumOtherFineRows(otherFineRows);
     const fineTotal = insuranceFine + policeFine + otherFine;
     const estimatedFromRemark =
         remark.hrReviewApprovedAmount != null && remark.hrReviewApprovedAmount !== ''
@@ -268,6 +288,8 @@ export function buildAccidentRepairDetailFormState(service, asset, { flowchartRo
                       : '',
         estimatedCost: estimatedFromRemark,
         employeeLiabilityRows: liabilityRows,
+        otherFineRows,
+        otherFineAmount: otherFine > 0 ? String(otherFine) : '',
         garageQuote1Name: q1?.name || '',
         garageQuote1Base64: '',
         garageQuote1Mime: '',
@@ -467,6 +489,20 @@ export function buildAccidentRepairDetailSubmitBody(formData, { keepPending = tr
     }
     if (formData.garageQuote3Amount !== '' && formData.garageQuote3Amount != null) {
         remark.quotation3Amount = Number(formData.garageQuote3Amount) || 0;
+    }
+
+    const otherFineRows = normalizeOtherFineRows(formData.otherFineRows, formData.otherFineAmount)
+        .filter((row) => String(row.name || '').trim() || Number(row.amount) > 0)
+        .map((row) => ({
+            name: String(row.name || '').trim() || 'Other Fine',
+            amount: Number(row.amount) || 0,
+        }));
+    if (otherFineRows.length) {
+        remark.otherFineRows = otherFineRows;
+        remark.otherFineAmount = otherFineRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    } else {
+        delete remark.otherFineRows;
+        remark.otherFineAmount = 0;
     }
 
     const paymentByModeRaw = String(formData.paymentByMode || '').toLowerCase();

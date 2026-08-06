@@ -80,6 +80,7 @@ function pickViewBlock(source, key) {
                 : null,
         userSelected: block.userSelected === true,
         replacedByService: block.replacedByService === true,
+        serviceBaselinePhoto: block.serviceBaselinePhoto ?? null,
     };
 }
 
@@ -131,6 +132,18 @@ function resolveBodyConditionPreviousEntry(historyEntry, options = {}) {
 function pickBestPreviousViewBlock(historyEntry, fieldKey, options = {}) {
     const { assetHistory, currentEntry = historyEntry } = options;
     const candidates = [];
+
+    // After Body Work / Accident Complete, Prefer the photo that was on this row before replace.
+    const currentBlock = pickViewBlock(resolveBodyConditionSource(historyEntry), fieldKey);
+    if (
+        currentBlock.replacedByService === true &&
+        hasAssessmentPhoto(currentBlock.serviceBaselinePhoto)
+    ) {
+        return {
+            comment: String(currentBlock.comment || '').trim(),
+            photo: currentBlock.serviceBaselinePhoto,
+        };
+    }
 
     const previousEntry = resolveBodyConditionPreviousEntry(historyEntry, options);
     if (previousEntry) {
@@ -225,6 +238,7 @@ export function buildBodyConditionEditableFormState(historyEntry, options = {}) 
                 photoSource: null,
                 userSelected: false,
                 replacedByService: false,
+                serviceBaselinePhoto: null,
             };
             return;
         }
@@ -235,6 +249,12 @@ export function buildBodyConditionEditableFormState(historyEntry, options = {}) 
             photoSource: resolveBodyConditionRowPhotoSource(cur, previous[field.key], { sectionDone }),
             userSelected: cur.userSelected === true,
             replacedByService: cur.replacedByService === true,
+            serviceBaselinePhoto: cur.serviceBaselinePhoto ?? null,
+            ...(cur.replacedByServiceType
+                ? { replacedByServiceType: cur.replacedByServiceType }
+                : {}),
+            ...(cur.replacedByServiceId ? { replacedByServiceId: cur.replacedByServiceId } : {}),
+            ...(cur.replacedByServiceAt ? { replacedByServiceAt: cur.replacedByServiceAt } : {}),
         };
     });
 
@@ -343,6 +363,12 @@ export function buildBodyConditionPayload(form) {
             ...(photoSource ? { photoSource } : {}),
             ...(userSelected ? { userSelected: true } : {}),
             ...(row.replacedByService === true ? { replacedByService: true } : {}),
+            ...(row.serviceBaselinePhoto ? { serviceBaselinePhoto: row.serviceBaselinePhoto } : {}),
+            ...(row.replacedByServiceType
+                ? { replacedByServiceType: row.replacedByServiceType }
+                : {}),
+            ...(row.replacedByServiceId ? { replacedByServiceId: row.replacedByServiceId } : {}),
+            ...(row.replacedByServiceAt ? { replacedByServiceAt: row.replacedByServiceAt } : {}),
         };
     });
     return payload;
@@ -355,6 +381,10 @@ export function normalizeBodyConditionFormRow(row = {}) {
         photoSource: row.photoSource ?? null,
         userSelected: row.userSelected === true,
         replacedByService: row.replacedByService === true,
+        serviceBaselinePhoto: row.serviceBaselinePhoto ?? null,
+        replacedByServiceType: row.replacedByServiceType || undefined,
+        replacedByServiceId: row.replacedByServiceId || undefined,
+        replacedByServiceAt: row.replacedByServiceAt || undefined,
     };
 }
 
@@ -408,6 +438,12 @@ export function mergeBodyConditionRowIntoEntry(historyEntry, key, row) {
                 ? { userSelected: true }
                 : {}),
             ...(row?.replacedByService === true ? { replacedByService: true } : {}),
+            ...(row?.serviceBaselinePhoto ? { serviceBaselinePhoto: row.serviceBaselinePhoto } : {}),
+            ...(row?.replacedByServiceType
+                ? { replacedByServiceType: row.replacedByServiceType }
+                : {}),
+            ...(row?.replacedByServiceId ? { replacedByServiceId: row.replacedByServiceId } : {}),
+            ...(row?.replacedByServiceAt ? { replacedByServiceAt: row.replacedByServiceAt } : {}),
         },
     });
 }

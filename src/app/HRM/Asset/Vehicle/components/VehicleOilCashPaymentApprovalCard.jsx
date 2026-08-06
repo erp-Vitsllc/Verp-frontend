@@ -960,6 +960,29 @@ export default function VehicleOilCashPaymentApprovalCard({
                             />
                         </div>
 
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                    Amount (AED)
+                                </span>
+                                <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {selectedQuoteAmount > 0
+                                        ? formatAed(selectedQuoteAmount)
+                                        : quoteAmount > 0
+                                          ? formatAed(quoteAmount)
+                                          : '—'}
+                                </p>
+                            </div>
+                            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                    Payment type
+                                </span>
+                                <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {oilPaymentTypeLabel(remark.amountMode) || '—'}
+                                </p>
+                            </div>
+                        </div>
+
                         {canActOnHr ? (
                             <div className="mt-4 flex justify-end">
                                 <button

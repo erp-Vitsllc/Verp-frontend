@@ -76,12 +76,8 @@ export function canEditBodyWorkQuoteCard(assignmentPending, stage, { canActHr, c
 }
 
 export function canEditBodyWorkQuoteEmployeeRows(assignmentPending, stage, { canActHr, canManageBodyWork, canRespondToWorkflow }) {
+    // Lock after HR Approval — employee rows only editable while HR stage is open.
     if (assignmentPending) return false;
-    if ([BODY_WORK_WORKFLOW_STAGES.COMPLETE, BODY_WORK_WORKFLOW_STAGES.REJECTED].includes(stage)) {
-        return false;
-    }
-    if (stage === BODY_WORK_WORKFLOW_STAGES.HR) {
-        return Boolean(canActHr || canRespondToWorkflow || canManageBodyWork);
-    }
-    return Boolean(canActHr || canManageBodyWork);
+    if (stage !== BODY_WORK_WORKFLOW_STAGES.HR) return false;
+    return Boolean(canActHr || canRespondToWorkflow || canManageBodyWork);
 }

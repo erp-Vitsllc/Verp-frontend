@@ -1,6 +1,10 @@
-﻿import { mapServiceRecordToFormData } from '../components/vehicleServicePayload';
+import { mapServiceRecordToFormData } from '../components/vehicleServicePayload';
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
-import { resolveShopServiceReturnDate } from './vehicleShopWorkStatus';
+import {
+    normalizeShopServiceDateValue,
+    resolveShopServiceEndDate,
+    resolveShopServiceReturnDate,
+} from './vehicleShopWorkStatus';
 import {
     buildNewConditionImagesPayload,
     validateNewConditionBodyPartMappings,
@@ -26,6 +30,7 @@ export function buildBodyWorkReturnFormState(service, asset) {
         existingReturnOtherDocUrl: service?.invoice || remark.returnOtherDocUrl || base.existingReturnOtherDocUrl || '',
         returnDate: resolveShopServiceReturnDate(service, asset),
         handOverDate: remark.handOverDate || base.handOverDate || '',
+        serviceEndDate: resolveShopServiceEndDate(service, asset),
         returnDescription: remark.returnDescription || base.returnDescription || '',
         existingNewConditionImages: Array.isArray(remark.newConditionImages)
             ? remark.newConditionImages
@@ -48,6 +53,16 @@ export function validateBodyWorkReturnForm(formData) {
     if (!hasOtherDoc) errors.returnOtherDoc = 'Other document is required';
     if (!String(formData.returnDate || '').trim()) errors.returnDate = 'Return date is required';
     if (!String(formData.handOverDate || '').trim()) errors.handOverDate = 'Hand over date is required';
+
+    const endKey = normalizeShopServiceDateValue(formData.serviceEndDate);
+    const returnKey = normalizeShopServiceDateValue(formData.returnDate);
+    const handOverKey = normalizeShopServiceDateValue(formData.handOverDate);
+    if (endKey && returnKey && returnKey < endKey) {
+        errors.returnDate = 'Return date must be on or after the service end date';
+    }
+    if (endKey && handOverKey && handOverKey < endKey) {
+        errors.handOverDate = 'Hand over date must be on or after the service end date';
+    }
 
     const existingPhotos = Array.isArray(formData.existingNewConditionImages)
         ? formData.existingNewConditionImages.length

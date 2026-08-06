@@ -263,7 +263,6 @@ export function validateOilServiceScheduleForm(formData) {
         errors.serviceEndDate = 'Service end date is required';
     }
     // Description is optional for oil schedule / HR approval.
-    Object.assign(errors, validatePaymentToGarageFields(formData));
     return errors;
 }
 
@@ -275,8 +274,6 @@ export function getOilServiceScheduleMissingFields(formData) {
         garageContact: 'Garage contact',
         serviceStartDate: 'Service start date',
         serviceEndDate: 'Service end date',
-        paymentToGarageAmount: 'Payment to garage amount',
-        paymentToGarageAttachments: 'Payment to garage attachment',
     };
     return Object.keys(errors).map((key) => labels[key] || errors[key]);
 }

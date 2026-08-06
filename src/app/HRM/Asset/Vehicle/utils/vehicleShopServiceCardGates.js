@@ -88,7 +88,8 @@ export function resolveShopServiceCardGate({
                     message: '',
                     active:
                         (stage === 'pending_hr' && !garageDone) ||
-                        stage === 'pending_admin_officer',
+                        stage === 'pending_admin_officer' ||
+                        (stage === 'pending_accounts' && !garageDone),
                     done: garageDone,
                 };
             }
@@ -114,6 +115,7 @@ export function resolveShopServiceCardGate({
                 'pending_billing',
                 'billed',
                 'complete',
+                'scheduled_service',
             ].includes(stage);
             const done = accountsApproved || pastAccountsByStage;
 
@@ -123,31 +125,37 @@ export function resolveShopServiceCardGate({
             if (done) {
                 return { locked: false, message: '', active: false, done: true };
             }
-            if (
-                stage === 'pending_accounts' ||
-                stage === 'pending_admin_officer' ||
-                stage === 'scheduled_service'
-            ) {
-                // scheduled_service without an Accounts stamp is stale — still waiting.
+            if (stage === 'pending_accounts' || stage === 'pending_admin_officer') {
                 return {
                     locked: false,
                     message: '',
-                    active: stage === 'pending_accounts' || stage === 'scheduled_service',
+                    active: stage === 'pending_accounts',
                     done: false,
                 };
             }
             return { locked: true, message: 'Complete HR Approval first (HR once)' };
         }
         case SHOP_SERVICE_CARD.COMPLETE: {
+            const accountsApproved = Boolean(
+                String(remark.accountsQuoteApprovedAt || '').trim() ||
+                    String(remark.accountsGarageApprovedAt || '').trim() ||
+                    String(remark.accountsApprovedAt || '').trim(),
+            );
             if (returnDone || stage === 'pending_billing' || stage === 'billed' || stage === 'complete') {
                 return { locked: false, message: '', active: false, done: true };
+            }
+            if (!garageDone || !accountsApproved) {
+                return {
+                    locked: true,
+                    message: 'Complete Schedule/Reschedule and Accounts Approve first',
+                };
             }
             if (stage === 'pending_admin_return' || stage === 'scheduled_service') {
                 return { locked: false, message: '', active: true, done: false };
             }
             return {
                 locked: true,
-                message: 'Complete Schedule and Reschedule Service first',
+                message: 'Complete Schedule/Reschedule and Accounts Approve first',
             };
         }
         case SHOP_SERVICE_CARD.PAYMENT: {

@@ -134,6 +134,7 @@ function buildInitialForm(service, workflow = null) {
         nextServiceKm: remark.nextChangeKm != null ? String(remark.nextChangeKm) : '',
         nextServiceDate,
         handOverDate: remark.handOverDate || '',
+        returnDescription: remark.returnDescription || '',
     };
 }
 
@@ -449,6 +450,22 @@ export default function VehicleOilServiceDetailsForm({
                         </p>
                     ) : null}
                 </FieldCard>
+            </div>
+
+            <div className="mt-4 border-t border-gray-100 pt-4">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                    Description (optional)
+                </span>
+                <textarea
+                    className="mt-1.5 w-full min-h-[88px] resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 placeholder:text-gray-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-600"
+                    rows={3}
+                    value={form.returnDescription || ''}
+                    onChange={(e) =>
+                        setForm((prev) => ({ ...prev, returnDescription: e.target.value }))
+                    }
+                    disabled={fieldsDisabled || !canAct}
+                    placeholder="Enter completion notes..."
+                />
             </div>
 
             {showActions ? (

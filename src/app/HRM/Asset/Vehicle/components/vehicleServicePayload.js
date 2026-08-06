@@ -459,9 +459,8 @@ export function buildAddServiceBody(formData, options = {}) {
             returnDate: formData.returnDate || undefined,
             handOverDate: formData.handOverDate || undefined,
             returnDescription: String(formData.returnDescription || '').trim() || undefined,
-            existingAccidentImages: Array.isArray(formData.existingAccidentImages)
-                ? formData.existingAccidentImages
-                : [],
+            // Do not put signed GET urls back into remark — merge preserves accidentImages
+            // and appends new uploads from body.accidentImages.
             existingNewConditionImages: Array.isArray(formData.existingNewConditionImages)
                 ? formData.existingNewConditionImages
                 : [],

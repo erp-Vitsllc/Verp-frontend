@@ -38,6 +38,32 @@ function formatAed(value) {
     return `${n.toLocaleString()} AED`;
 }
 
+function PaymentByToggle({ value, onChange, disabled }) {
+    return (
+        <div className="inline-flex w-full rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            {[
+                { id: 'person', label: 'EMP' },
+                { id: 'company', label: 'CMPY' },
+                { id: 'split', label: 'EMP & CMPY' },
+            ].map((opt) => (
+                <button
+                    key={opt.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onChange(opt.id)}
+                    className={`flex-1 rounded-md px-1 py-1.5 text-[10px] font-bold transition-all ${
+                        value === opt.id
+                            ? 'bg-white text-emerald-700 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                    } disabled:opacity-60`}
+                >
+                    {opt.label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 function employeeLabel(emp) {
     if (!emp || typeof emp !== 'object') return '—';
     const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
@@ -183,9 +209,11 @@ export default function VehicleTireChangeQuoteApprovalCard({
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const quoteRows = useMemo(() => buildQuoteRows(service, remark), [service, remark]);
-    const paymentByMode = remark?.paymentByMode || 'company';
+    const [paymentByMode, setPaymentByMode] = useState(remark?.paymentByMode || 'company');
     const showCompanyPay = paymentByMode !== 'person';
     const showEmployeePay = paymentByMode !== 'company';
+    const totalPay =
+        (Number(displaySummary.companyPay) || 0) + (Number(displaySummary.employeePay) || 0);
 
     const wf = asset?.activeServiceWorkflow || {};
     const wfMatch = normalizeMongoId(wf?.serviceRecordId) === normalizeMongoId(serviceId);
@@ -247,6 +275,12 @@ export default function VehicleTireChangeQuoteApprovalCard({
             },
         });
         setDescription(remark?.hrReviewDescription || remark?.quoteReviewDescription || '');
+        const modeRaw = String(remark?.paymentByMode || '').toLowerCase();
+        if (modeRaw === 'person' || modeRaw === 'company' || modeRaw === 'split') {
+            setPaymentByMode(modeRaw);
+        } else {
+            setPaymentByMode('company');
+        }
     }, [service?._id, service?.remark, remark]);
 
     const approvedQuoteKey = useMemo(() => {
@@ -291,6 +325,7 @@ export default function VehicleTireChangeQuoteApprovalCard({
             approvedAmount: displaySummary.approvedAmount,
             companyPay: displaySummary.companyPay,
             employeePay: displaySummary.employeePay,
+            paymentByMode: paymentByMode || 'company',
             approvedQuoteKey: approvedQuoteKey || '',
         });
     }, [
@@ -298,6 +333,7 @@ export default function VehicleTireChangeQuoteApprovalCard({
         displaySummary.approvedAmount,
         displaySummary.companyPay,
         displaySummary.employeePay,
+        paymentByMode,
         onReviewSummaryChange,
     ]);
 
@@ -395,6 +431,24 @@ export default function VehicleTireChangeQuoteApprovalCard({
         setRowsDirty(true);
     };
 
+    const handlePaymentByModeChange = (mode) => {
+        const nextMode = mode || 'company';
+        setPaymentByMode(nextMode);
+        const amount = Number(displaySummary.approvedAmount) || 0;
+        const split = computePaySplit(amount, nextMode, 50, 50);
+        setDisplaySummary((prev) => ({
+            ...prev,
+            companyPay: String(split.companyPay),
+            employeePay: String(split.employeePay),
+        }));
+        if (nextMode === 'person' || nextMode === 'split') {
+            setEmployeeRows((prev) =>
+                applyEmployeePayTargetToRows(prev?.length ? prev : [{ employeeId: '', paidAmount: '' }], amount, nextMode === 'person' ? 100 : 50),
+            );
+        }
+        setRowsDirty(true);
+    };
+
     const updateReviewEmployeeRow = (index, field, value) => {
         setEmployeeRows((prev) => {
             const rows = [...(prev || [])];
@@ -403,6 +457,7 @@ export default function VehicleTireChangeQuoteApprovalCard({
                 const synced = syncHrReviewPayFromEmployeeRows({
                     employeeRows: rows,
                     approvedAmount: displaySummary.approvedAmount,
+                    companyPay: displaySummary.companyPay,
                     paymentByMode,
                 });
                 setDisplaySummary({
@@ -718,8 +773,19 @@ export default function VehicleTireChangeQuoteApprovalCard({
 
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                     <VehicleTireChangeFormFieldCell
-                        label="Approved Amount"
+                        label="Payment to Whom"
                         accentClass={accent(0)}
+                        minHeightPx={fieldMinHeightPx}
+                    >
+                        <PaymentByToggle
+                            value={paymentByMode || 'company'}
+                            onChange={handlePaymentByModeChange}
+                            disabled={!canEditPaySplit}
+                        />
+                    </VehicleTireChangeFormFieldCell>
+                    <VehicleTireChangeFormFieldCell
+                        label="Approved Amount / Total Pay"
+                        accentClass={accent(1)}
                         minHeightPx={fieldMinHeightPx}
                     >
                         <input
@@ -736,11 +802,16 @@ export default function VehicleTireChangeQuoteApprovalCard({
                             }
                             onChange={(e) => setReviewApprovedAmount(e.target.value)}
                         />
+                        {!canEdit && totalPay > 0 ? (
+                            <p className="mt-1 text-[10px] font-semibold text-gray-500">
+                                Total Pay: {formatAed(totalPay)}
+                            </p>
+                        ) : null}
                     </VehicleTireChangeFormFieldCell>
                     {showCompanyPay ? (
                         <VehicleTireChangeFormFieldCell
                             label="Company Pay"
-                            accentClass={accent(1)}
+                            accentClass={accent(2)}
                             minHeightPx={fieldMinHeightPx}
                         >
                             <input
@@ -762,7 +833,7 @@ export default function VehicleTireChangeQuoteApprovalCard({
                     {showEmployeePay ? (
                         <VehicleTireChangeFormFieldCell
                             label="Employee Pay"
-                            accentClass={accent(2)}
+                            accentClass={accent(0)}
                             minHeightPx={fieldMinHeightPx}
                         >
                             <input
@@ -778,6 +849,20 @@ export default function VehicleTireChangeQuoteApprovalCard({
                                           : '—'
                                 }
                                 onChange={(e) => setReviewField('employeePay', e.target.value)}
+                            />
+                        </VehicleTireChangeFormFieldCell>
+                    ) : null}
+                    {canEditPaySplit && (showCompanyPay || showEmployeePay) ? (
+                        <VehicleTireChangeFormFieldCell
+                            label="Total Pay"
+                            accentClass={accent(1)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <input
+                                className={tireSummaryValue}
+                                readOnly
+                                disabled
+                                value={totalPay > 0 ? formatAed(totalPay) : '—'}
                             />
                         </VehicleTireChangeFormFieldCell>
                     ) : null}
@@ -877,6 +962,20 @@ export default function VehicleTireChangeQuoteApprovalCard({
                             ) : null}
                         </>
                     ) : null}
+                </div>
+
+                <div className="mt-4 border-t border-gray-100 pt-4">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                        Description (optional)
+                    </span>
+                    <textarea
+                        className="mt-1.5 w-full min-h-[88px] resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 placeholder:text-gray-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-600"
+                        rows={3}
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        disabled={!canEdit}
+                        placeholder="Enter review notes..."
+                    />
                 </div>
 
                 {canEdit ? (

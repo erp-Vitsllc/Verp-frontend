@@ -50,9 +50,6 @@ import {
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleMechanicalWorkDetailUi';
-import VehicleServicePaymentTypeMethodFields from './VehicleServicePaymentTypeMethodFields';
-import { formatWarrantyExpiryFromAsset } from '../utils/vehicleOilServiceWarranty';
-import { isOilPayablePaymentMode } from '../utils/vehicleOilServiceDetailForm';
 import {
     ERP_JPEG_ACCEPT,
     ERP_PDF_ACCEPT,
@@ -653,24 +650,12 @@ export default function VehicleMechanicalWorkDetailForm({
                             minHeightPx={fieldMinHeightPx}
                         >
                             <PaymentByToggle
-                                value={formData.paymentByMode || 'company'}
+                                value={paymentByMode || 'company'}
                                 onChange={setPaymentByMode}
                                 disabled={fieldsDisabled}
                             />
                         </VehicleMechanicalWorkFormFieldCell>
 
-                        <VehicleServicePaymentTypeMethodFields
-                            FieldCell={VehicleMechanicalWorkFormFieldCell}
-                            accent={accent}
-                            fieldMinHeightPx={fieldMinHeightPx}
-                            formData={formData}
-                            onChange={(key, value) => set(key, value)}
-                            disabled={fieldsDisabled}
-                            warrantyExpiryLabel={formatWarrantyExpiryFromAsset(asset)}
-                            fieldInputClassName={tireFieldInput}
-                        />
-
-                        {isOilPayablePaymentMode(formData.amountMode) ? (
                         <>
                         <div className={`${costRowGridClass} ${gapClass}`}>
                                     <VehicleMechanicalWorkFormFieldCell
@@ -1007,7 +992,6 @@ export default function VehicleMechanicalWorkDetailForm({
                                     />
                                 </VehicleMechanicalWorkFormFieldCell>
                         </>
-                        ) : null}
                     </div>
 
                     <div className="mt-4 border-t border-gray-100 pt-4">

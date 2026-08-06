@@ -12,7 +12,7 @@ import { isAccidentRepairGarageSubmitted } from '../utils/vehicleAccidentRepairW
 
 /**
  * Accident Repair: Schedule + HR open together after Initiate (oil/body style).
- * HR may approve before or after garage; garage still required before Accounts.
+ * HR opens Accounts even if Schedule is still incomplete (Ready/On Service needs both).
  */
 export default function VehicleAccidentRepairHrOnServiceCard({
     asset,
@@ -65,9 +65,7 @@ export default function VehicleAccidentRepairHrOnServiceCard({
                 `/AssetItem/${vehicleId}/service-workflow/respond`,
                 {
                     action: 'approve',
-                    comment: garageDone
-                        ? 'HR approved accident repair — sent to Accounts Approve'
-                        : 'HR approved accident repair — Schedule/garage still open',
+                    comment: 'HR approved accident repair — sent to Accounts Approve',
                     ...(serviceId ? { serviceRecordId: serviceId } : {}),
                 },
             );
@@ -75,9 +73,7 @@ export default function VehicleAccidentRepairHrOnServiceCard({
                 title: 'Approved',
                 description:
                     data?.message ||
-                    (garageDone
-                        ? 'Sent to Accounts Approve.'
-                        : 'HR approved. Admin can still complete Schedule.'),
+                    'Sent to Accounts Approve. Schedule may still be completed by Admin.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset || null);
         } catch (err) {
