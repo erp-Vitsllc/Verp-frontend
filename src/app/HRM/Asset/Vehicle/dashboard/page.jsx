@@ -16,6 +16,10 @@ import {
     ASSET_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
+import {
+    MODULE_NOTIFICATIONS_UPDATED,
+    getVehicleModuleInboxCount,
+} from '@/utils/moduleNotifications';
 
 export default function VehicleFleetDashboardPage() {
     const [mounted, setMounted] = useState(false);
@@ -30,21 +34,30 @@ export default function VehicleFleetDashboardPage() {
 
     const fetchVehicleInboxCount = useCallback(async ({ force = false, sync = false } = {}) => {
         try {
+            // Prefer sidebar Vehicle badge source so dashboard bell never shows 0 while sidebar shows N.
+            const moduleCount = getVehicleModuleInboxCount();
+            if (!force && moduleCount > 0) {
+                setVehicleInboxCount(moduleCount);
+            }
             const items = await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope: 'vehicle',
                 skipSync: !(sync || force),
                 skipToast: true,
                 force,
             });
-            setVehicleInboxCount(countVisibleAssetPendingInbox(items));
+            const apiCount = countVisibleAssetPendingInbox(items);
+            setVehicleInboxCount(Math.max(apiCount, getVehicleModuleInboxCount()));
         } catch {
-            setVehicleInboxCount(0);
+            const fallback = getVehicleModuleInboxCount();
+            setVehicleInboxCount(fallback);
         }
     }, []);
 
     const warmVehicleInboxBadge = useCallback(() => {
         if (vehicleInboxWarmRef.current) return;
         vehicleInboxWarmRef.current = true;
+        const cached = getVehicleModuleInboxCount();
+        if (cached > 0) setVehicleInboxCount(cached);
         fetchVehicleInboxCount();
     }, [fetchVehicleInboxCount]);
 
@@ -53,8 +66,16 @@ export default function VehicleFleetDashboardPage() {
         const onInboxChanged = () => {
             fetchVehicleInboxCount({ force: true });
         };
+        const onModuleUpdated = (event) => {
+            const n = event?.detail?.counts?.vehicleAsset;
+            if (typeof n === 'number') setVehicleInboxCount(n);
+        };
         window.addEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
-        return () => window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+        window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, onModuleUpdated);
+        return () => {
+            window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+            window.removeEventListener(MODULE_NOTIFICATIONS_UPDATED, onModuleUpdated);
+        };
     }, [fetchVehicleInboxCount]);
 
     const fetchFleetDashboard = useCallback(async () => {

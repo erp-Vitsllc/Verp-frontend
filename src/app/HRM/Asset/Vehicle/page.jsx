@@ -42,6 +42,10 @@ import {
     ASSET_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
+import {
+    MODULE_NOTIFICATIONS_UPDATED,
+    getVehicleModuleInboxCount,
+} from '@/utils/moduleNotifications';
 import { AssetListSummaryPanels } from '@/app/HRM/Asset/components/ListPageSummaryCards';
 import {
     readVehicleListCache,
@@ -318,21 +322,28 @@ export default function VehicleAssetPage() {
 
     const fetchVehicleInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
+            const moduleCount = getVehicleModuleInboxCount();
+            if (!force && moduleCount > 0) {
+                setVehicleInboxCount(moduleCount);
+            }
             const items = await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope: 'vehicle',
                 skipSync: true,
                 skipToast: true,
                 force,
             });
-            setVehicleInboxCount(countVisibleAssetPendingInbox(items));
+            const apiCount = countVisibleAssetPendingInbox(items);
+            setVehicleInboxCount(Math.max(apiCount, getVehicleModuleInboxCount()));
         } catch {
-            setVehicleInboxCount(0);
+            setVehicleInboxCount(getVehicleModuleInboxCount());
         }
     }, []);
 
     const warmVehicleInboxBadge = useCallback(() => {
         if (vehicleInboxWarmRef.current) return;
         vehicleInboxWarmRef.current = true;
+        const cached = getVehicleModuleInboxCount();
+        if (cached > 0) setVehicleInboxCount(cached);
         fetchVehicleInboxCount();
     }, [fetchVehicleInboxCount]);
 
@@ -481,8 +492,16 @@ export default function VehicleAssetPage() {
         const onInboxChanged = () => {
             fetchVehicleInboxCount({ force: true });
         };
+        const onModuleUpdated = (event) => {
+            const n = event?.detail?.counts?.vehicleAsset;
+            if (typeof n === 'number') setVehicleInboxCount(n);
+        };
         window.addEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
-        return () => window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+        window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, onModuleUpdated);
+        return () => {
+            window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+            window.removeEventListener(MODULE_NOTIFICATIONS_UPDATED, onModuleUpdated);
+        };
     }, [mounted, fetchVehicleInboxCount]);
 
     const filteredVehicles = useMemo(() => {

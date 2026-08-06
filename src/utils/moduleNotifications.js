@@ -619,15 +619,18 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
     );
 }
 
-function statsItemToPendingInboxRow(item = {}) {
+/** Module / stats notification → pending-inbox row shape (Vehicle bell + modal). */
+export function moduleNotificationToPendingInboxRow(item = {}) {
+    const requestObjectId =
+        item.requestObjectId || item.primaryAssetId || item.id || item.requestId || null;
     return {
         requestType: item.type || item.requestType,
-        requestObjectId: item.id,
-        dashboardActionId: item.actionId || item.dashboardActionId,
-        primaryAssetId: item.id,
-        primaryFineId: item.id,
+        requestObjectId,
+        dashboardActionId: item.actionId || item.dashboardActionId || null,
+        primaryAssetId: item.primaryAssetId || item.id || requestObjectId,
+        primaryFineId: item.primaryFineId || item.id,
         requestedDate: item.requestedDate,
-        requestedByName: item.requestedBy,
+        requestedByName: item.requestedBy || item.requestedByName,
         subjectName: item.employeeName || item.subjectName,
         extra1: item.extra1,
         extra2: item.extra2,
@@ -638,9 +641,33 @@ function statsItemToPendingInboxRow(item = {}) {
         payment: item.payment,
         loan: item.loan,
         isBulk: item.isBulk,
+        bulkAssetIds: item.bulkAssetIds,
+        bulkKind: item.bulkKind,
         isGroup: item.isGroup,
         status: item.status || 'Pending',
+        dashboardStatus: item.status || 'Pending',
     };
+}
+
+function statsItemToPendingInboxRow(item = {}) {
+    return moduleNotificationToPendingInboxRow(item);
+}
+
+/**
+ * Same Vehicle Asset rows the sidebar badge uses (pending-inbox + stats supplements).
+ * Use for Vehicle Dashboard / list bells so count and modal match the sidebar.
+ */
+export function getVehicleModuleInboxRows(bundle = null) {
+    // Prefer live cache even if feeds TTL lapsed — sidebar still shows that count.
+    const b = bundle || cachedBundle || getCachedModuleNotificationBundle();
+    const rows = Array.isArray(b?.byModule?.['Vehicle Asset']) ? b.byModule['Vehicle Asset'] : [];
+    return rows.map(moduleNotificationToPendingInboxRow);
+}
+
+export function getVehicleModuleInboxCount(bundle = null) {
+    const b = bundle || cachedBundle || getCachedModuleNotificationBundle();
+    if (typeof b?.counts?.vehicleAsset === 'number') return b.counts.vehicleAsset;
+    return getVehicleModuleInboxRows(b).length;
 }
 
 /**

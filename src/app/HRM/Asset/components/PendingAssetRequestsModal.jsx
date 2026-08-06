@@ -30,6 +30,11 @@ import {
     getCachedPendingInbox,
     rememberPendingInbox,
 } from '@/utils/pendingInboxFetch';
+import {
+    getCachedModuleNotificationBundle,
+    getVehicleModuleInboxRows,
+    loadModuleNotificationBundle,
+} from '@/utils/moduleNotifications';
 import { mapAssetPendingInboxToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 
@@ -69,6 +74,23 @@ export default function PendingAssetRequestsModal({
         setCanDeleteNotifications(canDismissAssetInboxNotifications());
     }, [isOpen]);
 
+    const mergeVehicleModuleRows = useCallback(async (apiRows) => {
+        if (inboxScope !== 'vehicle') return apiRows;
+        let moduleRows = getVehicleModuleInboxRows();
+        // Sidebar already warmed the bundle; only rebuild if cache is cold.
+        if (!moduleRows.length && !getCachedModuleNotificationBundle()) {
+            try {
+                const { bundle } = await loadModuleNotificationBundle(axiosInstance, {
+                    skipEmployees: true,
+                });
+                moduleRows = getVehicleModuleInboxRows(bundle);
+            } catch {
+                moduleRows = [];
+            }
+        }
+        return dedupeAssetPendingInboxItems([...(apiRows || []), ...moduleRows]);
+    }, [inboxScope]);
+
     const load = useCallback(async ({ force = false } = {}) => {
         const fetchScope = inboxScope === 'utility' ? 'tools' : inboxScope;
         const cacheParams =
@@ -83,7 +105,7 @@ export default function PendingAssetRequestsModal({
         };
 
         if (cached?.length && itemsRef.current.length === 0) {
-            const dedupedCached = partitionByScope(cached);
+            const dedupedCached = await mergeVehicleModuleRows(partitionByScope(cached));
             setItems(dedupedCached);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(countVisibleAssetPendingInbox(dedupedCached));
@@ -97,13 +119,15 @@ export default function PendingAssetRequestsModal({
         else setRefreshing(true);
         try {
             // Always skipSync for UI open — full sync was hanging the Vehicle pending modal.
-            const list = partitionByScope(
-                await fetchAssetPendingInbox(axiosInstance, {
-                    inboxScope: fetchScope,
-                    skipSync: true,
-                    skipToast: true,
-                    force,
-                }),
+            const list = await mergeVehicleModuleRows(
+                partitionByScope(
+                    await fetchAssetPendingInbox(axiosInstance, {
+                        inboxScope: fetchScope,
+                        skipSync: true,
+                        skipToast: true,
+                        force,
+                    }),
+                ),
             );
             setItems(list);
             if (typeof onPendingInboxCount === 'function') {
@@ -121,7 +145,7 @@ export default function PendingAssetRequestsModal({
             setLoading(false);
             setRefreshing(false);
         }
-    }, [toast, inboxScope, onPendingInboxCount]);
+    }, [toast, inboxScope, onPendingInboxCount, mergeVehicleModuleRows]);
 
     useEffect(() => {
         if (!isOpen) return;
