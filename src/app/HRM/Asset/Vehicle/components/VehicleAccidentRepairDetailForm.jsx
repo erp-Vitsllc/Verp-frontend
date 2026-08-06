@@ -451,13 +451,13 @@ export default function VehicleAccidentRepairDetailForm({
                 estimatedCost,
                 companyPayPercent: companyPct,
                 employeePayPercent: employeePct,
+                paymentByMode: formData.paymentByMode,
                 remark,
                 liveHrReview,
             }),
-        [estimatedCost, companyPct, employeePct, remark, liveHrReview],
+        [estimatedCost, companyPct, employeePct, formData.paymentByMode, remark, liveHrReview],
     );
-    const paymentByMode =
-        resolvedPayAmounts.paymentByMode || formData.paymentByMode || '';
+    const paymentByMode = formData.paymentByMode || resolvedPayAmounts.paymentByMode || '';
     const companyPayAmount = resolvedPayAmounts.companyPayAmount;
     const employeePayAmount = resolvedPayAmounts.employeePayAmount;
     const showFineSplitAmounts = Boolean(paymentByMode);

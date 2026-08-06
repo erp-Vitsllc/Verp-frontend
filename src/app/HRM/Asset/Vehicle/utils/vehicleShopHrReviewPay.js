@@ -210,25 +210,27 @@ export function resolveShopServicePayAmounts({
     estimatedCost,
     companyPayPercent,
     employeePayPercent,
+    paymentByMode: paymentByModeOverride,
     remark = {},
     liveHrReview = null,
 } = {}) {
     const cost = Number(estimatedCost) || 0;
     const companyPct = Number(companyPayPercent) || 0;
     const employeePct = Number(employeePayPercent) || 0;
+    const preferredMode = paymentByModeOverride || remark?.paymentByMode || 'company';
 
     const fromPercents = () => ({
         estimatedCost: cost,
         companyPayAmount: Number.isFinite(cost) ? Math.round((cost * companyPct) / 100) : 0,
         employeePayAmount: Number.isFinite(cost) ? Math.round((cost * employeePct) / 100) : 0,
-        paymentByMode: remark?.paymentByMode || 'company',
+        paymentByMode: preferredMode,
     });
 
     const deriveMode = (company, employee) => {
         if (employee <= 0 && company > 0) return 'company';
         if (company <= 0 && employee > 0) return 'person';
         if (company > 0 && employee > 0) return 'split';
-        return remark?.paymentByMode || 'company';
+        return preferredMode;
     };
 
     const amountsMatchCost = (approved, company, employee) => {
@@ -264,7 +266,13 @@ export function resolveShopServicePayAmounts({
         (liveEmployee != null && liveEmployee !== '') ||
         (liveApproved != null && liveApproved !== '');
 
-    if (hasLive && amountsMatchCost(liveApproved, liveCompany, liveEmployee)) {
+    // Same gate as saved HR amounts: only keep live absolutes while cost and pay % still match.
+    // Otherwise Initiate Service toggles (e.g. EMP & CMPY) stay stuck on company-only pay.
+    if (
+        hasLive &&
+        amountsMatchCost(liveApproved, liveCompany, liveEmployee) &&
+        percentsMatchAmounts(liveApproved, liveCompany, liveEmployee)
+    ) {
         const approved =
             Number(liveApproved) ||
             cost ||

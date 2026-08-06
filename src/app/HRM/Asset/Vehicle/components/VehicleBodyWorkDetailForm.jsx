@@ -259,14 +259,16 @@ export default function VehicleBodyWorkDetailForm({
                 estimatedCost,
                 companyPayPercent: companyPct,
                 employeePayPercent: employeePct,
+                paymentByMode: formData.paymentByMode,
                 remark,
                 liveHrReview,
             }),
-        [estimatedCost, companyPct, employeePct, remark, liveHrReview],
+        [estimatedCost, companyPct, employeePct, formData.paymentByMode, remark, liveHrReview],
     );
     const companyPayAmount = resolvedPayAmounts.companyPayAmount;
     const employeePayAmount = resolvedPayAmounts.employeePayAmount;
-    const paymentByMode = resolvedPayAmounts.paymentByMode || formData.paymentByMode || 'company';
+    // Toggle is source of truth while editing; resolved mode only fills gaps.
+    const paymentByMode = formData.paymentByMode || resolvedPayAmounts.paymentByMode || 'company';
     const isEmpOnly = paymentByMode === 'person';
     const isCompanyOnly = paymentByMode === 'company';
     const isSplitPayment = paymentByMode === 'split';
