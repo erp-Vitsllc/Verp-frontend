@@ -245,8 +245,10 @@ export default function VehicleAssetPage() {
     const router = useRouter();
     const pathname = usePathname();
     const [mounted, setMounted] = useState(false);
-    const [vehicles, setVehicles] = useState(() => readVehicleListCache() || []);
-    const [loading, setLoading] = useState(() => !(readVehicleListCache()?.length));
+    // Start empty on server + first client paint so SSR HTML matches hydration.
+    // Session cache is applied in useEffect after mount (avoids 0 vs N mismatch).
+    const [vehicles, setVehicles] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [showFilters, setShowFilters] = useState(true);
@@ -413,6 +415,11 @@ export default function VehicleAssetPage() {
 
     useEffect(() => {
         setMounted(true);
+        const cached = readVehicleListCache();
+        if (cached?.length) {
+            setVehicles(cached);
+            setLoading(false);
+        }
         fetchVehicles();
     }, [fetchVehicles]);
 

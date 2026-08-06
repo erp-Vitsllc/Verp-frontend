@@ -1,12 +1,11 @@
 'use client';
 
-import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
-import { Camera, CheckCircle2, User, UserX } from 'lucide-react';
+import { Camera, CheckCircle2, Loader2, User, UserX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
-import axiosInstance from '@/utils/axios';
-import { ensureAbsoluteHttpUrl, isLikelySignedStorageUrl, looksLikeS3StorageKey } from '@/utils/attachmentPreview';
+import { useStorageObjectUrl } from '@/hooks/useStorageObjectUrl';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
 import { isVehicleExpiryDatePast } from '../utils/vehicleExpirySources';
@@ -19,30 +18,9 @@ import {
 import { collectVehicleProfilePendingItems } from '../utils/resolveVehicleProfilePendingItems';
 import VehicleProfilePendingStatusBadge from './VehicleProfilePendingStatusBadge';
 
-function normalizePhotoSrc(value) {
-    return ensureAbsoluteHttpUrl(String(value || '').trim());
-}
-
-function isInlineImageSrc(value) {
-    const s = normalizePhotoSrc(value);
-    return Boolean(s && (s.startsWith('data:') || s.startsWith('blob:')));
-}
-
-function isHttpImageSrc(value) {
-    const s = normalizePhotoSrc(value);
-    return Boolean(s && (s.startsWith('http://') || s.startsWith('https://')));
-}
-
-function needsFreshSignedPhotoUrl(value) {
-    const raw = String(value || '').trim();
-    if (!raw || isInlineImageSrc(raw)) return false;
-    if (looksLikeS3StorageKey(raw)) return true;
-    const absolute = normalizePhotoSrc(raw);
-    return isLikelySignedStorageUrl(absolute) || looksLikeS3StorageKey(absolute);
-}
-
 function pickRawVehiclePhotoRef(asset) {
-    const candidates = [asset?.imagePreview, asset?.photo, asset?.images?.[0]?.url, asset?.images?.[0]];
+    // Prefer raw S3 keys (`photo`) over possibly pre-signed `imagePreview` URLs.
+    const candidates = [asset?.photo, asset?.imagePreview, asset?.images?.[0]?.url, asset?.images?.[0]];
     for (const candidate of candidates) {
         if (candidate == null || candidate === '') continue;
         if (typeof candidate === 'string') {
@@ -52,9 +30,9 @@ function pickRawVehiclePhotoRef(asset) {
         }
         if (typeof candidate === 'object') {
             const nested =
-                String(candidate.url || '').trim() ||
                 String(candidate.publicId || '').trim() ||
-                String(candidate.key || '').trim();
+                String(candidate.key || '').trim() ||
+                String(candidate.url || '').trim();
             if (nested) return nested;
         }
     }
@@ -121,104 +99,13 @@ export default function VehicleAssetProfileHeader({
     const [error, setError] = useState('');
     const [showProgressTooltip, setShowProgressTooltip] = useState(false);
     const [isTooltipLocked, setIsTooltipLocked] = useState(false);
-    const [resolvedPhotoSrc, setResolvedPhotoSrc] = useState('');
-    const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
-    const photoResignAttemptedRef = useRef('');
     const progressBarRef = useRef(null);
     const tooltipRef = useRef(null);
     const avatarEditorRef = useRef(null);
 
     const rawPhotoRef = pickRawVehiclePhotoRef(asset);
-
-    useEffect(() => {
-        let cancelled = false;
-        const raw = String(rawPhotoRef || '').trim();
-        photoResignAttemptedRef.current = '';
-        setPhotoLoadFailed(false);
-
-        if (!raw) {
-            setResolvedPhotoSrc('');
-            return undefined;
-        }
-
-        // Inline previews (fresh uploads) — use as-is
-        if (isInlineImageSrc(raw)) {
-            setResolvedPhotoSrc(normalizePhotoSrc(raw));
-            return undefined;
-        }
-
-        // S3 keys and signed storage URLs — always fetch a fresh signed URL.
-        // Stale signed URLs from warm/light cache paint a broken <img> otherwise.
-        if (needsFreshSignedPhotoUrl(raw)) {
-            setResolvedPhotoSrc('');
-            void axiosInstance
-                .get('/storage/signed-url', {
-                    params: { key: raw },
-                    skipToast: true,
-                })
-                .then((res) => {
-                    if (cancelled) return;
-                    const url = normalizePhotoSrc(res?.data?.url || '');
-                    if (isHttpImageSrc(url) || isInlineImageSrc(url)) {
-                        setResolvedPhotoSrc(url);
-                    } else {
-                        setResolvedPhotoSrc('');
-                        setPhotoLoadFailed(true);
-                    }
-                })
-                .catch(() => {
-                    if (!cancelled) {
-                        setResolvedPhotoSrc('');
-                        setPhotoLoadFailed(true);
-                    }
-                });
-            return () => {
-                cancelled = true;
-            };
-        }
-
-        // Non-storage http URLs (rare) — use directly
-        if (isHttpImageSrc(raw)) {
-            setResolvedPhotoSrc(normalizePhotoSrc(raw));
-            return undefined;
-        }
-
-        setResolvedPhotoSrc('');
-        return undefined;
-    }, [rawPhotoRef]);
-
-    const handlePhotoImgError = useCallback(() => {
-        const raw = String(rawPhotoRef || '').trim();
-        if (
-            raw &&
-            needsFreshSignedPhotoUrl(raw) &&
-            photoResignAttemptedRef.current !== raw
-        ) {
-            photoResignAttemptedRef.current = raw;
-            void axiosInstance
-                .get('/storage/signed-url', {
-                    params: { key: raw },
-                    skipToast: true,
-                })
-                .then((res) => {
-                    const url = normalizePhotoSrc(res?.data?.url || '');
-                    if (isHttpImageSrc(url) || isInlineImageSrc(url)) {
-                        setPhotoLoadFailed(false);
-                        setResolvedPhotoSrc(url);
-                        return;
-                    }
-                    setResolvedPhotoSrc('');
-                    setPhotoLoadFailed(true);
-                })
-                .catch(() => {
-                    setResolvedPhotoSrc('');
-                    setPhotoLoadFailed(true);
-                });
-            return;
-        }
-        setResolvedPhotoSrc('');
-        setPhotoLoadFailed(true);
-    }, [rawPhotoRef]);
+    // Proxy via /storage/file — browser <img> against Wasabi signed URLs often fails (DNS/CORS).
+    const { url: storagePhotoUrl, loading: photoLoading } = useStorageObjectUrl(rawPhotoRef || null);
 
     const handleFileSelect = (e) => {
         const file = e.target.files?.[0];
@@ -424,7 +311,7 @@ export default function VehicleAssetProfileHeader({
         },
     ];
 
-    const photoSrc = !photoLoadFailed && resolvedPhotoSrc ? resolvedPhotoSrc : '';
+    const photoSrc = storagePhotoUrl || '';
 
     const { profilePct, completionChecks, pendingChecks } = computeVehicleProfileCompletionPercent(asset);
     const headerProgressPct = isDisposedFleet ? 100 : profilePct;
@@ -463,8 +350,13 @@ export default function VehicleAssetProfileHeader({
                                 src={photoSrc}
                                 alt=""
                                 className="w-full h-full object-cover object-center"
-                                onError={handlePhotoImgError}
                             />
+                        </div>
+                    ) : photoLoading && rawPhotoRef ? (
+                        <div
+                            className={`${photoFrameClass} bg-slate-100 flex items-center justify-center`}
+                        >
+                            <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
                         </div>
                     ) : (
                         <div

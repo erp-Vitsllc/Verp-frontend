@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 
 /**
- * Loads Locator GPS fleet dashboard on every mount / tab focus / manual refresh.
- * Backend always fetches live GPS and reconciles ERP vehicles on each request.
+ * Loads Locator GPS fleet dashboard on mount / manual refresh.
+ * Backend caches the heavy snapshot aggregation (~5 min) — avoid refetching on every tab focus.
  */
 export function useLocatorFleetDashboard({ enabled = true } = {}) {
     const [data, setData] = useState(null);
@@ -21,8 +21,6 @@ export function useLocatorFleetDashboard({ enabled = true } = {}) {
         try {
             const response = await axiosInstance.get('/locator/fleet-dashboard', {
                 skipToast: true,
-                // Bust any intermediary cache so each dashboard view gets a fresh reconcile.
-                params: { _t: Date.now() },
             });
             setData(response?.data?.data || null);
         } catch (err) {
@@ -39,17 +37,8 @@ export function useLocatorFleetDashboard({ enabled = true } = {}) {
 
     useEffect(() => {
         if (!enabled) return undefined;
-
         void load();
-
-        const onVisible = () => {
-            if (document.visibilityState === 'visible') {
-                void load();
-            }
-        };
-
-        document.addEventListener('visibilitychange', onVisible);
-        return () => document.removeEventListener('visibilitychange', onVisible);
+        return undefined;
     }, [enabled, load]);
 
     return {
