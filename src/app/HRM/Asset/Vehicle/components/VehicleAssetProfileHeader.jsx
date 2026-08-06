@@ -521,6 +521,19 @@ export default function VehicleAssetProfileHeader({
                             </>
                         )}
                     </div>
+                    {canSubmitProfileEdit ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (typeof onProfileEditSubmit === 'function') {
+                                    onProfileEditSubmit();
+                                }
+                            }}
+                            className="mt-1.5 w-full inline-flex items-center justify-center rounded-lg bg-violet-600 px-2 py-1.5 text-[9px] sm:text-[10px] font-bold text-white shadow-sm shadow-violet-600/20 hover:bg-violet-700 transition-colors"
+                        >
+                            Submit for HR approval
+                        </button>
+                    ) : null}
                 </div>
                 </div>
 
@@ -617,21 +630,6 @@ export default function VehicleAssetProfileHeader({
                                 />
                             ))}
                         </div>
-                        {canSubmitProfileEdit ? (
-                            <div className="pt-1.5">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (typeof onProfileEditSubmit === 'function') {
-                                            onProfileEditSubmit();
-                                        }
-                                    }}
-                                    className="inline-flex items-center justify-center rounded-lg bg-violet-600 px-3 py-1.5 text-[10px] sm:text-xs font-bold text-white shadow-sm shadow-violet-600/20 hover:bg-violet-700 transition-colors"
-                                >
-                                    Submit for HR approval
-                                </button>
-                            </div>
-                        ) : null}
                     </div>
                 </div>
             </div>
