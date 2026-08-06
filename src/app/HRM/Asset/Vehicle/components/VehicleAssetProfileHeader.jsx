@@ -6,7 +6,7 @@ import { Camera, CheckCircle2, User, UserX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ERP_JPEG_ACCEPT, validateErpJpegFile } from '@/utils/uploadFileTypes';
 import axiosInstance from '@/utils/axios';
-import { ensureAbsoluteHttpUrl } from '@/utils/attachmentPreview';
+import { ensureAbsoluteHttpUrl, isLikelySignedStorageUrl, looksLikeS3StorageKey } from '@/utils/attachmentPreview';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
 import { isVehicleExpiryDatePast } from '../utils/vehicleExpirySources';
@@ -23,24 +23,42 @@ function normalizePhotoSrc(value) {
     return ensureAbsoluteHttpUrl(String(value || '').trim());
 }
 
-function isUsableImageSrc(value) {
+function isInlineImageSrc(value) {
     const s = normalizePhotoSrc(value);
-    if (!s) return false;
-    return (
-        s.startsWith('http://') ||
-        s.startsWith('https://') ||
-        s.startsWith('data:') ||
-        s.startsWith('blob:')
-    );
+    return Boolean(s && (s.startsWith('data:') || s.startsWith('blob:')));
+}
+
+function isHttpImageSrc(value) {
+    const s = normalizePhotoSrc(value);
+    return Boolean(s && (s.startsWith('http://') || s.startsWith('https://')));
+}
+
+function needsFreshSignedPhotoUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw || isInlineImageSrc(raw)) return false;
+    if (looksLikeS3StorageKey(raw)) return true;
+    const absolute = normalizePhotoSrc(raw);
+    return isLikelySignedStorageUrl(absolute) || looksLikeS3StorageKey(absolute);
 }
 
 function pickRawVehiclePhotoRef(asset) {
-    return (
-        String(asset?.imagePreview || '').trim() ||
-        String(asset?.photo || '').trim() ||
-        String(asset?.images?.[0]?.url || '').trim() ||
-        ''
-    );
+    const candidates = [asset?.imagePreview, asset?.photo, asset?.images?.[0]?.url, asset?.images?.[0]];
+    for (const candidate of candidates) {
+        if (candidate == null || candidate === '') continue;
+        if (typeof candidate === 'string') {
+            const s = candidate.trim();
+            if (s) return s;
+            continue;
+        }
+        if (typeof candidate === 'object') {
+            const nested =
+                String(candidate.url || '').trim() ||
+                String(candidate.publicId || '').trim() ||
+                String(candidate.key || '').trim();
+            if (nested) return nested;
+        }
+    }
+    return '';
 }
 
 function formatHdrDate(date) {
@@ -104,6 +122,8 @@ export default function VehicleAssetProfileHeader({
     const [showProgressTooltip, setShowProgressTooltip] = useState(false);
     const [isTooltipLocked, setIsTooltipLocked] = useState(false);
     const [resolvedPhotoSrc, setResolvedPhotoSrc] = useState('');
+    const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
+    const photoResignAttemptedRef = useRef('');
     const progressBarRef = useRef(null);
     const tooltipRef = useRef(null);
     const avatarEditorRef = useRef(null);
@@ -112,34 +132,92 @@ export default function VehicleAssetProfileHeader({
 
     useEffect(() => {
         let cancelled = false;
-        const raw = rawPhotoRef;
+        const raw = String(rawPhotoRef || '').trim();
+        photoResignAttemptedRef.current = '';
+        setPhotoLoadFailed(false);
+
         if (!raw) {
             setResolvedPhotoSrc('');
             return undefined;
         }
-        if (isUsableImageSrc(raw)) {
+
+        // Inline previews (fresh uploads) — use as-is
+        if (isInlineImageSrc(raw)) {
+            setResolvedPhotoSrc(normalizePhotoSrc(raw));
+            return undefined;
+        }
+
+        // S3 keys and signed storage URLs — always fetch a fresh signed URL.
+        // Stale signed URLs from warm/light cache paint a broken <img> otherwise.
+        if (needsFreshSignedPhotoUrl(raw)) {
+            setResolvedPhotoSrc('');
+            void axiosInstance
+                .get('/storage/signed-url', {
+                    params: { key: raw },
+                    skipToast: true,
+                })
+                .then((res) => {
+                    if (cancelled) return;
+                    const url = normalizePhotoSrc(res?.data?.url || '');
+                    if (isHttpImageSrc(url) || isInlineImageSrc(url)) {
+                        setResolvedPhotoSrc(url);
+                    } else {
+                        setResolvedPhotoSrc('');
+                        setPhotoLoadFailed(true);
+                    }
+                })
+                .catch(() => {
+                    if (!cancelled) {
+                        setResolvedPhotoSrc('');
+                        setPhotoLoadFailed(true);
+                    }
+                });
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        // Non-storage http URLs (rare) — use directly
+        if (isHttpImageSrc(raw)) {
             setResolvedPhotoSrc(normalizePhotoSrc(raw));
             return undefined;
         }
 
         setResolvedPhotoSrc('');
-        void axiosInstance
-            .get('/storage/signed-url', {
-                params: { key: raw },
-                skipToast: true,
-            })
-            .then((res) => {
-                if (cancelled) return;
-                const url = normalizePhotoSrc(res?.data?.url || '');
-                if (isUsableImageSrc(url)) setResolvedPhotoSrc(url);
-            })
-            .catch(() => {
-                if (!cancelled) setResolvedPhotoSrc('');
-            });
+        return undefined;
+    }, [rawPhotoRef]);
 
-        return () => {
-            cancelled = true;
-        };
+    const handlePhotoImgError = useCallback(() => {
+        const raw = String(rawPhotoRef || '').trim();
+        if (
+            raw &&
+            needsFreshSignedPhotoUrl(raw) &&
+            photoResignAttemptedRef.current !== raw
+        ) {
+            photoResignAttemptedRef.current = raw;
+            void axiosInstance
+                .get('/storage/signed-url', {
+                    params: { key: raw },
+                    skipToast: true,
+                })
+                .then((res) => {
+                    const url = normalizePhotoSrc(res?.data?.url || '');
+                    if (isHttpImageSrc(url) || isInlineImageSrc(url)) {
+                        setPhotoLoadFailed(false);
+                        setResolvedPhotoSrc(url);
+                        return;
+                    }
+                    setResolvedPhotoSrc('');
+                    setPhotoLoadFailed(true);
+                })
+                .catch(() => {
+                    setResolvedPhotoSrc('');
+                    setPhotoLoadFailed(true);
+                });
+            return;
+        }
+        setResolvedPhotoSrc('');
+        setPhotoLoadFailed(true);
     }, [rawPhotoRef]);
 
     const handleFileSelect = (e) => {
@@ -346,8 +424,7 @@ export default function VehicleAssetProfileHeader({
         },
     ];
 
-    const photoSrc =
-        resolvedPhotoSrc || (isUsableImageSrc(rawPhotoRef) ? normalizePhotoSrc(rawPhotoRef) : '');
+    const photoSrc = !photoLoadFailed && resolvedPhotoSrc ? resolvedPhotoSrc : '';
 
     const { profilePct, completionChecks, pendingChecks } = computeVehicleProfileCompletionPercent(asset);
     const headerProgressPct = isDisposedFleet ? 100 : profilePct;
@@ -386,7 +463,7 @@ export default function VehicleAssetProfileHeader({
                                 src={photoSrc}
                                 alt=""
                                 className="w-full h-full object-cover object-center"
-                                onError={() => setResolvedPhotoSrc('')}
+                                onError={handlePhotoImgError}
                             />
                         </div>
                     ) : (

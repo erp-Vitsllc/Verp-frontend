@@ -1878,6 +1878,15 @@ function VehicleDetailsPageContent() {
         }
     }, [permissionsMounted, activeTab, documentInnerTab]);
 
+    // Must run before loading/!asset early returns — Rules of Hooks
+    const vehicleBlueCardServicePendingItems = useMemo(
+        () =>
+            collectVehicleProfilePendingItems(asset, { assetHistory }).filter(
+                (item) => item?.kind === 'service',
+            ),
+        [asset, assetHistory],
+    );
+
     if (loading && !asset) {
         return (
             <div className="flex min-h-screen w-full bg-[#F2F6F9]">
@@ -2492,14 +2501,6 @@ function VehicleDetailsPageContent() {
     })();
 
     const vehicleExpirySources = resolveVehicleExpirySources(asset, vehicleDocumentLifecycleBuckets?.live);
-
-    const vehicleBlueCardServicePendingItems = useMemo(
-        () =>
-            collectVehicleProfilePendingItems(asset, { assetHistory }).filter(
-                (item) => item?.kind === 'service',
-            ),
-        [asset, assetHistory],
-    );
 
     const dispositionWorkflowStage = String(asset?.vehicleDispositionWorkflow?.stage || '').toLowerCase();
     const dispositionTargetLabel =
