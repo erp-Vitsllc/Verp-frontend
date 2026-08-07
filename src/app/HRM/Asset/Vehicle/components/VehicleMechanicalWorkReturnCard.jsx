@@ -15,7 +15,6 @@ import {
 import { openAttachmentInNewTab, extractStorageReference, loadStorageFileBlob } from '@/utils/attachmentPreview';
 import { parseVehicleServiceRemark, normalizeMongoId } from './vehicleServiceUtils';
 import VehicleMechanicalWorkFormFieldCell from './VehicleMechanicalWorkFormFieldCell';
-import VehicleShopServiceExtendDateSection from './VehicleShopServiceExtendDateSection';
 import {
     isOilServiceAssignmentPending,
 } from '../utils/vehicleOilServiceAccess';
@@ -26,6 +25,7 @@ import {
 import {
     buildMechanicalWorkReturnFormState,
     buildMechanicalWorkReturnUpdateBody,
+    createMechanicalWorkOtherDocRow,
     isMechanicalWorkReturnFormComplete,
     validateMechanicalWorkReturnForm,
 } from '../utils/vehicleMechanicalWorkReturnForm';
@@ -245,17 +245,52 @@ export default function VehicleMechanicalWorkReturnCard({
                     garageInvoiceMime: f.type || 'application/pdf',
                     existingGarageInvoiceUrl: '',
                 }));
-            } else {
-                setFormData((prev) => ({
-                    ...prev,
-                    returnOtherDocName: f.name,
-                    returnOtherDocBase64: base64,
-                    returnOtherDocMime: f.type || 'application/pdf',
-                    existingReturnOtherDocUrl: '',
-                }));
             }
         });
     };
+
+    const addOtherDocRow = useCallback(() => {
+        setFormData((prev) => ({
+            ...prev,
+            returnOtherDocs: [...(prev.returnOtherDocs || []), createMechanicalWorkOtherDocRow()],
+        }));
+    }, []);
+
+    const removeOtherDocRow = useCallback((rowId) => {
+        setFormData((prev) => ({
+            ...prev,
+            returnOtherDocs: (prev.returnOtherDocs || []).filter((row) => row.id !== rowId),
+        }));
+    }, []);
+
+    const updateOtherDocRow = useCallback((rowId, patch) => {
+        setFormData((prev) => ({
+            ...prev,
+            returnOtherDocs: (prev.returnOtherDocs || []).map((row) =>
+                row.id === rowId ? { ...row, ...patch } : row,
+            ),
+        }));
+    }, []);
+
+    const handleOtherDocFile = useCallback(
+        (rowId, file) => {
+            if (!file) return;
+            const check = validateErpUploadFile(file);
+            if (!check.ok) {
+                toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
+                return;
+            }
+            readUploadFile(file, (f, base64) => {
+                updateOtherDocRow(rowId, {
+                    name: f.name,
+                    base64,
+                    mime: f.type || 'application/pdf',
+                    existingUrl: '',
+                });
+            });
+        },
+        [toast, updateOtherDocRow],
+    );
 
     const appendPhotos = (files) => {
         const { accepted, firstError } = filterErpUploadFiles(files, {
@@ -349,23 +384,13 @@ export default function VehicleMechanicalWorkReturnCard({
                               ? 'Service record completed'
                               : canEditReturn
                                 ? 'Fill required fields — then Complete to close this service'
-                                : 'Service completion — extend date or view return details below'
+                                : 'Service completion — view return details below'
                     }
                     icon={ClipboardCheck}
                     iconBg="bg-teal-50"
                     iconColor="text-teal-600"
                     className="w-full"
                 >
-                    <VehicleShopServiceExtendDateSection
-                        asset={asset}
-                        service={service}
-                        vehicleId={vehicleId}
-                        serviceId={serviceId}
-                        canManage={canManage}
-                        workflowStage={stage}
-                        onUpdated={onUpdated}
-                        datePickerClass={tireDatePickerClass}
-                    />
                     <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleMechanicalWorkFormFieldCell
                             label="Garage Report"
@@ -393,19 +418,62 @@ export default function VehicleMechanicalWorkReturnCard({
                                 onFile={(file) => handleDocFile('garageInvoice', file)}
                             />
                         </VehicleMechanicalWorkFormFieldCell>
-                        <VehicleMechanicalWorkFormFieldCell
-                            label="Other Document"
-                            accentClass={accent(2)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <UploadField
-                                label="Other Document"
-                                fileName={formData.returnOtherDocName}
-                                existingUrl={formData.existingReturnOtherDocUrl}
-                                disabled={fieldsDisabled}
-                                onFile={(file) => handleDocFile('returnOtherDoc', file)}
-                            />
-                        </VehicleMechanicalWorkFormFieldCell>
+                        {(formData.returnOtherDocs || []).map((row, index) => (
+                            <div
+                                key={row.id}
+                                className={`relative flex flex-col justify-center rounded-lg border px-3 py-2.5 ${accent((index + 2) % 3)}`}
+                                style={{ minHeight: `${fieldMinHeightPx}px` }}
+                            >
+                                {!fieldsDisabled ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => removeOtherDocRow(row.id)}
+                                        className="absolute right-1.5 top-1.5 rounded px-1 text-[11px] font-bold leading-none text-red-500 hover:bg-red-50"
+                                        title="Remove"
+                                    >
+                                        {'\u00d7'}
+                                    </button>
+                                ) : null}
+                                {fieldsDisabled ? (
+                                    <span className="pr-4 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                        {row.docType || `Other Document ${index + 1}`}
+                                    </span>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        className="w-full border-0 bg-transparent p-0 pr-4 text-[10px] font-semibold uppercase tracking-wide text-gray-600 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                                        value={row.docType || ''}
+                                        onChange={(e) => updateOtherDocRow(row.id, { docType: e.target.value })}
+                                        placeholder="File name"
+                                    />
+                                )}
+                                <div className="mt-1.5 min-w-0">
+                                    <UploadField
+                                        label={row.docType || `Other Document ${index + 1}`}
+                                        fileName={row.name}
+                                        existingUrl={row.existingUrl}
+                                        disabled={fieldsDisabled}
+                                        onFile={(file) => handleOtherDocFile(row.id, file)}
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                        {!fieldsDisabled ? (
+                            <div className="flex items-end">
+                                <button
+                                    type="button"
+                                    onClick={addOtherDocRow}
+                                    className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-600 hover:bg-blue-100"
+                                    title="Add other document"
+                                >
+                                    <Plus size={16} />
+                                    Add
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
+
+                    <div className={`mt-2.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleMechanicalWorkFormFieldCell
                             label="Return Date"
                             accentClass={accent(0)}
@@ -417,6 +485,15 @@ export default function VehicleMechanicalWorkReturnCard({
                                 placeholder="dd/mm/yyyy"
                                 className={tireDatePickerClass}
                                 disabled={fieldsDisabled}
+                                disabledDays={
+                                    formData.serviceEndDate
+                                        ? {
+                                              before: new Date(
+                                                  `${String(formData.serviceEndDate).slice(0, 10)}T00:00:00`,
+                                              ),
+                                          }
+                                        : undefined
+                                }
                             />
                         </VehicleMechanicalWorkFormFieldCell>
                         <VehicleMechanicalWorkFormFieldCell
@@ -430,6 +507,15 @@ export default function VehicleMechanicalWorkReturnCard({
                                 placeholder="dd/mm/yyyy"
                                 className={tireDatePickerClass}
                                 disabled={fieldsDisabled}
+                                disabledDays={
+                                    formData.serviceEndDate
+                                        ? {
+                                              before: new Date(
+                                                  `${String(formData.serviceEndDate).slice(0, 10)}T00:00:00`,
+                                              ),
+                                          }
+                                        : undefined
+                                }
                             />
                         </VehicleMechanicalWorkFormFieldCell>
                     </div>

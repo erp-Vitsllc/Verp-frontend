@@ -900,7 +900,7 @@ export default function VehicleCarWashRequestModal({
                         </SelectField>
 
                         <SelectField
-                            label="Who Committed Accident"
+                            label="Vehicle Driven By"
                             value={formData.carDrivenByEmployeeId}
                             onChange={(e) => set('carDrivenByEmployeeId', e.target.value)}
                             disabled={formReadOnly || accountsFieldLocked}

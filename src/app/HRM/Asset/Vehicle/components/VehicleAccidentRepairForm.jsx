@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import { Upload, Plus } from 'lucide-react';
@@ -370,7 +370,7 @@ export default function VehicleAccidentRepairForm({
                         </select>
                     </div>
                     <div>
-                        <span className={fieldLabel}>Who Committed Accident</span>
+                        <span className={fieldLabel}>Vehicle Driven By</span>
                         <VehicleCarDrivenBySelect
                             formData={formData}
                             employees={carDrivenByEmployees}
@@ -442,7 +442,11 @@ export default function VehicleAccidentRepairForm({
                     </div>
                 </div>
 
-                <div className={`grid grid-cols-2 ${isSelfParty ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-4 mb-4`}>
+                <div
+                    className={`mb-4 grid grid-cols-2 gap-4 ${
+                        isSelfParty ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+                    }`}
+                >
                     {isSelfParty ? (
                         <div>
                             <span className={fieldLabel}>Insurance Excess</span>
@@ -476,7 +480,7 @@ export default function VehicleAccidentRepairForm({
                             placeholder="AED"
                         />
                     </div>
-                    <div>
+                    <div className="col-span-2">
                         <span className={fieldLabel}>Total</span>
                         <input
                             type="text"

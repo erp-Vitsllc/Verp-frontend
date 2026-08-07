@@ -82,13 +82,8 @@ export function buildAccidentRepairReturnFormState(service, asset) {
 
 export function validateAccidentRepairReturnForm(formData) {
     const errors = {};
-    const hasGarageReport =
-        !!(formData.garageReportBase64 && formData.garageReportName) || !!formData.existingGarageReportUrl;
-    const hasGarageInvoice =
-        !!(formData.garageInvoiceBase64 && formData.garageInvoiceName) || !!formData.existingGarageInvoiceUrl;
 
-    if (!hasGarageReport) errors.garageReport = 'Garage report is required';
-    if (!hasGarageInvoice) errors.garageInvoice = 'Garage invoice is required';
+    // Garage report, garage invoice, and other documents are optional on Complete.
     if (!String(formData.returnDate || '').trim()) errors.returnDate = 'Return date is required';
     if (!String(formData.handOverDate || '').trim()) errors.handOverDate = 'Hand over date is required';
 
@@ -104,10 +99,15 @@ export function validateAccidentRepairReturnForm(formData) {
 
     const otherDocs = Array.isArray(formData.returnOtherDocs) ? formData.returnOtherDocs : [];
     otherDocs.forEach((row, index) => {
-        const hasType = String(row?.docType || '').trim();
+        const hasName = String(row?.docType || '').trim();
         const hasFile = !!(row?.base64 && row?.name) || !!String(row?.existingUrl || '').trim();
-        if (!hasType) errors[`returnOtherDocs.${index}.docType`] = `Other document ${index + 1}: type is required`;
-        if (!hasFile) errors[`returnOtherDocs.${index}.file`] = `Other document ${index + 1}: attachment is required`;
+        if (!hasName && !hasFile) return;
+        if (!hasName) {
+            errors[`returnOtherDocs.${index}.docType`] = `Other document ${index + 1}: file name is required`;
+        }
+        if (!hasFile) {
+            errors[`returnOtherDocs.${index}.file`] = `Other document ${index + 1}: attachment is required`;
+        }
     });
 
     const existingPhotos = Array.isArray(formData.existingNewConditionImages)
@@ -137,7 +137,11 @@ function buildUploadPayload(name, base64, mime) {
 }
 
 export function buildAccidentRepairReturnUpdateBody(formData) {
-    const otherDocs = Array.isArray(formData.returnOtherDocs) ? formData.returnOtherDocs : [];
+    const otherDocs = (Array.isArray(formData.returnOtherDocs) ? formData.returnOtherDocs : []).filter((row) => {
+        const hasName = String(row?.docType || '').trim();
+        const hasFile = !!(row?.base64 && row?.name) || !!String(row?.existingUrl || '').trim();
+        return hasName || hasFile;
+    });
     const firstOther = otherDocs[0] || null;
 
     const remark = {

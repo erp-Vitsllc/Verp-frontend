@@ -38,6 +38,7 @@ import VehicleCreateServiceModal from '@/app/HRM/Asset/Vehicle/components/Vehicl
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
+    countDisplayableAssetPendingInbox,
     invalidateAssetPendingInbox,
     ASSET_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
@@ -45,6 +46,7 @@ import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import {
     MODULE_NOTIFICATIONS_UPDATED,
     getVehicleModuleInboxCount,
+    getVehicleModuleInboxRows,
 } from '@/utils/moduleNotifications';
 import { AssetListSummaryPanels } from '@/app/HRM/Asset/components/ListPageSummaryCards';
 import {
@@ -322,28 +324,25 @@ export default function VehicleAssetPage() {
 
     const fetchVehicleInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
-            const moduleCount = getVehicleModuleInboxCount();
-            if (!force && moduleCount > 0) {
-                setVehicleInboxCount(moduleCount);
-            }
             const items = await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope: 'vehicle',
                 skipSync: true,
                 skipToast: true,
                 force,
             });
-            const apiCount = countVisibleAssetPendingInbox(items);
-            setVehicleInboxCount(Math.max(apiCount, getVehicleModuleInboxCount()));
+            const merged = [...(items || []), ...getVehicleModuleInboxRows()];
+            setVehicleInboxCount(countDisplayableAssetPendingInbox(merged));
         } catch {
-            setVehicleInboxCount(getVehicleModuleInboxCount());
+            setVehicleInboxCount(countDisplayableAssetPendingInbox(getVehicleModuleInboxRows()));
         }
     }, []);
 
     const warmVehicleInboxBadge = useCallback(() => {
         if (vehicleInboxWarmRef.current) return;
         vehicleInboxWarmRef.current = true;
-        const cached = getVehicleModuleInboxCount();
+        const cached = countDisplayableAssetPendingInbox(getVehicleModuleInboxRows());
         if (cached > 0) setVehicleInboxCount(cached);
+        else if (getVehicleModuleInboxCount() > 0) setVehicleInboxCount(getVehicleModuleInboxCount());
         fetchVehicleInboxCount();
     }, [fetchVehicleInboxCount]);
 
@@ -492,9 +491,8 @@ export default function VehicleAssetPage() {
         const onInboxChanged = () => {
             fetchVehicleInboxCount({ force: true });
         };
-        const onModuleUpdated = (event) => {
-            const n = event?.detail?.counts?.vehicleAsset;
-            if (typeof n === 'number') setVehicleInboxCount(n);
+        const onModuleUpdated = () => {
+            fetchVehicleInboxCount({ force: true });
         };
         window.addEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
         window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, onModuleUpdated);

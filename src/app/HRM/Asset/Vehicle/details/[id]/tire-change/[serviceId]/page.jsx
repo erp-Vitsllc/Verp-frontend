@@ -23,9 +23,9 @@ import VehicleOilServiceWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/V
 import {
     canUserManageTireChange,
     canUserCreateOrInitiateVehicleService,
+    canUserEditShopSchedule,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
-    isVehicleServiceInitiateEditableStage,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
 import { pickFlowchartHrRow, pickFlowchartAccountsRow } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflow';
 import {
@@ -42,11 +42,25 @@ import {
     parseVehicleServiceRemark,
     vehicleServiceTypeKey,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
+import {
+    readWarmVehicleDetail,
+    writeWarmVehicleDetail,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleDetailWarmCache';
+import { fetchFlowchartRows } from '@/utils/flowchartRowsCache';
 
 const PAGE_SECTION_ANIMATION =
     'animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both';
 
 const { page: tireChangePageLayout } = VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
+
+function readWarmShopServiceAsset(vehicleId, serviceId) {
+    const warm = readWarmVehicleDetail(vehicleId);
+    if (!warm) return null;
+    if (!serviceId) return warm;
+    const services = Array.isArray(warm.services) ? warm.services : [];
+    const hasService = services.some((row) => normalizeMongoId(row?._id) === serviceId);
+    return hasService ? warm : null;
+}
 
 function VehicleTireChangeDetailPageContent() {
     const params = useParams();
@@ -55,8 +69,8 @@ function VehicleTireChangeDetailPageContent() {
     const vehicleId = normalizeMongoId(params?.id);
     const serviceId = normalizeMongoId(params?.serviceId);
 
-    const [asset, setAsset] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [asset, setAsset] = useState(() => readWarmShopServiceAsset(vehicleId, serviceId));
+    const [loading, setLoading] = useState(() => !readWarmShopServiceAsset(vehicleId, serviceId));
     const draftSubmitRef = useRef(null);
     const [draftUi, setDraftUi] = useState({ canRequest: false, requesting: false });
     const [currentUser, setCurrentUser] = useState(null);
@@ -71,9 +85,8 @@ function VehicleTireChangeDetailPageContent() {
         setCurrentUserEmployeeId(
             String(parsed?.employeeObjectId || parsed?._id || parsed?.id || '').trim() || null,
         );
-        axiosInstance
-            .get('/Flowchart')
-            .then(({ data }) => setFlowchartRows(Array.isArray(data) ? data : []))
+        fetchFlowchartRows()
+            .then((rows) => setFlowchartRows(rows))
             .catch(() => setFlowchartRows([]));
     }, []);
 
@@ -103,7 +116,9 @@ function VehicleTireChangeDetailPageContent() {
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
                 params: Object.keys(params).length ? params : undefined,
             });
-            setAsset(response.data || null);
+            const next = response.data || null;
+            if (next?._id) writeWarmVehicleDetail(vehicleId, next);
+            setAsset(next);
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -119,6 +134,13 @@ function VehicleTireChangeDetailPageContent() {
     useEffect(() => {
         let cancelled = false;
         (async () => {
+            const warm = readWarmShopServiceAsset(vehicleId, serviceId);
+            if (warm && !cancelled) {
+                setAsset(warm);
+                setLoading(false);
+                void load({ silent: true, deferServiceSigning: true });
+                return;
+            }
             await load({ light: true });
             if (cancelled) return;
             void load({ silent: true, deferServiceSigning: true });
@@ -126,7 +148,7 @@ function VehicleTireChangeDetailPageContent() {
         return () => {
             cancelled = true;
         };
-    }, [load]);
+    }, [load, vehicleId, serviceId]);
 
     const service = useMemo(() => {
         const services = Array.isArray(asset?.services) ? asset.services : [];
@@ -154,6 +176,12 @@ function VehicleTireChangeDetailPageContent() {
                 flowchartRows,
             }),
         [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
+    );
+
+    /** Schedule/Reschedule — Admin / Admin Officer / Asset Controller / super user. */
+    const canAdminScheduleSteps = useMemo(
+        () => canUserEditShopSchedule(currentUser, flowchartRows),
+        [currentUser, flowchartRows],
     );
 
     const canCreateOrInitiate = useMemo(
@@ -202,22 +230,17 @@ function VehicleTireChangeDetailPageContent() {
         [asset, service, serviceId],
     );
 
-    /** Pending: create/initiate users. At HR/Accounts/Zoho bill: those roles or managers may edit Initiate. */
-    const canEditAssignment = assignmentPending
-        ? Boolean(
-              canCreateOrInitiate ||
-                  (isVehicleServiceInitiateEditableStage(tireWorkflowStage) &&
-                      (canManageTireChange || isFlowchartHr || isFlowchartAccounts)),
-          )
-        : isVehicleServiceInitiateEditableStage(tireWorkflowStage)
-          ? Boolean(canManageTireChange || isFlowchartHr || isFlowchartAccounts)
-          : canManageTireChange;
-
-
     const canRespondToTireWorkflow = useMemo(() => {
         if (!asset || tireWorkflowStage !== TIRE_CHANGE_WORKFLOW_STAGES.HR) return false;
         return asset.canRespondToServiceWorkflow === true;
     }, [asset, tireWorkflowStage]);
+
+    /** Pending: initiate users only. HR stage: HR only. Locked after HR approval. */
+    const canEditAssignment = assignmentPending
+        ? Boolean(canCreateOrInitiate)
+        : tireWorkflowStage === TIRE_CHANGE_WORKFLOW_STAGES.HR
+          ? Boolean(isFlowchartHr || canRespondToTireWorkflow)
+          : false;
 
     const handleRequested = useCallback(() => {
         if (typeof draftSubmitRef.current === 'function') {
@@ -336,7 +359,7 @@ function VehicleTireChangeDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canManage={canManageTireChange}
+                                    canManage={canAdminScheduleSteps}
                                     workflowStage={tireWorkflowStage}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
@@ -399,6 +422,7 @@ function VehicleTireChangeDetailPageContent() {
                                 />
                             ) : null}
                             <VehicleServiceAccountsZohoBillingCard
+                                asset={asset}
                                 service={service}
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}

@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
-import { parseVehicleServiceRemark } from './vehicleServiceUtils';
+import { normalizeMongoId, parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleServiceLockedSection from './VehicleServiceLockedSection';
 import { SegmentedToggle } from './VehicleServicePaymentTypeMethodFields';
 import {
@@ -63,8 +63,40 @@ function isAccountsApprovalDone(remark = {}, stage = '') {
     return ['pending_admin_return', 'pending_billing', 'billed', 'complete'].includes(stage);
 }
 
+function paymentByModeLabel(mode) {
+    const m = String(mode || '').toLowerCase().trim();
+    if (m === 'person') return 'EMP';
+    if (m === 'split') return 'EMP & CMPY';
+    if (m === 'company') return 'CMPY';
+    return '';
+}
+
+function PaymentByModeDisplay({ mode }) {
+    const active = String(mode || '').toLowerCase().trim();
+    return (
+        <div className="inline-flex w-full rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            {[
+                { id: 'person', label: 'EMP' },
+                { id: 'company', label: 'CMPY' },
+                { id: 'split', label: 'EMP & CMPY' },
+            ].map((opt) => (
+                <span
+                    key={opt.id}
+                    className={`flex-1 rounded-md px-1 py-1.5 text-center text-[10px] font-bold ${
+                        active === opt.id
+                            ? 'bg-white text-blue-600 shadow-sm'
+                            : 'text-gray-400'
+                    }`}
+                >
+                    {opt.label}
+                </span>
+            ))}
+        </div>
+    );
+}
+
 /**
- * Oil-style Accounts Approve shell for shop services (Tire / Mechanical / Body).
+ * Oil-style Accounts Approve shell for shop services (Tire / Mechanical / Body / Accident).
  * Shows approved quote summary; Approve runs at pending_accounts (legacy garage Accounts step).
  * Accounts may edit Payment Type / Payment Method before approving.
  */
@@ -84,6 +116,7 @@ export default function VehicleShopServiceAccountsApproveCard({
 }) {
     const { toast } = useToast();
     const [busy, setBusy] = useState(false);
+    const [employees, setEmployees] = useState([]);
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const stage = String(workflowStage || '').toLowerCase();
 
@@ -104,11 +137,31 @@ export default function VehicleShopServiceAccountsApproveCard({
     const companyPay =
         liveHrReview?.companyPay != null && liveHrReview?.companyPay !== ''
             ? Number(liveHrReview.companyPay) || 0
-            : Number(remark.hrReviewCompanyPay ?? remark.companyPay ?? 0);
+            : Number(remark.hrReviewCompanyPay ?? remark.companyPayAmount ?? remark.companyPay ?? 0);
     const employeePay =
         liveHrReview?.employeePay != null && liveHrReview?.employeePay !== ''
             ? Number(liveHrReview.employeePay) || 0
-            : Number(remark.hrReviewEmployeePay ?? remark.employeePay ?? 0);
+            : Number(remark.hrReviewEmployeePay ?? remark.employeePayAmount ?? remark.employeePay ?? 0);
+    const paymentByMode = String(
+        liveHrReview?.paymentByMode || remark.paymentByMode || '',
+    )
+        .toLowerCase()
+        .trim();
+    const showCompanyPay = !paymentByMode || paymentByMode !== 'person';
+    const showEmployeePay = paymentByMode === 'person' || paymentByMode === 'split';
+    const employeeRows = useMemo(() => {
+        if (Array.isArray(liveHrReview?.employeeRows) && liveHrReview.employeeRows.length) {
+            return liveHrReview.employeeRows;
+        }
+        if (Array.isArray(remark.hrReviewEmployeeRows) && remark.hrReviewEmployeeRows.length) {
+            return remark.hrReviewEmployeeRows;
+        }
+        if (Array.isArray(remark.employeeLiabilityRows) && remark.employeeLiabilityRows.length) {
+            return remark.employeeLiabilityRows;
+        }
+        return [];
+    }, [liveHrReview?.employeeRows, remark.hrReviewEmployeeRows, remark.employeeLiabilityRows]);
+
     const approvedQuoteKey =
         (['q1', 'q2', 'q3'].includes(liveHrReview?.approvedQuoteKey)
             ? liveHrReview.approvedQuoteKey
@@ -141,6 +194,44 @@ export default function VehicleShopServiceAccountsApproveCard({
         setAccountsDescription(String(remark.accountsReviewDescription || '').trim());
     }, [service?._id, service?.updatedAt, service?.remark, remark]);
 
+    useEffect(() => {
+        let active = true;
+        axiosInstance
+            .get('/employee')
+            .then(({ data }) => {
+                if (!active) return;
+                const list = Array.isArray(data) ? data : data?.employees || [];
+                setEmployees(list);
+            })
+            .catch(() => {
+                if (active) setEmployees([]);
+            });
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    const employeeNameById = useMemo(() => {
+        const map = {};
+        (employees || []).forEach((emp) => {
+            const id = normalizeMongoId(emp?._id || emp?.id);
+            const label =
+                `${emp.firstName || ''} ${emp.lastName || ''}`.trim() ||
+                String(emp.employeeId || '').trim() ||
+                'Employee';
+            if (id) map[id] = label;
+            const code = String(emp.employeeId || '').trim();
+            if (code) map[code] = label;
+        });
+        return map;
+    }, [employees]);
+
+    const resolveEmployeeName = (employeeId) => {
+        const id = normalizeMongoId(employeeId) || String(employeeId || '').trim();
+        if (!id) return 'Employee';
+        return employeeNameById[id] || `Employee`;
+    };
+
     const accountsDone = isAccountsApprovalDone(remark, stage) || Boolean(gate.done);
     const canApprove = canActAccounts && stage === 'pending_accounts' && !busy && !accountsDone;
     const accountsCashMode = isOilPayablePaymentMode(
@@ -156,6 +247,7 @@ export default function VehicleShopServiceAccountsApproveCard({
                   : accountsPaymentMethod,
           )
         : '—';
+    const totalPay = companyPay + employeePay > 0 ? companyPay + employeePay : amount;
 
     const handleApprove = async () => {
         if (!vehicleId || !canApprove) return;
@@ -232,14 +324,6 @@ export default function VehicleShopServiceAccountsApproveCard({
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
                             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                Amount (AED)
-                            </span>
-                            <p className="mt-1 text-sm font-bold text-gray-900">
-                                {amount > 0 ? formatAed(amount) : '—'}
-                            </p>
-                        </div>
-                        <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                                 Selected quotation
                             </span>
                             <p className="mt-1 text-sm font-bold text-gray-900">{quoteLabel}</p>
@@ -253,34 +337,78 @@ export default function VehicleShopServiceAccountsApproveCard({
                                 </button>
                             ) : null}
                         </div>
-                        <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
+                        <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
                             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                Company Pay
+                                Payment By
                             </span>
-                            <p className="mt-1 text-sm font-bold text-gray-900">
-                                {companyPay > 0 ? `AED ${formatAed(companyPay)}` : '—'}
-                            </p>
+                            <div className="mt-2">
+                                {paymentByModeLabel(paymentByMode) ? (
+                                    <PaymentByModeDisplay mode={paymentByMode} />
+                                ) : (
+                                    <p className="text-sm font-bold text-gray-900">—</p>
+                                )}
+                            </div>
                         </div>
-                        <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                Employee Pay
-                            </span>
-                            <p className="mt-1 text-sm font-bold text-gray-900">
-                                {employeePay > 0 ? `AED ${formatAed(employeePay)}` : '—'}
-                            </p>
+                    </div>
+
+                    {(showCompanyPay || showEmployeePay || totalPay > 0) ? (
+                        <div className="mt-3 w-full rounded-xl border border-gray-200 bg-white p-4 space-y-4">
+                            {showCompanyPay ? (
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                        Company payment
+                                    </span>
+                                    <span className="text-xl font-bold tabular-nums text-gray-900">
+                                        {companyPay.toLocaleString()}{' '}
+                                        <span className="text-sm font-bold text-gray-500">AED</span>
+                                    </span>
+                                </div>
+                            ) : null}
+                            {showEmployeePay ? (
+                                <div className="space-y-2.5">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                            Employee payment
+                                        </span>
+                                        <span className="text-xl font-bold tabular-nums text-gray-900">
+                                            {employeePay.toLocaleString()}{' '}
+                                            <span className="text-sm font-bold text-gray-500">AED</span>
+                                        </span>
+                                    </div>
+                                    {(employeeRows || []).map((row, index) => {
+                                        const paid = Number(row?.paidAmount) || 0;
+                                        if (!String(row?.employeeId || '').trim() && !(paid > 0)) {
+                                            return null;
+                                        }
+                                        return (
+                                            <div
+                                                key={`accounts-emp-${index}`}
+                                                className="flex items-center justify-between gap-3"
+                                            >
+                                                <span className="text-sm font-semibold text-gray-800">
+                                                    {resolveEmployeeName(row.employeeId)}
+                                                </span>
+                                                <span className="text-base font-semibold tabular-nums text-gray-900">
+                                                    AED {paid.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : null}
+                            <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                                <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                    Total amount
+                                </span>
+                                <span className="text-2xl font-bold tabular-nums text-gray-900">
+                                    {totalPay.toLocaleString()}{' '}
+                                    <span className="text-sm font-bold text-gray-500">AED</span>
+                                </span>
+                            </div>
                         </div>
-                        <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                Total Pay
-                            </span>
-                            <p className="mt-1 text-sm font-bold text-gray-900">
-                                {companyPay + employeePay > 0
-                                    ? `AED ${formatAed(companyPay + employeePay)}`
-                                    : amount > 0
-                                      ? `AED ${formatAed(amount)}`
-                                      : '—'}
-                            </p>
-                        </div>
+                    ) : null}
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
                             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                                 Payment type

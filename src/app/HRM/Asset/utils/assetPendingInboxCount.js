@@ -1,4 +1,5 @@
 import { isPendingInboxRowVisible } from './assetRequestLabels';
+import { isDisplayableAssetPendingInboxRow } from '@/utils/assetNotificationRouting';
 import {
     ASSET_PENDING_INBOX_ENDPOINT,
     clearPendingInboxCache,
@@ -16,23 +17,32 @@ function parseInboxExtra3(raw) {
     }
 }
 
-/** One inbox row per asset assignment task (same user with multiple roles still sees it once). */
+/** Prefer API pending-inbox rows; drop duplicate DashboardAction copies from module merge. */
 export function dedupeAssetPendingInboxItems(items) {
     const list = Array.isArray(items) ? items : [];
-    const seen = new Set();
+    const seenActionIds = new Set();
+    const seenAssignmentAssets = new Set();
     const sorted = [...list].sort(
         (a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0),
     );
+
     return sorted.filter((row) => {
-        const requestType = String(row?.requestType || '').trim();
+        const requestType = String(row?.requestType || row?.type || '').trim();
+        const actionId = String(row?.dashboardActionId || row?.actionId || row?._id || '').trim();
+        if (actionId) {
+            if (seenActionIds.has(actionId)) return false;
+            seenActionIds.add(actionId);
+        }
+
+        // One inbox row per asset assignment task (same user with multiple roles still sees it once).
         if (requestType !== 'Asset Assignment' || row?.isBulk) return true;
         const meta = parseInboxExtra3(row?.extra3);
         if (meta?.isBulkAssignment === true) return true;
         const assetId = row?.primaryAssetId || row?.requestObjectId;
         if (!assetId) return true;
         const key = String(assetId);
-        if (seen.has(key)) return false;
-        seen.add(key);
+        if (seenAssignmentAssets.has(key)) return false;
+        seenAssignmentAssets.add(key);
         return true;
     });
 }
@@ -41,6 +51,15 @@ export function dedupeAssetPendingInboxItems(items) {
 export function countVisibleAssetPendingInbox(items) {
     const list = dedupeAssetPendingInboxItems(items);
     return list.filter(isPendingInboxRowVisible).length;
+}
+
+/**
+ * Count rows that the Vehicle/Tools pending modal will actually list
+ * (visible + has a navigable path / vehicle fallback).
+ */
+export function countDisplayableAssetPendingInbox(items) {
+    const list = dedupeAssetPendingInboxItems(items);
+    return list.filter(isPendingInboxRowVisible).filter(isDisplayableAssetPendingInboxRow).length;
 }
 
 export function notifyAssetPendingInboxChanged() {

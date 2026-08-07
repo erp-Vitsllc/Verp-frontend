@@ -35,6 +35,7 @@ import { sortNotificationPresentationRowsByDirection } from '@/utils/notificatio
 import { navHrefProps } from '@/utils/linkContextMenu';
 import { useRouter } from 'next/navigation';
 import {
+    serviceIdFromNotificationHref,
     vehicleIdFromNotificationHref,
     warmVehicleDetailLight,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleDetailWarmCache';
@@ -263,7 +264,11 @@ export default function NotificationInboxModal({
                 /* ignore */
             }
             const vehicleId = vehicleIdFromNotificationHref(href);
-            if (vehicleId) void warmVehicleDetailLight(vehicleId);
+            if (vehicleId) {
+                void warmVehicleDetailLight(vehicleId, {
+                    serviceId: serviceIdFromNotificationHref(href),
+                });
+            }
         });
     }, [isOpen, items, getItemHref, router]);
 
@@ -275,7 +280,11 @@ export default function NotificationInboxModal({
             /* ignore */
         }
         const vehicleId = vehicleIdFromNotificationHref(itemHref);
-        if (vehicleId) void warmVehicleDetailLight(vehicleId);
+        if (vehicleId) {
+            void warmVehicleDetailLight(vehicleId, {
+                serviceId: serviceIdFromNotificationHref(itemHref),
+            });
+        }
     };
 
     const filteredItems = useMemo(() => {

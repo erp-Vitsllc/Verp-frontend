@@ -23,6 +23,7 @@ import VehicleAccidentRepairWorkflowPanel from '@/app/HRM/Asset/Vehicle/componen
 import {
     canUserManageOilService,
     canUserCreateOrInitiateVehicleService,
+    canUserEditShopSchedule,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
@@ -43,11 +44,25 @@ import {
     parseVehicleServiceRemark,
     vehicleServiceTypeKey,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
+import {
+    readWarmVehicleDetail,
+    writeWarmVehicleDetail,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleDetailWarmCache';
+import { fetchFlowchartRows } from '@/utils/flowchartRowsCache';
 
 const PAGE_SECTION_ANIMATION =
     'animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both';
 
 const { page: accidentRepairPageLayout } = VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
+
+function readWarmAccidentRepairAsset(vehicleId, serviceId) {
+    const warm = readWarmVehicleDetail(vehicleId);
+    if (!warm) return null;
+    if (!serviceId) return warm;
+    const services = Array.isArray(warm.services) ? warm.services : [];
+    const hasService = services.some((row) => normalizeMongoId(row?._id) === serviceId);
+    return hasService ? warm : null;
+}
 
 function VehicleAccidentRepairDetailPageContent() {
     const params = useParams();
@@ -56,8 +71,8 @@ function VehicleAccidentRepairDetailPageContent() {
     const vehicleId = normalizeMongoId(params?.id);
     const serviceId = normalizeMongoId(params?.serviceId);
 
-    const [asset, setAsset] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [asset, setAsset] = useState(() => readWarmAccidentRepairAsset(vehicleId, serviceId));
+    const [loading, setLoading] = useState(() => !readWarmAccidentRepairAsset(vehicleId, serviceId));
     const draftSubmitRef = useRef(null);
     const [draftUi, setDraftUi] = useState({ canRequest: false, requesting: false });
     const [currentUser, setCurrentUser] = useState(null);
@@ -72,9 +87,8 @@ function VehicleAccidentRepairDetailPageContent() {
         setCurrentUserEmployeeId(
             String(parsed?.employeeObjectId || parsed?._id || parsed?.id || '').trim() || null,
         );
-        axiosInstance
-            .get('/Flowchart')
-            .then(({ data }) => setFlowchartRows(Array.isArray(data) ? data : []))
+        fetchFlowchartRows()
+            .then((rows) => setFlowchartRows(rows))
             .catch(() => setFlowchartRows([]));
     }, []);
 
@@ -104,7 +118,9 @@ function VehicleAccidentRepairDetailPageContent() {
             const response = await axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
                 params: Object.keys(params).length ? params : undefined,
             });
-            setAsset(response.data || null);
+            const next = response.data || null;
+            if (next?._id) writeWarmVehicleDetail(vehicleId, next);
+            setAsset(next);
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -120,6 +136,14 @@ function VehicleAccidentRepairDetailPageContent() {
     useEffect(() => {
         let cancelled = false;
         (async () => {
+            // Notification hover/open may already have warmed light detail — paint immediately.
+            const warm = readWarmAccidentRepairAsset(vehicleId, serviceId);
+            if (warm && !cancelled) {
+                setAsset(warm);
+                setLoading(false);
+                void load({ silent: true, deferServiceSigning: true });
+                return;
+            }
             await load({ light: true });
             if (cancelled) return;
             void load({ silent: true, deferServiceSigning: true });
@@ -127,7 +151,7 @@ function VehicleAccidentRepairDetailPageContent() {
         return () => {
             cancelled = true;
         };
-    }, [load]);
+    }, [load, vehicleId, serviceId]);
 
     const service = useMemo(() => {
         const services = Array.isArray(asset?.services) ? asset.services : [];
@@ -155,6 +179,12 @@ function VehicleAccidentRepairDetailPageContent() {
                 flowchartRows,
             }),
         [asset, currentUserEmployeeId, currentUser, isFlowchartAdminOfficer, flowchartRows],
+    );
+
+    /** Schedule/Reschedule — Admin / Admin Officer / Asset Controller / super user. */
+    const canAdminScheduleSteps = useMemo(
+        () => canUserEditShopSchedule(currentUser, flowchartRows),
+        [currentUser, flowchartRows],
     );
 
     const canCreateOrInitiate = useMemo(
@@ -333,7 +363,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                     service={service}
                                     vehicleId={vehicleId}
                                     serviceId={serviceId}
-                                    canManage={canManageAccidentRepair}
+                                    canManage={canAdminScheduleSteps}
                                     workflowStage={accidentRepairflowStage}
                                     onUpdated={(updatedAsset) => {
                                         if (updatedAsset) setAsset(updatedAsset);
@@ -393,6 +423,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                 />
                             ) : null}
                             <VehicleServiceAccountsZohoBillingCard
+                                asset={asset}
                                 service={service}
                                 vehicleId={vehicleId}
                                 serviceId={serviceId}

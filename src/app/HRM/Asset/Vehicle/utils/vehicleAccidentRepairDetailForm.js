@@ -328,7 +328,7 @@ const ACCIDENT_REPAIR_FIELD_LABELS = {
     accidentTime: 'Accident time',
     accidentLocation: 'Accident location',
     vehicleOwnerEmployeeId: 'Vehicle assigned',
-    carDrivenByEmployeeId: 'Who committed accident',
+    carDrivenByEmployeeId: 'Vehicle Driven By',
     accidentOwnerType: 'Accident party',
     amountMode: 'Payment type',
     paymentMethod: 'Payment method',
@@ -360,7 +360,7 @@ export function validateAccidentRepairDetailForm(formData, asset = null) {
     delete e.value;
 
     if (!isCarDrivenBySelected(formData)) {
-        e.carDrivenByEmployeeId = 'Who committed accident is required';
+        e.carDrivenByEmployeeId = 'Vehicle Driven By is required';
     }
     if (!hasAccidentPhotos(formData)) {
         e.accidentImages = 'Accident photos are required';

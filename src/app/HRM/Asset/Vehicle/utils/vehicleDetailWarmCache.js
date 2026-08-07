@@ -36,17 +36,32 @@ export function writeWarmVehicleDetail(assetId, data) {
     touch(id, { at: Date.now(), data });
 }
 
-/** Prefetch GET /AssetItem/detail/:id?light=1 into memory. */
-export function warmVehicleDetailLight(assetId) {
+/**
+ * Prefetch GET /AssetItem/detail/:id?light=1 into memory.
+ * Pass serviceId for shop deep-links so the light payload includes that request.
+ */
+export function warmVehicleDetailLight(assetId, { serviceId = '' } = {}) {
     const id = String(assetId || '').trim();
     if (!id || typeof window === 'undefined') return Promise.resolve(null);
+    const sid = String(serviceId || '').trim();
+    const inflightKey = sid ? `${id}:${sid}` : id;
+
     const cached = readWarmVehicleDetail(id);
-    if (cached) return Promise.resolve(cached);
-    if (inflight.has(id)) return inflight.get(id);
+    // Reuse cache when it already contains the focused service (or no service was requested).
+    if (cached) {
+        if (!sid) return Promise.resolve(cached);
+        const services = Array.isArray(cached.services) ? cached.services : [];
+        const hasService = services.some((row) => String(row?._id || '') === sid);
+        if (hasService) return Promise.resolve(cached);
+    }
+    if (inflight.has(inflightKey)) return inflight.get(inflightKey);
+
+    const params = { light: 1 };
+    if (sid) params.serviceId = sid;
 
     const req = axiosInstance
         .get(`/AssetItem/detail/${id}`, {
-            params: { light: 1 },
+            params,
             timeout: 15000,
             skipToast: true,
         })
@@ -57,10 +72,10 @@ export function warmVehicleDetailLight(assetId) {
         })
         .catch(() => null)
         .finally(() => {
-            inflight.delete(id);
+            inflight.delete(inflightKey);
         });
 
-    inflight.set(id, req);
+    inflight.set(inflightKey, req);
     return req;
 }
 
@@ -68,5 +83,14 @@ export function warmVehicleDetailLight(assetId) {
 export function vehicleIdFromNotificationHref(href = '') {
     const path = String(href || '');
     const m = path.match(/\/HRM\/Asset\/Vehicle\/details\/([a-f0-9]{24})/i);
+    return m?.[1] || '';
+}
+
+/** Extract shop service Mongo id from vehicle notification deep-links. */
+export function serviceIdFromNotificationHref(href = '') {
+    const path = String(href || '');
+    const m = path.match(
+        /\/HRM\/Asset\/Vehicle\/details\/[a-f0-9]{24}\/(?:accident-repair|body-work|mechanical-work|tire-change|oil-service)\/([a-f0-9]{24})/i,
+    );
     return m?.[1] || '';
 }

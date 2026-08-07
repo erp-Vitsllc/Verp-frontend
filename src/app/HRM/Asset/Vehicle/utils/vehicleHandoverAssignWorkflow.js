@@ -46,20 +46,29 @@ export function normalizeCategory(c) {
     return String(c || '').trim().toLowerCase().replace(/\s+/g, '');
 }
 
+/** Flowchart Admin / Admin Officer / Administrator / Admin Controller. */
+export function isFlowchartAdminCategory(cat) {
+    const c = normalizeCategory(cat);
+    if (!c) return false;
+    return (
+        c === 'admincontroller' ||
+        c === 'adminofficer' ||
+        c === 'admin' ||
+        c === 'administrator' ||
+        (c.includes('admin') && c.includes('controller')) ||
+        (c.includes('admin') && c.includes('officer'))
+    );
+}
+
 export function pickFlowchartAdminRow(flowchartRows = []) {
     if (!Array.isArray(flowchartRows)) return null;
-    const isAdminCat = (cat) =>
-        cat === 'admincontroller' ||
-        cat === 'admin' ||
-        cat === 'administrator' ||
-        (cat.includes('admin') && cat.includes('controller'));
     return (
         flowchartRows.find((row) => {
             const cat = normalizeCategory(row?.category);
             const status = normalizeCategory(row?.status);
-            return isAdminCat(cat) && status === 'active';
+            return isFlowchartAdminCategory(cat) && status === 'active';
         }) ||
-        flowchartRows.find((row) => isAdminCat(normalizeCategory(row?.category))) ||
+        flowchartRows.find((row) => isFlowchartAdminCategory(normalizeCategory(row?.category))) ||
         null
     );
 }

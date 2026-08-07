@@ -26,17 +26,15 @@ import {
 import {
     buildMechanicalWorkDetailFormState,
     buildMechanicalWorkDetailSubmitBody,
-    applyEmployeePayTargetToRows,
-    applyLinkedSplitPayPercent,
-    adjustEmployeeRowsAfterPaidChange,
-    buildEmployeeRowBreakdowns,
-    computeEmployeePayTarget,
     getMechanicalWorkDetailFormMissingFields,
     isMechanicalWorkDetailFormComplete,
-    redistributeEmployeeLiabilityRows,
     sumEmployeeLiabilityRows,
 } from '../utils/vehicleMechanicalWorkDetailForm';
-import { resolveShopServicePayAmounts } from '../utils/vehicleShopHrReviewPay';
+import {
+    resolveShopServicePayAmounts,
+    syncInitiateServicePayAmounts,
+    resolveInitiateAbsolutePayAmounts,
+} from '../utils/vehicleShopHrReviewPay';
 import {
     MECHANICAL_WORK_DETAIL_GRID_LAYOUT,
     tireAccent,
@@ -211,38 +209,55 @@ export default function VehicleMechanicalWorkDetailForm({
 
     const setPaymentByMode = (mode) => {
         setFormData((prev) => {
+            const cost = Math.max(0, Math.round(Number(prev.estimatedCost || 0)));
             const companyPayPercent = mode === 'company' ? '100' : mode === 'person' ? '0' : '50';
             const employeePayPercent = mode === 'person' ? '100' : mode === 'company' ? '0' : '50';
+            const companyPayAmount =
+                mode === 'company' ? String(cost) : mode === 'person' ? '0' : String(Math.round(cost / 2));
+            const employeePayAmount =
+                mode === 'person'
+                    ? String(cost)
+                    : mode === 'company'
+                      ? '0'
+                      : String(Math.max(0, cost - Number(companyPayAmount)));
             return {
                 ...prev,
                 paymentByMode: mode,
                 companyPayPercent,
                 employeePayPercent,
-                employeeLiabilityRows: applyEmployeePayTargetToRows(
-                    prev.employeeLiabilityRows,
-                    prev.estimatedCost,
-                    employeePayPercent,
-                ),
+                companyPayAmount,
+                employeePayAmount,
             };
         });
     };
 
-    const setSplitPayPercent = useCallback((changedField, rawValue) => {
+    const applyPayAmountChange = useCallback((field, value) => {
         setFormData((prev) => {
-            const linked = applyLinkedSplitPayPercent(changedField, rawValue);
-            const companyPayPercent =
-                linked.companyPayPercent !== undefined ? linked.companyPayPercent : prev.companyPayPercent;
-            const employeePayPercent =
-                linked.employeePayPercent !== undefined ? linked.employeePayPercent : prev.employeePayPercent;
+            const absolutePay = resolveInitiateAbsolutePayAmounts({
+                estimatedCost: prev.estimatedCost,
+                companyPayPercent: prev.companyPayPercent,
+                employeePayPercent: prev.employeePayPercent,
+                companyPayAmount: prev.companyPayAmount,
+                employeePayAmount: prev.employeePayAmount,
+            });
+            const synced = syncInitiateServicePayAmounts({
+                field,
+                value,
+                estimatedCost: prev.estimatedCost,
+                companyPayAmount: absolutePay.companyPayAmount,
+                employeePayAmount: absolutePay.employeePayAmount,
+                paymentByMode: prev.paymentByMode || 'company',
+                employeeLiabilityRows: prev.employeeLiabilityRows,
+            });
             return {
                 ...prev,
-                companyPayPercent,
-                employeePayPercent,
-                employeeLiabilityRows: applyEmployeePayTargetToRows(
-                    prev.employeeLiabilityRows,
-                    prev.estimatedCost,
-                    employeePayPercent,
-                ),
+                estimatedCost: synced.estimatedCost,
+                quotation1Amount: synced.quotation1Amount,
+                value: synced.value,
+                companyPayPercent: synced.companyPayPercent,
+                employeePayPercent: synced.employeePayPercent,
+                companyPayAmount: synced.companyPayAmount,
+                employeePayAmount: synced.employeePayAmount,
             };
         });
     }, []);
@@ -262,42 +277,55 @@ export default function VehicleMechanicalWorkDetailForm({
             }),
         [estimatedCost, companyPct, employeePct, formData.paymentByMode, remark, liveHrReview],
     );
-    const companyPayAmount = resolvedPayAmounts.companyPayAmount;
-    const employeePayAmount = resolvedPayAmounts.employeePayAmount;
+    const absolutePayAmounts = useMemo(
+        () =>
+            resolveInitiateAbsolutePayAmounts({
+                estimatedCost: formData.estimatedCost,
+                companyPayPercent: formData.companyPayPercent,
+                employeePayPercent: formData.employeePayPercent,
+                companyPayAmount: formData.companyPayAmount,
+                employeePayAmount: formData.employeePayAmount,
+            }),
+        [
+            formData.estimatedCost,
+            formData.companyPayPercent,
+            formData.employeePayPercent,
+            formData.companyPayAmount,
+            formData.employeePayAmount,
+        ],
+    );
+    const companyPayAmount = absolutePayAmounts.companyPayAmount;
+    const employeePayAmount = absolutePayAmounts.employeePayAmount;
     // Toggle is source of truth while editing; resolved mode only fills gaps.
     const paymentByMode = formData.paymentByMode || resolvedPayAmounts.paymentByMode || 'company';
     const isEmpOnly = paymentByMode === 'person';
     const isCompanyOnly = paymentByMode === 'company';
     const isSplitPayment = paymentByMode === 'split';
-    const employeeLiabilitySum = sumEmployeeLiabilityRows(formData.employeeLiabilityRows);
-    const rowBreakdowns = useMemo(
-        () => buildEmployeeRowBreakdowns(formData.employeeLiabilityRows || []),
-        [formData.employeeLiabilityRows],
-    );
-    const breakdownGrandTotal = useMemo(() => {
-        if (isSplitPayment) {
-            return employeePayAmount + companyPayAmount;
-        }
-        return rowBreakdowns.reduce((sum, row) => sum + row.totalPay, 0);
-    }, [rowBreakdowns, isSplitPayment, employeePayAmount, companyPayAmount]);
     const showCompanyFields = !isEmpOnly;
     const showEmployeeFields = !isCompanyOnly;
-    const showEmployeeLiabilityBreakdown = showEmployeeFields;
-    const showCompanyPaymentSummary = isCompanyOnly;
-    const costRowGridClass = isSplitPayment
-        ? 'sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
-        : 'sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
-    const breakdownGridClass = 'grid-cols-3';
+    const employeeLiabilitySum = sumEmployeeLiabilityRows(formData.employeeLiabilityRows);
+    const paySplitError =
+        isSplitPayment &&
+        estimatedCost > 0 &&
+        Math.abs(companyPayAmount + employeePayAmount - estimatedCost) > 0.01;
+    const employeeRowsError =
+        showEmployeeFields &&
+        Math.abs(employeeLiabilitySum - employeePayAmount) > 0.01;
 
     const photoGalleryItems = useMemo(() => {
         const items = [];
         (formData.existingBodyWorkImages || []).forEach((img, idx) => {
-            const url = resolvedExistingPhotoSrc[`existing-${idx}`] || directBodyWorkImageSrc(img);
-            if (!url) return;
+            const thumb =
+                resolvedExistingPhotoSrc[`existing-${idx}`] || directBodyWorkImageSrc(img);
+            const dataUrl = thumb?.startsWith('data:') ? thumb : '';
+            // Pass storage photo (not blob:) so the shared handover viewer can proxy-load it.
+            const photo = dataUrl || img;
+            if (!photo && !thumb) return;
             items.push({
                 key: `existing-${idx}`,
                 label: `Rectification photo ${items.length + 1}`,
-                url,
+                photo,
+                ...(dataUrl ? { url: dataUrl } : {}),
             });
         });
         (formData.bodyWorkImages || []).forEach((img, idx) => {
@@ -308,6 +336,7 @@ export default function VehicleMechanicalWorkDetailForm({
             items.push({
                 key: `new-${idx}`,
                 label: `Rectification photo ${items.length + 1}`,
+                photo: url,
                 url,
             });
         });
@@ -330,6 +359,30 @@ export default function VehicleMechanicalWorkDetailForm({
         </option>
     ));
 
+    const employeeOptionsForRow = (rowIndex) => {
+        const selectedElsewhere = new Set(
+            (formData.employeeLiabilityRows || [])
+                .map((row, idx) =>
+                    idx === rowIndex ? '' : String(row?.employeeId || '').trim(),
+                )
+                .filter(Boolean),
+        );
+        return employees
+            .filter((emp) => {
+                const id = String(emp._id || '');
+                if (!id) return false;
+                if (selectedElsewhere.has(id)) return false;
+                return true;
+            })
+            .map((emp) => (
+                <option key={emp._id} value={String(emp._id)}>
+                    {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() ||
+                        emp.employeeId ||
+                        'Employee'}
+                </option>
+            ));
+    };
+
     const adminOfficerRef = resolveFlowchartAdminEmployeeRef(flowchartRows);
     const adminOfficerInEmployees = Boolean(
         adminOfficerRef.id &&
@@ -346,51 +399,126 @@ export default function VehicleMechanicalWorkDetailForm({
         </option>
     ));
 
-    const readPdfFile = (file, onDone) => {
-        if (!file) return;
-        const check = validateErpPdfFile(file);
-        if (!check.ok) {
-            toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
-            return;
+    const QUOTE_SLOTS = useMemo(
+        () => [
+            {
+                kind: 'attachment',
+                nameKey: 'attachmentName',
+                base64Key: 'attachmentBase64',
+                mimeKey: 'attachmentMime',
+                urlKey: 'existingAttachmentUrl',
+            },
+            {
+                kind: 'quotation2',
+                nameKey: 'quotation2Name',
+                base64Key: 'quotation2Base64',
+                mimeKey: 'quotation2Mime',
+                urlKey: 'existingQuotation2Url',
+            },
+            {
+                kind: 'quotation3',
+                nameKey: 'quotation3Name',
+                base64Key: 'quotation3Base64',
+                mimeKey: 'quotation3Mime',
+                urlKey: 'existingQuotation3Url',
+            },
+        ],
+        [],
+    );
+
+    const isQuoteSlotFilled = useCallback(
+        (data, slot) => !!(data?.[slot.nameKey] || data?.[slot.urlKey]),
+        [],
+    );
+
+    const quoteItems = useMemo(
+        () =>
+            QUOTE_SLOTS.map((slot) => ({
+                ...slot,
+                fileName: formData[slot.nameKey] || '',
+                existingUrl: formData[slot.urlKey] || '',
+            })).filter((slot) => slot.fileName || slot.existingUrl),
+        [QUOTE_SLOTS, formData],
+    );
+
+    const canAddMoreQuotes = quoteItems.length < QUOTE_SLOTS.length;
+
+    const handleQuoteFiles = (fileList) => {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+
+        const validated = [];
+        for (const file of files) {
+            const check = validateErpPdfFile(file);
+            if (!check.ok) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid file',
+                    description: check.message,
+                });
+                continue;
+            }
+            validated.push(file);
         }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const raw = String(reader.result || '');
-            const base64 = raw.includes(',') ? raw.split(',')[1] : raw;
-            onDone(file, base64);
-        };
-        reader.readAsDataURL(file);
+        if (!validated.length) return;
+
+        Promise.all(
+            validated.map(
+                (file) =>
+                    new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const raw = String(reader.result || '');
+                            const base64 = raw.includes(',') ? raw.split(',')[1] : raw;
+                            resolve({ file, base64 });
+                        };
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    }),
+            ),
+        ).then((loaded) => {
+            setFormData((prev) => {
+                let next = { ...prev };
+                let added = 0;
+                for (const { file, base64 } of loaded) {
+                    const slot = QUOTE_SLOTS.find((s) => !isQuoteSlotFilled(next, s));
+                    if (!slot) break;
+                    next = {
+                        ...next,
+                        [slot.nameKey]: file.name,
+                        [slot.base64Key]: base64,
+                        [slot.mimeKey]: file.type || 'application/pdf',
+                        [slot.urlKey]: '',
+                    };
+                    if (slot.kind === 'attachment') {
+                        next.estimatedCost =
+                            next.estimatedCost || String(next.quotation1Amount || '');
+                    }
+                    added += 1;
+                }
+                if (added < loaded.length) {
+                    queueMicrotask(() =>
+                        toast({
+                            title: 'Quote limit',
+                            description: 'You can add up to 3 quotes.',
+                        }),
+                    );
+                }
+                return next;
+            });
+        });
     };
 
-    const handleQuoteFile = (kind, file) => {
-        readPdfFile(file, (f, base64) => {
-            if (kind === 'attachment') {
-                setFormData((prev) => ({
-                    ...prev,
-                    attachmentName: f.name,
-                    attachmentBase64: base64,
-                    attachmentMime: f.type || 'application/pdf',
-                    existingAttachmentUrl: '',
-                    estimatedCost: prev.estimatedCost || String(prev.quotation1Amount || ''),
-                }));
-            } else if (kind === 'quotation2') {
-                setFormData((prev) => ({
-                    ...prev,
-                    quotation2Name: f.name,
-                    quotation2Base64: base64,
-                    quotation2Mime: f.type || 'application/pdf',
-                    existingQuotation2Url: '',
-                }));
-            } else if (kind === 'quotation3') {
-                setFormData((prev) => ({
-                    ...prev,
-                    quotation3Name: f.name,
-                    quotation3Base64: base64,
-                    quotation3Mime: f.type || 'application/pdf',
-                    existingQuotation3Url: '',
-                }));
-            }
-        });
+    const clearQuoteSlot = (kind) => {
+        const slot = QUOTE_SLOTS.find((s) => s.kind === kind);
+        if (!slot) return;
+        setFormData((prev) => ({
+            ...prev,
+            [slot.nameKey]: '',
+            [slot.base64Key]: '',
+            [slot.mimeKey]: '',
+            [slot.urlKey]: '',
+        }));
     };
 
     const appendPhotos = (files) => {
@@ -421,13 +549,8 @@ export default function VehicleMechanicalWorkDetailForm({
     const setEmployeeRowPaidAmount = (index, value) => {
         setFormData((prev) => {
             const rows = [...(prev.employeeLiabilityRows || [])];
-            const target = computeEmployeePayTarget(prev.estimatedCost, prev.employeePayPercent);
-            if (value === '' || value == null) {
-                rows[index] = { ...rows[index], paidAmount: value };
-                return { ...prev, employeeLiabilityRows: rows };
-            }
-            const nextRows = adjustEmployeeRowsAfterPaidChange(rows, index, value, target);
-            return { ...prev, employeeLiabilityRows: nextRows };
+            rows[index] = { ...rows[index], paidAmount: value };
+            return { ...prev, employeeLiabilityRows: rows };
         });
     };
 
@@ -436,9 +559,8 @@ export default function VehicleMechanicalWorkDetailForm({
             const rows = [...(prev.employeeLiabilityRows || [])];
             const raw = rows[index]?.paidAmount ?? '';
             if (String(raw).trim() !== '') return prev;
-            const target = computeEmployeePayTarget(prev.estimatedCost, prev.employeePayPercent);
-            const nextRows = adjustEmployeeRowsAfterPaidChange(rows, index, '0', target);
-            return { ...prev, employeeLiabilityRows: nextRows };
+            rows[index] = { ...rows[index], paidAmount: '0' };
+            return { ...prev, employeeLiabilityRows: rows };
         });
     };
 
@@ -451,14 +573,13 @@ export default function VehicleMechanicalWorkDetailForm({
     };
 
     const addEmployeeRow = () => {
-        setFormData((prev) => {
-            const nextRows = [...(prev.employeeLiabilityRows || []), { employeeId: '', paidAmount: '' }];
-            const target = computeEmployeePayTarget(prev.estimatedCost, prev.employeePayPercent);
-            return {
-                ...prev,
-                employeeLiabilityRows: redistributeEmployeeLiabilityRows(nextRows, target),
-            };
-        });
+        setFormData((prev) => ({
+            ...prev,
+            employeeLiabilityRows: [
+                ...(prev.employeeLiabilityRows || []),
+                { employeeId: '', paidAmount: '0' },
+            ],
+        }));
     };
 
     const removeEmployeeRow = (index) => {
@@ -466,11 +587,7 @@ export default function VehicleMechanicalWorkDetailForm({
             const rows = [...(prev.employeeLiabilityRows || [])];
             if (rows.length <= 1) return prev;
             rows.splice(index, 1);
-            const target = computeEmployeePayTarget(prev.estimatedCost, prev.employeePayPercent);
-            return {
-                ...prev,
-                employeeLiabilityRows: redistributeEmployeeLiabilityRows(rows, target),
-            };
+            return { ...prev, employeeLiabilityRows: rows };
         });
     };
 
@@ -551,44 +668,66 @@ export default function VehicleMechanicalWorkDetailForm({
         onDraftStateChange({ canRequest, requesting: saving });
     }, [canRequest, onDraftStateChange, saving]);
 
-    const QuoteUpload = ({ label, kind, fileName, existingUrl }) => {
-        const hasQuote = !!(fileName || existingUrl);
-
-        return (
-            <div
-                className={`flex flex-wrap items-center gap-2 min-h-[40px] rounded-lg border px-2 py-1.5 transition-colors ${
-                    hasQuote ? 'border-blue-200 bg-blue-50/40' : 'border-transparent'
-                }`}
-            >
-                {existingUrl ? (
-                    <button
-                        type="button"
-                        className={tireViewBtn}
-                        onClick={() => void openAttachmentInNewTab(existingUrl, { name: fileName || label })}
-                    >
-                        View
-                    </button>
-                ) : null}
-                {!fieldsDisabled ? (
-                    <label className={tireUploadBtn}>
-                        <Upload size={14} />
-                        {fileName || existingUrl ? 'Change' : 'Add'}
-                        <input
-                            type="file"
-                            className="sr-only"
-                            accept={ERP_PDF_ACCEPT}
-                            disabled={fieldsDisabled}
-                            onChange={(e) => {
-                                handleQuoteFile(kind, e.target.files?.[0]);
-                                e.target.value = '';
-                            }}
-                        />
-                    </label>
-                ) : null}
-                {fileName ? <span className="text-[10px] text-gray-500 truncate">{fileName}</span> : null}
-            </div>
-        );
-    };
+    const QuotesUpload = () => (
+        <div className="space-y-2">
+            {quoteItems.length ? (
+                <ul className="space-y-1.5">
+                    {quoteItems.map((item) => (
+                        <li
+                            key={item.kind}
+                            className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/40 px-2 py-1.5"
+                        >
+                            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-700">
+                                {item.fileName || 'Quote PDF'}
+                            </span>
+                            {item.existingUrl ? (
+                                <button
+                                    type="button"
+                                    className={tireViewBtn}
+                                    onClick={() =>
+                                        void openAttachmentInNewTab(item.existingUrl, {
+                                            name: item.fileName || 'Quote',
+                                        })
+                                    }
+                                >
+                                    View
+                                </button>
+                            ) : null}
+                            {!fieldsDisabled ? (
+                                <button
+                                    type="button"
+                                    onClick={() => clearQuoteSlot(item.kind)}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-lg font-bold text-red-500 hover:bg-red-50"
+                                    title="Remove quote"
+                                >
+                                    ×
+                                </button>
+                            ) : null}
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p className="text-xs text-gray-400">No quotes added yet</p>
+            )}
+            {!fieldsDisabled && canAddMoreQuotes ? (
+                <label className={tireUploadBtn}>
+                    <Upload size={14} />
+                    Add quote
+                    <input
+                        type="file"
+                        className="sr-only"
+                        accept={ERP_PDF_ACCEPT}
+                        multiple
+                        disabled={fieldsDisabled}
+                        onChange={(e) => {
+                            handleQuoteFiles(e.target.files);
+                            e.target.value = '';
+                        }}
+                    />
+                </label>
+            ) : null}
+        </div>
+    );
 
     const { fieldMinHeightPx, gapClass } = MECHANICAL_WORK_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
@@ -602,8 +741,8 @@ export default function VehicleMechanicalWorkDetailForm({
                         assignmentPending
                             ? 'Complete all fields, then click Send / Submit for Approval'
                             : initiateStageEditable
-                              ? 'Editable at HR / Accounts — update details, then Save Changes'
-                              : 'Submitted — select Quote 1, 2, or 3 in HR Approval'
+                              ? 'Editable at HR Approval — update details, then Save Changes'
+                              : 'Submitted — view only after HR Approval'
                     }
                     icon={ClipboardList}
                     iconBg="bg-blue-50"
@@ -611,6 +750,7 @@ export default function VehicleMechanicalWorkDetailForm({
                     className={`w-full ${canEditInitiateFields ? '' : 'opacity-[0.97]'}`}
                 >
                     <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
+                        <div className={`sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 ${gapClass}`}>
                         <VehicleMechanicalWorkFormFieldCell
                             label="Vehicle Assigned"
                             accentClass={accent(0)}
@@ -630,7 +770,7 @@ export default function VehicleMechanicalWorkDetailForm({
                             </select>
                         </VehicleMechanicalWorkFormFieldCell>
                         <VehicleMechanicalWorkFormFieldCell
-                            label="Who Committed Accident"
+                            label="Vehicle Driven By"
                             accentClass={accent(1)}
                             minHeightPx={fieldMinHeightPx}
                         >
@@ -644,353 +784,240 @@ export default function VehicleMechanicalWorkDetailForm({
                                 {drivenByEmployeeOptions}
                             </select>
                         </VehicleMechanicalWorkFormFieldCell>
-                        <VehicleMechanicalWorkFormFieldCell
-                            label="Payment By"
-                            accentClass={accent(2)}
-                            minHeightPx={fieldMinHeightPx}
-                        >
-                            <PaymentByToggle
-                                value={paymentByMode || 'company'}
-                                onChange={setPaymentByMode}
-                                disabled={fieldsDisabled}
-                            />
-                        </VehicleMechanicalWorkFormFieldCell>
+                        </div>
 
                         <>
-                        <div className={`${costRowGridClass} ${gapClass}`}>
-                                    <VehicleMechanicalWorkFormFieldCell
-                                        label="Estimated Cost"
-                                        accentClass={accent(0)}
-                                        minHeightPx={fieldMinHeightPx}
-                                    >
-                                        <div className="relative">
-                                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
-                                                AED
-                                            </span>
-                                            <input
-                                                className={`${tireMoneyInput} pl-11`}
-                                                type="number"
-                                                min="0"
-                                                value={formData.estimatedCost || ''}
-                                                onChange={(e) => {
-                                                    const val = e.target.value;
-                                                    setFormData((prev) => ({
-                                                        ...prev,
-                                                        estimatedCost: val,
-                                                        quotation1Amount: val,
-                                                        value: val,
-                                                        employeeLiabilityRows: applyEmployeePayTargetToRows(
-                                                            prev.employeeLiabilityRows,
-                                                            val,
-                                                            prev.employeePayPercent,
-                                                        ),
-                                                    }));
-                                                }}
-                                                disabled={fieldsDisabled}
-                                                placeholder="0.00"
-                                            />
-                                        </div>
-                                    </VehicleMechanicalWorkFormFieldCell>
-                                    {showCompanyFields ? (
-                                        <VehicleMechanicalWorkFormFieldCell
-                                            label="Company Pay %"
-                                            accentClass={accent(1)}
-                                            minHeightPx={fieldMinHeightPx}
-                                        >
-                                            <input
-                                                className={tireMoneyInput}
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                value={formData.companyPayPercent || ''}
-                                                onChange={(e) => setSplitPayPercent('company', e.target.value)}
-                                                disabled={fieldsDisabled || !isSplitPayment}
-                                            />
-                                        </VehicleMechanicalWorkFormFieldCell>
-                                    ) : null}
-                                    {showEmployeeFields ? (
-                                        <VehicleMechanicalWorkFormFieldCell
-                                            label="Employee Pay %"
-                                            accentClass={accent(2)}
-                                            minHeightPx={fieldMinHeightPx}
-                                        >
-                                            <input
-                                                className={tireMoneyInput}
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                value={formData.employeePayPercent || ''}
-                                                onChange={(e) => setSplitPayPercent('employee', e.target.value)}
-                                                disabled={fieldsDisabled || !isSplitPayment}
-                                            />
-                                        </VehicleMechanicalWorkFormFieldCell>
-                                    ) : null}
-                                    <VehicleMechanicalWorkFormFieldCell
-                                        label="Total"
-                                        accentClass={accent(0)}
-                                        minHeightPx={fieldMinHeightPx}
-                                    >
-                                        <input
-                                            className={tireMoneyInput}
-                                            readOnly
-                                            value={estimatedCost ? `${estimatedCost.toLocaleString()} AED` : '—'}
-                                        />
-                                    </VehicleMechanicalWorkFormFieldCell>
+                        <div className={`sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 ${gapClass}`}>
+                            <VehicleMechanicalWorkFormFieldCell
+                                label="Estimated Cost"
+                                accentClass={accent(0)}
+                                minHeightPx={fieldMinHeightPx}
+                            >
+                                <div className="relative">
+                                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                        AED
+                                    </span>
+                                    <input
+                                        className={`${tireMoneyInput} pl-11 text-lg font-bold`}
+                                        type="number"
+                                        min="0"
+                                        value={formData.estimatedCost || ''}
+                                        onChange={(e) =>
+                                            applyPayAmountChange('estimatedCost', e.target.value)
+                                        }
+                                        disabled={fieldsDisabled}
+                                        placeholder="0.00"
+                                    />
                                 </div>
-                                {showCompanyPaymentSummary ? (
-                                    <div className="sm:col-span-2 lg:col-span-3 rounded-lg border border-gray-200 bg-white overflow-hidden">
-                                        <div className="grid grid-cols-2 border-b border-gray-200 bg-slate-50">
-                                            {['Company Pay', 'Paid Amount'].map((heading) => (
-                                                <div
-                                                    key={heading}
-                                                    className="px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 border-r border-gray-200 last:border-r-0"
-                                                >
-                                                    {heading}
+                            </VehicleMechanicalWorkFormFieldCell>
+                            <VehicleMechanicalWorkFormFieldCell
+                                label="Payment By"
+                                accentClass={accent(2)}
+                                minHeightPx={fieldMinHeightPx}
+                            >
+                                <PaymentByToggle
+                                    value={paymentByMode || 'company'}
+                                    onChange={setPaymentByMode}
+                                    disabled={fieldsDisabled}
+                                />
+                            </VehicleMechanicalWorkFormFieldCell>
+                        </div>
+                                {showCompanyFields || showEmployeeFields ? (
+                                    <div className="sm:col-span-2 lg:col-span-3 w-full rounded-xl border border-gray-200 bg-white p-4 space-y-4">
+                                        {showCompanyFields ? (
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                                    Company payment
+                                                </span>
+                                                <div className="flex w-[160px] shrink-0 items-center justify-end gap-1">
+                                                    <input
+                                                        className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
+                                                        type="number"
+                                                        min="0"
+                                                        step="1"
+                                                        value={companyPayAmount || 0}
+                                                        onChange={(e) =>
+                                                            applyPayAmountChange(
+                                                                'companyPay',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        disabled={fieldsDisabled}
+                                                    />
+                                                    <span className="text-sm font-bold text-gray-500">
+                                                        AED
+                                                    </span>
                                                 </div>
-                                            ))}
-                                        </div>
-                                        <div className="grid grid-cols-2">
-                                            <div className="border-r border-gray-100 p-2">
-                                                <input
-                                                    className={`${tireMoneyInput} min-h-[36px] py-1 bg-gray-50`}
-                                                    readOnly
-                                                    value={
-                                                        companyPayAmount
-                                                            ? `${companyPayAmount.toLocaleString()} AED`
-                                                            : '—'
-                                                    }
-                                                />
                                             </div>
-                                            <div className="p-2">
-                                                <input
-                                                    className={`${tireMoneyInput} min-h-[36px] py-1 bg-gray-50 font-semibold`}
-                                                    readOnly
-                                                    value={
-                                                        companyPayAmount
-                                                            ? `${companyPayAmount.toLocaleString()} AED`
-                                                            : '—'
-                                                    }
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : null}
-                                {showEmployeeLiabilityBreakdown ? (
-                                    <div className="sm:col-span-2 lg:col-span-3 rounded-lg border border-gray-200 bg-white overflow-hidden">
-                                        <div className={`grid ${breakdownGridClass} border-b border-gray-200 bg-slate-50`}>
-                                            {['Employee Name', 'Paid Amount', 'Total Pay'].map((heading) => (
-                                                <div
-                                                    key={heading}
-                                                    className="px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 border-r border-gray-200 last:border-r-0"
-                                                >
-                                                    {heading}
-                                                </div>
-                                            ))}
-                                        </div>
-                                        {(formData.employeeLiabilityRows || []).map((row, index) => {
-                                            const breakdown = rowBreakdowns[index] || {
-                                                paidAmount: 0,
-                                                totalPay: 0,
-                                            };
-                                            const isLastRow =
-                                                index === (formData.employeeLiabilityRows || []).length - 1;
-                                            return (
-                                                <div
-                                                    key={`emp-row-${index}`}
-                                                    className={`grid ${breakdownGridClass} border-b border-gray-100 last:border-b-0`}
-                                                >
-                                                    <div className="flex items-center gap-1 border-r border-gray-100 p-2">
-                                                        <select
-                                                            className={`${tireFieldSelect} min-h-[36px] py-1`}
-                                                            value={row.employeeId || ''}
-                                                            onChange={(e) =>
-                                                                updateEmployeeRow(index, 'employeeId', e.target.value)
-                                                            }
-                                                            disabled={fieldsDisabled}
-                                                        >
-                                                            <option value="">Select employee</option>
-                                                            {employeeOptions}
-                                                        </select>
-                                                        {!fieldsDisabled &&
-                                                        (formData.employeeLiabilityRows || []).length > 1 ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => removeEmployeeRow(index)}
-                                                                className="shrink-0 rounded-md px-1.5 py-1 text-[10px] font-bold text-red-500 hover:bg-red-50"
-                                                                title="Remove row"
-                                                            >
-                                                                ×
-                                                            </button>
-                                                        ) : null}
-                                                    </div>
-                                                    <div className="flex items-center gap-1 border-r border-gray-100 p-2">
+                                        ) : null}
+                                        {showEmployeeFields ? (
+                                            <div className="space-y-2.5">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                                        Employee payment
+                                                    </span>
+                                                    <div
+                                                        className={`flex w-[160px] shrink-0 items-center justify-end gap-1 ${
+                                                            paySplitError || employeeRowsError
+                                                                ? 'text-amber-700'
+                                                                : ''
+                                                        }`}
+                                                    >
                                                         <input
-                                                            className={`${tireMoneyInput} min-h-[36px] py-1 flex-1`}
+                                                            className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
                                                             type="number"
                                                             min="0"
-                                                            step="0.01"
-                                                            value={row.paidAmount || ''}
+                                                            step="1"
+                                                            value={employeePayAmount || 0}
                                                             onChange={(e) =>
-                                                                setEmployeeRowPaidAmount(index, e.target.value)
+                                                                applyPayAmountChange(
+                                                                    'employeePay',
+                                                                    e.target.value,
+                                                                )
                                                             }
-                                                            onBlur={() => finalizeEmployeeRowPaidAmount(index)}
                                                             disabled={fieldsDisabled}
-                                                            placeholder="AED"
                                                         />
-                                                        {!fieldsDisabled && isLastRow ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={addEmployeeRow}
-                                                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
-                                                                title="Add employee"
-                                                            >
-                                                                <Plus size={16} />
-                                                            </button>
-                                                        ) : null}
-                                                    </div>
-                                                    <div className="border-l border-gray-100 p-2">
-                                                        <input
-                                                            className={`${tireMoneyInput} min-h-[36px] py-1 bg-gray-50 font-semibold`}
-                                                            readOnly
-                                                            value={
-                                                                breakdown.totalPay
-                                                                    ? `${breakdown.totalPay.toLocaleString()} AED`
-                                                                    : '—'
-                                                            }
-                                                        />
+                                                        <span className="text-sm font-bold text-gray-500">
+                                                            AED
+                                                        </span>
                                                     </div>
                                                 </div>
-                                            );
-                                        })}
-                                        <div
-                                            className={`grid ${breakdownGridClass} border-t border-gray-200 bg-slate-50/80`}
-                                        >
-                                            <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-500 border-r border-gray-200">
-                                                Employee total
+                                                {(formData.employeeLiabilityRows || []).map((row, index) => {
+                                                    const isLastRow =
+                                                        index ===
+                                                        (formData.employeeLiabilityRows || []).length - 1;
+                                                    return (
+                                                        <div
+                                                            key={`emp-row-${index}`}
+                                                            className="flex items-center justify-between gap-3"
+                                                        >
+                                                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                                                                <select
+                                                                    className="min-h-[40px] w-full max-w-[280px] appearance-none border-0 bg-transparent px-0 py-2 text-sm font-semibold text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
+                                                                    value={row.employeeId || ''}
+                                                                    onChange={(e) =>
+                                                                        updateEmployeeRow(
+                                                                            index,
+                                                                            'employeeId',
+                                                                            e.target.value,
+                                                                        )
+                                                                    }
+                                                                    disabled={fieldsDisabled}
+                                                                >
+                                                                    <option value="">Select employee</option>
+                                                                    {employeeOptionsForRow(index)}
+                                                                </select>
+                                                                {!fieldsDisabled &&
+                                                                (formData.employeeLiabilityRows || [])
+                                                                    .length > 1 ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            removeEmployeeRow(index)
+                                                                        }
+                                                                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold text-red-500 hover:bg-red-50"
+                                                                        title="Remove"
+                                                                    >
+                                                                        ×
+                                                                    </button>
+                                                                ) : null}
+                                                                {!fieldsDisabled && isLastRow ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={addEmployeeRow}
+                                                                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
+                                                                        title="Add employee"
+                                                                    >
+                                                                        <Plus size={18} />
+                                                                    </button>
+                                                                ) : null}
+                                                            </div>
+                                                            <div className="flex w-[140px] shrink-0 items-center justify-end gap-1">
+                                                                <span className="text-xs font-semibold text-gray-400">
+                                                                    AED
+                                                                </span>
+                                                                <input
+                                                                    className="w-full min-w-0 border-0 bg-transparent py-2 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={
+                                                                        row.paidAmount === '' ||
+                                                                        row.paidAmount == null
+                                                                            ? '0'
+                                                                            : row.paidAmount
+                                                                    }
+                                                                    onChange={(e) =>
+                                                                        setEmployeeRowPaidAmount(
+                                                                            index,
+                                                                            e.target.value,
+                                                                        )
+                                                                    }
+                                                                    onBlur={() =>
+                                                                        finalizeEmployeeRowPaidAmount(index)
+                                                                    }
+                                                                    disabled={fieldsDisabled}
+                                                                    placeholder="0"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
-                                            <div className="px-3 py-2 border-r border-gray-200">
+                                        ) : null}
+                                        <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                                            <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                                Total amount
+                                            </span>
+                                            <div className="flex w-[160px] shrink-0 items-center justify-end gap-1">
                                                 <input
-                                                    className={`${tireMoneyInput} min-h-[36px] py-1 bg-white font-semibold`}
-                                                    readOnly
+                                                    className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-2xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
                                                     value={
-                                                        employeePayAmount
-                                                            ? `${employeeLiabilitySum.toLocaleString()} / ${employeePayAmount.toLocaleString()} AED`
-                                                            : employeeLiabilitySum
-                                                              ? `${employeeLiabilitySum.toLocaleString()} AED`
-                                                              : '—'
+                                                        estimatedCost || 0
                                                     }
-                                                    title="Paid sum / employee liability target"
+                                                    onChange={(e) =>
+                                                        applyPayAmountChange(
+                                                            'totalAmount',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                    disabled={fieldsDisabled}
                                                 />
-                                            </div>
-                                            <div className="px-3 py-2">
-                                                <input
-                                                    className={`${tireMoneyInput} min-h-[36px] py-1 bg-white font-semibold ${
-                                                        isSplitPayment &&
-                                                        employeePayAmount > 0 &&
-                                                        Math.abs(employeeLiabilitySum - employeePayAmount) > 0.01
-                                                            ? 'text-amber-700'
-                                                            : ''
-                                                    }`}
-                                                    readOnly
-                                                    value={
-                                                        isSplitPayment && employeePayAmount
-                                                            ? `${employeePayAmount.toLocaleString()} AED`
-                                                            : employeeLiabilitySum
-                                                              ? `${employeeLiabilitySum.toLocaleString()} AED`
-                                                              : '—'
-                                                    }
-                                                    title={
-                                                        isSplitPayment
-                                                            ? 'Employee liability cap from Employee Pay %'
-                                                            : 'Sum of employee paid amounts'
-                                                    }
-                                                />
+                                                <span className="text-sm font-bold text-gray-500">
+                                                    AED
+                                                </span>
                                             </div>
                                         </div>
-                                        {isSplitPayment ? (
-                                            <>
-                                                <div
-                                                    className={`grid ${breakdownGridClass} border-t border-gray-100 bg-white`}
-                                                >
-                                                    <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-500 border-r border-gray-200">
-                                                        Company pay
-                                                    </div>
-                                                    <div className="px-3 py-2 border-r border-gray-200" />
-                                                    <div className="px-3 py-2">
-                                                        <input
-                                                            className={`${tireMoneyInput} min-h-[36px] py-1 bg-gray-50 font-semibold`}
-                                                            readOnly
-                                                            value={
-                                                                companyPayAmount
-                                                                    ? `${companyPayAmount.toLocaleString()} AED`
-                                                                    : '—'
-                                                            }
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div
-                                                    className={`grid ${breakdownGridClass} border-t border-gray-200 bg-slate-50/80`}
-                                                >
-                                                    <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-500 border-r border-gray-200">
-                                                        Grand total
-                                                    </div>
-                                                    <div className="px-3 py-2 border-r border-gray-200" />
-                                                    <div className="px-3 py-2">
-                                                        <input
-                                                            className={`${tireMoneyInput} min-h-[36px] py-1 bg-white font-semibold`}
-                                                            readOnly
-                                                            value={
-                                                                breakdownGrandTotal || estimatedCost
-                                                                    ? `${(breakdownGrandTotal || estimatedCost).toLocaleString()} AED`
-                                                                    : '—'
-                                                            }
-                                                            title="Estimated cost (employee cap + company pay)"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </>
+                                        {paySplitError || employeeRowsError ? (
+                                            <div className="space-y-1 text-xs font-semibold text-amber-700">
+                                                {paySplitError ? (
+                                                    <p>
+                                                        Company pay + Employee pay must equal Total (
+                                                        {estimatedCost.toLocaleString()} AED)
+                                                    </p>
+                                                ) : null}
+                                                {employeeRowsError ? (
+                                                    <p>
+                                                        Employee amounts must total Employee pay (
+                                                        {employeePayAmount.toLocaleString()} AED)
+                                                    </p>
+                                                ) : null}
+                                            </div>
                                         ) : null}
                                     </div>
                                 ) : null}
-                                <VehicleMechanicalWorkFormFieldCell
-                                    label="Quote 1 (required)"
-                                    accentClass={accent(1)}
-                                    minHeightPx={fieldMinHeightPx}
-                                >
-                                    <QuoteUpload
-                                        label="Quote 1"
-                                        kind="attachment"
-                                        fileName={formData.attachmentName}
-                                        existingUrl={formData.existingAttachmentUrl}
-                                        amount={formData.estimatedCost || formData.quotation1Amount || ''}
-                                    />
-                                </VehicleMechanicalWorkFormFieldCell>
-                                <VehicleMechanicalWorkFormFieldCell
-                                    label="Quote 2"
-                                    accentClass={accent(2)}
-                                    minHeightPx={fieldMinHeightPx}
-                                >
-                                    <QuoteUpload
-                                        label="Quote 2"
-                                        kind="quotation2"
-                                        fileName={formData.quotation2Name}
-                                        existingUrl={formData.existingQuotation2Url}
-                                        amount={formData.quotation2Amount || ''}
-                                    />
-                                </VehicleMechanicalWorkFormFieldCell>
-                                <VehicleMechanicalWorkFormFieldCell
-                                    label="Quote 3"
-                                    accentClass={accent(0)}
-                                    minHeightPx={fieldMinHeightPx}
-                                >
-                                    <QuoteUpload
-                                        label="Quote 3"
-                                        kind="quotation3"
-                                        fileName={formData.quotation3Name}
-                                        existingUrl={formData.existingQuotation3Url}
-                                        amount={formData.quotation3Amount || ''}
-                                    />
-                                </VehicleMechanicalWorkFormFieldCell>
+                                <div className="sm:col-span-2 lg:col-span-3">
+                                    <VehicleMechanicalWorkFormFieldCell
+                                        label="Quotes (required)"
+                                        accentClass={accent(1)}
+                                        minHeightPx={fieldMinHeightPx}
+                                    >
+                                        <QuotesUpload />
+                                    </VehicleMechanicalWorkFormFieldCell>
+                                </div>
                         </>
                     </div>
 

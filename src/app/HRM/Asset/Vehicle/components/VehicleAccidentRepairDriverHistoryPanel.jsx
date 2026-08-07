@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, UserCircle } from 'lucide-react';
@@ -93,7 +93,7 @@ export default function VehicleAccidentRepairDriverHistoryPanel({ asset, service
                 </p>
             ) : !driver.employeeId ? (
                 <p className="flex flex-1 items-center justify-center py-10 text-center text-sm text-gray-500 px-4">
-                    Select Who Committed Accident on the assignment form to see cross-vehicle accident repair history.
+                    Select Vehicle Driven By on the assignment form to see cross-vehicle accident repair history.
                 </p>
             ) : !entries.length ? (
                 <p className="flex flex-1 items-center justify-center py-10 text-center text-sm text-gray-500 px-4">

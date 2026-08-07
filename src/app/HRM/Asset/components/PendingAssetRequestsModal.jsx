@@ -10,16 +10,16 @@ import BulkPendingResolveModal from './BulkPendingResolveModal';
 import BulkAssignmentAcknowledgeModal from './BulkAssignmentAcknowledgeModal';
 import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
 import { isPendingInboxRowVisible } from '../utils/assetRequestLabels';
-import { countVisibleAssetPendingInbox, dedupeAssetPendingInboxItems, invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
+import { dedupeAssetPendingInboxItems, invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
 import {
     filterToolsAssetInboxRows,
     filterVehicleAssetInboxRows,
     isUtilityBillInboxRow,
 } from '@/utils/assetInboxScope';
 import {
-    buildAssetNotificationPath,
-    normalizeAssetNotificationItem,
     resolveBulkAssignmentGroupId,
+    resolvePendingInboxRowPath,
+    isDisplayableAssetPendingInboxRow,
 } from '@/utils/assetNotificationRouting';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import { canDismissAssetInboxNotifications } from '@/utils/permissions';
@@ -108,7 +108,9 @@ export default function PendingAssetRequestsModal({
             const dedupedCached = await mergeVehicleModuleRows(partitionByScope(cached));
             setItems(dedupedCached);
             if (typeof onPendingInboxCount === 'function') {
-                onPendingInboxCount(countVisibleAssetPendingInbox(dedupedCached));
+                onPendingInboxCount(
+                    dedupedCached.filter(isPendingInboxRowVisible).filter(isDisplayableAssetPendingInboxRow).length,
+                );
             }
         }
 
@@ -131,7 +133,9 @@ export default function PendingAssetRequestsModal({
             );
             setItems(list);
             if (typeof onPendingInboxCount === 'function') {
-                onPendingInboxCount(countVisibleAssetPendingInbox(list));
+                onPendingInboxCount(
+                    list.filter(isPendingInboxRowVisible).filter(isDisplayableAssetPendingInboxRow).length,
+                );
             }
         } catch (e) {
             toast({ variant: 'destructive', title: 'Error', description: e?.response?.data?.message || 'Could not load pending requests.' });
@@ -164,9 +168,26 @@ export default function PendingAssetRequestsModal({
                         : inboxScope === 'vehicle'
                             ? filterVehicleAssetInboxRows(deduped)
                             : deduped;
-            setItems(partitioned);
+            // Include sidebar Vehicle module rows so open never flashes empty while API loads.
+            const hydrated =
+                inboxScope === 'vehicle'
+                    ? dedupeAssetPendingInboxItems([...partitioned, ...getVehicleModuleInboxRows()])
+                    : partitioned;
+            setItems(hydrated);
             if (typeof onPendingInboxCount === 'function') {
-                onPendingInboxCount(countVisibleAssetPendingInbox(partitioned));
+                onPendingInboxCount(
+                    hydrated.filter(isPendingInboxRowVisible).filter(isDisplayableAssetPendingInboxRow).length,
+                );
+            }
+        } else if (inboxScope === 'vehicle') {
+            const moduleRows = getVehicleModuleInboxRows();
+            if (moduleRows.length) {
+                setItems(moduleRows);
+                if (typeof onPendingInboxCount === 'function') {
+                    onPendingInboxCount(
+                        moduleRows.filter(isPendingInboxRowVisible).filter(isDisplayableAssetPendingInboxRow).length,
+                    );
+                }
             }
         }
         load();
@@ -190,7 +211,7 @@ export default function PendingAssetRequestsModal({
             return;
         }
 
-        const path = buildAssetNotificationPath(normalizeAssetNotificationItem(row));
+        const path = resolvePendingInboxRowPath(row);
         if (path) {
             // Same-page Utility Bills: parent opens review modal directly (router.push alone often no-ops).
             if (typeof onActivatePath === 'function' && onActivatePath(path, row)) {
@@ -233,7 +254,9 @@ export default function PendingAssetRequestsModal({
                     inboxScope === 'tools' || inboxScope === 'vehicle' ? { scope: inboxScope } : {};
                 rememberPendingInbox(ASSET_PENDING_INBOX_ENDPOINT, cacheParams, next);
                 if (typeof onPendingInboxCount === 'function') {
-                    onPendingInboxCount(countVisibleAssetPendingInbox(next));
+                    onPendingInboxCount(
+                        next.filter(isPendingInboxRowVisible).filter(isDisplayableAssetPendingInboxRow).length,
+                    );
                 }
                 return next;
             });
@@ -257,20 +280,17 @@ export default function PendingAssetRequestsModal({
     const visibleRows = useMemo(() => {
         return dedupeAssetPendingInboxItems(items)
             .filter(isPendingInboxRowVisible)
-            .filter((row) => {
-                if (resolveBulkAssignmentGroupId(row)) return true;
-                if (
-                    row?.isBulk &&
-                    Array.isArray(row.bulkAssetIds) &&
-                    row.bulkAssetIds.length > 1
-                ) {
-                    return true;
-                }
-                if (String(row?.requestType || '').trim() === 'Asset Owner On Duty') return true;
-                const path = buildAssetNotificationPath(normalizeAssetNotificationItem(row));
-                return Boolean(path);
-            });
+            .filter(isDisplayableAssetPendingInboxRow);
     }, [items]);
+
+    // Bell badge must match what the modal actually lists (never count 4 / show 0).
+    useEffect(() => {
+        if (!isOpen) return;
+        if (typeof onPendingInboxCount === 'function') {
+            onPendingInboxCount(visibleRows.length);
+        }
+    }, [isOpen, visibleRows, onPendingInboxCount]);
+
     const notificationRows = useMemo(
         () => visibleRows.map((row, index) => mapAssetPendingInboxToRow(row, index)),
         [visibleRows],
@@ -304,7 +324,7 @@ export default function PendingAssetRequestsModal({
                     onItemClick={handleRowActivate}
                     getItemHref={(row) => {
                         if (resolveBulkAssignmentGroupId(row)) return '';
-                        return buildAssetNotificationPath(normalizeAssetNotificationItem(row)) || '';
+                        return resolvePendingInboxRowPath(row) || '';
                     }}
                     onDelete={
                         canDeleteNotifications

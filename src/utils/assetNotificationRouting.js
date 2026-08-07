@@ -163,6 +163,46 @@ export function buildVehicleDetailPath(vehicleId, params = {}) {
     return appendAssetQueryParams(`/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}`, params);
 }
 
+/**
+ * Path for pending-inbox / Vehicle bell rows.
+ * Always returns a usable vehicle destination when the row has an asset id —
+ * never hide a counted badge item because detailsPath meta is missing.
+ */
+export function resolvePendingInboxRowPath(rawItem = {}) {
+    const normalized = normalizeAssetNotificationItem(rawItem);
+    const primaryPath = buildAssetNotificationPath(normalized);
+    if (primaryPath) return primaryPath;
+
+    const assetId = String(
+        rawItem?.primaryAssetId ||
+            rawItem?.requestObjectId ||
+            rawItem?.asset?._id ||
+            normalized.id ||
+            '',
+    ).trim();
+    if (!assetId) return '';
+
+    const type = String(rawItem?.requestType || rawItem?.type || normalized.type || '').trim();
+    const low = type.toLowerCase();
+
+    if (low === 'vehicle service request' || low.includes('service request')) {
+        return buildVehicleDetailPath(assetId, { tab: 'service' });
+    }
+    if (low.startsWith('vehicle') || low === 'asset approval' || low === 'asset assignment' || low === 'asset return') {
+        return buildVehicleDetailPath(assetId);
+    }
+    return '';
+}
+
+/** True when a pending-inbox row should appear in Vehicle/Tools modal (matches bell count). */
+export function isDisplayableAssetPendingInboxRow(row = {}) {
+    if (!row) return false;
+    if (resolveBulkAssignmentGroupId(row)) return true;
+    if (row?.isBulk && Array.isArray(row.bulkAssetIds) && row.bulkAssetIds.length > 1) return true;
+    if (String(row?.requestType || '').trim() === 'Asset Owner On Duty') return true;
+    return Boolean(resolvePendingInboxRowPath(row));
+}
+
 function parseVehicleServiceTypeFromNotification(item = {}, meta = null) {
     const fromMeta = String(meta?.serviceType || '').trim();
     if (fromMeta) return fromMeta;

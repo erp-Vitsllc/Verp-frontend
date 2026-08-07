@@ -1,4 +1,4 @@
-﻿import {
+import {
     mapServiceRecordToFormData,
     validateVehicleServiceForm,
     buildAddServiceBody,
@@ -18,6 +18,7 @@ import {
     resolveOilPaymentFields,
 } from './vehicleOilServiceDetailForm';
 import { resolveVehicleServiceAssignedOwnerId } from './vehicleServiceAssignedOwner';
+import { resolveInitiateAbsolutePayAmounts } from './vehicleShopHrReviewPay';
 
 export { OIL_SERVICE_VENDOR_OPTIONS as MECHANICAL_WORK_VENDOR_OPTIONS, formatWarrantyExpiryFromAsset };
 
@@ -88,7 +89,7 @@ export function applyEmployeePayTargetToRows(rows, estimatedCost, employeePayPer
     return redistributeEmployeeLiabilityRows(list, target);
 }
 
-/** After one row's paid amount changes, only rows below it are rebalanced to hit the target. */
+/** After one row's paid amount changes, other rows are rebalanced to hit the target. */
 export function adjustEmployeeRowsAfterPaidChange(rows, changedIndex, rawPaidAmount, targetTotal) {
     const list = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
     if (!list.length || changedIndex < 0 || changedIndex >= list.length) return list;
@@ -110,25 +111,20 @@ export function adjustEmployeeRowsAfterPaidChange(rows, changedIndex, rawPaidAmo
         return list;
     }
 
-    const sumAbove = list
-        .slice(0, changedIndex)
-        .reduce((sum, row) => sum + (Number(row?.paidAmount) || 0), 0);
-    const belowIndices = list.map((_, index) => index).filter((index) => index > changedIndex);
-    const maxForChanged = Math.max(0, target - sumAbove);
-    const cappedChanged = Math.min(Math.max(0, Math.round(parsed)), maxForChanged);
-
+    const otherIndices = list.map((_, index) => index).filter((index) => index !== changedIndex);
+    const cappedChanged = Math.min(Math.max(0, Math.round(parsed)), Math.max(0, target));
     list[changedIndex] = { ...list[changedIndex], paidAmount: String(cappedChanged) };
 
-    if (!belowIndices.length) {
+    if (!otherIndices.length) {
         return list;
     }
 
-    const remaining = Math.max(0, target - sumAbove - cappedChanged);
-    const belowCount = belowIndices.length;
-    const base = Math.floor(remaining / belowCount);
-    const remainder = remaining - base * belowCount;
+    const remaining = Math.max(0, target - cappedChanged);
+    const otherCount = otherIndices.length;
+    const base = Math.floor(remaining / otherCount);
+    const remainder = remaining - base * otherCount;
 
-    belowIndices.forEach((rowIndex, order) => {
+    otherIndices.forEach((rowIndex, order) => {
         list[rowIndex] = {
             ...list[rowIndex],
             paidAmount: String(base + (order === 0 ? remainder : 0)),
@@ -333,25 +329,38 @@ export function buildMechanicalWorkDetailFormState(service, asset, { flowchartRo
         }
     }
 
+    {
+        const absoluteInit = resolveInitiateAbsolutePayAmounts({
+            estimatedCost: state.estimatedCost,
+            companyPayPercent: state.companyPayPercent,
+            employeePayPercent: state.employeePayPercent,
+            companyPayAmount: absCompany,
+            employeePayAmount: absEmployee,
+        });
+        state.companyPayAmount = String(absoluteInit.companyPayAmount);
+        state.employeePayAmount = String(absoluteInit.employeePayAmount);
+    }
+
     return state;
 }
 
 const MECHANICAL_WORK_FIELD_LABELS = {
     vehicleOwnerEmployeeId: 'Vehicle assigned',
-    carDrivenByEmployeeId: 'Who committed accident',
+    carDrivenByEmployeeId: 'Vehicle Driven By',
     paymentByMode: 'Payment by',
     amountMode: 'Payment type',
     paymentMethod: 'Payment method',
     estimatedCost: 'Estimated cost',
-    companyPayPercent: 'Company pay %',
-    employeePayPercent: 'Employee pay %',
+    companyPayPercent: 'Company payment',
+    employeePayPercent: 'Employee payment',
+    paySplit: 'Payment split',
     employeeLiabilityRows: 'Employee liability',
-    attachment: 'Quote 1',
-    quotation2: 'Quote 2',
-    quotation3: 'Quote 3',
-    quotation1Amount: 'Quote 1 amount',
-    quotation2Amount: 'Quote 2 amount',
-    quotation3Amount: 'Quote 3 amount',
+    attachment: 'Quotes',
+    quotation2: 'Quote',
+    quotation3: 'Quote',
+    quotation1Amount: 'Quote amount',
+    quotation2Amount: 'Quote amount',
+    quotation3Amount: 'Quote amount',
     bodyWorkImages: 'Rectification area photos',
     tireCondition: 'Tire condition',
     serviceIssue: 'Description',
@@ -425,7 +434,7 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
     delete e.quotation3Amount;
 
     if (!String(formData.carDrivenByEmployeeId || '').trim()) {
-        e.carDrivenByEmployeeId = 'Who committed accident is required';
+        e.carDrivenByEmployeeId = 'Vehicle Driven By is required';
     }
     if (!formData.paymentByMode) {
         e.paymentByMode = 'Payment by is required';
@@ -440,27 +449,30 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
     }
 
     const paymentByMode = formData.paymentByMode || 'company';
-    const companyPct = Number(formData.companyPayPercent);
-    const employeePct = Number(formData.employeePayPercent);
-    const employeePayAmount =
-        Number.isFinite(estimated) && Number.isFinite(employeePct)
-            ? Math.round((estimated * employeePct) / 100)
-            : 0;
+    const absolutePay = resolveInitiateAbsolutePayAmounts({
+        estimatedCost: formData.estimatedCost,
+        companyPayPercent: formData.companyPayPercent,
+        employeePayPercent: formData.employeePayPercent,
+        companyPayAmount: formData.companyPayAmount,
+        employeePayAmount: formData.employeePayAmount,
+    });
+    const companyPayAmount = absolutePay.companyPayAmount;
+    const employeePayAmount = absolutePay.employeePayAmount;
 
-    if (payable && (paymentByMode === 'company' || paymentByMode === 'split')) {
-        if (!Number.isFinite(companyPct) || companyPct < 0) e.companyPayPercent = 'Company pay % is required';
-    }
-    if (payable && (paymentByMode === 'person' || paymentByMode === 'split')) {
-        if (!Number.isFinite(employeePct) || employeePct < 0) e.employeePayPercent = 'Employee pay % is required';
-    }
-    if (
-        payable &&
-        paymentByMode === 'split' &&
-        Number.isFinite(companyPct) &&
-        Number.isFinite(employeePct) &&
-        companyPct + employeePct !== 100
-    ) {
-        e.companyPayPercent = 'Company and employee pay must total 100%';
+    if (payable && Number.isFinite(estimated) && estimated > 0) {
+        if (paymentByMode === 'split') {
+            if (Math.abs(companyPayAmount + employeePayAmount - estimated) > 0.01) {
+                e.paySplit = `Company pay + Employee pay must equal Total (${estimated.toLocaleString()} AED)`;
+            }
+        } else if (paymentByMode === 'person') {
+            if (Math.abs(employeePayAmount - estimated) > 0.01) {
+                e.employeePayPercent = `Employee pay must equal Estimated cost (${estimated.toLocaleString()} AED)`;
+            }
+        } else if (paymentByMode === 'company') {
+            if (Math.abs(companyPayAmount - estimated) > 0.01) {
+                e.companyPayPercent = `Company pay must equal Estimated cost (${estimated.toLocaleString()} AED)`;
+            }
+        }
     }
 
     const rows = Array.isArray(formData.employeeLiabilityRows) ? formData.employeeLiabilityRows : [];
@@ -477,16 +489,26 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
                     e.employeeLiabilityRows = `Paid amount is required on row ${idx + 1}`;
                 }
             });
+            const seenEmployeeIds = new Set();
+            for (let idx = 0; idx < rows.length; idx += 1) {
+                const id = String(rows[idx]?.employeeId || '').trim();
+                if (!id) continue;
+                if (seenEmployeeIds.has(id)) {
+                    e.employeeLiabilityRows = 'Each employee can only be selected once';
+                    break;
+                }
+                seenEmployeeIds.add(id);
+            }
             const liabilitySum = sumEmployeeLiabilityRows(rows);
-            if (Number.isFinite(employeePayAmount) && Math.abs(liabilitySum - employeePayAmount) > 0.01) {
-                e.employeeLiabilityRows = `Employee paid amounts must total ${employeePayAmount.toLocaleString()} AED`;
+            if (Math.abs(liabilitySum - employeePayAmount) > 0.01) {
+                e.employeeLiabilityRows = `Employee amounts must total Employee pay (${employeePayAmount.toLocaleString()} AED)`;
             }
         }
     }
 
     const hasQ1 =
         !!(formData.attachmentBase64 && formData.attachmentName) || !!formData.existingAttachmentUrl;
-    if (payable && !hasQ1) e.attachment = 'Quote 1 is required';
+    if (payable && !hasQ1) e.attachment = 'At least one quote is required';
 
     if (!hasRectificationPhotos(formData)) {
         e.bodyWorkImages = 'Rectification area photos are required';
@@ -507,6 +529,7 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
         delete e.companyPayPercent;
         delete e.employeePayPercent;
         delete e.employeeLiabilityRows;
+        delete e.paySplit;
         delete e.attachment;
         delete e.value;
         delete e.paymentMethod;
@@ -517,7 +540,15 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
 
 export function getMechanicalWorkDetailFormMissingFields(formData, asset = null) {
     const errors = validateMechanicalWorkDetailForm(formData, asset);
-    const labels = Object.keys(errors).map((key) => MECHANICAL_WORK_FIELD_LABELS[key] || errors[key]);
+    const preferErrorText = new Set([
+        'paySplit',
+        'employeeLiabilityRows',
+        'companyPayPercent',
+        'employeePayPercent',
+    ]);
+    const labels = Object.keys(errors).map((key) =>
+        preferErrorText.has(key) ? errors[key] : MECHANICAL_WORK_FIELD_LABELS[key] || errors[key],
+    );
     return [...new Set(labels)];
 }
 
@@ -574,15 +605,24 @@ export function buildMechanicalWorkDetailSubmitBody(formData, { keepPending = tr
         delete remark.paymentMethod;
     }
     remark.paymentByMode = normalized.paymentByMode;
-    remark.companyPayPercent = Number(normalized.companyPayPercent || 0);
-    remark.employeePayPercent = Number(normalized.employeePayPercent || 0);
     remark.estimatedCost = Number(normalized.estimatedCost || 0);
     {
         const cost = Number(normalized.estimatedCost || 0);
-        const cPct = Number(normalized.companyPayPercent || 0);
-        const ePct = Number(normalized.employeePayPercent || 0);
-        const companyPayAmount = Number.isFinite(cost) ? Math.round((cost * cPct) / 100) : 0;
-        const employeePayAmount = Number.isFinite(cost) ? Math.round((cost * ePct) / 100) : 0;
+        const absolutePay = resolveInitiateAbsolutePayAmounts({
+            estimatedCost: normalized.estimatedCost,
+            companyPayPercent: normalized.companyPayPercent,
+            employeePayPercent: normalized.employeePayPercent,
+            companyPayAmount: normalized.companyPayAmount,
+            employeePayAmount: normalized.employeePayAmount,
+        });
+        const companyPayAmount = absolutePay.companyPayAmount;
+        const employeePayAmount = absolutePay.employeePayAmount;
+        const companyPayPercent =
+            cost > 0 ? Math.min(100, Math.max(0, Math.round((companyPayAmount / cost) * 100))) : Number(normalized.companyPayPercent || 0);
+        const employeePayPercent =
+            cost > 0 ? Math.min(100, Math.max(0, 100 - companyPayPercent)) : Number(normalized.employeePayPercent || 0);
+        remark.companyPayPercent = companyPayPercent;
+        remark.employeePayPercent = employeePayPercent;
         remark.companyPayAmount = companyPayAmount;
         remark.employeePayAmount = employeePayAmount;
         remark.hrReviewApprovedAmount = cost || undefined;

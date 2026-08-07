@@ -4,6 +4,7 @@ import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
 } from './vehicleShopServiceWorkflowStage';
+import { canEditShopServiceSchedule } from './vehicleShopServiceCardGates';
 
 export const TIRE_CHANGE_WORKFLOW_STAGES = {
     HR: 'pending_hr',
@@ -38,17 +39,8 @@ export function showTireChangeReturnCard(_assignmentPending, stage) {
 }
 
 export function canEditTireChangeGarage(stage, canManageTireChange, { asset, service } = {}) {
-    if (!canManageTireChange) return false;
-    if (asset && service) {
-        const wf = asset?.activeServiceWorkflow || {};
-        const remark = parseVehicleServiceRemark(service) || {};
-        if (wf.garageSubmittedAt || String(remark.garageSubmittedByName || '').trim()) return false;
-    }
-    // Parallel with HR after Initiate (oil cash style).
-    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.HR) return true;
-    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
-    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS) return true;
-    return false;
+    // Admin-only Schedule/Reschedule; open until Complete Service (Accounts Approve does not lock).
+    return canEditShopServiceSchedule(stage, canManageTireChange, { service });
 }
 
 export function canApproveTireChangeGarageAccounts(stage, isFlowchartAccounts) {

@@ -88,7 +88,7 @@ export default function VehicleTireChangeDriverHistoryPanel({ asset, service, cl
                 </div>
             ) : !driver.employeeId ? (
                 <p className="flex flex-1 items-center justify-center py-10 text-center text-sm text-gray-500 px-4">
-                    Select Who Committed Accident on the assignment form to see cross-vehicle tire change history.
+                    Select Vehicle Driven By on the assignment form to see cross-vehicle tire change history.
                 </p>
             ) : !entries.length ? (
                 <p className="flex flex-1 items-center justify-center py-10 text-center text-sm text-gray-500 px-4">

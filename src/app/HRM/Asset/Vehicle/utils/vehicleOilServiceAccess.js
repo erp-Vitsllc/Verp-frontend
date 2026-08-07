@@ -1,6 +1,10 @@
 import { isPortalSuperUser } from '@/utils/permissions';
 import { isCurrentUserVehicleAssignee } from './evaluateVehicleFleetHeaderActions';
-import { pickFlowchartAdminRow, pickFlowchartHrRow, pickFlowchartAccountsRow } from './vehicleHandoverAssignWorkflow';
+import {
+    isFlowchartAdminCategory,
+    pickFlowchartHrRow,
+    pickFlowchartAccountsRow,
+} from './vehicleHandoverAssignWorkflow';
 import { normalizeMongoId, parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import {
     isShopWorkServiceLive,
@@ -258,14 +262,14 @@ export function isOilServiceAssignmentPending(remark = {}) {
 }
 
 /**
- * HR, Accounts Approve, and Zoho Make Payment stages — Initiate Service stays editable.
- * Covers oil cash (pending_accounts) and shop services (pending_billing for Zoho bill).
+ * Initiate Service stays editable only during HR Approval.
+ * (Draft/pending initiate is handled separately via assignmentPending.)
  */
 export function isVehicleServiceInitiateEditableStage(stage) {
     const s = String(stage || '')
         .toLowerCase()
         .trim();
-    return s === 'pending_hr' || s === 'pending_accounts' || s === 'pending_billing';
+    return s === 'pending_hr';
 }
 
 export function isOilServiceAssignmentSubmitted(remark = {}) {
@@ -456,10 +460,12 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
 }
 
 export function isCurrentUserFlowchartAdminOfficer(currentUser, flowchartRows = []) {
-    if (!currentUser) return false;
-    const adminRow = pickFlowchartAdminRow(flowchartRows);
-    if (!adminRow) return false;
-    return flowchartRowMatchesUser(adminRow, currentUser);
+    if (!currentUser || !Array.isArray(flowchartRows) || !flowchartRows.length) return false;
+    // Match ANY Admin / Admin Officer / Administrator row — not only the first pick.
+    return flowchartRows.some((row) => {
+        if (!isFlowchartAdminCategory(row?.category)) return false;
+        return flowchartRowMatchesUser(row, currentUser);
+    });
 }
 
 function flowchartRowMatchesUser(row, currentUser) {
@@ -539,6 +545,19 @@ function isCurrentUserAssigneeHod(asset, currentUserEmployeeId, currentUser = nu
 
 function isSessionSystemSuperUser(currentUser) {
     return isPortalSuperUser(currentUser);
+}
+
+/**
+ * Who may edit Schedule / Reschedule on shop + oil services:
+ * Super User, flowchart Admin / Admin Officer / Administrator, or Asset Controller.
+ * (Not HR, Accounts, or vehicle assignee alone.)
+ */
+export function canUserEditShopSchedule(currentUser, flowchartRows = []) {
+    if (!currentUser) return false;
+    if (isSessionSystemSuperUser(currentUser)) return true;
+    if (isCurrentUserFlowchartAdminOfficer(currentUser, flowchartRows)) return true;
+    if (isCurrentUserFlowchartAssetController(currentUser, flowchartRows)) return true;
+    return false;
 }
 
 /**

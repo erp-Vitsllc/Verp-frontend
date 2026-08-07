@@ -13,6 +13,7 @@ import {
     ACCIDENT_REPAIR_WORKFLOW_STAGES,
 } from '../utils/vehicleAccidentRepairWorkflow';
 import VehicleAccidentRepairFormFieldCell from './VehicleAccidentRepairFormFieldCell';
+import VehicleServiceLockedSection from './VehicleServiceLockedSection';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
 import {
@@ -28,6 +29,10 @@ import {
     tireFieldSelect,
 } from '../utils/vehicleAccidentRepairDetailUi';
 import VehicleGarageZohoBillRetry from './VehicleGarageZohoBillRetry';
+import {
+    SHOP_SERVICE_CARD,
+    resolveShopServiceCardGate,
+} from '../utils/vehicleShopServiceCardGates';
 
 export default function VehicleAccidentRepairGarageCard({
     asset,
@@ -49,8 +54,15 @@ export default function VehicleAccidentRepairGarageCard({
     const isComplete = stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.COMPLETE;
 
     const canEditGarage = canEditAccidentRepairGarage(stage, canManage, { asset, service });
+    const scheduleGate = resolveShopServiceCardGate({
+        assignmentPending,
+        workflowStage: stage,
+        service,
+        cardKey: SHOP_SERVICE_CARD.SCHEDULE,
+    });
     const garageFormComplete = isAccidentRepairGarageFormComplete(formData);
-    const fieldsDisabled = !canEditGarage || saving || isComplete || assignmentPending;
+    const fieldsDisabled =
+        !canEditGarage || saving || isComplete || assignmentPending || scheduleGate.locked;
 
     const { fieldMinHeightPx, gapClass } = ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT;
 
@@ -104,22 +116,20 @@ export default function VehicleAccidentRepairGarageCard({
         }
     };
 
-    const subtitle =
-        stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.HR
-            ? 'Opens with HR after Initiate — complete garage vendor and dates, then Done'
-            : stage === ACCIDENT_REPAIR_WORKFLOW_STAGES.ADMIN_OFFICER
-              ? 'Admin Officer — complete garage vendor and service window, then click Done'
-                : stage === 'pending_billing' ||
-                    String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live'
-                  ? 'Complete Service done — Schedule locked. Use Make Payment below for Zoho billing'
-                  : isComplete || stage === 'billed'
-                    ? 'Garage details locked'
-                    : canEditGarage
-                      ? 'Reschedule anytime until Complete Service — update garage / dates then Done'
-                      : 'Garage vendor and scheduled service window';
+    const subtitle = scheduleGate.locked
+        ? scheduleGate.message
+        : !canManage
+          ? 'Waiting for Admin / Admin Officer to schedule / reschedule'
+          : canEditGarage
+            ? 'Admin / Admin Officer can schedule / reschedule anytime until Complete Service'
+            : 'Garage vendor and scheduled service window';
 
     return (
         <div className={`w-full ${className}`.trim()}>
+            <VehicleServiceLockedSection
+                locked={scheduleGate.locked}
+                message={scheduleGate.message || 'Complete Initiate Service first'}
+            >
             <FineFormCard
                 title="Schedule and Reschedule Service"
                 subtitle={subtitle}
@@ -247,6 +257,7 @@ export default function VehicleAccidentRepairGarageCard({
                     </div>
                 ) : null}
             </FineFormCard>
+            </VehicleServiceLockedSection>
         </div>
     );
 }

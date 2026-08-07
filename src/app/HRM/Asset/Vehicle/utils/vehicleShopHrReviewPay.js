@@ -77,7 +77,10 @@ export function syncHrReviewPayCalculation({
     let nextApproved = approved;
     let nextCompany = Number(companyPay) || 0;
     let nextEmployee = Number(employeePay) || 0;
-    let nextRows = Array.isArray(employeeRows) ? employeeRows : [];
+    // Keep employee rows as-is — only Estimated / Company / Employee auto-sync.
+    const nextRows = Array.isArray(employeeRows)
+        ? employeeRows.map((row) => ({ ...row }))
+        : [];
 
     if (field === 'approvedAmount') {
         const raw = value === '' || value == null ? '' : value;
@@ -85,7 +88,6 @@ export function syncHrReviewPayCalculation({
             nextApproved = 0;
             nextCompany = 0;
             nextEmployee = 0;
-            nextRows = redistributeHrEmployeePayRows(nextRows, 0);
         } else {
             const amt = clampMoney(raw, Number.POSITIVE_INFINITY);
             nextApproved = amt == null ? approved : amt;
@@ -97,35 +99,29 @@ export function syncHrReviewPayCalculation({
                 nextCompany = 0;
                 nextEmployee = nextApproved;
             } else {
-                // Keep current employee share ratio when possible.
                 const prevApproved = approved > 0 ? approved : nextApproved;
                 const ratio = prevApproved > 0 ? nextEmployee / prevApproved : 0.5;
                 nextEmployee = Math.round(nextApproved * ratio);
                 nextCompany = Math.max(0, nextApproved - nextEmployee);
             }
-            nextRows = redistributeHrEmployeePayRows(nextRows, nextEmployee);
         }
     } else if (field === 'employeePay') {
         if (value === '' || value == null) {
             nextEmployee = 0;
             nextCompany = approved;
-            nextRows = redistributeHrEmployeePayRows(nextRows, 0);
         } else {
             const emp = clampMoney(value, approved > 0 ? approved : Number.POSITIVE_INFINITY);
             nextEmployee = emp == null ? nextEmployee : emp;
             nextCompany = Math.max(0, approved - nextEmployee);
-            nextRows = redistributeHrEmployeePayRows(nextRows, nextEmployee);
         }
     } else if (field === 'companyPay') {
         if (value === '' || value == null) {
             nextCompany = 0;
             nextEmployee = approved;
-            nextRows = redistributeHrEmployeePayRows(nextRows, nextEmployee);
         } else {
             const company = clampMoney(value, approved > 0 ? approved : Number.POSITIVE_INFINITY);
             nextCompany = company == null ? nextCompany : company;
             nextEmployee = Math.max(0, approved - nextCompany);
-            nextRows = redistributeHrEmployeePayRows(nextRows, nextEmployee);
         }
     }
 
@@ -198,14 +194,20 @@ export function buildHrReviewInitiateRemarkPatch({
     paymentByMode,
     companyPayPercent,
     employeePayPercent,
+    companyPayPartyName,
 }) {
     const approvedAmountNum = Number(approvedAmount) || 0;
     const companyPayNum = Number(companyPay) || 0;
     const employeePayNum = Number(employeePay) || 0;
-    const rows = (Array.isArray(employeeRows) ? employeeRows : []).map((row) => ({
-        employeeId: row.employeeId,
-        paidAmount: Number(row.paidAmount) || 0,
-    }));
+    const rows = (Array.isArray(employeeRows) ? employeeRows : []).map((row) => {
+        const employeeId = row.employeeId;
+        const employeeName = String(row.employeeName || row.name || '').trim();
+        return {
+            employeeId,
+            ...(employeeName ? { employeeName } : {}),
+            paidAmount: Number(row.paidAmount) || 0,
+        };
+    });
     const derived = derivePayPercents(
         approvedAmountNum,
         companyPayNum,
@@ -227,6 +229,111 @@ export function buildHrReviewInitiateRemarkPatch({
         paymentByMode: derived.paymentByMode || paymentByMode || 'company',
         companyPayAmount: companyPayNum,
         employeePayAmount: employeePayNum,
+        ...(companyPayPartyName
+            ? { companyPayPartyName: String(companyPayPartyName).trim() }
+            : {}),
+    };
+}
+
+/**
+ * Auto-sync Estimated / Total / Company / Employee amounts.
+ * Does NOT change individual employee row amounts — those stay manual + validated.
+ */
+export function syncInitiateServicePayAmounts({
+    field,
+    value,
+    estimatedCost,
+    companyPayAmount,
+    employeePayAmount,
+    paymentByMode = 'company',
+    employeeLiabilityRows = [],
+} = {}) {
+    const mode = String(paymentByMode || 'company').toLowerCase();
+    const prevCost = Math.max(0, Math.round(Number(estimatedCost) || 0));
+    let nextCost = prevCost;
+    let nextCompany = Math.max(0, Math.round(Number(companyPayAmount) || 0));
+    let nextEmployee = Math.max(0, Math.round(Number(employeePayAmount) || 0));
+    const nextRows = Array.isArray(employeeLiabilityRows)
+        ? employeeLiabilityRows.map((row) => ({ ...row }))
+        : [];
+
+    const parseAmt = (raw) => {
+        if (raw === '' || raw == null) return 0;
+        const n = Math.round(Number(raw));
+        return Number.isFinite(n) && n >= 0 ? n : 0;
+    };
+
+    if (field === 'estimatedCost' || field === 'totalAmount') {
+        nextCost = parseAmt(value);
+        if (mode === 'company') {
+            nextCompany = nextCost;
+            nextEmployee = 0;
+        } else if (mode === 'person') {
+            nextCompany = 0;
+            nextEmployee = nextCost;
+        } else {
+            const ratio = prevCost > 0 ? nextEmployee / prevCost : 0.5;
+            nextEmployee = Math.round(nextCost * ratio);
+            nextCompany = Math.max(0, nextCost - nextEmployee);
+        }
+    } else if (field === 'companyPay') {
+        const amt = parseAmt(value);
+        if (mode === 'company') {
+            nextCompany = amt;
+            nextEmployee = 0;
+            nextCost = nextCompany;
+        } else if (mode === 'split') {
+            nextCompany = Math.min(amt, nextCost);
+            nextEmployee = Math.max(0, nextCost - nextCompany);
+        }
+    } else if (field === 'employeePay') {
+        const amt = parseAmt(value);
+        if (mode === 'person') {
+            nextEmployee = amt;
+            nextCompany = 0;
+            nextCost = nextEmployee;
+        } else if (mode === 'split') {
+            nextEmployee = Math.min(amt, nextCost);
+            nextCompany = Math.max(0, nextCost - nextEmployee);
+        }
+    }
+
+    const percents = derivePayPercents(nextCost, nextCompany, nextEmployee, mode);
+
+    return {
+        estimatedCost: nextCost ? String(nextCost) : '',
+        quotation1Amount: nextCost ? String(nextCost) : '',
+        value: nextCost ? String(nextCost) : '',
+        companyPayAmount: String(nextCompany),
+        employeePayAmount: String(nextEmployee),
+        companyPayPercent: percents.companyPayPercent,
+        employeePayPercent: percents.employeePayPercent,
+        paymentByMode: mode,
+        employeeLiabilityRows: nextRows,
+    };
+}
+
+/** Prefer stored absolute company/employee amounts; fall back to % of estimated cost. */
+export function resolveInitiateAbsolutePayAmounts({
+    estimatedCost,
+    companyPayPercent,
+    employeePayPercent,
+    companyPayAmount,
+    employeePayAmount,
+} = {}) {
+    const cost = Math.max(0, Math.round(Number(estimatedCost) || 0));
+    const hasCompanyAbs = companyPayAmount != null && String(companyPayAmount).trim() !== '';
+    const hasEmployeeAbs = employeePayAmount != null && String(employeePayAmount).trim() !== '';
+    const company = hasCompanyAbs
+        ? Math.max(0, Math.round(Number(companyPayAmount) || 0))
+        : Math.round((cost * (Number(companyPayPercent) || 0)) / 100);
+    const employee = hasEmployeeAbs
+        ? Math.max(0, Math.round(Number(employeePayAmount) || 0))
+        : Math.round((cost * (Number(employeePayPercent) || 0)) / 100);
+    return {
+        estimatedCost: cost,
+        companyPayAmount: company,
+        employeePayAmount: employee,
     };
 }
 

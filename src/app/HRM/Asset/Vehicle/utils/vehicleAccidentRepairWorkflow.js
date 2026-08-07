@@ -4,6 +4,7 @@ import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
 } from './vehicleShopServiceWorkflowStage';
+import { canEditShopServiceSchedule } from './vehicleShopServiceCardGates';
 
 export const ACCIDENT_REPAIR_WORKFLOW_STAGES = {
     HR: 'pending_hr',
@@ -44,24 +45,8 @@ export function isAccidentRepairGarageSubmitted(asset, service) {
 }
 
 export function canEditAccidentRepairGarage(stage, canManageAccidentRepair, { asset, service } = {}) {
-    if (!canManageAccidentRepair) return false;
-    const s = String(stage || '').toLowerCase();
-    // After Complete Service the flow moves to billing — Schedule stays locked from then on.
-    if (
-        !s ||
-        s === 'rejected' ||
-        s === ACCIDENT_REPAIR_WORKFLOW_STAGES.COMPLETE ||
-        s === ACCIDENT_REPAIR_WORKFLOW_STAGES.PENDING_BILLING ||
-        s === 'billed'
-    ) {
-        return false;
-    }
-    const remark = parseVehicleServiceRemark(service) || {};
-    if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live') {
-        return false;
-    }
-    if (s === 'pending' || s === 'draft') return false;
-    return true;
+    // Admin-only Schedule/Reschedule; open until Complete Service (Accounts Approve does not lock).
+    return canEditShopServiceSchedule(stage, canManageAccidentRepair, { service });
 }
 
 export function canApproveAccidentRepairGarageAccounts(stage, isFlowchartAccounts) {

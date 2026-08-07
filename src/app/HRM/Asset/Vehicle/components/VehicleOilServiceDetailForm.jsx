@@ -662,8 +662,8 @@ export default function VehicleOilServiceDetailForm({
                     !initiateDone && assignmentPending
                         ? 'Complete the required fields, then click Send to submit'
                         : initiateStageEditable
-                          ? 'Editable at HR / Accounts — update details, then Save Changes'
-                          : 'Submitted — vehicle, schedule, and service request information'
+                          ? 'Editable at HR Approval — update details, then Save Changes'
+                          : 'Submitted — view only after HR Approval'
                 }
                 icon={ClipboardList}
                 iconBg="bg-blue-50"
@@ -793,7 +793,7 @@ export default function VehicleOilServiceDetailForm({
                             disabled
                         />
                     </FormFieldCell>
-                    <FormFieldCell label="Who Committed Accident" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
+                    <FormFieldCell label="Vehicle Driven By" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
                         <select
                             className={fieldSelect}
                             value={formData.carDrivenByEmployeeId || ''}

@@ -151,10 +151,10 @@ export default function VehicleOilServiceScheduleCard({
           ? 'Locked — service is complete'
           : 'Available once Initiate Service is sent'
         : !canManage
-          ? 'Waiting for flowchart Admin Officer to schedule / reschedule'
+          ? 'Waiting for Admin / Admin Officer to schedule / reschedule'
           : awaitingSchedule
             ? 'Garage and dates are required — description is optional'
-            : 'Admin Officer can update garage or dates anytime until Complete Service';
+            : 'Admin / Admin Officer can update garage or dates anytime until Complete Service';
 
     const card = (
         <FineFormCard

@@ -396,9 +396,12 @@ function VehicleHandoverAssignPageContent() {
         if (!vehicleId || !assignId) return;
         try {
             const [vehicleRes, historyRes, recordRes] = await Promise.all([
-                axiosInstance.get(`/AssetItem/detail/${vehicleId}`),
+                // Skip signing every service/doc — handover reads accessories/photos via storage proxy.
+                axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
+                    params: { deferServiceSigning: '1' },
+                }),
                 axiosInstance.get(`/AssetItem/${vehicleId}/history`, {
-                    params: { forHandover: '1' },
+                    params: { forHandover: '1', includeReports: '1' },
                     skipToast: true,
                 }),
                 axiosInstance
@@ -631,9 +634,12 @@ function VehicleHandoverAssignPageContent() {
 
             try {
                 const [vehicleRes, historyRes, recordRes] = await Promise.all([
-                    axiosInstance.get(`/AssetItem/detail/${vehicleId}`),
+                    // Fast path: skip signing every oil/shop/doc attachment (same as vehicle details).
+                    axiosInstance.get(`/AssetItem/detail/${vehicleId}`, {
+                        params: { deferServiceSigning: '1' },
+                    }),
                     axiosInstance.get(`/AssetItem/${vehicleId}/history`, {
-                        params: { forHandover: '1' },
+                        params: { forHandover: '1', includeReports: '1' },
                         skipToast: true,
                     }),
                     String(assignId).startsWith('live-')
@@ -680,8 +686,7 @@ function VehicleHandoverAssignPageContent() {
                                 null;
                         }
                         if (entry?._id && String(entry._id) !== String(assignId)) {
-                            const tabQuery =
-                                searchParams.get('tab') === 'attachment' ? '?tab=attachment' : '';
+                            const tabQuery = activeTab === 'attachment' ? '?tab=attachment' : '';
                             router.replace(
                                 `/HRM/Asset/Vehicle/details/${vehicleId}/assign/${entry._id}${tabQuery}`,
                             );
@@ -726,7 +731,9 @@ function VehicleHandoverAssignPageContent() {
         return () => {
             cancelled = true;
         };
-    }, [assignId, router, searchParams, toast, vehicleId]);
+        // activeTab only used for live- → real-id redirect query; do not reload on tab switch.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid reload on Details/Attachment tab
+    }, [assignId, router, toast, vehicleId, fetchHandoverFines]);
 
     if (loading) {
         return (

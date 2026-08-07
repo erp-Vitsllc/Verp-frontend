@@ -293,12 +293,15 @@ function baseRow(item = {}, index = 0) {
     const stableActionId =
         item.dashboardActionId || item.actionId || item._id || null;
     const subjectId = item.id || item.requestId || item.requestObjectId || '';
+    const serviceHint = String(meta?.serviceRecordId || meta?.oilStage || meta?.historyId || '')
+        .trim()
+        .slice(0, 48);
     const extraHint = String(item.extra1 || item.extra2 || '')
         .trim()
         .slice(0, 96);
     const key = stableActionId
-        ? `${String(stableActionId)}:${type}`
-        : `${String(subjectId || 'row')}:${type}:${extraHint}:${index}`;
+        ? `${String(stableActionId)}:${type}${serviceHint ? `:${serviceHint}` : ''}`
+        : `${String(subjectId || 'row')}:${type}:${serviceHint || extraHint}:${index}`;
     const requestedDate =
         item.requestedDate || item.createdAt || item.updatedAt || item.actionedDate || null;
 

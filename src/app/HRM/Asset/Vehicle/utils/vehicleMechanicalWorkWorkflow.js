@@ -4,6 +4,7 @@ import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
 } from './vehicleShopServiceWorkflowStage';
+import { canEditShopServiceSchedule } from './vehicleShopServiceCardGates';
 
 export const MECHANICAL_WORK_WORKFLOW_STAGES = {
     HR: 'pending_hr',
@@ -44,13 +45,8 @@ export function isMechanicalWorkGarageSubmitted(asset, service) {
 }
 
 export function canEditMechanicalWorkGarage(stage, canManageMechanicalWork, { asset, service } = {}) {
-    if (!canManageMechanicalWork) return false;
-    if (asset && service && isMechanicalWorkGarageSubmitted(asset, service)) return false;
-    // Parallel with HR after Initiate (oil cash style).
-    if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.HR) return true;
-    if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_OFFICER) return true;
-    if (stage === MECHANICAL_WORK_WORKFLOW_STAGES.ACCOUNTS) return true;
-    return false;
+    // Admin-only Schedule/Reschedule; open until Complete Service (Accounts Approve does not lock).
+    return canEditShopServiceSchedule(stage, canManageMechanicalWork, { service });
 }
 
 export function canApproveMechanicalWorkGarageAccounts(stage, isFlowchartAccounts) {

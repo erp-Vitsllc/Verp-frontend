@@ -17,40 +17,85 @@ import {
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
+import {
+    buildEmployeeNameByIdMap,
+    buildVehicleServiceBillingPayables,
+    resolveEmployeeDisplayName,
+    resolveVehicleServiceBillingTotal,
+} from '../utils/vehicleServiceBillingPayables';
 
 function money(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : 0;
 }
 
-function buildInitialBillingState(service) {
+function resolveCompanyPartyName(asset, remark = {}, companies = []) {
+    const fromRemark = String(remark.companyPayPartyName || remark.companyName || '').trim();
+    if (fromRemark && !/^Company$/i.test(fromRemark)) return fromRemark;
+
+    const c = asset?.assignedCompany;
+    if (c && typeof c === 'object') {
+        const fromAssigned = String(
+            c.nickName ||
+                c.companyShortName ||
+                c.companyName ||
+                c.tradeName ||
+                c.name ||
+                '',
+        ).trim();
+        if (fromAssigned) return fromAssigned;
+    }
+
+    const companyId = String(
+        (c && typeof c === 'object' ? c._id || c.id : c) ||
+            asset?.assignedCompanyId ||
+            remark.companyId ||
+            '',
+    ).trim();
+    if (companyId && Array.isArray(companies) && companies.length) {
+        const match = companies.find(
+            (row) =>
+                String(row?._id || row?.id || '').trim() === companyId ||
+                String(row?._id || '').trim() === companyId,
+        );
+        const fromList = String(
+            match?.nickName ||
+                match?.companyShortName ||
+                match?.companyName ||
+                match?.tradeName ||
+                match?.name ||
+                '',
+        ).trim();
+        if (fromList) return fromList;
+    }
+
+    return (
+        String(asset?.companyName || asset?.organizationName || asset?.ownerCompany || '').trim() ||
+        'Company'
+    );
+}
+
+function buildInitialBillingState(service, { asset = null, employees = [], companies = [] } = {}) {
     const remark = parseVehicleServiceRemark(service) || {};
-    const existingLines = Array.isArray(remark.billingPayables) ? remark.billingPayables : null;
-    const seedAmount =
-        money(remark.garageBillAmount) ||
-        money(remark.totalServiceCharge) ||
-        money(remark.hrReviewCompanyPay) ||
-        money(remark.hrReviewApprovedAmount) ||
-        money(service?.value) ||
-        0;
-    const lines =
-        existingLines && existingLines.length
-            ? existingLines.map((row) => ({
-                  payableTo: String(row.payableTo || row.payAccountName || '').trim(),
-                  payAccountId: String(row.payAccountId || '').trim(),
-                  amount: row.amount != null && row.amount !== '' ? String(row.amount) : '',
-              }))
-            : [
-                  {
-                      payableTo: String(
-                          remark.payAccountName || remark.garagePayAccountName || '',
-                      ).trim(),
-                      payAccountId: String(
-                          remark.payAccountId || remark.garagePayAccountId || '',
-                      ).trim(),
-                      amount: seedAmount > 0 ? String(seedAmount) : '',
-                  },
-              ];
+    const companyName = resolveCompanyPartyName(asset, remark, companies);
+    const seedAmount = resolveVehicleServiceBillingTotal(service, remark);
+    const nameById = buildEmployeeNameByIdMap(employees);
+    // Also map vehicle assignee so payable lines resolve without waiting on full /employee list.
+    const assignee = asset?.assignedTo;
+    if (assignee && typeof assignee === 'object') {
+        const label =
+            `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim() ||
+            String(assignee.employeeId || '').trim();
+        const id = String(assignee._id || assignee.id || '').trim();
+        if (label && id) {
+            nameById[id] = label;
+            nameById[id.toLowerCase()] = label;
+        }
+    }
+    const lines = buildVehicleServiceBillingPayables(service, remark, {
+        employeeNameById: nameById,
+        companyName,
+    });
 
     const existingGarageAttachmentUrl = String(
         remark.garageAttachmentUrl ||
@@ -87,6 +132,7 @@ function buildInitialBillingState(service) {
  * and Oil cash (pending_accounts).
  */
 export default function VehicleServiceAccountsZohoBillingCard({
+    asset = null,
     service,
     vehicleId,
     serviceId,
@@ -98,12 +144,109 @@ export default function VehicleServiceAccountsZohoBillingCard({
 }) {
     const { toast } = useToast();
     const [busy, setBusy] = useState(false);
+    const [employees, setEmployees] = useState([]);
+    const [companies, setCompanies] = useState([]);
     const remark = parseVehicleServiceRemark(service) || {};
-    const [billing, setBilling] = useState(() => buildInitialBillingState(service));
+    const [billing, setBilling] = useState(() =>
+        buildInitialBillingState(service, { asset, employees: [], companies: [] }),
+    );
 
     useEffect(() => {
-        setBilling(buildInitialBillingState(service));
-    }, [service?._id, service?.updatedAt, service?.remark, service?.shopInvoice, service?.value]);
+        let active = true;
+        Promise.all([axiosInstance.get('/employee'), axiosInstance.get('/Company')])
+            .then(([empRes, companyRes]) => {
+                if (!active) return;
+                const list = Array.isArray(empRes.data)
+                    ? empRes.data
+                    : empRes.data?.employees || empRes.data?.data || [];
+                setEmployees(list);
+                setCompanies(companyRes.data?.companies || companyRes.data || []);
+            })
+            .catch(() => {
+                if (active) {
+                    setEmployees([]);
+                    setCompanies([]);
+                }
+            });
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        setBilling(buildInitialBillingState(service, { asset, employees, companies }));
+    }, [
+        service?._id,
+        service?.updatedAt,
+        service?.remark,
+        service?.shopInvoice,
+        service?.value,
+        asset,
+        employees,
+        companies,
+    ]);
+
+    useEffect(() => {
+        if (!employees.length && !companies.length && !asset?.assignedTo) return;
+        const nameById = buildEmployeeNameByIdMap(employees);
+        const assignee = asset?.assignedTo;
+        if (assignee && typeof assignee === 'object') {
+            const label =
+                `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim() ||
+                String(assignee.employeeId || '').trim();
+            const id = String(assignee._id || assignee.id || '').trim();
+            if (label && id) {
+                nameById[id] = label;
+                nameById[id.toLowerCase()] = label;
+            }
+        }
+        const companyName = resolveCompanyPartyName(
+            asset,
+            parseVehicleServiceRemark(service) || {},
+            companies,
+        );
+        setBilling((prev) => ({
+            ...prev,
+            billingPayables: (prev.billingPayables || []).map((row) => {
+                const isCompany =
+                    String(row.partyType || '') === 'company' ||
+                    (!row.employeeId && String(row.partyType || '') !== 'employee');
+                if (isCompany) {
+                    const current = String(row.partyName || row.description || '').trim();
+                    if (
+                        companyName &&
+                        companyName !== 'Company' &&
+                        (!current || /^Company$/i.test(current))
+                    ) {
+                        return {
+                            ...row,
+                            partyType: 'company',
+                            partyName: companyName,
+                            description: companyName,
+                        };
+                    }
+                    return row;
+                }
+                const resolved = resolveEmployeeDisplayName(
+                    {
+                        employeeId: row.employeeId,
+                        partyName: row.partyName,
+                        employeeName: row.employeeName,
+                    },
+                    nameById,
+                );
+                if (!resolved) return row;
+                const current = String(row.partyName || row.description || '').trim();
+                if (current && !/^Employee\b/i.test(current) && current !== resolved) return row;
+                return {
+                    ...row,
+                    partyType: 'employee',
+                    partyName: resolved,
+                    description: resolved,
+                };
+            }),
+        }));
+    }, [employees, companies, asset, service]);
 
     const totalFromLines = useMemo(
         () => (billing.billingPayables || []).reduce((sum, row) => sum + money(row.amount), 0),
@@ -157,7 +300,14 @@ export default function VehicleServiceAccountsZohoBillingCard({
             ...prev,
             billingPayables: [
                 ...(prev.billingPayables || []),
-                { payableTo: '', payAccountId: '', amount: '' },
+                {
+                    partyType: '',
+                    partyName: '',
+                    description: '',
+                    payableTo: '',
+                    payAccountId: '',
+                    amount: '',
+                },
             ],
         }));
     };
@@ -226,12 +376,19 @@ export default function VehicleServiceAccountsZohoBillingCard({
 
     const buildServiceUpdates = () => {
         const lines = (billing.billingPayables || [])
-            .map((row) => ({
-                payableTo: String(row.payableTo || '').trim(),
-                payAccountId: String(row.payAccountId || '').trim(),
-                amount: money(row.amount),
-            }))
-            .filter((row) => row.payableTo || row.payAccountId || row.amount > 0);
+            .map((row) => {
+                const partyName = String(row.partyName || row.description || '').trim();
+                return {
+                    partyType: String(row.partyType || '').trim() || undefined,
+                    partyName: partyName || undefined,
+                    description: partyName || undefined,
+                    employeeId: String(row.employeeId || '').trim() || undefined,
+                    payableTo: String(row.payableTo || '').trim(),
+                    payAccountId: String(row.payAccountId || '').trim(),
+                    amount: money(row.amount),
+                };
+            })
+            .filter((row) => row.payableTo || row.payAccountId || row.amount > 0 || row.partyName);
 
         const total = lines.reduce((s, r) => s + r.amount, 0) || money(billing.garageBillAmount);
         const primary = lines[0] || {};
@@ -465,12 +622,37 @@ export default function VehicleServiceAccountsZohoBillingCard({
                             </button>
                         ) : null}
                     </div>
+                    <div className="mb-1.5 hidden grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_140px_36px] gap-2 px-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 sm:grid">
+                        <span>Company / Employee</span>
+                        <span>Chart of Accounts</span>
+                        <span>Amount</span>
+                        <span />
+                    </div>
                     <div className="space-y-2">
                         {(billing.billingPayables || []).map((row, index) => (
                             <div
                                 key={`payable-${index}`}
-                                className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_36px] items-start"
+                                className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_140px_36px] items-start"
                             >
+                                <input
+                                    type="text"
+                                    className="min-h-[44px] w-full rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-sm font-semibold text-gray-900 placeholder:text-gray-400"
+                                    placeholder={
+                                        row.partyType === 'employee'
+                                            ? 'Employee name'
+                                            : row.partyType === 'company'
+                                              ? 'Company name'
+                                              : 'Company / Employee name'
+                                    }
+                                    value={row.partyName || row.description || ''}
+                                    disabled={!canAct || busy}
+                                    onChange={(e) =>
+                                        setLine(index, {
+                                            partyName: e.target.value,
+                                            description: e.target.value,
+                                        })
+                                    }
+                                />
                                 <ZohoPayAccountSelect
                                     value={row.payAccountId || ''}
                                     name={row.payableTo || ''}

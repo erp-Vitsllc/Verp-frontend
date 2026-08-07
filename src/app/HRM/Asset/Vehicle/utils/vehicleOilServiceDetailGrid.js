@@ -88,7 +88,7 @@ export function buildOilServiceDetailGridFields(asset, service, scheduleRow, emp
                     : employeeName(asset?.assignedTo),
         },
         {
-            label: 'Who Committed Accident',
+            label: 'Vehicle Driven By',
             value: findEmployeeLabel(employees, remark.carDrivenByEmployeeId),
         },
         { label: 'Amount', value: formatMoney(service.value) },

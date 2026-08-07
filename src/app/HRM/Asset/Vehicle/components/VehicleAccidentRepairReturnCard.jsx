@@ -37,7 +37,6 @@ import {
     tireBtnPrimary,
     tireBtnSecondary,
     tireDatePickerClass,
-    tireFieldInput,
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
@@ -446,6 +445,46 @@ export default function VehicleAccidentRepairReturnCard({
                                 onFile={(file) => handleDocFile('garageInvoice', file)}
                             />
                         </VehicleAccidentRepairFormFieldCell>
+                        {(formData.returnOtherDocs || []).map((row, index) => (
+                            <div
+                                key={row.id}
+                                className={`relative flex flex-col justify-center rounded-lg border px-3 py-2.5 ${accent((index + 2) % 3)}`}
+                                style={{ minHeight: `${fieldMinHeightPx}px` }}
+                            >
+                                {!fieldsDisabled ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => removeOtherDocRow(row.id)}
+                                        className="absolute right-1.5 top-1.5 rounded px-1 text-[11px] font-bold leading-none text-red-500 hover:bg-red-50"
+                                        title="Remove"
+                                    >
+                                        {'\u00d7'}
+                                    </button>
+                                ) : null}
+                                {fieldsDisabled ? (
+                                    <span className="pr-4 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                        {row.docType || `Other Document ${index + 1}`}
+                                    </span>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        className="w-full border-0 bg-transparent p-0 pr-4 text-[10px] font-semibold uppercase tracking-wide text-gray-600 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                                        value={row.docType || ''}
+                                        onChange={(e) => updateOtherDocRow(row.id, { docType: e.target.value })}
+                                        placeholder="File name"
+                                    />
+                                )}
+                                <div className="mt-1.5 min-w-0">
+                                    <UploadField
+                                        label={row.docType || `Other Document ${index + 1}`}
+                                        fileName={row.name}
+                                        existingUrl={row.existingUrl}
+                                        disabled={fieldsDisabled}
+                                        onFile={(file) => handleOtherDocFile(row.id, file)}
+                                    />
+                                </div>
+                            </div>
+                        ))}
                         {!fieldsDisabled ? (
                             <div className="flex items-end">
                                 <button
@@ -460,93 +499,6 @@ export default function VehicleAccidentRepairReturnCard({
                             </div>
                         ) : null}
                     </div>
-
-                    {(formData.returnOtherDocs || []).length ? (
-                        <div className={`mt-2.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
-                            {(formData.returnOtherDocs || []).map((row, index) => (
-                                <div
-                                    key={row.id}
-                                    className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2 lg:col-span-3"
-                                >
-                                    <div className="mb-2 flex items-center justify-between gap-2">
-                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                            Other Document {index + 1}
-                                        </span>
-                                        {!fieldsDisabled ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => removeOtherDocRow(row.id)}
-                                                className="rounded-md px-1.5 py-0.5 text-[11px] font-bold text-red-500 hover:bg-red-50"
-                                                title="Remove"
-                                            >
-                                                {'\u00d7'}
-                                            </button>
-                                        ) : null}
-                                    </div>
-                                    <div className={`grid grid-cols-1 sm:grid-cols-2 ${gapClass}`}>
-                                        <VehicleAccidentRepairFormFieldCell
-                                            label="Field Type"
-                                            accentClass={accent(index % 3)}
-                                            minHeightPx={fieldMinHeightPx}
-                                        >
-                                            <input
-                                                type="text"
-                                                className={tireFieldInput}
-                                                value={row.docType || ''}
-                                                onChange={(e) =>
-                                                    updateOtherDocRow(row.id, { docType: e.target.value })
-                                                }
-                                                disabled={fieldsDisabled}
-                                                placeholder="e.g. Insurance copy"
-                                            />
-                                        </VehicleAccidentRepairFormFieldCell>
-                                        <VehicleAccidentRepairFormFieldCell
-                                            label="Attachment"
-                                            accentClass={accent((index + 1) % 3)}
-                                            minHeightPx={fieldMinHeightPx}
-                                        >
-                                            <div className="flex flex-wrap items-center gap-2 min-h-[40px]">
-                                                {row.existingUrl ? (
-                                                    <button
-                                                        type="button"
-                                                        className={tireViewBtn}
-                                                        onClick={() =>
-                                                            void openAttachmentInNewTab(row.existingUrl, {
-                                                                name: row.name || row.docType || 'Other document',
-                                                            })
-                                                        }
-                                                    >
-                                                        View
-                                                    </button>
-                                                ) : null}
-                                                {!fieldsDisabled ? (
-                                                    <label className={tireUploadBtn}>
-                                                        <Upload size={14} />
-                                                        {row.name || row.existingUrl ? 'Change' : 'Upload'}
-                                                        <input
-                                                            type="file"
-                                                            className="sr-only"
-                                                            accept={ERP_ATTACHMENT_ACCEPT}
-                                                            disabled={fieldsDisabled}
-                                                            onChange={(e) => {
-                                                                handleOtherDocFile(row.id, e.target.files?.[0]);
-                                                                e.target.value = '';
-                                                            }}
-                                                        />
-                                                    </label>
-                                                ) : null}
-                                                {row.name ? (
-                                                    <span className="text-[10px] text-gray-500 truncate max-w-[180px]">
-                                                        {row.name}
-                                                    </span>
-                                                ) : null}
-                                            </div>
-                                        </VehicleAccidentRepairFormFieldCell>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : null}
 
                     <div className={`mt-2.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleAccidentRepairFormFieldCell

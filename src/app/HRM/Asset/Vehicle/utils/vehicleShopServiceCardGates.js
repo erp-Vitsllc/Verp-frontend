@@ -1,5 +1,5 @@
 /**
- * Sequential lock messages for shop services (Tire / Mechanical / Body),
+ * Sequential lock messages for shop services (Tire / Mechanical / Body / Accident),
  * matching Oil Service always-visible locked card shells.
  *
  * Page order matches Oil naming: Initiate → Schedule + HR (together) → Accounts → Complete → Make Payment
@@ -20,8 +20,39 @@ function stageOf(workflowStage) {
     return String(workflowStage || '').toLowerCase().trim();
 }
 
-function isTerminal(stage) {
-    return stage === 'complete' || stage === 'billed' || stage === 'rejected';
+function isServiceCompletedLive(service) {
+    const remark = parseVehicleServiceRemark(service) || {};
+    return String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live';
+}
+
+/**
+ * Schedule/Reschedule stays editable after Initiate until Complete Service finishes.
+ * Accounts Approve must NOT close Schedule.
+ */
+export function isShopScheduleOpenForAdmin(workflowStage = '', service = null) {
+    const stage = stageOf(workflowStage);
+    if (!stage || stage === 'pending' || stage === 'draft' || stage === 'rejected') {
+        return false;
+    }
+    if (stage === 'complete' || stage === 'billed' || stage === 'pending_billing') {
+        return false;
+    }
+    if (isServiceCompletedLive(service)) {
+        return false;
+    }
+    return (
+        stage === 'pending_hr' ||
+        stage === 'pending_admin_officer' ||
+        stage === 'pending_accounts' ||
+        stage === 'scheduled_service' ||
+        stage === 'pending_admin_return'
+    );
+}
+
+/** Admin Officer (or super user via canManage) may edit Schedule while it is open. */
+export function canEditShopServiceSchedule(workflowStage, canManageAsAdmin, { service } = {}) {
+    if (!canManageAsAdmin) return false;
+    return isShopScheduleOpenForAdmin(workflowStage, service);
 }
 
 export function resolveShopServiceCardGate({
@@ -39,7 +70,7 @@ export function resolveShopServiceCardGate({
         stage === 'pending_billing' ||
         stage === 'billed' ||
         stage === 'complete' ||
-        String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live';
+        isServiceCompletedLive(service);
 
     if (assignmentPending) {
         if (cardKey === SHOP_SERVICE_CARD.HR || cardKey === SHOP_SERVICE_CARD.ACCOUNTS) {
@@ -70,30 +101,28 @@ export function resolveShopServiceCardGate({
 
     switch (cardKey) {
         case SHOP_SERVICE_CARD.SCHEDULE: {
-            if (isTerminal(stage) && garageDone) {
-                return { locked: true, message: 'Schedule locked — this service is complete or billed' };
-            }
-            // Oil-style: Schedule + HR open together after Initiate (pending_hr).
-            if (
-                stage === 'pending_hr' ||
-                stage === 'pending_admin_officer' ||
-                stage === 'pending_accounts' ||
-                stage === 'scheduled_service' ||
-                stage === 'pending_admin_return' ||
-                stage === 'pending_billing' ||
-                garageDone
-            ) {
+            // Only Complete Service (or billed/rejected) locks Schedule — never Accounts Approve.
+            if (isShopScheduleOpenForAdmin(stage, service)) {
                 return {
                     locked: false,
                     message: '',
-                    active:
-                        (stage === 'pending_hr' && !garageDone) ||
-                        stage === 'pending_admin_officer' ||
-                        (stage === 'pending_accounts' && !garageDone),
+                    active: true,
                     done: garageDone,
                 };
             }
-            return { locked: true, message: 'Complete Initiate Service and click Send first' };
+            if (returnDone || stage === 'pending_billing' || stage === 'billed' || stage === 'complete') {
+                return {
+                    locked: true,
+                    message: 'Schedule locked — Complete Service is done (or billed)',
+                };
+            }
+            if (stage === 'rejected') {
+                return { locked: true, message: 'Schedule locked — request rejected' };
+            }
+            return {
+                locked: true,
+                message: 'Complete Initiate Service and click Send first',
+            };
         }
         case SHOP_SERVICE_CARD.HR: {
             if (stage === 'pending_hr') {

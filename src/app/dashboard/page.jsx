@@ -15,6 +15,7 @@ import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRou
 import { resolveBulkAssignmentGroupId } from '@/utils/assetNotificationRouting';
 import BulkAssignmentAcknowledgeModal from '@/app/HRM/Asset/components/BulkAssignmentAcknowledgeModal';
 import {
+    serviceIdFromNotificationHref,
     vehicleIdFromNotificationHref,
     warmVehicleDetailLight,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleDetailWarmCache';
@@ -602,7 +603,11 @@ function DashboardContent() {
             /* ignore */
         }
         const vehicleId = vehicleIdFromNotificationHref(path);
-        if (vehicleId) void warmVehicleDetailLight(vehicleId);
+        if (vehicleId) {
+            void warmVehicleDetailLight(vehicleId, {
+                serviceId: serviceIdFromNotificationHref(path),
+            });
+        }
     };
 
     const handleRowClick = (item) => {

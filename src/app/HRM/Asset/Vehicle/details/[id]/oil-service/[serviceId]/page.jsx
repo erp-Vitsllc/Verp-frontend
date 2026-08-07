@@ -22,6 +22,7 @@ import {
     canUserManageOilService,
     canUserCreateOrInitiateVehicleService,
     canUserEditOilServiceDates,
+    canUserEditShopSchedule,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
     isVehicleServiceInitiateEditableStage,
@@ -174,10 +175,10 @@ function VehicleOilServiceDetailPageContent() {
         [currentUser, flowchartRows],
     );
 
-    /** Schedule + Complete Service — flowchart Admin Officer (or portal super user). */
+    /** Schedule + Complete Service — Admin / Admin Officer / Asset Controller / super user. */
     const canAdminOilSteps = useMemo(
-        () => isFlowchartAdminOfficer || isPortalSuperUser(currentUser),
-        [currentUser, isFlowchartAdminOfficer],
+        () => canUserEditShopSchedule(currentUser, flowchartRows),
+        [currentUser, flowchartRows],
     );
 
     const canManageOilService = useMemo(
@@ -247,16 +248,12 @@ function VehicleOilServiceDetailPageContent() {
         return !!(rowCode && myCode && rowCode === myCode);
     }, [currentUser, flowchartRows]);
 
-    /** Pending: create/initiate users. At HR/Accounts/Zoho bill: those roles or managers may edit Initiate. */
+    /** Pending: create/initiate users. HR stage: HR/managers. Locked after HR approval. */
     const canEditAssignment = assignmentPending
-        ? Boolean(
-              canCreateOrInitiate ||
-                  (isVehicleServiceInitiateEditableStage(oilWorkflowStage) &&
-                      (canManageOilService || isFlowchartHr || isFlowchartAccounts)),
-          )
+        ? Boolean(canCreateOrInitiate)
         : isVehicleServiceInitiateEditableStage(oilWorkflowStage)
           ? Boolean(canManageOilService || isFlowchartHr || isFlowchartAccounts)
-          : canManageOilService;
+          : false;
 
 
     const handleRequested = useCallback(() => {

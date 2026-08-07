@@ -19,7 +19,7 @@ function mediaDependencyKey(value) {
 export default function useAssessmentMediaUrl(photo) {
     const [url, setUrl] = useState(() => {
         const direct = resolveAssessmentMediaUrl(photo);
-        return direct?.startsWith('data:') ? direct : null;
+        return direct?.startsWith('data:') || direct?.startsWith('blob:') ? direct : null;
     });
     const [loading, setLoading] = useState(false);
     const [failed, setFailed] = useState(false);
@@ -37,7 +37,7 @@ export default function useAssessmentMediaUrl(photo) {
         }
 
         const direct = resolveAssessmentMediaUrl(photo);
-        if (direct?.startsWith('data:')) {
+        if (direct?.startsWith('data:') || direct?.startsWith('blob:')) {
             setUrl(direct);
             setFailed(false);
             setLoading(false);
@@ -45,7 +45,7 @@ export default function useAssessmentMediaUrl(photo) {
         }
 
         const storageKey = normalizeHandoverPhotoIdentity(photo);
-        if (!storageKey || storageKey.startsWith('data:')) {
+        if (!storageKey || storageKey.startsWith('data:') || storageKey.startsWith('blob:')) {
             // Do not put Wasabi/http URLs into <img src> — browser DNS often fails.
             setUrl(null);
             setFailed(true);
@@ -58,7 +58,9 @@ export default function useAssessmentMediaUrl(photo) {
         setFailed(false);
         fetchSignedAssessmentMediaUrl(photo).then((signed) => {
             if (cancelled) return;
-            const nextUrl = signed || (direct?.startsWith('data:') ? direct : null);
+            const nextUrl =
+                signed ||
+                (direct?.startsWith('data:') || direct?.startsWith('blob:') ? direct : null);
             setUrl(nextUrl);
             setFailed(!nextUrl);
             setLoading(false);

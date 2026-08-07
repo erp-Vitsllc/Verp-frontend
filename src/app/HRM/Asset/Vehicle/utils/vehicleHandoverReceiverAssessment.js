@@ -1823,7 +1823,13 @@ export function resolveAssessmentMediaUrl(value) {
     if (typeof value === 'string') {
         const trimmed = value.trim();
         if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return null;
-        if (trimmed.startsWith('data:') || trimmed.startsWith('http')) return trimmed;
+        if (
+            trimmed.startsWith('data:') ||
+            trimmed.startsWith('blob:') ||
+            trimmed.startsWith('http')
+        ) {
+            return trimmed;
+        }
         // Bare S3 storage keys cannot be rendered without a signed URL from the API.
         return null;
     }
@@ -1831,7 +1837,13 @@ export function resolveAssessmentMediaUrl(value) {
     if (typeof value === 'object') {
         if (typeof value.url === 'string') {
             const direct = value.url.trim();
-            if (direct.startsWith('http') || direct.startsWith('data:')) return direct;
+            if (
+                direct.startsWith('http') ||
+                direct.startsWith('data:') ||
+                direct.startsWith('blob:')
+            ) {
+                return direct;
+            }
         }
         const nested = value.url || value.publicId || value.path || value.data || null;
         return resolveAssessmentMediaUrl(nested);

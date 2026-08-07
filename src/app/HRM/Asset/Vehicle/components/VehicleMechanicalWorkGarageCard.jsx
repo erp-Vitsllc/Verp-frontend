@@ -115,13 +115,10 @@ export default function VehicleMechanicalWorkGarageCard({
     const subtitle = scheduleGate.locked
         ? scheduleGate.message
         : !canManage
-          ? 'Waiting for flowchart Admin Officer to schedule / reschedule'
-          : stage === MECHANICAL_WORK_WORKFLOW_STAGES.HR ||
-              stage === MECHANICAL_WORK_WORKFLOW_STAGES.ADMIN_OFFICER
-            ? 'Garage and dates are required — then click OK (open with HR Approval)'
-            : isComplete || stage === 'billed'
-              ? 'Schedule locked — service is complete'
-              : 'Admin Officer can update garage or dates until Complete Service';
+          ? 'Waiting for Admin / Admin Officer to schedule / reschedule'
+          : canEditGarage
+            ? 'Admin / Admin Officer can schedule / reschedule anytime until Complete Service'
+            : 'Garage vendor and scheduled service window';
 
     const card = (
         <FineFormCard
