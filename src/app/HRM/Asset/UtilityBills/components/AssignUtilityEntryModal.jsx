@@ -51,6 +51,7 @@ export default function AssignUtilityEntryModal({ isOpen, onClose, entry, onSave
     const [companies, setCompanies] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const isReassign = Boolean(entry?.assignedTo || entry?.assignedToId);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -160,7 +161,7 @@ export default function AssignUtilityEntryModal({ isOpen, onClose, entry, onSave
             >
                 <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-100">
                     <h2 id="assign-utility-entry-title" className="text-lg font-bold text-gray-800">
-                        Assign {entry?.type || 'Utility'}
+                        {isReassign ? 'Reassign' : 'Assign'} {entry?.type || 'Utility'}
                     </h2>
                     <button
                         type="button"
@@ -176,7 +177,7 @@ export default function AssignUtilityEntryModal({ isOpen, onClose, entry, onSave
                     <div className="px-4 sm:px-5 py-4 space-y-4">
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                                Assign To
+                                {isReassign ? 'Reassign To' : 'Assign To'}
                             </label>
                             <div className="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1">
                                 <button
@@ -261,7 +262,7 @@ export default function AssignUtilityEntryModal({ isOpen, onClose, entry, onSave
                             disabled={loading}
                             className="px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white text-sm font-medium"
                         >
-                            Assign
+                            {isReassign ? 'Reassign' : 'Assign'}
                         </button>
                     </div>
                 </form>

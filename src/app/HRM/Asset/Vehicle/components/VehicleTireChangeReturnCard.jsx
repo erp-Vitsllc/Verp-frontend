@@ -8,14 +8,12 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import VehicleServiceLockedSection from './VehicleServiceLockedSection';
-import VehicleServiceNewConditionPhotoStrip from './VehicleServiceNewConditionPhotoStrip';
-import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
-import { openAttachmentInNewTab, extractStorageReference, loadStorageFileBlob } from '@/utils/attachmentPreview';
-import { parseVehicleServiceRemark, normalizeMongoId } from './vehicleServiceUtils';
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
+import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import VehicleTireChangeFormFieldCell from './VehicleTireChangeFormFieldCell';
 import {
     isOilServiceAssignmentPending,
@@ -32,9 +30,6 @@ import {
     validateTireChangeReturnForm,
 } from '../utils/vehicleTireChangeReturnForm';
 import {
-    labelForServiceBodyPartKey,
-} from '../utils/vehicleServiceNewConditionPhotos';
-import {
     TIRE_CHANGE_DETAIL_GRID_LAYOUT,
     tireAccent,
     tireBtnPrimary,
@@ -48,14 +43,6 @@ import {
     ERP_PDF_ACCEPT,
     validateErpPdfFile,
 } from '@/utils/uploadFileTypes';
-
-function directConditionImageSrc(img) {
-    const url = String(img?.url || img?.data || '').trim();
-    if (!url) return '';
-    // Only inline/blob URLs in <img>. Wasabi signed URLs fail on many office networks (DNS).
-    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
-    return '';
-}
 
 function readUploadFile(file, onDone) {
     if (!file) return;
@@ -144,10 +131,6 @@ export default function VehicleTireChangeReturnCard({
     const router = useRouter();
     const { toast } = useToast();
     const [saving, setSaving] = useState(false);
-    const [viewerOpen, setViewerOpen] = useState(false);
-    const [viewerStartIndex, setViewerStartIndex] = useState(0);
-    const [viewerExtraItems, setViewerExtraItems] = useState([]);
-    const [resolvedExistingPhotoSrc, setResolvedExistingPhotoSrc] = useState({});
     const [formData, setFormData] = useState(() => buildTireChangeReturnFormState(service, asset));
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
@@ -162,110 +145,12 @@ export default function VehicleTireChangeReturnCard({
     const canEditReturn = canEditTireChangeReturn(stage, canManage, isComplete, asset);
     const fieldsDisabled = !canEditReturn || saving || assignmentPending;
 
-    const photoGalleryItems = useMemo(() => {
-        const items = [];
-        (formData.existingNewConditionImages || []).forEach((img, idx) => {
-            const thumb =
-                resolvedExistingPhotoSrc[`existing-${idx}`] || directConditionImageSrc(img);
-            const previewUrl =
-                typeof thumb === 'string' &&
-                (thumb.startsWith('data:') || thumb.startsWith('blob:'))
-                    ? thumb
-                    : '';
-            if (!img && !previewUrl) return;
-            items.push({
-                key: `existing-${idx}`,
-                label:
-                    labelForServiceBodyPartKey(img?.bodyPartKey) ||
-                    `Condition photo ${items.length + 1}`,
-                // Keep storage ref for proxy; pass ready blob/data as url for instant view.
-                photo: img || previewUrl,
-                ...(previewUrl ? { url: previewUrl } : {}),
-            });
-        });
-        (formData.newConditionImages || []).forEach((img, idx) => {
-            const url = img?.data
-                ? `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
-                : '';
-            if (!url) return;
-            items.push({
-                key: `new-${idx}`,
-                label:
-                    labelForServiceBodyPartKey(img?.bodyPartKey) ||
-                    `Condition photo ${items.length + 1}`,
-                photo: url,
-                url,
-            });
-        });
-        return items;
-    }, [
-        formData.existingNewConditionImages,
-        formData.newConditionImages,
-        resolvedExistingPhotoSrc,
-    ]);
-
-    const openPhotoViewer = useCallback(
-        (key) => {
-            if (!key) return;
-            const index = photoGalleryItems.findIndex((item) => item.key === key);
-            if (index < 0) return;
-            setViewerExtraItems([]);
-            setViewerStartIndex(index);
-            setViewerOpen(true);
-        },
-        [photoGalleryItems],
-    );
-
-    const viewerItems = viewerExtraItems.length ? viewerExtraItems : photoGalleryItems;
-
     const { fieldMinHeightPx, gapClass } = TIRE_CHANGE_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
 
     useEffect(() => {
         setFormData(buildTireChangeReturnFormState(service, asset));
     }, [service?._id, service?.updatedAt, service?.remark, service?.serviceCompletionReport, service?.shopInvoice, service?.invoice, asset]);
-
-    useEffect(() => {
-        const existing = formData.existingNewConditionImages || [];
-        if (!existing.length) {
-            setResolvedExistingPhotoSrc({});
-            return undefined;
-        }
-
-        let cancelled = false;
-        const objectUrls = [];
-
-        (async () => {
-            const next = {};
-            for (let idx = 0; idx < existing.length; idx += 1) {
-                const img = existing[idx];
-                const direct = directConditionImageSrc(img);
-                const key = `existing-${idx}`;
-                if (direct) {
-                    next[key] = direct;
-                    continue;
-                }
-                const storageKey = extractStorageReference(img)?.key;
-                if (!storageKey) continue;
-                try {
-                    const blob = await loadStorageFileBlob(storageKey);
-                    const objectUrl = URL.createObjectURL(blob);
-                    objectUrls.push(objectUrl);
-                    next[key] = objectUrl;
-                } catch {
-                    /* storage key could not be loaded */
-                }
-            }
-            if (!cancelled) {
-                setResolvedExistingPhotoSrc(next);
-            }
-        })();
-
-        return () => {
-            cancelled = true;
-            objectUrls.forEach((url) => URL.revokeObjectURL(url));
-        };
-    }, [formData.existingNewConditionImages]);
 
     const set = useCallback((key, value) => {
         setFormData((prev) => ({ ...prev, [key]: value }));
@@ -341,29 +226,6 @@ export default function VehicleTireChangeReturnCard({
         },
         [toast, updateOtherDocRow],
     );
-
-    const setBodyPartNewImage = useCallback((bodyPartKey, image) => {
-        const key = String(bodyPartKey || '').trim();
-        if (!key || !image) return;
-        setFormData((prev) => {
-            const list = [...(prev.newConditionImages || [])].filter(
-                (img) => String(img?.bodyPartKey || '').trim() !== key,
-            );
-            list.push({ ...image, bodyPartKey: key });
-            return { ...prev, newConditionImages: list };
-        });
-    }, []);
-
-    const clearBodyPartNewImage = useCallback((bodyPartKey) => {
-        const key = String(bodyPartKey || '').trim();
-        if (!key) return;
-        setFormData((prev) => ({
-            ...prev,
-            newConditionImages: (prev.newConditionImages || []).filter(
-                (img) => String(img?.bodyPartKey || '').trim() !== key,
-            ),
-        }));
-    }, []);
 
     const handleCancel = () => {
         if (vehicleId) {
@@ -573,23 +435,6 @@ export default function VehicleTireChangeReturnCard({
 
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                            New Condition Photos
-                        </span>
-                        <div className="mt-2">
-                            <VehicleServiceNewConditionPhotoStrip
-                                existingImages={formData.existingNewConditionImages}
-                                newImages={formData.newConditionImages}
-                                resolvedExistingSrc={resolvedExistingPhotoSrc}
-                                disabled={fieldsDisabled}
-                                onPreview={openPhotoViewer}
-                                onSetBodyPartImage={setBodyPartNewImage}
-                                onClearBodyPartImage={clearBodyPartNewImage}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="mt-4 border-t border-gray-100 pt-4">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                             Description (optional)
                         </span>
                         <textarea
@@ -633,16 +478,6 @@ export default function VehicleTireChangeReturnCard({
                 </FineFormCard>
                 </VehicleServiceLockedSection>
             </div>
-
-            <VehicleHandoverAssessmentPhotoViewer
-                open={viewerOpen}
-                items={viewerItems}
-                startIndex={viewerStartIndex}
-                onClose={() => {
-                    setViewerOpen(false);
-                    setViewerExtraItems([]);
-                }}
-            />
         </>
     );
 }

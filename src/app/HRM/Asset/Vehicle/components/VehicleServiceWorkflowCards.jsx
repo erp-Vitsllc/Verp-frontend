@@ -7,8 +7,11 @@ import { Check, Loader2, X, PauseCircle, UserCheck, Layers, CalendarRange, Clipb
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
-import { resolveCarDrivenByLabel } from '@/app/HRM/Asset/Vehicle/utils/vehicleCarDrivenBySelect';
+import {
+    resolveCarDrivenByLabel,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleCarDrivenBySelect';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
+import EmployeeNameLink from '@/components/EmployeeNameLink';
 
 const fieldInput =
     'w-full min-h-[36px] px-2.5 py-1.5 bg-white border border-black rounded text-sm text-slate-900 outline-none focus:ring-1 focus:ring-slate-400';
@@ -1520,21 +1523,59 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                                     <div>
                                         <span className={fieldLabel}>Vehicle assigned</span>
-                                        <input
-                                            type="text"
-                                            readOnly
-                                            className={`${fieldInput} bg-white`}
-                                            value={findEmployeeName(accidentMeta?.vehicleOwnerEmployeeId) || '—'}
-                                        />
+                                        {accidentMeta?.vehicleOwnerEmployeeId ? (
+                                            <div className={`${fieldInput} bg-white flex items-center`}>
+                                                <EmployeeNameLink
+                                                    employeeId={accidentMeta.vehicleOwnerEmployeeId}
+                                                    name={findEmployeeName(accidentMeta.vehicleOwnerEmployeeId) || '—'}
+                                                    className="font-medium"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                className={`${fieldInput} bg-white`}
+                                                value="—"
+                                            />
+                                        )}
                                     </div>
                                     <div>
                                         <span className={fieldLabel}>Vehicle Driven By</span>
-                                        <input
-                                            type="text"
-                                            readOnly
-                                            className={`${fieldInput} bg-white`}
-                                            value={resolveCarDrivenByLabel(accidentMeta, employees, companies) || '—'}
-                                        />
+                                        {(() => {
+                                            const drivenType = String(
+                                                accidentMeta?.carDrivenByType || '',
+                                            ).toLowerCase();
+                                            const drivenEmployeeId = String(
+                                                accidentMeta?.carDrivenByEmployeeId || '',
+                                            ).trim();
+                                            const label =
+                                                resolveCarDrivenByLabel(accidentMeta, employees, companies) ||
+                                                '—';
+                                            if (
+                                                drivenEmployeeId &&
+                                                drivenType !== 'company' &&
+                                                !accidentMeta?.carDrivenByCompanyId
+                                            ) {
+                                                return (
+                                                    <div className={`${fieldInput} bg-white flex items-center`}>
+                                                        <EmployeeNameLink
+                                                            employeeId={drivenEmployeeId}
+                                                            name={label}
+                                                            className="font-medium"
+                                                        />
+                                                    </div>
+                                                );
+                                            }
+                                            return (
+                                                <input
+                                                    type="text"
+                                                    readOnly
+                                                    className={`${fieldInput} bg-white`}
+                                                    value={label}
+                                                />
+                                            );
+                                        })()}
                                     </div>
                                     <div>
                                         <span className={fieldLabel}>Accident Party</span>
@@ -2324,9 +2365,14 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                                         <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Employee name</p>
                                         <p className="mt-1 font-semibold text-gray-800">
-                                            {asset?.assignedTo
-                                                ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim() || '-'
-                                                : '-'}
+                                            {asset?.assignedTo ? (
+                                                <EmployeeNameLink
+                                                    employee={asset.assignedTo}
+                                                    className="font-semibold text-gray-800"
+                                                />
+                                            ) : (
+                                                '-'
+                                            )}
                                         </p>
                                     </div>
                                 </div>

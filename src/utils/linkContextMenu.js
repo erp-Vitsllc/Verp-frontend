@@ -1,5 +1,16 @@
 const listeners = new Set();
 
+/** Blocks in-app router navigation briefly after "open in new tab/window". */
+let suppressInAppNavUntil = 0;
+
+export function suppressInAppNavigationBriefly(ms = 600) {
+    suppressInAppNavUntil = Date.now() + Math.max(0, Number(ms) || 0);
+}
+
+export function shouldSuppressInAppNavigation() {
+    return Date.now() < suppressInAppNavUntil;
+}
+
 export function subscribeLinkContextMenu(listener) {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -53,17 +64,114 @@ export function navHrefProps(href) {
     return { 'data-nav-href': path };
 }
 
+function reclaimCurrentWindowFocus() {
+    if (typeof window === 'undefined') return;
+    const focusHere = () => {
+        try {
+            window.focus();
+        } catch {
+            // ignore focus errors from browser policy
+        }
+    };
+    focusHere();
+    requestAnimationFrame(focusHere);
+    setTimeout(focusHere, 0);
+    // Chromium often activates the new tab after navigation starts — reclaim again.
+    setTimeout(focusHere, 50);
+    setTimeout(focusHere, 150);
+    setTimeout(focusHere, 300);
+}
+
+/**
+ * Open in a new tab but keep the user on the current tab/screen.
+ * Current page must never router-navigate when this runs.
+ */
 export function openLinkInNewTab(href) {
     const path = normalizeHref(href);
     if (!path || typeof window === 'undefined') return;
-    window.open(path, '_blank', 'noopener,noreferrer');
+
+    suppressInAppNavigationBriefly(800);
+
+    const absoluteUrl = new URL(path, window.location.origin).href;
+    const openerWindow = window;
+
+    // Open blank first so we can blur before the destination loads.
+    const win = window.open('about:blank', '_blank');
+    if (!win) {
+        // Popup blocked — last resort native anchor (may activate the new tab).
+        const anchor = document.createElement('a');
+        anchor.href = absoluteUrl;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.style.display = 'none';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        reclaimCurrentWindowFocus();
+        return;
+    }
+
+    try {
+        win.opener = null;
+    } catch {
+        // ignore
+    }
+
+    try {
+        win.blur();
+    } catch {
+        // ignore
+    }
+    try {
+        openerWindow.focus();
+    } catch {
+        // ignore
+    }
+    reclaimCurrentWindowFocus();
+
+    const navigateBackground = () => {
+        try {
+            win.location.replace(absoluteUrl);
+        } catch {
+            try {
+                win.location.href = absoluteUrl;
+            } catch {
+                // ignore
+            }
+        }
+        try {
+            win.blur();
+        } catch {
+            // ignore
+        }
+        try {
+            openerWindow.focus();
+        } catch {
+            // ignore
+        }
+        reclaimCurrentWindowFocus();
+    };
+
+    // Keep navigation in the same user-gesture turn when possible, then reclaim again.
+    navigateBackground();
+    setTimeout(reclaimCurrentWindowFocus, 0);
+    setTimeout(reclaimCurrentWindowFocus, 50);
+    setTimeout(reclaimCurrentWindowFocus, 120);
+    setTimeout(reclaimCurrentWindowFocus, 250);
+    setTimeout(reclaimCurrentWindowFocus, 500);
 }
 
+/**
+ * Open in a new window but keep focus on the current window/tab.
+ */
 export function openLinkInNewWindow(href) {
     const path = normalizeHref(href);
     if (!path || typeof window === 'undefined') return;
 
+    suppressInAppNavigationBriefly(800);
+
     const absoluteUrl = new URL(path, window.location.origin).href;
+    const openerWindow = window;
     const width = Math.min(1280, Math.max(960, window.screen.availWidth - 120));
     const height = Math.min(860, Math.max(640, window.screen.availHeight - 120));
     const left = Math.max(0, Math.round((window.screen.availWidth - width) / 2));
@@ -84,12 +192,37 @@ export function openLinkInNewWindow(href) {
     const win = window.open('about:blank', '_blank', features);
     if (!win) return;
     win.opener = null;
-    win.location.replace(absoluteUrl);
     try {
-        win.focus();
+        win.blur();
     } catch {
-        // ignore focus errors from cross-origin / browser policy
+        // ignore
     }
+    try {
+        openerWindow.focus();
+    } catch {
+        // ignore
+    }
+    reclaimCurrentWindowFocus();
+
+    try {
+        win.location.replace(absoluteUrl);
+    } catch {
+        try {
+            win.location.href = absoluteUrl;
+        } catch {
+            // ignore
+        }
+    }
+    try {
+        win.blur();
+    } catch {
+        // ignore
+    }
+    reclaimCurrentWindowFocus();
+    setTimeout(reclaimCurrentWindowFocus, 0);
+    setTimeout(reclaimCurrentWindowFocus, 50);
+    setTimeout(reclaimCurrentWindowFocus, 120);
+    setTimeout(reclaimCurrentWindowFocus, 250);
 }
 
 /**
@@ -134,45 +267,13 @@ export function resolveNavigableHref(target) {
 }
 
 /**
- * Attach to a navigable element when you already know the href.
- * Prefer data-nav-href + the global listener for app-wide coverage.
+ * Custom context menu disabled ERP-wide — real <a>/<Link> use the browser native menu.
+ * Kept as no-ops so older call sites do not break.
  */
-export function handleLinkContextMenu(event, href, { enabled = true } = {}) {
-    if (!enabled || event?.defaultPrevented) return;
-    const path = normalizeHref(href);
-    if (!path) return;
-
-    const blocked = event.target?.closest?.(
-        'input, textarea, select, [contenteditable="true"], [data-no-nav-context-menu], [data-row-nav-ignore]',
-    );
-    if (blocked) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === 'function') {
-        event.stopImmediatePropagation();
-    }
-    showLinkContextMenu({ href: path, x: event.clientX, y: event.clientY });
+export function handleLinkContextMenu(_event, _href, _opts) {
+    return;
 }
 
-/**
- * Main app-wide right-click handler. Mount once (capture phase).
- * Shows Open in new tab / window for links and navigational buttons.
- */
-export function handleGlobalNavContextMenu(event) {
-    if (event.defaultPrevented) return;
-    if (event.target?.closest?.('[data-link-context-menu]')) {
-        event.preventDefault();
-        return;
-    }
-
-    const href = resolveNavigableHref(event.target);
-    if (!href) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === 'function') {
-        event.stopImmediatePropagation();
-    }
-    showLinkContextMenu({ href, x: event.clientX, y: event.clientY });
+export function handleGlobalNavContextMenu(_event) {
+    return;
 }

@@ -147,7 +147,7 @@ import VehicleDocumentTabServiceSections, {
     documentTabHasServiceRows,
 } from '../../components/VehicleDocumentTabServiceSections';
 import VehicleHandoverHistoryTable from '../../components/VehicleHandoverHistoryTable';
-import { isSameHandoverAssignee } from '../../utils/vehicleHandoverHistory';
+import { isSameHandoverAssignee, isVehicleInspectionHandoverEntry } from '../../utils/vehicleHandoverHistory';
 import VehicleAccessoriesListTab from '../../components/VehicleAccessoriesListTab';
 import {
     VEHICLE_SERVICE_TYPES,
@@ -5127,6 +5127,13 @@ function VehicleDetailsPageContent() {
                                                     const matchesInsp =
                                                         inspId &&
                                                         String(inspId) === String(deletedId);
+                                                    const isInspectionRow =
+                                                        isVehicleInspectionHandoverEntry(entry, prev);
+                                                    // Clear stuck Active inspection when link was already null
+                                                    // but an inspection handover row was deleted.
+                                                    const clearInspection =
+                                                        matchesInsp ||
+                                                        (isInspectionRow && !inspId);
                                                     const isPendingAssigned =
                                                         entry &&
                                                         String(entry?.action || '').trim() ===
@@ -5137,7 +5144,7 @@ function VehicleDetailsPageContent() {
 
                                                     if (
                                                         !matchesFlow &&
-                                                        !matchesInsp &&
+                                                        !clearInspection &&
                                                         !isPendingAssigned
                                                     ) {
                                                         return prev;
@@ -5165,10 +5172,10 @@ function VehicleDetailsPageContent() {
                                                                 ? null
                                                                 : prev.actionRequiredBy,
                                                         vehicleInspectionHandoverHistoryId:
-                                                            matchesInsp
+                                                            clearInspection
                                                                 ? null
                                                                 : prev.vehicleInspectionHandoverHistoryId,
-                                                        vehicleInspectionStatus: matchesInsp
+                                                        vehicleInspectionStatus: clearInspection
                                                             ? null
                                                             : prev.vehicleInspectionStatus,
                                                         pendingActionDetails: Object.keys(nextDetails)
@@ -5178,6 +5185,9 @@ function VehicleDetailsPageContent() {
                                                     };
                                                 });
                                             });
+
+                                            // Server heals orphaned inspection status — refresh bar from truth.
+                                            void fetchAssetDetails({ silent: true, light: true });
                                         }}
                                         onDeleteFailed={() => {
                                             void fetchAssetHistory({ forHandover: true });

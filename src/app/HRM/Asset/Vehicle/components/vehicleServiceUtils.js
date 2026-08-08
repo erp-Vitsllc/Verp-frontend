@@ -12,6 +12,37 @@ import { oilPaymentTypeLabel, normalizeOilPaymentType } from '../utils/vehicleOi
  *   Paid     = Zoho vendor payment settled (remark.zohoPaymentStatus=paid or Zoho bill paid)
  *   Warranty = "—" (no Zoho payment)
  */
+function collectRemarkZohoBillIds(remark = {}) {
+    const ids = new Set();
+    const push = (value) => {
+        const id = String(value || '').trim();
+        if (id) ids.add(id);
+    };
+    push(remark?.zohoBillId);
+    for (const row of Array.isArray(remark?.zohoBills) ? remark.zohoBills : []) {
+        push(row?.zohoBillId || row?.bill_id || row?.billId);
+    }
+    return [...ids];
+}
+
+function remarkHasZohoBillLink(remark = {}) {
+    if (collectRemarkZohoBillIds(remark).length) return true;
+    const multi = Array.isArray(remark?.zohoBills) ? remark.zohoBills : [];
+    if (multi.some((row) => String(row?.zohoBillNumber || row?.billNumber || '').trim())) return true;
+    return Boolean(String(remark?.zohoBillNumber || '').trim());
+}
+
+function remarkZohoBillsAllPaid(remark = {}) {
+    const multi = Array.isArray(remark?.zohoBills) ? remark.zohoBills.filter(Boolean) : [];
+    if (multi.length >= 1) {
+        return multi.every((row) => {
+            const st = String(row?.zohoBillStatus || row?.status || '').toLowerCase();
+            return st === 'paid';
+        });
+    }
+    return false;
+}
+
 export function resolveServiceAmountTypeAndStatus(serviceOrRemark) {
     const remark =
         serviceOrRemark && typeof serviceOrRemark === 'object' && !serviceOrRemark.remark
@@ -24,22 +55,23 @@ export function resolveServiceAmountTypeAndStatus(serviceOrRemark) {
         return { amountType: 'Warranty', amountStatus: '—', amountStatusTone: 'na' };
     }
 
-    const zohoBillId = String(remark.zohoBillId || '').trim();
     const billingStatus = String(remark.billingStatus || '').toLowerCase();
     const zohoPaymentStatus = String(remark.zohoPaymentStatus || '').toLowerCase();
     const zohoBillStatus = String(remark.zohoBillStatus || '').toLowerCase();
     const carWashPay = String(remark.carWashPaymentStatus || '').toLowerCase();
+    const hasZohoBill = remarkHasZohoBillLink(remark);
 
     if (
         zohoPaymentStatus === 'paid' ||
         zohoBillStatus === 'paid' ||
         carWashPay === 'paid' ||
-        billingStatus === 'paid'
+        billingStatus === 'paid' ||
+        remarkZohoBillsAllPaid(remark)
     ) {
         return { amountType, amountStatus: 'Paid', amountStatusTone: 'paid' };
     }
 
-    if (zohoBillId || billingStatus === 'billed' || carWashPay === 'billed') {
+    if (hasZohoBill || billingStatus === 'billed' || carWashPay === 'billed') {
         return { amountType, amountStatus: 'Not Paid', amountStatusTone: 'not_paid' };
     }
 

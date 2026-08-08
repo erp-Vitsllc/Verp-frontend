@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import ListTableRowLink from '@/components/ListTableRowLink';
-import { Bell, Pencil, Plus, Search, Trash2, UserPlus } from 'lucide-react';
+import EmployeeNameLink from '@/components/EmployeeNameLink';
+import { Bell, ChevronDown, Pencil, Plus, Search, Trash2, UserPlus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_CARD_DASHBOARD_FILTER, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import AddUtilityModal, { UTILITY_TOGGLE_FIELDS } from './components/AddUtilityModal';
 import CreateUtilityEntryModal from './components/CreateUtilityEntryModal';
@@ -234,6 +235,73 @@ function truncateCellText(text) {
     return `${t.slice(0, CELL_MAX_LEN - 1)}…`;
 }
 
+function utilityColumnSortType(key) {
+    if (key === 'monthlyRental' || key === 'paymentDate' || key === 'paymentDay') return 'number';
+    if (key === 'contractPeriod') return 'date';
+    return 'text';
+}
+
+function utilityEntrySortValue(entry, key) {
+    const values = entry?.values || {};
+    switch (key) {
+        case 'provider':
+            return String(values.provider || '').trim();
+        case 'contractPeriod': {
+            const raw = values.contractEnd || values.contractStart || null;
+            if (!raw) return null;
+            const t = new Date(raw).getTime();
+            return Number.isFinite(t) ? t : null;
+        }
+        case 'monthlyRental': {
+            const n = Number(values.monthlyRental);
+            return Number.isFinite(n) ? n : null;
+        }
+        case 'planDetails':
+            return String(values.planDetails || '').trim();
+        case 'paymentDate':
+        case 'paymentDay': {
+            const n = Number(values.paymentDay ?? values.paymentDate);
+            return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null;
+        }
+        case 'location':
+            return String(values.location || '').trim();
+        case 'accountNumber':
+            return String(values.accountNumber || values.accountNo || entry?.accountNo || '').trim();
+        case 'attachment': {
+            const file = values.attachment;
+            return file && typeof file === 'object' && file.name ? String(file.name) : '';
+        }
+        case 'status':
+            return String(entryLifecycleStatus(entry) || entry?.status || '').trim();
+        case 'assignment':
+            return String(entry?.assignedTo || '').trim();
+        default:
+            return String(values[key] || '').trim();
+    }
+}
+
+function compareUtilityEntrySortValues(a, b, key, type, direction) {
+    const dir = direction === 'desc' ? -1 : 1;
+    const av = utilityEntrySortValue(a, key);
+    const bv = utilityEntrySortValue(b, key);
+    const aEmpty = av == null || av === '';
+    const bEmpty = bv == null || bv === '';
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+
+    if (type === 'number' || type === 'date') {
+        return (Number(av) - Number(bv)) * dir;
+    }
+
+    return (
+        String(av).localeCompare(String(bv), undefined, {
+            numeric: true,
+            sensitivity: 'base',
+        }) * dir
+    );
+}
+
 /**
  * Utility Bills list — header cards + type tabs for each created utility.
  */
@@ -259,6 +327,7 @@ function UtilityBillsPageContent() {
     const [createEntryOpen, setCreateEntryOpen] = useState(false);
     const [editingEntry, setEditingEntry] = useState(null);
     const [assignEntry, setAssignEntry] = useState(null);
+    const [manageMenuEntryId, setManageMenuEntryId] = useState(null);
     const [addBillsOpen, setAddBillsOpen] = useState(false);
     const [savingBill, setSavingBill] = useState(false);
     const [reviewBatchId, setReviewBatchId] = useState('');
@@ -273,6 +342,8 @@ function UtilityBillsPageContent() {
     const [listStatusTab, setListStatusTab] = useState('active');
     /** Search within the active utility type tab rows. */
     const [tabSearchQuery, setTabSearchQuery] = useState('');
+    const [sortKey, setSortKey] = useState('provider');
+    const [sortDirection, setSortDirection] = useState('asc');
     const [typeBills, setTypeBills] = useState([]);
     /** Bills across every utility type — powers the overview amounts. */
     const [allTypeBills, setAllTypeBills] = useState([]);
@@ -444,41 +515,109 @@ function UtilityBillsPageContent() {
         return cols;
     }, [activeUtility]);
 
+    const activeUtilityType = activeUtility?.type || '';
+
+    useEffect(() => {
+        if (!activeUtilityType) return;
+        const fields = activeUtility?.fields || {};
+        const cols = UTILITY_TOGGLE_FIELDS.filter(
+            (f) => fields[f.key] === 'yes' && f.key !== 'assignment',
+        );
+        setSortKey(cols[0]?.key || 'status');
+        setSortDirection('asc');
+    }, [activeUtilityType]);
+
     const displayedEntries = useMemo(() => {
         const q = String(tabSearchQuery || '').trim().toLowerCase();
-        if (!q) return statusFilteredEntries;
+        const filtered = !q
+            ? statusFilteredEntries
+            : statusFilteredEntries.filter((entry) => {
+                  const values = entry?.values || {};
+                  const assignedName =
+                      entry?.assignedToType === 'company'
+                          ? entry?.assignedCompanyName || entry?.assignedCompany?.name || ''
+                          : entry?.assignedEmployeeName ||
+                            [entry?.assignedEmployee?.firstName, entry?.assignedEmployee?.lastName]
+                                .filter(Boolean)
+                                .join(' ') ||
+                            '';
+                  const haystack = [
+                      entry?.accountNo,
+                      entry?.id,
+                      values.accountNo,
+                      values.provider,
+                      values.planDetails,
+                      values.location,
+                      values.paymentDetails,
+                      values.monthlyRental,
+                      values.contractStart,
+                      values.contractEnd,
+                      assignedName,
+                      entry?.status,
+                      entry?.assignedTo,
+                      ...tableColumns.map((col) => formatCellValue(col.key, values)),
+                  ]
+                      .filter((v) => v != null && v !== '—')
+                      .map((v) => String(v).toLowerCase())
+                      .join(' ');
+                  return haystack.includes(q);
+              });
 
-        return statusFilteredEntries.filter((entry) => {
-            const values = entry?.values || {};
-            const assignedName =
-                entry?.assignedToType === 'company'
-                    ? entry?.assignedCompanyName || entry?.assignedCompany?.name || ''
-                    : entry?.assignedEmployeeName ||
-                      [entry?.assignedEmployee?.firstName, entry?.assignedEmployee?.lastName]
-                          .filter(Boolean)
-                          .join(' ') ||
-                      '';
-            const haystack = [
-                entry?.accountNo,
-                entry?.id,
-                values.accountNo,
-                values.provider,
-                values.planDetails,
-                values.location,
-                values.paymentDetails,
-                values.monthlyRental,
-                values.contractStart,
-                values.contractEnd,
-                assignedName,
-                entry?.status,
-                ...tableColumns.map((col) => formatCellValue(col.key, values)),
-            ]
-                .filter((v) => v != null && v !== '—')
-                .map((v) => String(v).toLowerCase())
-                .join(' ');
-            return haystack.includes(q);
-        });
-    }, [statusFilteredEntries, tabSearchQuery, tableColumns]);
+        const type = utilityColumnSortType(sortKey);
+        return [...filtered].sort((a, b) =>
+            compareUtilityEntrySortValues(a, b, sortKey, type, sortDirection),
+        );
+    }, [statusFilteredEntries, tabSearchQuery, tableColumns, sortKey, sortDirection]);
+
+    const handleSort = useCallback(
+        (key) => {
+            if (sortKey === key) {
+                setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                return;
+            }
+            setSortKey(key);
+            setSortDirection('asc');
+        },
+        [sortKey],
+    );
+
+    const renderSortableHeader = (key, label, { align = 'left' } = {}) => {
+        const isActive = sortKey === key;
+        const alignClass = align === 'right' ? 'text-right' : 'text-left';
+        return (
+            <th
+                key={key}
+                className={`px-2 sm:px-4 lg:px-6 py-2 sm:py-3 ${alignClass} text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap`}
+            >
+                <button
+                    type="button"
+                    onClick={() => handleSort(key)}
+                    className={`inline-flex items-center gap-1 hover:text-gray-700 ${
+                        align === 'right' ? 'ml-auto' : ''
+                    } ${isActive ? 'text-teal-700' : ''}`}
+                    title={`Sort by ${label}`}
+                    aria-label={`Sort by ${label}${
+                        isActive
+                            ? sortDirection === 'asc'
+                                ? ', ascending'
+                                : ', descending'
+                            : ''
+                    }`}
+                >
+                    {label}
+                    {isActive ? (
+                        sortDirection === 'asc' ? (
+                            <ArrowUp size={12} className="opacity-100" />
+                        ) : (
+                            <ArrowDown size={12} className="opacity-100" />
+                        )
+                    ) : (
+                        <ArrowUpDown size={12} className="opacity-40" />
+                    )}
+                </button>
+            </th>
+        );
+    };
 
     const showAssignColumn = activeUtility?.fields?.assignment === 'yes';
 
@@ -857,6 +996,12 @@ function UtilityBillsPageContent() {
                     prev.map((e) => (e.id === assignEntry.id ? normalizeUtilityEntry(updated) : e)),
                 );
             }
+            toast({
+                title: assignEntry.assignedTo ? 'Reassigned' : 'Assigned',
+                description: assignEntry.assignedTo
+                    ? 'Assignment updated. HR and Admin Officer were notified.'
+                    : 'Assigned successfully. HR and Admin Officer were notified.',
+            });
         } catch (err) {
             toast({
                 variant: 'destructive',
@@ -865,6 +1010,66 @@ function UtilityBillsPageContent() {
             });
         }
     };
+
+    const handleReturnAssignment = async (entry) => {
+        if (!entry?.id || !entry?.assignedTo) return;
+        const confirmed = window.confirm(
+            `Return ${entry.type || 'this account'} from ${entry.assignedTo}? It will become unassigned.`,
+        );
+        if (!confirmed) return;
+        setManageMenuEntryId(null);
+        try {
+            const updated = await updateUtilityEntryApi(entry.id, {
+                assignedTo: '',
+                assignedToType: '',
+                assignedToId: '',
+                assignedAt: null,
+            });
+            if (updated) {
+                setEntries((prev) =>
+                    prev.map((e) => (e.id === entry.id ? normalizeUtilityEntry(updated) : e)),
+                );
+            } else {
+                setEntries((prev) =>
+                    prev.map((e) =>
+                        e.id === entry.id
+                            ? {
+                                  ...e,
+                                  assignedTo: '',
+                                  assignedToType: '',
+                                  assignedToId: '',
+                                  assignedAt: null,
+                              }
+                            : e,
+                    ),
+                );
+            }
+            toast({
+                title: 'Returned',
+                description: 'Assignment cleared. HR and Admin Officer were notified.',
+            });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not return',
+                description: err?.response?.data?.message || 'Please try again.',
+            });
+        }
+    };
+
+    useEffect(() => {
+        if (!manageMenuEntryId) return undefined;
+        const onDocClick = () => setManageMenuEntryId(null);
+        const onKey = (e) => {
+            if (e.key === 'Escape') setManageMenuEntryId(null);
+        };
+        document.addEventListener('click', onDocClick);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('click', onDocClick);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [manageMenuEntryId]);
 
     return (
         <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
@@ -1134,22 +1339,16 @@ function UtilityBillsPageContent() {
                                                     <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                                         <thead>
                                                             <tr className="bg-gray-50 border-b border-gray-200">
-                                                                {tableColumns.map((col) => (
-                                                                    <th
-                                                                        key={col.key}
-                                                                        className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap"
-                                                                    >
-                                                                        {col.label}
-                                                                    </th>
-                                                                ))}
-                                                                <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                                                                    Status
+                                                                <th className="px-2 sm:px-3 lg:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap w-12 sm:w-14">
+                                                                    Sl No
                                                                 </th>
-                                                                {showAssignColumn ? (
-                                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                                                                        Assignment
-                                                                    </th>
-                                                                ) : null}
+                                                                {tableColumns.map((col) =>
+                                                                    renderSortableHeader(col.key, col.label),
+                                                                )}
+                                                                {renderSortableHeader('status', 'Status')}
+                                                                {showAssignColumn
+                                                                    ? renderSortableHeader('assignment', 'Assignment')
+                                                                    : null}
                                                                 {canAdminDelete ? (
                                                                     <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
                                                                         Actions
@@ -1158,7 +1357,7 @@ function UtilityBillsPageContent() {
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-100">
-                                                            {displayedEntries.map((entry) => {
+                                                            {displayedEntries.map((entry, index) => {
                                                                 const entryHref = `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entry.id)}`;
                                                                 return (
                                                                 <ListTableRowLink
@@ -1170,6 +1369,9 @@ function UtilityBillsPageContent() {
                                                                 <tr
                                                                     className="cursor-pointer transition-colors bg-white hover:bg-blue-50/50"
                                                                 >
+                                                                    <td className="px-2 sm:px-3 lg:px-4 py-2 sm:py-3 align-middle whitespace-nowrap text-xs sm:text-sm text-gray-500 tabular-nums">
+                                                                        {index + 1}
+                                                                    </td>
                                                                     {tableColumns.map((col) => {
                                                                         const raw = formatCellValue(col.key, entry.values);
                                                                         const long = isLongCellValue(col.key, raw);
@@ -1310,23 +1512,76 @@ function UtilityBillsPageContent() {
                                                                         >
                                                                             <div className="flex items-center gap-2">
                                                                                 {entry.assignedTo ? (
-                                                                                    <span
-                                                                                        className="max-w-[140px] truncate text-xs sm:text-sm text-gray-700"
-                                                                                        title={entry.assignedTo}
-                                                                                    >
-                                                                                        {entry.assignedTo}
-                                                                                    </span>
+                                                                                    entry.assignedToType === 'Employee' &&
+                                                                                    entry.assignedToId ? (
+                                                                                        <EmployeeNameLink
+                                                                                            employeeId={entry.assignedToId}
+                                                                                            name={entry.assignedTo}
+                                                                                            className="max-w-[140px] truncate text-xs sm:text-sm font-medium"
+                                                                                            title={entry.assignedTo}
+                                                                                        />
+                                                                                    ) : (
+                                                                                        <span
+                                                                                            className="max-w-[140px] truncate text-xs sm:text-sm text-gray-700"
+                                                                                            title={entry.assignedTo}
+                                                                                        >
+                                                                                            {entry.assignedTo}
+                                                                                        </span>
+                                                                                    )
                                                                                 ) : (
                                                                                     <span className="text-xs sm:text-sm text-gray-400">—</span>
                                                                                 )}
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => setAssignEntry(entry)}
-                                                                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-teal-200 bg-white hover:bg-teal-50 text-teal-700 text-xs font-medium"
-                                                                                >
-                                                                                    <UserPlus size={12} />
-                                                                                    {entry.assignedTo ? 'Reassign' : 'Assign'}
-                                                                                </button>
+                                                                                {entry.assignedTo ? (
+                                                                                    <div className="relative">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                setManageMenuEntryId((prev) =>
+                                                                                                    prev === entry.id ? null : entry.id,
+                                                                                                );
+                                                                                            }}
+                                                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-teal-200 bg-white hover:bg-teal-50 text-teal-700 text-xs font-medium"
+                                                                                        >
+                                                                                            Manage
+                                                                                            <ChevronDown size={12} />
+                                                                                        </button>
+                                                                                        {manageMenuEntryId === entry.id ? (
+                                                                                            <div
+                                                                                                className="absolute right-0 z-30 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+                                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                            >
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-gray-700 hover:bg-teal-50 hover:text-teal-800"
+                                                                                                    onClick={() => {
+                                                                                                        setManageMenuEntryId(null);
+                                                                                                        setAssignEntry(entry);
+                                                                                                    }}
+                                                                                                >
+                                                                                                    <UserPlus size={12} />
+                                                                                                    Reassign
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-gray-700 hover:bg-slate-50"
+                                                                                                    onClick={() => handleReturnAssignment(entry)}
+                                                                                                >
+                                                                                                    Return
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        ) : null}
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setAssignEntry(entry)}
+                                                                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-teal-200 bg-white hover:bg-teal-50 text-teal-700 text-xs font-medium"
+                                                                                    >
+                                                                                        <UserPlus size={12} />
+                                                                                        Assign
+                                                                                    </button>
+                                                                                )}
                                                                             </div>
                                                                         </td>
                                                                     ) : null}

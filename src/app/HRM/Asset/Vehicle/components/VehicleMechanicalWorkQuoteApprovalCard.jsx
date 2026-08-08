@@ -8,6 +8,7 @@ import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { parseVehicleServiceRemark, normalizeMongoId } from './vehicleServiceUtils';
 import VehicleMechanicalWorkFormFieldCell from './VehicleMechanicalWorkFormFieldCell';
+import VehicleCompanyPayPartySelect from './VehicleCompanyPayPartySelect';
 import VehicleServiceLockedSection from './VehicleServiceLockedSection';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import { canEditMechanicalWorkQuoteCard, canEditMechanicalWorkQuoteEmployeeRows } from '../utils/vehicleMechanicalWorkWorkflow';
@@ -198,6 +199,9 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
     const [rowsSaving, setRowsSaving] = useState(false);
     const [rowsDirty, setRowsDirty] = useState(false);
     const [employees, setEmployees] = useState([]);
+    const [companies, setCompanies] = useState([]);
+    const [companyPayPartyId, setCompanyPayPartyId] = useState('');
+    const [companyPayPartyName, setCompanyPayPartyName] = useState('');
     const [quoteState, setQuoteState] = useState({
         q1: { status: '', comment: '' },
         q2: { status: '', comment: '' },
@@ -235,15 +239,18 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
 
     useEffect(() => {
         let active = true;
-        axiosInstance
-            .get('/employee')
-            .then(({ data }) => {
+        Promise.all([axiosInstance.get('/employee'), axiosInstance.get('/Company')])
+            .then(([empRes, companyRes]) => {
                 if (!active) return;
-                const list = Array.isArray(data) ? data : data?.employees || [];
+                const list = Array.isArray(empRes.data) ? empRes.data : empRes.data?.employees || [];
                 setEmployees(list);
+                setCompanies(companyRes.data?.companies || companyRes.data || []);
             })
             .catch(() => {
-                if (active) setEmployees([]);
+                if (active) {
+                    setEmployees([]);
+                    setCompanies([]);
+                }
             });
         return () => {
             active = false;
@@ -276,6 +283,8 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         } else {
             setPaymentByMode('company');
         }
+        setCompanyPayPartyId(String(remark?.companyPayPartyId || '').trim());
+        setCompanyPayPartyName(String(remark?.companyPayPartyName || remark?.companyName || '').trim());
     }, [service?._id, service?.remark, remark]);
 
     const approvedQuoteKey = useMemo(() => {
@@ -474,6 +483,9 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         if (paymentByMode === 'company' && estimatedCostNum > 0 && Math.abs(companyPayNum - estimatedCostNum) > 0.01) {
             return `Company pay must equal Estimated cost (${estimatedCostNum.toLocaleString()} AED)`;
         }
+        if (showCompanyPay && companyPayNum > 0 && !companyPayPartyName && !companyPayPartyId) {
+            return 'Select company under Company payment';
+        }
         return '';
     }, [
         paySplitError,
@@ -482,6 +494,9 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         estimatedCostNum,
         employeePayNum,
         companyPayNum,
+        showCompanyPay,
+        companyPayPartyName,
+        companyPayPartyId,
     ]);
 
     const setQuoteStatus = (key, status) => {
@@ -586,6 +601,11 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
             employeePay: displaySummary.employeePay,
             employeeRows: employeeRowsPayload,
             paymentByMode,
+            companyPayPartyId: companyPayPartyId || String(remark?.companyPayPartyId || '').trim() || undefined,
+            companyPayPartyName:
+                companyPayPartyName ||
+                String(remark?.companyPayPartyName || remark?.companyName || '').trim() ||
+                undefined,
         });
         return {
             remark: JSON.stringify({
@@ -605,6 +625,8 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
         description,
         displaySummary,
         paymentByMode,
+        companyPayPartyId,
+        companyPayPartyName,
         quoteState,
         remark,
     ]);
@@ -831,17 +853,47 @@ export default function VehicleMechanicalWorkQuoteApprovalCard({
 
                 {(showCompanyPay || showEmployeePay || estimatedCostNum > 0) ? (
                 <div className="mt-4 w-full rounded-xl border border-gray-200 bg-white p-4 space-y-4">
-                    {showCompanyPay ? (
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
-                                Company payment
-                            </span>
-                            <span className="text-xl font-bold tabular-nums text-gray-900">
-                                {companyPayNum.toLocaleString()}{' '}
-                                <span className="text-sm font-bold text-gray-500">AED</span>
-                            </span>
-                        </div>
-                    ) : null}
+                        {showCompanyPay ? (
+                            <div className="space-y-2.5">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                    Company payment
+                                </span>
+                                <span className="text-xl font-bold tabular-nums text-gray-900">
+                                    {companyPayNum.toLocaleString()}{' '}
+                                    <span className="text-sm font-bold text-gray-500">AED</span>
+                                </span>
+                            </div>
+                            {canEdit && companyPayNum > 0 ? (
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                                        <VehicleCompanyPayPartySelect
+                                            companies={companies}
+                                            value={companyPayPartyId}
+                                            error={
+                                                companyPayNum > 0 &&
+                                                !companyPayPartyName &&
+                                                !companyPayPartyId
+                                            }
+                                            onChange={({
+                                                companyPayPartyId: id,
+                                                companyPayPartyName: name,
+                                            }) => {
+                                                setCompanyPayPartyId(id);
+                                                setCompanyPayPartyName(name);
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            ) : companyPayPartyName ? (
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-sm font-semibold text-gray-800">
+                                        {companyPayPartyName}
+                                    </span>
+                                </div>
+                            ) : null}
+                            </div>
+                        ) : null}
                     {showEmployeePay ? (
                         <div className="space-y-2.5">
                             <div className="flex items-center justify-between gap-3">

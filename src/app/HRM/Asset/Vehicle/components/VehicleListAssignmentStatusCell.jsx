@@ -1,28 +1,31 @@
 'use client';
 
 import {
-    formatAssetAssignmentStatusLine,
     getAssetStatusBadgeClass,
     isLeaveActive,
-    isServiceActive,
 } from '@/utils/assetStatusHelpers';
 import {
     getVehicleListWaitingLabel,
     isVehicleAwaitingListApproval,
     resolveVehicleListAssigneeStr,
+    resolveVehicleListAssignedToDisplay,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import { collectVehicleProfilePendingItems } from '@/app/HRM/Asset/Vehicle/utils/resolveVehicleProfilePendingItems';
 import VehicleProfilePendingStatusBadge from '@/app/HRM/Asset/Vehicle/components/VehicleProfilePendingStatusBadge';
+import { EmployeeAssignmentStatusLine } from '@/components/EmployeeNameLink';
 
-const pendingApprovalTextClass = 'inline-flex items-center justify-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold leading-snug text-amber-950 ring-1 ring-amber-300/80 whitespace-nowrap';
+/** Exact same pill as GPS Status / Status / Service Status. */
+const LIST_PILL =
+    'inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap';
 
-/**
- * Assigned-to column — matches tools asset list status badge UI (read-only reference).
- */
+const pendingApprovalTextClass = `${LIST_PILL} bg-amber-100 text-amber-950 ring-1 ring-amber-300/80`;
+
 export default function VehicleListAssignmentStatusCell({ vehicle }) {
     if (!vehicle) return <span className="text-gray-400">—</span>;
 
-    const pendingItems = collectVehicleProfilePendingItems(vehicle);
+    const pendingItems = collectVehicleProfilePendingItems(vehicle).filter(
+        (item) => item.kind !== 'service',
+    );
     const submittedWaiting =
         isVehicleAwaitingListApproval(vehicle) && pendingItems.length === 0;
     const hideAssigneeBadge =
@@ -30,12 +33,12 @@ export default function VehicleListAssignmentStatusCell({ vehicle }) {
 
     const statusStr = String(vehicle.status || '');
     const isPoolStatus = statusStr === 'Unassigned' || statusStr === 'Returned';
-    const hasOperationalFlags = isServiceActive(vehicle) || isLeaveActive(vehicle);
+    const hasOperationalFlags = isLeaveActive(vehicle);
     const assigneeStr = resolveVehicleListAssigneeStr(vehicle);
 
-    let badgeLabel = statusStr;
+    let badgeLabel = '';
     if (isPoolStatus && !hasOperationalFlags) {
-        badgeLabel = statusStr;
+        badgeLabel = statusStr || 'Unassigned';
     } else {
         const isAssignedRelated =
             statusStr === 'Assigned' ||
@@ -43,9 +46,9 @@ export default function VehicleListAssignmentStatusCell({ vehicle }) {
             vehicle?.assignedCompany ||
             hasOperationalFlags;
         if (!isAssignedRelated && !isPoolStatus) {
-            badgeLabel = statusStr || '—';
+            badgeLabel = statusStr || '';
         } else {
-            badgeLabel = formatAssetAssignmentStatusLine(vehicle, assigneeStr);
+            badgeLabel = resolveVehicleListAssignedToDisplay(vehicle);
         }
     }
 
@@ -61,23 +64,29 @@ export default function VehicleListAssignmentStatusCell({ vehicle }) {
                 <VehicleProfilePendingStatusBadge
                     key={`${item.kind}-${item.label}-${item.pendingFor}`}
                     item={item}
-                    className="px-1.5 py-0.5 text-[9px] whitespace-nowrap"
+                    size="list"
                 />
             ))}
             {submittedWaiting ? (
                 <p
                     className={pendingApprovalTextClass}
-                    title={`Pending approval — pending for ${getVehicleListWaitingLabel(vehicle)}`}
+                    title={`Pending — ${getVehicleListWaitingLabel(vehicle)}`}
                 >
-                    Pending approval — pending for {getVehicleListWaitingLabel(vehicle)}
+                    Pending — {getVehicleListWaitingLabel(vehicle)}
                 </p>
             ) : null}
             {showAssigneeBadge ? (
                 <span
-                    className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider whitespace-nowrap ${getAssetStatusBadgeClass(vehicle.status, vehicle)}`}
+                    className={`${LIST_PILL} ${getAssetStatusBadgeClass(vehicle.status, vehicle)}`}
                     title={badgeLabel}
                 >
-                    {badgeLabel}
+                    <EmployeeAssignmentStatusLine
+                        asset={vehicle}
+                        assigneeStr={assigneeStr}
+                        line={badgeLabel}
+                        className="text-[9px] font-bold uppercase tracking-wide leading-none"
+                        linkClassName="text-[9px] font-bold uppercase tracking-wide leading-none"
+                    />
                 </span>
             ) : null}
         </div>

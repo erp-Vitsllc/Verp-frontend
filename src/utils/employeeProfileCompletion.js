@@ -319,12 +319,7 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
         pendingFields.push({ section: 'Work Details', field: 'Date of Joining' });
     }
 
-    totalFields++;
-    if (checkField(employee.contractJoiningDate)) {
-        completedFields++;
-    } else {
-        pendingFields.push({ section: 'Work Details', field: 'Contract Joining Date' });
-    }
+    // Contract Joining Date is auto-derived from visa — not required for 100% profile progress.
 
     const isManagementExempt =
         employee.department &&

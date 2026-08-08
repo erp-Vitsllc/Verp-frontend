@@ -5,11 +5,6 @@ import {
     resolveShopServiceEndDate,
     resolveShopServiceReturnDate,
 } from './vehicleShopWorkStatus';
-import {
-    buildNewConditionImagesPayload,
-    validateNewConditionBodyPartMappings,
-} from './vehicleServiceNewConditionPhotos';
-
 function newOtherDocRow() {
     return {
         id: `other-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -73,10 +68,6 @@ export function buildTireChangeReturnFormState(service, asset) {
         handOverDate: remark.handOverDate || base.handOverDate || '',
         serviceEndDate: resolveShopServiceEndDate(service, asset),
         returnDescription: remark.returnDescription || base.returnDescription || '',
-        existingNewConditionImages: Array.isArray(remark.newConditionImages)
-            ? remark.newConditionImages
-            : base.existingNewConditionImages || [],
-        newConditionImages: [],
     };
 }
 
@@ -108,16 +99,6 @@ export function validateTireChangeReturnForm(formData) {
             errors[`returnOtherDocs.${index}.file`] = `Other document ${index + 1}: attachment is required`;
         }
     });
-
-    const existingPhotos = Array.isArray(formData.existingNewConditionImages)
-        ? formData.existingNewConditionImages.length
-        : 0;
-    const newPhotos = Array.isArray(formData.newConditionImages) ? formData.newConditionImages.length : 0;
-    if (existingPhotos + newPhotos === 0) {
-        errors.newConditionImages = 'New condition photos are required';
-    }
-
-    Object.assign(errors, validateNewConditionBodyPartMappings(formData));
 
     const hasGarageInvoice =
         !!(formData.garageInvoiceBase64 && formData.garageInvoiceName) ||
@@ -204,11 +185,6 @@ export function buildTireChangeReturnUpdateBody(formData) {
             data: uploadOtherDocs[0].data,
             mime: uploadOtherDocs[0].mimeType,
         };
-    }
-
-    const freshImages = buildNewConditionImagesPayload(formData.newConditionImages);
-    if (freshImages.length) {
-        body.newConditionImages = freshImages;
     }
 
     return body;

@@ -1,3 +1,5 @@
+import { shouldSuppressInAppNavigation } from '@/utils/linkContextMenu';
+
 const LIST_RETURN_KEY = 'verp:list-return-href';
 const NAV_STACK_KEY = 'verp:nav-return-stack';
 const SCROLL_MAP_KEY = 'verp:nav-scroll-map';
@@ -308,6 +310,7 @@ export function rememberListFilterStep(nextHref) {
  */
 export function navigateFromList(router, targetHref, listReturnHref) {
     if (!router) return;
+    if (shouldSuppressInAppNavigation()) return;
     const target = normalizeHref(targetHref);
     if (!target) return;
     const list = normalizeHref(listReturnHref || getBrowserPathWithSearch());
@@ -327,6 +330,10 @@ export function navigateFromList(router, targetHref, listReturnHref) {
  */
 export function handleNavigateFromListClick(event, router, targetHref, listReturnHref) {
     if (!router) return;
+    if (shouldSuppressInAppNavigation()) {
+        event?.preventDefault?.();
+        return;
+    }
     if (
         event.defaultPrevented ||
         event.button !== 0 ||

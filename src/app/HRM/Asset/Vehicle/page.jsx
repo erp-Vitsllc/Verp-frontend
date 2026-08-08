@@ -6,12 +6,12 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, Trash2, Filter, Pencil, Wrench } from 'lucide-react';
+import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, Trash2, Filter, Pencil, Wrench, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import {
     isVehicleProfileActivationActive,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAdminDeleteAccess';
-import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessCreateService, canEditVehicleAsset, canDeleteVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessCreateService, canEditVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 
 import {
     AlertDialog,
@@ -31,9 +31,13 @@ import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal'
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import {
     getVehicleProfileStatusLabel,
+    resolveVehicleListAssigneeStr,
+    resolveVehicleListAssignedToDisplay,
+    resolveVehicleListServiceStatusLabel,
     vehicleProfileStatusBadgeClass,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import VehicleListAssignmentStatusCell from '@/app/HRM/Asset/Vehicle/components/VehicleListAssignmentStatusCell';
+import VehicleListServiceStatusCell from '@/app/HRM/Asset/Vehicle/components/VehicleListServiceStatusCell';
 import VehicleCreateServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleCreateServiceModal';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
@@ -87,6 +91,90 @@ const VEHICLE_STATUS_FILTERS = [
     'TotalLoss',
     'Disposed',
 ];
+
+const VEHICLE_LIST_COLUMNS = [
+    { key: 'assetId', label: 'Id', type: 'text' },
+    { key: 'plateNumber', label: 'Plate No', type: 'text' },
+    { key: 'modelYear', label: 'Model Year', type: 'number' },
+    { key: 'currentKm', label: 'Current KM', type: 'number' },
+    { key: 'registrationExpiry', label: 'Registration Expiry', type: 'date' },
+    { key: 'gpsStatus', label: 'GPS Status', type: 'text' },
+    { key: 'status', label: 'Status', type: 'text' },
+    { key: 'assignedTo', label: 'Assigned To', type: 'text' },
+    { key: 'serviceStatus', label: 'Service Status', type: 'text' },
+];
+
+function vehicleRegistrationExpiryValue(v) {
+    return (
+        v?.registrationExpiryDate ||
+        v?.registrationExpiry ||
+        v?.documents?.find?.((d) =>
+            String(d?.type || '')
+                .toLowerCase()
+                .includes('registration'),
+        )?.expiryDate ||
+        null
+    );
+}
+
+function vehicleListSortValue(v, key) {
+    switch (key) {
+        case 'assetId':
+            return String(v?.assetId || v?.vehicleCode || '').trim();
+        case 'plateNumber':
+            return String(v?.plateNumber || '').trim();
+        case 'modelYear': {
+            const n = Number(v?.modelYear);
+            return Number.isFinite(n) ? n : null;
+        }
+        case 'currentKm': {
+            const raw =
+                v?.locator?.currentKilometer != null
+                    ? v.locator.currentKilometer
+                    : v?.currentKilometer;
+            const n = Number(raw);
+            return Number.isFinite(n) ? n : null;
+        }
+        case 'registrationExpiry': {
+            const raw = vehicleRegistrationExpiryValue(v);
+            if (!raw) return null;
+            const t = new Date(raw).getTime();
+            return Number.isFinite(t) ? t : null;
+        }
+        case 'gpsStatus':
+            return isVehicleGpsConnected(v) ? 'Connected' : 'Not connected';
+        case 'status':
+            return getVehicleProfileStatusLabel(v) || '';
+        case 'assignedTo':
+            return String(resolveVehicleListAssignedToDisplay(v) || resolveVehicleListAssigneeStr(v) || v?.status || '').trim();
+        case 'serviceStatus':
+            return resolveVehicleListServiceStatusLabel(v) || '';
+        default:
+            return '';
+    }
+}
+
+function compareVehicleListSortValues(a, b, key, type, direction) {
+    const dir = direction === 'desc' ? -1 : 1;
+    const av = vehicleListSortValue(a, key);
+    const bv = vehicleListSortValue(b, key);
+    const aEmpty = av == null || av === '';
+    const bEmpty = bv == null || bv === '';
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+
+    if (type === 'number' || type === 'date') {
+        return (Number(av) - Number(bv)) * dir;
+    }
+
+    return (
+        String(av).localeCompare(String(bv), undefined, {
+            numeric: true,
+            sensitivity: 'base',
+        }) * dir
+    );
+}
 
 const SOLD_TOTAL_LOSS_VIEW = 'sold-total-loss';
 
@@ -258,6 +346,8 @@ export default function VehicleAssetPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [showFilters, setShowFilters] = useState(true);
+    const [sortKey, setSortKey] = useState('assetId');
+    const [sortDirection, setSortDirection] = useState('asc');
     const { toast } = useToast();
     const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
     const [addVehicleEditId, setAddVehicleEditId] = useState(null);
@@ -419,9 +509,10 @@ export default function VehicleAssetPage() {
     const isFleetAdmin = mounted && isAdmin();
     const canEditInactiveVehicleFromList =
         mounted && (isAdmin() || canEditVehicleAsset());
-    const canDeleteVehicleFromList = mounted && (isAdmin() || canDeleteVehicleAsset());
-    const showVehicleRowActions = canEditInactiveVehicleFromList || canDeleteVehicleFromList || isFleetAdmin;
-    const tableColSpan = showVehicleRowActions ? 9 : 8;
+    // List delete matches Tools assets: portal Super User / admin only.
+    const canDeleteVehicleFromList = isFleetAdmin;
+    const showVehicleRowActions = canEditInactiveVehicleFromList || canDeleteVehicleFromList;
+    const tableColSpan = showVehicleRowActions ? 11 : 10;
 
     useEffect(() => {
         setMounted(true);
@@ -542,6 +633,24 @@ export default function VehicleAssetPage() {
             return matchesVehicleStatusFilter(v, statusFilter, ctx);
         });
     }, [vehicles, searchQuery, statusFilter, fleetListTab]);
+
+    const sortedFilteredVehicles = useMemo(() => {
+        const column = VEHICLE_LIST_COLUMNS.find((c) => c.key === sortKey) || VEHICLE_LIST_COLUMNS[0];
+        return [...filteredVehicles].sort((a, b) =>
+            compareVehicleListSortValues(a, b, column.key, column.type, sortDirection),
+        );
+    }, [filteredVehicles, sortKey, sortDirection]);
+
+    const handleSort = useCallback((key) => {
+        const column = VEHICLE_LIST_COLUMNS.find((c) => c.key === key);
+        if (!column) return;
+        if (sortKey === key) {
+            setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+            return;
+        }
+        setSortKey(key);
+        setSortDirection(column.type === 'date' || column.type === 'number' ? 'desc' : 'asc');
+    }, [sortKey]);
 
     const vehicleListStats = useMemo(() => {
         const rows = vehicles;
@@ -889,14 +998,45 @@ export default function VehicleAssetPage() {
                                 <table className="w-full min-w-[980px] table-auto text-left border-collapse text-[11px] sm:text-xs">
                                     <thead>
                                         <tr className="bg-gray-50/50 border-b border-gray-100 text-[9px] sm:text-[10px] uppercase text-gray-500 font-semibold tracking-wider">
-                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Id</th>
-                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Plate No</th>
-                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Model Year</th>
-                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Current KM</th>
-                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Registration Expiry</th>
-                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">GPS Status</th>
-                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Status</th>
-                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap">Assigned To</th>
+                                            <th className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap w-10 sm:w-12">
+                                                SL
+                                            </th>
+                                            {VEHICLE_LIST_COLUMNS.map((column) => {
+                                                const isActive = sortKey === column.key;
+                                                return (
+                                                    <th
+                                                        key={column.key}
+                                                        className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap"
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSort(column.key)}
+                                                            className={`inline-flex items-center gap-1 hover:text-gray-700 ${
+                                                                isActive ? 'text-teal-700' : ''
+                                                            }`}
+                                                            title={`Sort by ${column.label}`}
+                                                            aria-label={`Sort by ${column.label}${
+                                                                isActive
+                                                                    ? sortDirection === 'asc'
+                                                                        ? ', ascending'
+                                                                        : ', descending'
+                                                                    : ''
+                                                            }`}
+                                                        >
+                                                            {column.label}
+                                                            {isActive ? (
+                                                                sortDirection === 'asc' ? (
+                                                                    <ArrowUp size={12} className="opacity-100" />
+                                                                ) : (
+                                                                    <ArrowDown size={12} className="opacity-100" />
+                                                                )
+                                                            ) : (
+                                                                <ArrowUpDown size={12} className="opacity-40" />
+                                                            )}
+                                                        </button>
+                                                    </th>
+                                                );
+                                            })}
                                             {showVehicleRowActions && <th className="px-2 sm:px-3 py-2 sm:py-2.5 text-right w-14 sm:w-20" />}
                                         </tr>
                                     </thead>
@@ -948,7 +1088,7 @@ export default function VehicleAssetPage() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredVehicles.map((vehicle) => {
+                                            sortedFilteredVehicles.map((vehicle, index) => {
                                                 const params = new URLSearchParams();
                                                 if (searchQuery) params.set('search', searchQuery);
                                                 if (statusFilter !== 'All') params.set('status', statusFilter);
@@ -982,6 +1122,9 @@ export default function VehicleAssetPage() {
                                                     <tr
                                                         className="hover:bg-blue-50/30 transition-colors group cursor-pointer"
                                                     >
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap tabular-nums text-gray-500 font-semibold text-[11px] sm:text-xs">
+                                                            {index + 1}
+                                                        </td>
                                                         <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">
                                                             <span className="font-semibold text-gray-800 text-[11px] sm:text-xs whitespace-nowrap">
                                                                 {vehicle.assetId || '-'}
@@ -1052,6 +1195,9 @@ export default function VehicleAssetPage() {
 
                                                         <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">
                                                             <VehicleListAssignmentStatusCell vehicle={vehicle} />
+                                                        </td>
+                                                        <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">
+                                                            <VehicleListServiceStatusCell vehicle={vehicle} />
                                                         </td>
                                                         {showVehicleRowActions && (
                                                             <td className="px-2 sm:px-3 py-1.5 sm:py-2 whitespace-nowrap">

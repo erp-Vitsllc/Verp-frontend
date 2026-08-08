@@ -57,7 +57,6 @@ import {
 import {
     LOAN_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
-import { handleLinkContextMenu } from '@/utils/linkContextMenu';
 
 const logoPath = '/assets/employee/sidebar-logo.png';
 
@@ -940,7 +939,6 @@ export default function Sidebar() {
                                         {item.id === 'dashboard' ? (
                                             <Link
                                                 href="/dashboard"
-                                                onContextMenu={(event) => handleLinkContextMenu(event, '/dashboard')}
                                                 className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
                                                     ? 'bg-[#5e6c93] !text-white shadow-lg'
                                                     : 'text-slate-100 hover:bg-[#252943] hover:text-white'
@@ -1019,7 +1017,6 @@ export default function Sidebar() {
                                                             {subHref ? (
                                                                 <Link
                                                                     href={subHref}
-                                                                    onContextMenu={(event) => handleLinkContextMenu(event, subHref)}
                                                                     className={subNavClass}
                                                                 >
                                                                     <SidebarNavIcon icon={subItem.icon} active={isSubActive && !isLogout} size={17} className="mr-2.5" />
@@ -1088,7 +1085,6 @@ export default function Sidebar() {
                                                                                 {childHref ? (
                                                                                     <Link
                                                                                         href={childHref}
-                                                                                        onContextMenu={(event) => handleLinkContextMenu(event, childHref)}
                                                                                         className={childNavClass}
                                                                                     >
                                                                                         <SidebarNavIcon icon={child.icon} active={isChildActive && !childIsLogout} size={16} className="mr-2.5" />

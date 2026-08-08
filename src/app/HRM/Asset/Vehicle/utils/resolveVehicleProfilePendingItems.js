@@ -369,7 +369,7 @@ export function formatVehicleProfilePendingStatusText(item) {
 
     if (item.kind === 'handover') {
         const daySuffix = item.dayInfo ? ` (${formatHandoverEscalationDayLabel(item.dayInfo)})` : '';
-        return `Handover pending${daySuffix} — ${name}`;
+        return `Handover${daySuffix} — ${name}`;
     }
 
     if (item.kind === 'service') {

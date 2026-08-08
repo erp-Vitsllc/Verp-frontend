@@ -12,8 +12,12 @@ import {
 } from '@/utils/attachmentPreview';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
+import { formatVehicleServiceReqNo } from '../utils/vehicleServiceReqNo';
 import VehicleMechanicalWorkFormFieldCell from './VehicleMechanicalWorkFormFieldCell';
+import VehicleCompanyPayPartySelect from './VehicleCompanyPayPartySelect';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
+import { numberInputNoScrollProps } from '../utils/vehicleNumberInput';
+import { getInitiatePayValidationMessage, companyPayPartyLabel } from '../utils/vehicleInitiatePayValidation';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import {
     isOilServiceAssignmentPending,
@@ -105,6 +109,7 @@ export default function VehicleMechanicalWorkDetailForm({
     const { toast } = useToast();
     const photoInputRef = useRef(null);
     const [employees, setEmployees] = useState([]);
+    const [companies, setCompanies] = useState([]);
     const [saving, setSaving] = useState(false);
     const [viewerOpen, setViewerOpen] = useState(false);
     const [viewerStartIndex, setViewerStartIndex] = useState(0);
@@ -181,15 +186,21 @@ export default function VehicleMechanicalWorkDetailForm({
 
     useEffect(() => {
         let active = true;
-        axiosInstance
-            .get('/employee')
-            .then(({ data }) => {
+        Promise.all([
+            axiosInstance.get('/employee'),
+            axiosInstance.get('/Company'),
+        ])
+            .then(([empRes, companyRes]) => {
                 if (!active) return;
-                const list = Array.isArray(data) ? data : data?.employees || [];
+                const list = Array.isArray(empRes.data) ? empRes.data : empRes.data?.employees || [];
                 setEmployees(list);
+                setCompanies(companyRes.data?.companies || companyRes.data || []);
             })
             .catch(() => {
-                if (active) setEmployees([]);
+                if (active) {
+                    setEmployees([]);
+                    setCompanies([]);
+                }
             });
         return () => {
             active = false;
@@ -309,6 +320,26 @@ export default function VehicleMechanicalWorkDetailForm({
     const employeeRowsError =
         showEmployeeFields &&
         Math.abs(employeeLiabilitySum - employeePayAmount) > 0.01;
+    const companyPartyError =
+        showCompanyFields &&
+        companyPayAmount > 0 &&
+        !String(formData.companyPayPartyId || '').trim() &&
+        !String(formData.companyPayPartyName || '').trim();
+
+    useEffect(() => {
+        const c = asset?.assignedCompany;
+        if (!c) return;
+        const id = String(c._id || c.id || '').trim();
+        if (!id) return;
+        setFormData((prev) => {
+            if (String(prev.companyPayPartyId || '').trim()) return prev;
+            return {
+                ...prev,
+                companyPayPartyId: id,
+                companyPayPartyName: companyPayPartyLabel(c),
+            };
+        });
+    }, [asset?.assignedCompany]);
 
     const photoGalleryItems = useMemo(() => {
         const items = [];
@@ -636,6 +667,17 @@ export default function VehicleMechanicalWorkDetailForm({
     }, [asset, assignmentPending, formData, persistForm]);
 
     const handleSaveDraft = async () => {
+        if (!assignmentPending) {
+            const blocking = getMechanicalWorkDetailFormMissingFields(formData, asset);
+            if (blocking.length > 0) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot save',
+                    description: blocking.join(', '),
+                });
+                return;
+            }
+        }
         await persistForm({ submitAfterSave: false });
     };
 
@@ -748,7 +790,7 @@ export default function VehicleMechanicalWorkDetailForm({
                     className={`w-full ${canEditInitiateFields ? '' : 'opacity-[0.97]'}`}
                 >
                     <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
-                        <div className={`sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 ${gapClass}`}>
+                        <div className={`sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleMechanicalWorkFormFieldCell
                             label="Vehicle Assigned"
                             accentClass={accent(0)}
@@ -781,6 +823,19 @@ export default function VehicleMechanicalWorkDetailForm({
                                 <option value="">Select employee with driving license</option>
                                 {drivenByEmployeeOptions}
                             </select>
+                        </VehicleMechanicalWorkFormFieldCell>
+                        <VehicleMechanicalWorkFormFieldCell
+                            label="VSR No"
+                            accentClass={accent(2)}
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <input
+                                className={tireFieldInput}
+                                type="text"
+                                readOnly
+                                disabled
+                                value={formatVehicleServiceReqNo(service, asset)}
+                            />
                         </VehicleMechanicalWorkFormFieldCell>
                         </div>
 
@@ -900,6 +955,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                         }
                                         disabled={fieldsDisabled}
                                         placeholder="0.00"
+                                        {...numberInputNoScrollProps}
                                     />
                                 </div>
                             </VehicleMechanicalWorkFormFieldCell>
@@ -918,28 +974,57 @@ export default function VehicleMechanicalWorkDetailForm({
                         {showCompanyFields || showEmployeeFields ? (
                             <div className="w-full rounded-xl border border-gray-200 bg-white p-4 space-y-4">
                                 {showCompanyFields ? (
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
-                                            Company payment
-                                        </span>
-                                        <div className="flex w-[160px] shrink-0 items-center justify-end gap-1">
-                                            <input
-                                                className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                                type="number"
-                                                min="0"
-                                                step="1"
-                                                value={companyPayAmount || 0}
-                                                onChange={(e) =>
-                                                    applyPayAmountChange(
-                                                        'companyPay',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                disabled={fieldsDisabled}
-                                            />
-                                            <span className="text-sm font-bold text-gray-500">
-                                                AED
+                                    <div className="space-y-2.5">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                                Company payment
                                             </span>
+                                            <div
+                                                className={`flex w-[160px] shrink-0 items-center justify-end gap-1 ${
+                                                    paySplitError || companyPartyError
+                                                        ? 'text-amber-700'
+                                                        : ''
+                                                }`}
+                                            >
+                                                <input
+                                                    className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={formData.companyPayAmount ?? ''}
+                                                    onChange={(e) =>
+                                                        applyPayAmountChange(
+                                                            'companyPay',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                    disabled={fieldsDisabled}
+                                                    {...numberInputNoScrollProps}
+                                                />
+                                                <span className="text-sm font-bold text-gray-500">
+                                                    AED
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                                                <VehicleCompanyPayPartySelect
+                                                    companies={companies}
+                                                    value={formData.companyPayPartyId || ''}
+                                                    disabled={fieldsDisabled}
+                                                    error={companyPartyError}
+                                                    onChange={({
+                                                        companyPayPartyId,
+                                                        companyPayPartyName,
+                                                    }) =>
+                                                        setFormData((prev) => ({
+                                                            ...prev,
+                                                            companyPayPartyId,
+                                                            companyPayPartyName,
+                                                        }))
+                                                    }
+                                                />
+                                            </div>
                                         </div>
                                     </div>
                                 ) : null}
@@ -961,7 +1046,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                                     type="number"
                                                     min="0"
                                                     step="1"
-                                                    value={employeePayAmount || 0}
+                                                    value={formData.employeePayAmount ?? ''}
                                                     onChange={(e) =>
                                                         applyPayAmountChange(
                                                             'employeePay',
@@ -969,6 +1054,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                                         )
                                                     }
                                                     disabled={fieldsDisabled}
+                                                    {...numberInputNoScrollProps}
                                                 />
                                                 <span className="text-sm font-bold text-gray-500">
                                                     AED
@@ -1034,12 +1120,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                                             type="number"
                                                             min="0"
                                                             step="0.01"
-                                                            value={
-                                                                row.paidAmount === '' ||
-                                                                row.paidAmount == null
-                                                                    ? '0'
-                                                                    : row.paidAmount
-                                                            }
+                                                            value={row.paidAmount ?? ''}
                                                             onChange={(e) =>
                                                                 setEmployeeRowPaidAmount(
                                                                     index,
@@ -1051,6 +1132,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                                             }
                                                             disabled={fieldsDisabled}
                                                             placeholder="0"
+                                                            {...numberInputNoScrollProps}
                                                         />
                                                     </div>
                                                 </div>
@@ -1068,7 +1150,7 @@ export default function VehicleMechanicalWorkDetailForm({
                                             type="number"
                                             min="0"
                                             step="1"
-                                            value={estimatedCost || 0}
+                                            value={formData.estimatedCost ?? ''}
                                             onChange={(e) =>
                                                 applyPayAmountChange(
                                                     'totalAmount',
@@ -1076,14 +1158,23 @@ export default function VehicleMechanicalWorkDetailForm({
                                                 )
                                             }
                                             disabled={fieldsDisabled}
+                                            {...numberInputNoScrollProps}
                                         />
                                         <span className="text-sm font-bold text-gray-500">
                                             AED
                                         </span>
                                     </div>
                                 </div>
-                                {paySplitError || employeeRowsError ? (
+                                {paySplitError || employeeRowsError || companyPartyError ? (
                                     <div className="space-y-1 text-xs font-semibold text-amber-700">
+                                        {companyPartyError ? (
+                                            <p>
+                                                {getInitiatePayValidationMessage(formData, {
+                                                    requirePayable: false,
+                                                    requireCompanyParty: true,
+                                                }) || 'Select company under Company payment'}
+                                            </p>
+                                        ) : null}
                                         {paySplitError ? (
                                             <p>
                                                 Company pay + Employee pay must equal Total (
@@ -1141,7 +1232,7 @@ export default function VehicleMechanicalWorkDetailForm({
                         <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
                             <button
                                 type="button"
-                                disabled={saving}
+                                disabled={saving || missingFields.length > 0}
                                 onClick={() => void handleSaveDraft()}
                                 className={tireBtnPrimary}
                             >

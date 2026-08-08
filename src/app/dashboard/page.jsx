@@ -423,26 +423,31 @@ function DashboardContent() {
 
 
         const checkTeam = async () => {
-
             try {
+                if (hasTeam || cancelled) return;
 
-                if (!hasTeam) {
+                const res = await axiosInstance.get('/Employee/dashboard/hierarchy', {
+                    skipToast: true,
+                });
 
-                    const res = await axiosInstance.get('/Employee/dashboard/hierarchy');
+                if (cancelled) return;
 
-                    if (res.data.hierarchy && res.data.hierarchy.length > 0) {
-
-                        setHasTeam(true);
-
-                    }
-
+                if (res.data?.hierarchy?.length > 0) {
+                    setHasTeam(true);
                 }
-
-            } catch (e) { console.error("Team check failed", e); }
-
+            } catch (e) {
+                // Soft capability probe for "See Teams" — never surface as a console error overlay.
+                if (cancelled || e?.silent || e?.isAuthError) return;
+                if (process.env.NODE_ENV === 'development') {
+                    const detail =
+                        e?.message ||
+                        e?.response?.data?.message ||
+                        e?.response?.status ||
+                        'unknown';
+                    console.warn('Team check skipped:', detail);
+                }
+            }
         };
-
-
 
         checkTeam();
 

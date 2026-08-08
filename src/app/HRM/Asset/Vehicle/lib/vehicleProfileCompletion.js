@@ -1,5 +1,4 @@
 import { isVehicleDocumentOld, parseVehicleDocumentMeta } from '../utils/vehicleDocumentLifecycle';
-import { isVehicleExpiryDatePast } from '../utils/vehicleExpirySources';
 
 const normDocType = (t) => String(t || '').toLowerCase().trim();
 
@@ -32,17 +31,14 @@ export function isVehicleBasicDetailsComplete(asset) {
 }
 
 /**
- * Mulkia (Registration) — live doc/card required; expired or deleted reduces progress.
+ * Mulkia (Registration) — live doc/card required for progress.
+ * Expiry is shown on the card + expiry notifications; it does not reduce progress %.
  */
 export function isVehicleRegistrationCardComplete(asset) {
     const registrationDocs = liveDocsOfType(asset, 'registration');
     const registrationAttachments = liveDocsOfType(asset, 'registration attachment');
     const registrationDoc = pickPrimaryLiveDoc(registrationDocs);
     if (!registrationDoc && registrationAttachments.length === 0) {
-        return false;
-    }
-
-    if (registrationDoc && isVehicleExpiryDatePast(registrationDoc.expiryDate || asset?.registrationExpiryDate)) {
         return false;
     }
 
@@ -57,17 +53,14 @@ export function isVehicleRegistrationCardComplete(asset) {
 }
 
 /**
- * Insurance Details — live doc/card required; expired or deleted reduces progress.
+ * Insurance Details — live doc/card required for progress.
+ * Expiry is shown on the card + expiry notifications; it does not reduce progress %.
  */
 export function isVehicleInsuranceCardComplete(asset) {
     const insuranceDocs = liveDocsOfType(asset, 'insurance');
     const insuranceAttachments = liveDocsOfType(asset, 'insurance attachment');
     const insuranceDoc = pickPrimaryLiveDoc(insuranceDocs);
     if (!insuranceDoc && insuranceAttachments.length === 0) {
-        return false;
-    }
-
-    if (insuranceDoc && isVehicleExpiryDatePast(insuranceDoc.expiryDate || asset?.insuranceExpiryDate)) {
         return false;
     }
 
@@ -139,7 +132,8 @@ function getQueuedProfileEditSectionLabels(asset) {
 }
 
 /**
- * Progress bar sections (equal weight). Missing / expired / pending-HR inspection reduce %.
+ * Progress bar sections (equal weight). Missing live card / pending-HR inspection reduce %.
+ * Expiry does not reduce progress — that is handled by card EXPIRED badge + expiry notifications.
  * After profile is active, adding/editing a section queues HR approval and keeps that
  * section incomplete until HR approves.
  */

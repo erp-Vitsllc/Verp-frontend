@@ -54,6 +54,7 @@ import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard } from '@/utils/assetNotificationRouting';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
+import EmployeeNameLink from '@/components/EmployeeNameLink';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach, isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel } from '@/utils/assetStatusHelpers';
@@ -2867,9 +2868,14 @@ function AssetDetailsPageContent() {
                                                     On duty request
                                                 </p>
                                                 <p className="text-[13px] font-bold text-sky-900 leading-snug">
-                                                    {asset.assignedTo
-                                                        ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
-                                                        : 'Asset owner'}{' '}
+                                                    {asset.assignedTo ? (
+                                                        <EmployeeNameLink
+                                                            employee={asset.assignedTo}
+                                                            className="font-bold text-sky-900"
+                                                        />
+                                                    ) : (
+                                                        'Asset owner'
+                                                    )}{' '}
                                                     requested to return this asset from leave to <strong>On Duty</strong>.
                                                 </p>
                                             </div>
@@ -4284,7 +4290,11 @@ function AssetDetailsPageContent() {
                                                                         <div className="text-[10px] text-gray-600 space-y-1">
                                                                             {entry.assignedTo && entry.action === 'Assigned' && (
                                                                                 <p className="flex items-center gap-1">
-                                                                                    To: <span className="font-bold text-gray-900">{entry.assignedTo.firstName} {entry.assignedTo.lastName}</span>
+                                                                                    To:{' '}
+                                                                                    <EmployeeNameLink
+                                                                                        employee={entry.assignedTo}
+                                                                                        className="font-bold text-gray-900"
+                                                                                    />
                                                                                 </p>
                                                                             )}
 

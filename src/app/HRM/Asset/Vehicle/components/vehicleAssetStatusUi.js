@@ -215,3 +215,72 @@ export function getVehicleListWaitingLabel(vehicle) {
     if (st === 'pending') return 'Acknowledgment';
     return 'Approval';
 }
+
+const TERMINAL_SERVICE_WORKFLOW_STAGES = new Set(['complete', 'completed', 'rejected', 'cancelled', 'canceled']);
+
+/**
+ * Fleet list "Assigned To" — assignment only (no On Service here).
+ * Unassigned | Assigned - Name | Accident | Handover handled separately in the cell.
+ */
+export function resolveVehicleListAssignedToDisplay(vehicle) {
+    if (!vehicle) return '';
+
+    const statusStr = String(vehicle.status || '').trim();
+    const statusKey = statusStr.toLowerCase();
+    const assigneeStr = resolveVehicleListAssigneeStr(vehicle);
+    const leave = vehicle.onLeaveActive === true;
+
+    if (statusKey === 'unassigned' || statusKey === 'returned') {
+        return statusStr || 'Unassigned';
+    }
+
+    if (assigneeStr) {
+        if (leave) return `${assigneeStr} (On Leave)`;
+        return `Assigned - ${assigneeStr}`;
+    }
+
+    if (!vehicle.assignedTo && !vehicle.assignedCompany) {
+        if (statusKey === 'accident') return 'Accident';
+        if (statusKey && statusKey !== 'assigned') return statusStr;
+        return 'Unassigned';
+    }
+
+    return statusStr || 'Assigned';
+}
+
+/**
+ * Fleet list Service Status — "On Service" when a service is ongoing / pending, else empty.
+ */
+export function resolveVehicleListServiceStatusLabel(vehicle) {
+    if (!vehicle) return '';
+
+    if (vehicle.onServiceActive === true) return 'On Service';
+
+    const statusKey = String(vehicle.status || '')
+        .toLowerCase()
+        .trim();
+    if (
+        statusKey === 'on service' ||
+        statusKey === 'waiting for service' ||
+        statusKey === 'service' ||
+        statusKey === 'maintenance'
+    ) {
+        return 'On Service';
+    }
+
+    const wf = vehicle.activeServiceWorkflow || {};
+    const stage = String(wf.stage || '')
+        .toLowerCase()
+        .trim();
+    const hasActiveRecord = Boolean(
+        String(wf.serviceRecordId || wf.serviceId || '').trim(),
+    );
+    if (hasActiveRecord && stage && !TERMINAL_SERVICE_WORKFLOW_STAGES.has(stage)) {
+        return 'On Service';
+    }
+    if (hasActiveRecord && !stage) {
+        return 'On Service';
+    }
+
+    return '';
+}

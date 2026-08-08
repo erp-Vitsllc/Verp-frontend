@@ -195,6 +195,7 @@ export function buildHrReviewInitiateRemarkPatch({
     companyPayPercent,
     employeePayPercent,
     companyPayPartyName,
+    companyPayPartyId,
 }) {
     const approvedAmountNum = Number(approvedAmount) || 0;
     const companyPayNum = Number(companyPay) || 0;
@@ -229,8 +230,14 @@ export function buildHrReviewInitiateRemarkPatch({
         paymentByMode: derived.paymentByMode || paymentByMode || 'company',
         companyPayAmount: companyPayNum,
         employeePayAmount: employeePayNum,
+        ...(companyPayPartyId
+            ? { companyPayPartyId: String(companyPayPartyId).trim() }
+            : {}),
         ...(companyPayPartyName
-            ? { companyPayPartyName: String(companyPayPartyName).trim() }
+            ? {
+                  companyPayPartyName: String(companyPayPartyName).trim(),
+                  companyName: String(companyPayPartyName).trim(),
+              }
             : {}),
     };
 }
@@ -263,49 +270,102 @@ export function syncInitiateServicePayAmounts({
         return Number.isFinite(n) && n >= 0 ? n : 0;
     };
 
+    // Keep empty string while the user is clearing/retyping so backspace can remove "0".
+    const clearing = value === '' || value == null;
+    let companyPayOut = null;
+    let employeePayOut = null;
+    let costOut = null;
+
     if (field === 'estimatedCost' || field === 'totalAmount') {
-        nextCost = parseAmt(value);
-        if (mode === 'company') {
-            nextCompany = nextCost;
-            nextEmployee = 0;
-        } else if (mode === 'person') {
-            nextCompany = 0;
-            nextEmployee = nextCost;
+        if (clearing) {
+            nextCost = 0;
+            costOut = '';
+            if (mode === 'company') {
+                nextCompany = 0;
+                nextEmployee = 0;
+                companyPayOut = '';
+                employeePayOut = '0';
+            } else if (mode === 'person') {
+                nextCompany = 0;
+                nextEmployee = 0;
+                companyPayOut = '0';
+                employeePayOut = '';
+            } else {
+                nextCompany = 0;
+                nextEmployee = 0;
+                companyPayOut = '';
+                employeePayOut = '';
+            }
         } else {
-            const ratio = prevCost > 0 ? nextEmployee / prevCost : 0.5;
-            nextEmployee = Math.round(nextCost * ratio);
-            nextCompany = Math.max(0, nextCost - nextEmployee);
+            nextCost = parseAmt(value);
+            if (mode === 'company') {
+                nextCompany = nextCost;
+                nextEmployee = 0;
+            } else if (mode === 'person') {
+                nextCompany = 0;
+                nextEmployee = nextCost;
+            } else {
+                const ratio = prevCost > 0 ? nextEmployee / prevCost : 0.5;
+                nextEmployee = Math.round(nextCost * ratio);
+                nextCompany = Math.max(0, nextCost - nextEmployee);
+            }
         }
     } else if (field === 'companyPay') {
-        const amt = parseAmt(value);
-        if (mode === 'company') {
-            nextCompany = amt;
-            nextEmployee = 0;
-            nextCost = nextCompany;
-        } else if (mode === 'split') {
-            nextCompany = Math.min(amt, nextCost);
-            nextEmployee = Math.max(0, nextCost - nextCompany);
+        if (clearing) {
+            companyPayOut = '';
+            if (mode === 'company') {
+                nextCompany = 0;
+                nextEmployee = 0;
+                nextCost = 0;
+                costOut = '';
+            } else if (mode === 'split') {
+                nextCompany = 0;
+                nextEmployee = nextCost;
+            }
+        } else {
+            const amt = parseAmt(value);
+            if (mode === 'company') {
+                nextCompany = amt;
+                nextEmployee = 0;
+                nextCost = nextCompany;
+            } else if (mode === 'split') {
+                nextCompany = Math.min(amt, nextCost);
+                nextEmployee = Math.max(0, nextCost - nextCompany);
+            }
         }
     } else if (field === 'employeePay') {
-        const amt = parseAmt(value);
-        if (mode === 'person') {
-            nextEmployee = amt;
-            nextCompany = 0;
-            nextCost = nextEmployee;
-        } else if (mode === 'split') {
-            nextEmployee = Math.min(amt, nextCost);
-            nextCompany = Math.max(0, nextCost - nextEmployee);
+        if (clearing) {
+            employeePayOut = '';
+            if (mode === 'person') {
+                nextEmployee = 0;
+                nextCompany = 0;
+                nextCost = 0;
+                costOut = '';
+            } else if (mode === 'split') {
+                nextEmployee = 0;
+                nextCompany = nextCost;
+            }
+        } else {
+            const amt = parseAmt(value);
+            if (mode === 'person') {
+                nextEmployee = amt;
+                nextCompany = 0;
+                nextCost = nextEmployee;
+            } else if (mode === 'split') {
+                nextEmployee = Math.min(amt, nextCost);
+                nextCompany = Math.max(0, nextCost - nextEmployee);
+            }
         }
     }
 
     const percents = derivePayPercents(nextCost, nextCompany, nextEmployee, mode);
 
     return {
-        estimatedCost: nextCost ? String(nextCost) : '',
-        quotation1Amount: nextCost ? String(nextCost) : '',
-        value: nextCost ? String(nextCost) : '',
-        companyPayAmount: String(nextCompany),
-        employeePayAmount: String(nextEmployee),
+        estimatedCost: costOut != null ? costOut : nextCost ? String(nextCost) : '',
+        quotation1Amount: costOut != null ? costOut : nextCost ? String(nextCost) : '',
+        value: costOut != null ? costOut : nextCost ? String(nextCost) : '',
+        companyPayAmount: companyPayOut != null ? companyPayOut : String(nextCompany),
+        employeePayAmount: employeePayOut != null ? employeePayOut : String(nextEmployee),
         companyPayPercent: percents.companyPayPercent,
         employeePayPercent: percents.employeePayPercent,
         paymentByMode: mode,

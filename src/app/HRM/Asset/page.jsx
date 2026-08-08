@@ -45,6 +45,7 @@ import {
     isServiceActive,
     isServiceOperationalStatus,
 } from '@/utils/assetStatusHelpers';
+import { EmployeeAssignmentStatusLine } from '@/components/EmployeeNameLink';
 
 import { UserPlus, Square, CheckSquare, User, Users } from 'lucide-react';
 
@@ -2979,7 +2980,14 @@ function AssetPageContent() {
                                                                                 if (!isAssignedRelated && !isPoolStatus) return statusStr;
 
                                                                                 const assigneeStr = resolveAssetListAssigneeStr(item);
-                                                                                return formatAssetAssignmentStatusLine(item, assigneeStr);
+                                                                                const line = formatAssetAssignmentStatusLine(item, assigneeStr);
+                                                                                return (
+                                                                                    <EmployeeAssignmentStatusLine
+                                                                                        asset={item}
+                                                                                        assigneeStr={assigneeStr}
+                                                                                        line={line}
+                                                                                    />
+                                                                                );
                                                                             })()}
 
                                                                         </span>

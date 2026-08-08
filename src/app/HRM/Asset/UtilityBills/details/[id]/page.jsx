@@ -16,6 +16,7 @@ import {
     Check,
     X,
     LockKeyhole,
+    History,
 } from 'lucide-react';
 import {
     DETAIL_PAIR_COLUMN,
@@ -39,6 +40,7 @@ import {
     deleteUtilityBillApi,
     deleteUtilityEntryApi,
     fetchUtilityEntry,
+    fetchUtilityEntryAssignmentHistory,
     updateUtilityEntryApi,
 } from '../../utils/utilityBillsApi';
 import FieldViewModal from '../../components/FieldViewModal';
@@ -54,8 +56,43 @@ import {
 import { openUtilityAttachment } from '../../utils/openUtilityAttachment';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
+import EmployeeNameLink from '@/components/EmployeeNameLink';
 
 const MAX_INLINE_LEN = 48;
+
+function formatHistoryDateTime(value) {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+function assignmentActionLabel(action) {
+    const key = String(action || '').toLowerCase();
+    if (key === 'reassign') return 'Reassign';
+    if (key === 'return') return 'Return';
+    return 'Assign';
+}
+
+function assignmentActionBadgeClass(action) {
+    const key = String(action || '').toLowerCase();
+    if (key === 'reassign') return 'bg-amber-50 text-amber-800 ring-1 ring-amber-200';
+    if (key === 'return') return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
+    return 'bg-teal-50 text-teal-800 ring-1 ring-teal-200';
+}
+
+function formatAssigneeCell(name, type) {
+    const label = String(name || '').trim();
+    if (!label) return 'Unassigned';
+    const kind = String(type || '').trim();
+    return kind ? `${label} (${kind})` : label;
+}
 
 function paymentByLabel(billOrMode) {
     const bill =
@@ -298,6 +335,8 @@ function UtilityBillDetailsPageContent() {
     const [utilityConfig, setUtilityConfig] = useState(null);
     const [bills, setBills] = useState([]);
     const [loadingBills, setLoadingBills] = useState(false);
+    const [assignmentHistory, setAssignmentHistory] = useState([]);
+    const [loadingAssignmentHistory, setLoadingAssignmentHistory] = useState(false);
     const [activeTab, setActiveTab] = useState('overview');
     const [viewModalOpen, setViewModalOpen] = useState(false);
     const [viewFields, setViewFields] = useState([]);
@@ -516,6 +555,19 @@ function UtilityBillDetailsPageContent() {
         }
     }, [entryId]);
 
+    const loadAssignmentHistory = useCallback(async () => {
+        if (!entryId) return;
+        setLoadingAssignmentHistory(true);
+        try {
+            const rows = await fetchUtilityEntryAssignmentHistory(entryId);
+            setAssignmentHistory(rows);
+        } catch {
+            setAssignmentHistory([]);
+        } finally {
+            setLoadingAssignmentHistory(false);
+        }
+    }, [entryId]);
+
     const handleAccountsSaveLines = useCallback(
         async ({ billId, batchId, lines, patch }) => {
             const id = String(batchId || viewBill?.batchId || '').trim();
@@ -585,6 +637,16 @@ function UtilityBillDetailsPageContent() {
     useEffect(() => {
         loadBills();
     }, [loadBills]);
+
+    useEffect(() => {
+        loadAssignmentHistory();
+    }, [loadAssignmentHistory]);
+
+    useEffect(() => {
+        if (activeTab === 'history') {
+            loadAssignmentHistory();
+        }
+    }, [activeTab, loadAssignmentHistory]);
 
     const loadPendingStatusChange = useCallback(async () => {
         if (!entryId) {
@@ -666,6 +728,7 @@ function UtilityBillDetailsPageContent() {
     const tabs = [
         { id: 'overview', label: 'Overview' },
         { id: 'bills', label: 'Bills' },
+        { id: 'history', label: 'History' },
     ];
 
     const handleAddBill = async (payload) => {
@@ -1343,9 +1406,23 @@ function UtilityBillDetailsPageContent() {
                                 ) : null}
                             </h1>
                             <p className="text-sm sm:text-base text-gray-600">
-                                {entry.assignedTo
-                                    ? `Assigned to ${entry.assignedToType === 'Company' ? 'company' : 'employee'}: ${entry.assignedTo}`
-                                    : 'Utility account details and bills'}
+                                {entry.assignedTo ? (
+                                    <>
+                                        Assigned to{' '}
+                                        {entry.assignedToType === 'Company' ? 'company' : 'employee'}:{' '}
+                                        {entry.assignedToType === 'Employee' && entry.assignedToId ? (
+                                            <EmployeeNameLink
+                                                employeeId={entry.assignedToId}
+                                                name={entry.assignedTo}
+                                                className="font-medium"
+                                            />
+                                        ) : (
+                                            entry.assignedTo
+                                        )}
+                                    </>
+                                ) : (
+                                    'Utility account details and bills'
+                                )}
                             </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 shrink-0 self-start sm:self-auto">
@@ -1641,6 +1718,111 @@ function UtilityBillDetailsPageContent() {
                                     {renderRecentMonthsBrowse()}
                                 </div>
                             </div>
+                        </div>
+                    ) : activeTab === 'history' ? (
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <History size={18} className="text-teal-600 shrink-0" />
+                                    <div className="min-w-0">
+                                        <h3 className="text-base sm:text-lg font-bold text-gray-800">
+                                            Assignment History
+                                        </h3>
+                                        <p className="text-xs text-gray-500">
+                                            Assign, reassign, and return events for this account
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className="text-xs font-semibold text-gray-500 tabular-nums shrink-0">
+                                    {assignmentHistory.length} record
+                                    {assignmentHistory.length === 1 ? '' : 's'}
+                                </span>
+                            </div>
+
+                            {loadingAssignmentHistory ? (
+                                <div className="px-4 sm:px-6 py-10 text-center text-sm text-gray-500">
+                                    Loading assignment history…
+                                </div>
+                            ) : assignmentHistory.length === 0 ? (
+                                <div className="px-4 sm:px-6 py-10 text-center text-sm text-gray-500">
+                                    No assignment history yet. Assign, reassign, or return this
+                                    account to start the timeline.
+                                </div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[720px] table-auto text-left text-xs sm:text-sm">
+                                        <thead>
+                                            <tr className="bg-gray-50 border-b border-gray-200 text-[10px] sm:text-xs uppercase tracking-wider text-gray-500 font-semibold">
+                                                <th className="px-3 sm:px-4 py-2.5 whitespace-nowrap">
+                                                    Date
+                                                </th>
+                                                <th className="px-3 sm:px-4 py-2.5 whitespace-nowrap">
+                                                    Action
+                                                </th>
+                                                <th className="px-3 sm:px-4 py-2.5 whitespace-nowrap">
+                                                    From
+                                                </th>
+                                                <th className="px-3 sm:px-4 py-2.5 whitespace-nowrap">
+                                                    To
+                                                </th>
+                                                <th className="px-3 sm:px-4 py-2.5 whitespace-nowrap">
+                                                    By
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {assignmentHistory.map((row) => (
+                                                <tr
+                                                    key={row.id}
+                                                    className="hover:bg-blue-50/40 transition-colors"
+                                                >
+                                                    <td className="px-3 sm:px-4 py-2.5 whitespace-nowrap text-gray-700 tabular-nums">
+                                                        {formatHistoryDateTime(row.occurredAt)}
+                                                    </td>
+                                                    <td className="px-3 sm:px-4 py-2.5 whitespace-nowrap">
+                                                        <span
+                                                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${assignmentActionBadgeClass(row.action)}`}
+                                                        >
+                                                            {assignmentActionLabel(row.action)}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-3 sm:px-4 py-2.5 text-gray-700">
+                                                        {row.fromAssignedToType === 'Employee' &&
+                                                        row.fromAssignedToId ? (
+                                                            <EmployeeNameLink
+                                                                employeeId={row.fromAssignedToId}
+                                                                name={row.fromAssignedTo}
+                                                            />
+                                                        ) : (
+                                                            formatAssigneeCell(
+                                                                row.fromAssignedTo,
+                                                                row.fromAssignedToType,
+                                                            )
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 sm:px-4 py-2.5 text-gray-700">
+                                                        {row.toAssignedToType === 'Employee' &&
+                                                        row.toAssignedToId ? (
+                                                            <EmployeeNameLink
+                                                                employeeId={row.toAssignedToId}
+                                                                name={row.toAssignedTo}
+                                                            />
+                                                        ) : (
+                                                            formatAssigneeCell(
+                                                                row.toAssignedTo,
+                                                                row.toAssignedToType,
+                                                            )
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 sm:px-4 py-2.5 whitespace-nowrap text-gray-700">
+                                                        {row.performedByName || '—'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div className="flex flex-col">

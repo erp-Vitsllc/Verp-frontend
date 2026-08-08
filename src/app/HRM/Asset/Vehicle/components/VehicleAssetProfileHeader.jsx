@@ -17,6 +17,7 @@ import {
 } from '../lib/vehicleProfileEditSnapshots';
 import { collectVehicleProfilePendingItems } from '../utils/resolveVehicleProfilePendingItems';
 import VehicleProfilePendingStatusBadge from './VehicleProfilePendingStatusBadge';
+import EmployeeNameLink from '@/components/EmployeeNameLink';
 
 function pickRawVehiclePhotoRef(asset) {
     // Prefer raw S3 keys (`photo`) over possibly pre-signed `imagePreview` URLs.
@@ -393,16 +394,30 @@ export default function VehicleAssetProfileHeader({
                         {assigneeName ? (
                             <>
                                 <User size={12} className="text-blue-500 shrink-0" aria-hidden />
-                                <span
-                                    className="truncate text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-slate-700"
-                                    title={
-                                        assignmentDuration
-                                            ? `${assigneeName} — ${assignmentDuration}`
-                                            : assigneeName
-                                    }
-                                >
-                                    {assigneeName}
-                                </span>
+                                {asset?.assignedTo && typeof asset.assignedTo === 'object' && !asset?.assignedCompany ? (
+                                    <EmployeeNameLink
+                                        employee={asset.assignedTo}
+                                        name={assigneeName}
+                                        variant="inherit"
+                                        className="truncate text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-slate-700"
+                                        title={
+                                            assignmentDuration
+                                                ? `${assigneeName} — ${assignmentDuration}`
+                                                : assigneeName
+                                        }
+                                    />
+                                ) : (
+                                    <span
+                                        className="truncate text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-slate-700"
+                                        title={
+                                            assignmentDuration
+                                                ? `${assigneeName} — ${assignmentDuration}`
+                                                : assigneeName
+                                        }
+                                    >
+                                        {assigneeName}
+                                    </span>
+                                )}
                             </>
                         ) : (
                             <>
@@ -518,7 +533,6 @@ export default function VehicleAssetProfileHeader({
                                 <VehicleProfilePendingStatusBadge
                                     key={`${item.kind}-${item.label}-${item.pendingFor}`}
                                     item={item}
-                                    className="px-1.5 py-0.5 text-[9px]"
                                 />
                             ))}
                         </div>

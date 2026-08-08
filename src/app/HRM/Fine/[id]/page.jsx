@@ -897,9 +897,7 @@ function FineDetailsPageContent() {
                 const fineRes = await axiosInstance.get(`/Fine/${id}`);
                 const fineData = fineRes.data;
                 setFine(fineData);
-                if (APPROVED_FINE_STATUSES.includes(fineData.fineStatus)) {
-                    setActiveTab('approvedAttachments');
-                }
+                setActiveTab('fineForm');
 
                 const scheduleDates = deriveFineScheduleMonthYears(fineData);
                 const targetEmp = resolveActivePartyFromFine(fineData, {

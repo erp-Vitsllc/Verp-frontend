@@ -19,8 +19,20 @@ import {
     resolveOilPaymentFields,
 } from './vehicleOilServiceDetailForm';
 import { resolveVehicleServiceAssignedOwnerId } from './vehicleServiceAssignedOwner';
+import { resolveInitiateAbsolutePayAmounts } from './vehicleShopHrReviewPay';
+import {
+    validateInitiateServicePaySplit,
+} from './vehicleInitiatePayValidation';
 
 export { OIL_SERVICE_VENDOR_OPTIONS as ACCIDENT_REPAIR_VENDOR_OPTIONS, formatWarrantyExpiryFromAsset };
+
+export function computeAccidentFinesTotal(formData = {}) {
+    const insurance = Number(formData.insuranceFineAmount) || 0;
+    const police = Number(formData.policeFineAmount) || 0;
+    const otherRows = normalizeOtherFineRows(formData.otherFineRows, formData.otherFineAmount);
+    const other = sumOtherFineRows(otherRows);
+    return Math.round(insurance + police + other);
+}
 
 export function getLastCompletedTireServiceForAsset(asset, { excludeServiceId } = {}) {
     const services = Array.isArray(asset?.services) ? asset.services : [];
@@ -287,6 +299,20 @@ export function buildAccidentRepairDetailFormState(service, asset, { flowchartRo
                       ? '0'
                       : '',
         estimatedCost: estimatedFromRemark,
+        companyPayAmount:
+            remark.hrReviewCompanyPay != null && remark.hrReviewCompanyPay !== ''
+                ? String(remark.hrReviewCompanyPay)
+                : remark.companyPayAmount != null && remark.companyPayAmount !== ''
+                  ? String(remark.companyPayAmount)
+                  : '',
+        employeePayAmount:
+            remark.hrReviewEmployeePay != null && remark.hrReviewEmployeePay !== ''
+                ? String(remark.hrReviewEmployeePay)
+                : remark.employeePayAmount != null && remark.employeePayAmount !== ''
+                  ? String(remark.employeePayAmount)
+                  : '',
+        companyPayPartyId: String(remark.companyPayPartyId || '').trim(),
+        companyPayPartyName: String(remark.companyPayPartyName || remark.companyName || '').trim(),
         employeeLiabilityRows: liabilityRows,
         otherFineRows,
         otherFineAmount: otherFine > 0 ? String(otherFine) : '',
@@ -336,6 +362,14 @@ const ACCIDENT_REPAIR_FIELD_LABELS = {
     policeFineAmount: 'Police fine',
     accidentImages: 'Accident photos',
     serviceIssue: 'Description',
+    paymentByMode: 'Payment by',
+    estimatedCost: 'Total amount',
+    paySplit: 'Payment split',
+    finesTotalMatch: 'TOTAL / TOTAL AMOUNT',
+    companyPayPercent: 'Company payment',
+    employeePayPercent: 'Employee payment',
+    employeeLiabilityRows: 'Employee payment rows',
+    companyPayPartyId: 'Company name',
 };
 
 function hasAccidentPhotos(formData) {
@@ -370,8 +404,31 @@ export function validateAccidentRepairDetailForm(formData, asset = null) {
     delete e.serviceIssue;
 
     const amountMode = normalizeOilPaymentType(formData.amountMode) || 'amount';
-    if (isOilPayablePaymentMode(amountMode) && !normalizeOilPaymentMethod(formData.paymentMethod)) {
+    const payable = isOilPayablePaymentMode(amountMode);
+    if (payable && !normalizeOilPaymentMethod(formData.paymentMethod)) {
         e.paymentMethod = 'Payment method is required';
+    }
+
+    const finesTotal = computeAccidentFinesTotal(formData);
+    Object.assign(
+        e,
+        validateInitiateServicePaySplit(formData, {
+            requirePayable: payable,
+            requireCompanyParty: true,
+            requireFinesTotalMatch: true,
+            finesTotal,
+        }),
+    );
+
+    if (!payable) {
+        delete e.estimatedCost;
+        delete e.paymentByMode;
+        delete e.paySplit;
+        delete e.finesTotalMatch;
+        delete e.companyPayPercent;
+        delete e.employeePayPercent;
+        delete e.employeeLiabilityRows;
+        delete e.companyPayPartyId;
     }
 
     return e;
@@ -379,7 +436,17 @@ export function validateAccidentRepairDetailForm(formData, asset = null) {
 
 export function getAccidentRepairDetailFormMissingFields(formData, asset = null) {
     const errors = validateAccidentRepairDetailForm(formData, asset);
-    const labels = Object.keys(errors).map((key) => ACCIDENT_REPAIR_FIELD_LABELS[key] || errors[key]);
+    const preferErrorText = new Set([
+        'paySplit',
+        'finesTotalMatch',
+        'employeeLiabilityRows',
+        'companyPayPercent',
+        'employeePayPercent',
+        'companyPayPartyId',
+    ]);
+    const labels = Object.keys(errors).map((key) =>
+        preferErrorText.has(key) ? errors[key] : ACCIDENT_REPAIR_FIELD_LABELS[key] || errors[key],
+    );
     return [...new Set(labels)];
 }
 
@@ -509,21 +576,66 @@ export function buildAccidentRepairDetailSubmitBody(formData, { keepPending = tr
     if (paymentByModeRaw === 'person' || paymentByModeRaw === 'company' || paymentByModeRaw === 'split') {
         remark.paymentByMode = paymentByModeRaw;
         remark.liableOn = paymentByModeRaw;
-        const companyPct =
-            paymentByModeRaw === 'company' ? 100 : paymentByModeRaw === 'person' ? 0 : Number(formData.companyPayPercent) || 50;
-        const employeePct =
-            paymentByModeRaw === 'person' ? 100 : paymentByModeRaw === 'company' ? 0 : Number(formData.employeePayPercent) || 50;
-        remark.companyPayPercent = String(companyPct);
-        remark.employeePayPercent = String(employeePct);
 
-        const estimated =
+        const finesTotal = computeAccidentFinesTotal(formData);
+        const estimatedRaw =
             formData.estimatedCost !== '' && formData.estimatedCost != null
                 ? Number(formData.estimatedCost)
                 : NaN;
-        if (Number.isFinite(estimated) && estimated > 0) {
+        const estimated =
+            Number.isFinite(estimatedRaw) && estimatedRaw > 0
+                ? Math.round(estimatedRaw)
+                : finesTotal > 0
+                  ? finesTotal
+                  : 0;
+
+        const absolutePay = resolveInitiateAbsolutePayAmounts({
+            estimatedCost: estimated,
+            companyPayPercent: formData.companyPayPercent,
+            employeePayPercent: formData.employeePayPercent,
+            companyPayAmount: formData.companyPayAmount,
+            employeePayAmount: formData.employeePayAmount,
+        });
+        const companyPayAmount = absolutePay.companyPayAmount;
+        const employeePayAmount = absolutePay.employeePayAmount;
+        const companyPct =
+            estimated > 0
+                ? Math.min(100, Math.max(0, Math.round((companyPayAmount / estimated) * 100)))
+                : paymentByModeRaw === 'company'
+                  ? 100
+                  : paymentByModeRaw === 'person'
+                    ? 0
+                    : Number(formData.companyPayPercent) || 50;
+        const employeePct =
+            estimated > 0
+                ? Math.min(100, Math.max(0, 100 - companyPct))
+                : paymentByModeRaw === 'person'
+                  ? 100
+                  : paymentByModeRaw === 'company'
+                    ? 0
+                    : Number(formData.employeePayPercent) || 50;
+
+        remark.companyPayPercent = String(companyPct);
+        remark.employeePayPercent = String(employeePct);
+        if (estimated > 0) {
             remark.estimatedCost = estimated;
-            remark.companyPayAmount = Math.round((estimated * companyPct) / 100);
-            remark.employeePayAmount = Math.round((estimated * employeePct) / 100);
+            remark.companyPayAmount = companyPayAmount;
+            remark.employeePayAmount = employeePayAmount;
+            remark.hrReviewApprovedAmount = estimated;
+            remark.hrReviewCompanyPay = companyPayAmount;
+            remark.hrReviewEmployeePay = employeePayAmount;
+        }
+
+        const partyId = String(formData.companyPayPartyId || '').trim();
+        const partyName = String(formData.companyPayPartyName || '').trim();
+        if (partyId) remark.companyPayPartyId = partyId;
+        else delete remark.companyPayPartyId;
+        if (partyName) {
+            remark.companyPayPartyName = partyName;
+            remark.companyName = partyName;
+        } else {
+            delete remark.companyPayPartyName;
+            delete remark.companyName;
         }
 
         const rows = Array.isArray(formData.employeeLiabilityRows)
@@ -536,6 +648,7 @@ export function buildAccidentRepairDetailSubmitBody(formData, { keepPending = tr
             : [];
         if (rows.length) {
             remark.employeeLiabilityRows = rows;
+            remark.hrReviewEmployeeRows = rows;
             remark.employeeLiabilityTotal = rows.reduce((sum, row) => sum + (Number(row.paidAmount) || 0), 0);
         }
     }

@@ -19,6 +19,7 @@ import {
 } from './vehicleOilServiceDetailForm';
 import { resolveVehicleServiceAssignedOwnerId } from './vehicleServiceAssignedOwner';
 import { resolveInitiateAbsolutePayAmounts } from './vehicleShopHrReviewPay';
+import { validateInitiateServicePaySplit } from './vehicleInitiatePayValidation';
 
 export { OIL_SERVICE_VENDOR_OPTIONS as MECHANICAL_WORK_VENDOR_OPTIONS, formatWarrantyExpiryFromAsset };
 
@@ -340,6 +341,8 @@ export function buildMechanicalWorkDetailFormState(service, asset, { flowchartRo
         state.companyPayAmount = String(absoluteInit.companyPayAmount);
         state.employeePayAmount = String(absoluteInit.employeePayAmount);
     }
+    state.companyPayPartyId = String(remark.companyPayPartyId || '').trim();
+    state.companyPayPartyName = String(remark.companyPayPartyName || remark.companyName || '').trim();
 
     return state;
 }
@@ -448,63 +451,13 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
         e.estimatedCost = 'Estimated cost is required';
     }
 
-    const paymentByMode = formData.paymentByMode || 'company';
-    const absolutePay = resolveInitiateAbsolutePayAmounts({
-        estimatedCost: formData.estimatedCost,
-        companyPayPercent: formData.companyPayPercent,
-        employeePayPercent: formData.employeePayPercent,
-        companyPayAmount: formData.companyPayAmount,
-        employeePayAmount: formData.employeePayAmount,
-    });
-    const companyPayAmount = absolutePay.companyPayAmount;
-    const employeePayAmount = absolutePay.employeePayAmount;
-
-    if (payable && Number.isFinite(estimated) && estimated > 0) {
-        if (paymentByMode === 'split') {
-            if (Math.abs(companyPayAmount + employeePayAmount - estimated) > 0.01) {
-                e.paySplit = `Company pay + Employee pay must equal Total (${estimated.toLocaleString()} AED)`;
-            }
-        } else if (paymentByMode === 'person') {
-            if (Math.abs(employeePayAmount - estimated) > 0.01) {
-                e.employeePayPercent = `Employee pay must equal Estimated cost (${estimated.toLocaleString()} AED)`;
-            }
-        } else if (paymentByMode === 'company') {
-            if (Math.abs(companyPayAmount - estimated) > 0.01) {
-                e.companyPayPercent = `Company pay must equal Estimated cost (${estimated.toLocaleString()} AED)`;
-            }
-        }
-    }
-
-    const rows = Array.isArray(formData.employeeLiabilityRows) ? formData.employeeLiabilityRows : [];
-    if (payable && (paymentByMode === 'person' || paymentByMode === 'split')) {
-        if (!rows.length) {
-            e.employeeLiabilityRows = 'Add at least one employee row';
-        } else {
-            rows.forEach((row, idx) => {
-                if (!String(row.employeeId || '').trim()) {
-                    e.employeeLiabilityRows = `Employee name is required on row ${idx + 1}`;
-                }
-                const amt = Number(row.paidAmount);
-                if (!Number.isFinite(amt) || amt < 0) {
-                    e.employeeLiabilityRows = `Paid amount is required on row ${idx + 1}`;
-                }
-            });
-            const seenEmployeeIds = new Set();
-            for (let idx = 0; idx < rows.length; idx += 1) {
-                const id = String(rows[idx]?.employeeId || '').trim();
-                if (!id) continue;
-                if (seenEmployeeIds.has(id)) {
-                    e.employeeLiabilityRows = 'Each employee can only be selected once';
-                    break;
-                }
-                seenEmployeeIds.add(id);
-            }
-            const liabilitySum = sumEmployeeLiabilityRows(rows);
-            if (Math.abs(liabilitySum - employeePayAmount) > 0.01) {
-                e.employeeLiabilityRows = `Employee amounts must total Employee pay (${employeePayAmount.toLocaleString()} AED)`;
-            }
-        }
-    }
+    Object.assign(
+        e,
+        validateInitiateServicePaySplit(formData, {
+            requirePayable: payable,
+            requireCompanyParty: true,
+        }),
+    );
 
     const hasQ1 =
         !!(formData.attachmentBase64 && formData.attachmentName) || !!formData.existingAttachmentUrl;
@@ -517,19 +470,14 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
     // Description is optional on Mechanical Work details (initiate / schedule / HR / complete).
     delete e.serviceIssue;
 
-    if (paymentByMode === 'person') {
-        delete e.companyPayPercent;
-    }
-    if (paymentByMode === 'company') {
-        delete e.employeePayPercent;
-        delete e.employeeLiabilityRows;
-    }
     if (!payable) {
         delete e.estimatedCost;
         delete e.companyPayPercent;
         delete e.employeePayPercent;
         delete e.employeeLiabilityRows;
         delete e.paySplit;
+        delete e.companyPayPartyId;
+        delete e.paymentByMode;
         delete e.attachment;
         delete e.value;
         delete e.paymentMethod;
@@ -545,6 +493,7 @@ export function getMechanicalWorkDetailFormMissingFields(formData, asset = null)
         'employeeLiabilityRows',
         'companyPayPercent',
         'employeePayPercent',
+        'companyPayPartyId',
     ]);
     const labels = Object.keys(errors).map((key) =>
         preferErrorText.has(key) ? errors[key] : MECHANICAL_WORK_FIELD_LABELS[key] || errors[key],
@@ -636,6 +585,19 @@ export function buildMechanicalWorkDetailSubmitBody(formData, { keepPending = tr
     remark.employeeLiabilityTotal = sumEmployeeLiabilityRows(normalized.employeeLiabilityRows);
     remark.liableOn = liableOn;
     remark.serviceIssue = String(normalized.serviceIssue || '').trim();
+    {
+        const partyId = String(normalized.companyPayPartyId || '').trim();
+        const partyName = String(normalized.companyPayPartyName || '').trim();
+        if (partyId) remark.companyPayPartyId = partyId;
+        else delete remark.companyPayPartyId;
+        if (partyName) {
+            remark.companyPayPartyName = partyName;
+            remark.companyName = partyName;
+        } else {
+            delete remark.companyPayPartyName;
+            delete remark.companyName;
+        }
+    }
     // Keep bodyWorkImages on the server; new uploads are sent via body.bodyWorkImages only.
     delete remark.bodyWorkImages;
 

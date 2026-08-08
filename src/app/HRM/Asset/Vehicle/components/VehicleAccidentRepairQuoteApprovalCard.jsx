@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileCheck, Plus } from 'lucide-react';
@@ -9,6 +9,7 @@ import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { parseVehicleServiceRemark, normalizeMongoId } from './vehicleServiceUtils';
 import VehicleAccidentRepairFormFieldCell from './VehicleAccidentRepairFormFieldCell';
 import SearchableEmployeeSelect from './SearchableEmployeeSelect';
+import VehicleCompanyPayPartySelect from './VehicleCompanyPayPartySelect';
 import { isOilServiceAssignmentPending } from '../utils/vehicleOilServiceAccess';
 import { canEditAccidentRepairQuoteCard } from '../utils/vehicleAccidentRepairWorkflow';
 import {
@@ -187,6 +188,9 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
+    const [companies, setCompanies] = useState([]);
+    const [companyPayPartyId, setCompanyPayPartyId] = useState('');
+    const [companyPayPartyName, setCompanyPayPartyName] = useState('');
     const [quoteState, setQuoteState] = useState({
         q1: { status: '', comment: '' },
         q2: { status: '', comment: '' },
@@ -221,11 +225,27 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         showEmployeePay &&
         employeePayNum > 0 &&
         Math.abs(employeeLiabilitySum - employeePayNum) > 0.01;
-    const payValidationMessage = paySplitError
-        ? `Company pay + Employee pay must equal Total (${estimatedCostNum.toLocaleString()} AED)`
-        : employeeRowsError
-          ? `Employee amounts must total Employee pay (${employeePayNum.toLocaleString()} AED)`
-          : '';
+    const payValidationMessage = useMemo(() => {
+        if (paySplitError) {
+            return `Company pay + Employee pay must equal Total (${estimatedCostNum.toLocaleString()} AED)`;
+        }
+        if (employeeRowsError) {
+            return `Employee amounts must total Employee pay (${employeePayNum.toLocaleString()} AED)`;
+        }
+        if (showCompanyPay && companyPayNum > 0 && !companyPayPartyName && !companyPayPartyId) {
+            return 'Select company under Company payment';
+        }
+        return '';
+    }, [
+        paySplitError,
+        employeeRowsError,
+        showCompanyPay,
+        companyPayNum,
+        companyPayPartyName,
+        companyPayPartyId,
+        estimatedCostNum,
+        employeePayNum,
+    ]);
     const totalPay =
         (Number(displaySummary.companyPay) || 0) + (Number(displaySummary.employeePay) || 0);
 
@@ -243,15 +263,18 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
 
     useEffect(() => {
         let active = true;
-        axiosInstance
-            .get('/employee')
-            .then(({ data }) => {
+        Promise.all([axiosInstance.get('/employee'), axiosInstance.get('/Company')])
+            .then(([empRes, companyRes]) => {
                 if (!active) return;
-                const list = Array.isArray(data) ? data : data?.employees || [];
+                const list = Array.isArray(empRes.data) ? empRes.data : empRes.data?.employees || [];
                 setEmployees(list);
+                setCompanies(companyRes.data?.companies || companyRes.data || []);
             })
             .catch(() => {
-                if (active) setEmployees([]);
+                if (active) {
+                    setEmployees([]);
+                    setCompanies([]);
+                }
             });
         return () => {
             active = false;
@@ -282,6 +305,8 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         setPaymentByMode(
             modeRaw === 'person' || modeRaw === 'company' || modeRaw === 'split' ? modeRaw : '',
         );
+        setCompanyPayPartyId(String(remark?.companyPayPartyId || '').trim());
+        setCompanyPayPartyName(String(remark?.companyPayPartyName || remark?.companyName || '').trim());
     }, [service?._id, service?.remark, remark]);
 
     const approvedQuoteKey = useMemo(() => {
@@ -589,6 +614,11 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
             employeePay: displaySummary.employeePay,
             employeeRows: employeeRowsPayload,
             paymentByMode: paymentByMode || undefined,
+            companyPayPartyId: companyPayPartyId || String(remark?.companyPayPartyId || '').trim() || undefined,
+            companyPayPartyName:
+                companyPayPartyName ||
+                String(remark?.companyPayPartyName || remark?.companyName || '').trim() ||
+                undefined,
         });
         return {
             remark: JSON.stringify({
@@ -611,6 +641,8 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
         description,
         displaySummary,
         paymentByMode,
+        companyPayPartyId,
+        companyPayPartyName,
         quoteRows,
         quoteState,
         remark,
@@ -627,6 +659,41 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                         'Quotes were uploaded - select one quote below, or remove quotes on Initiate first.',
                 });
                 return;
+            }
+        }
+        if ((action === 'approve' || action === 'save') && payValidationMessage) {
+            toast({
+                variant: 'destructive',
+                title: 'Payment amounts invalid',
+                description: payValidationMessage,
+            });
+            return;
+        }
+        if (action === 'approve' && showEmployeePay) {
+            const missingName = (employeeRows || []).some(
+                (row) => !String(row.employeeId || '').trim(),
+            );
+            if (missingName) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Employee required',
+                    description: 'Select an employee on every employee payment row.',
+                });
+                return;
+            }
+            const seen = new Set();
+            for (const row of employeeRows || []) {
+                const id = String(row.employeeId || '').trim();
+                if (!id) continue;
+                if (seen.has(id)) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Duplicate employee',
+                        description: 'Each employee can only be selected once.',
+                    });
+                    return;
+                }
+                seen.add(id);
             }
         }
         setLoading(true);
@@ -798,14 +865,44 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                 {(showCompanyPay || showEmployeePay || estimatedCostNum > 0) ? (
                     <div className="mt-4 w-full rounded-xl border border-gray-200 bg-white p-4 space-y-4">
                         {showCompanyPay ? (
-                            <div className="flex items-center justify-between gap-3">
-                                <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
-                                    Company payment
-                                </span>
-                                <span className="text-xl font-bold tabular-nums text-gray-900">
-                                    {companyPayNum.toLocaleString()}{' '}
-                                    <span className="text-sm font-bold text-gray-500">AED</span>
-                                </span>
+                            <div className="space-y-2.5">
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                        Company payment
+                                    </span>
+                                    <span className="text-xl font-bold tabular-nums text-gray-900">
+                                        {companyPayNum.toLocaleString()}{' '}
+                                        <span className="text-sm font-bold text-gray-500">AED</span>
+                                    </span>
+                                </div>
+                                {canEdit && companyPayNum > 0 ? (
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                                            <VehicleCompanyPayPartySelect
+                                                companies={companies}
+                                                value={companyPayPartyId}
+                                                error={
+                                                    companyPayNum > 0 &&
+                                                    !companyPayPartyName &&
+                                                    !companyPayPartyId
+                                                }
+                                                onChange={({
+                                                    companyPayPartyId: id,
+                                                    companyPayPartyName: name,
+                                                }) => {
+                                                    setCompanyPayPartyId(id);
+                                                    setCompanyPayPartyName(name);
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                ) : companyPayPartyName ? (
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-sm font-semibold text-gray-800">
+                                            {companyPayPartyName}
+                                        </span>
+                                    </div>
+                                ) : null}
                             </div>
                         ) : null}
 

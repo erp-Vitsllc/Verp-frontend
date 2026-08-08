@@ -5,6 +5,7 @@ import { HEADER_PAIR_CARD, HEADER_PAIR_CARD_BODY, HEADER_PAIR_CARD_PADDING, HEAD
 import { resolveAssetPrimaryPhoto } from '../utils/resolveAssetPrimaryPhoto';
 import { getAttachedAccessoriesValueTotal } from '../utils/getToolsAssetTotalValue';
 import StorageImage from '@/components/StorageImage';
+import EmployeeNameLink from '@/components/EmployeeNameLink';
 
 const ACTION_BTN_BASE =
     'min-h-[44px] sm:min-h-[52px] rounded-xl sm:rounded-2xl px-2 sm:px-3 py-2 sm:py-3 text-[10px] sm:text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all break-words';
@@ -113,11 +114,17 @@ export default function ToolsAssetProfileHeaderCards({
                             {isAssetActivelyAssigned(asset) && (
                                 <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-600">
                                     <User size={13} className="text-blue-500 shrink-0" />
-                                    <span className="truncate">
-                                        {isActiveCompanyAllocationUi
-                                            ? asset?.assignedCompany?.name
-                                            : `${asset?.assignedTo?.firstName || ''} ${asset?.assignedTo?.lastName || ''}`.trim()}
-                                    </span>
+                                    {isActiveCompanyAllocationUi ? (
+                                        <span className="truncate">
+                                            {asset?.assignedCompany?.name}
+                                        </span>
+                                    ) : (
+                                        <EmployeeNameLink
+                                            employee={asset?.assignedTo}
+                                            variant="inherit"
+                                            className="truncate text-[11px] font-bold uppercase tracking-wide text-slate-600"
+                                        />
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -155,7 +162,19 @@ export default function ToolsAssetProfileHeaderCards({
                                 return (
                                     <>
                                         <p className="text-[14px] font-black text-slate-900 uppercase tracking-tight truncate">
-                                            {title}
+                                            {!isActiveCompanyAllocationUi &&
+                                            asset?.assignedTo &&
+                                            (isAssetActivelyAssigned(asset) || isAckPending) &&
+                                            title === holderName ? (
+                                                <EmployeeNameLink
+                                                    employee={asset.assignedTo}
+                                                    name={holderName}
+                                                    variant="inherit"
+                                                    className="text-[14px] font-black text-slate-900 uppercase tracking-tight"
+                                                />
+                                            ) : (
+                                                title
+                                            )}
                                         </p>
                                         <p className="text-[12px] font-bold text-slate-500 mt-1">{subtitle}</p>
                                     </>

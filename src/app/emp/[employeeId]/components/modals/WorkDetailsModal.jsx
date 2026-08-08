@@ -251,7 +251,7 @@ export default function WorkDetailsModal({
                 toast({
                     variant: 'destructive',
                     title: 'Cannot mark as Left User',
-                    description: 'Clear assets, fines, loans, and flowchart assignment first.',
+                    description: 'Clear vehicle/tools/utility assets, open loans/advances, fines to pay, and flowchart assignment first.',
                 });
                 return;
             }

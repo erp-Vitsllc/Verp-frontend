@@ -33,6 +33,13 @@ export function saveVehicleListCache(rows) {
             actionRequiredBy: v.actionRequiredBy,
             onServiceActive: v.onServiceActive,
             onLeaveActive: v.onLeaveActive,
+            activeServiceWorkflow: v.activeServiceWorkflow
+                ? {
+                      stage: v.activeServiceWorkflow.stage || '',
+                      serviceRecordId: v.activeServiceWorkflow.serviceRecordId || '',
+                      serviceTypeLabel: v.activeServiceWorkflow.serviceTypeLabel || '',
+                  }
+                : null,
             warrantyEnabled: v.warrantyEnabled,
             warrantyExpiryDate: v.warrantyExpiryDate,
             warrantyYears: v.warrantyYears,

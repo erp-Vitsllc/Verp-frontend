@@ -1,18 +1,17 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import {
-    navHrefProps,
-    openLinkInNewTab,
-} from '@/utils/linkContextMenu';
+import { navHrefProps } from '@/utils/linkContextMenu';
 import {
     handleNavigateFromListClick,
     navigateFromList,
 } from '@/utils/listReturnNavigation';
 
 /**
- * Button that navigates in-app and supports right-click Open in new tab/window.
- * Left-click uses router (optionally with list back-stack); Ctrl/Cmd and middle-click open a new tab.
+ * Navigational control rendered as a real link so right-click / Ctrl+click /
+ * middle-click use the browser native new-tab behavior.
+ * Plain left-click keeps list back-stack navigation when listReturnHref is set.
  */
 export default function NavButton({
     href,
@@ -24,67 +23,53 @@ export default function NavButton({
     children,
     onClick,
     onAuxClick,
+    className = '',
     ...rest
 }) {
     const hookRouter = useRouter();
     const router = routerProp || hookRouter;
     const path = typeof href === 'string' ? href.trim() : '';
-    const navProps = enabled && path ? navHrefProps(path) : {};
 
     if (!enabled || !path) {
         return (
-            <button type={type} onClick={onClick} onAuxClick={onAuxClick} {...rest}>
+            <button type={type} className={className} onClick={onClick} onAuxClick={onAuxClick} {...rest}>
                 {children}
             </button>
         );
     }
 
-    const go = (event) => {
-        if (typeof onNavigate === 'function') {
-            onNavigate(path, event);
-            return;
-        }
-        if (listReturnHref) {
-            navigateFromList(router, path, listReturnHref);
-            return;
-        }
-        router.push(path);
-    };
-
     return (
-        <button
-            type={type}
+        <Link
+            href={path}
+            className={className}
+            {...navHrefProps(path)}
             {...rest}
-            {...navProps}
             onClick={(event) => {
                 onClick?.(event);
                 if (event.defaultPrevented) return;
-
-                if (event.metaKey || event.ctrlKey) {
-                    event.preventDefault();
-                    openLinkInNewTab(path);
+                // Ctrl/Cmd/Shift/middle → browser native new tab / window.
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
                     return;
                 }
-
-                go(event);
-            }}
-            onAuxClick={(event) => {
-                onAuxClick?.(event);
-                if (event.defaultPrevented) return;
-                if (event.button === 1) {
+                if (typeof onNavigate === 'function') {
                     event.preventDefault();
-                    openLinkInNewTab(path);
+                    onNavigate(path, event);
+                    return;
+                }
+                if (listReturnHref) {
+                    event.preventDefault();
+                    navigateFromList(router, path, listReturnHref);
                 }
             }}
         >
             {children}
-        </button>
+        </Link>
     );
 }
 
 /**
  * Click props for non-button navigable elements (cards, divs, table cells).
- * Sets data-nav-href so the global context menu can open the same destination.
+ * Prefer wrapping with a real <Link>/<a> when right-click new-tab is required.
  */
 export function getNavClickHandlers({
     href,
@@ -105,9 +90,17 @@ export function getNavClickHandlers({
             if (event.target?.closest?.('button, input, textarea, select, a, [data-row-nav-ignore]')) {
                 return;
             }
-            if (event.metaKey || event.ctrlKey) {
+            // Modifier clicks: open a real temporary link so the browser owns new-tab behavior.
+            if (event.metaKey || event.ctrlKey || event.shiftKey) {
                 event.preventDefault();
-                openLinkInNewTab(path);
+                const anchor = document.createElement('a');
+                anchor.href = path;
+                anchor.target = '_blank';
+                anchor.rel = 'noopener noreferrer';
+                anchor.style.display = 'none';
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
                 return;
             }
             if (typeof onNavigate === 'function') {
@@ -127,7 +120,14 @@ export function getNavClickHandlers({
             }
             if (event.button === 1) {
                 event.preventDefault();
-                openLinkInNewTab(path);
+                const anchor = document.createElement('a');
+                anchor.href = path;
+                anchor.target = '_blank';
+                anchor.rel = 'noopener noreferrer';
+                anchor.style.display = 'none';
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
             }
         },
         onKeyDown: (event) => {

@@ -8057,8 +8057,7 @@ function EmployeeProfilePageContent() {
         totalFields++;
         if (checkField(workData.dateOfJoining, 'Date of Joining', 'Work Details')) completedFields++;
 
-        totalFields++;
-        if (checkField(workData.contractJoiningDate, 'Contract Joining Date', 'Work Details')) completedFields++;
+        // Contract Joining Date is auto-derived from visa — not required for 100% profile progress.
 
         const primaryReporteeValue = (() => {
             if (!workData?.primaryReportee) return null;

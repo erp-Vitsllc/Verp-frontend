@@ -46,6 +46,14 @@ export async function updateUtilityEntryApi(id, patch) {
     return res.data?.entry || null;
 }
 
+export async function fetchUtilityEntryAssignmentHistory(id) {
+    const res = await axiosInstance.get(
+        `/UtilityBill/entries/${encodeURIComponent(String(id))}/assignment-history`,
+        { skipToast: true },
+    );
+    return Array.isArray(res.data?.history) ? res.data.history : [];
+}
+
 export async function deleteUtilityEntryApi(id) {
     const res = await axiosInstance.delete(
         `/UtilityBill/entries/${encodeURIComponent(String(id))}`,
