@@ -19,7 +19,6 @@ import VehicleServiceModalAccidentSection from '@/app/HRM/Asset/Vehicle/componen
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import {
-    ERP_ATTACHMENT_ACCEPT,
     ERP_JPEG_ACCEPT,
     ERP_PDF_ACCEPT,
     filterErpUploadFiles,
@@ -1985,7 +1984,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                     </div>
                                                     <div>
                                                         <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Upload attachment</p>
-                                                        <p className="text-[10px] text-gray-300 text-center mt-0.5">PDF (max 5 MB) or JPEG (max 2 MB)</p>
+                                                        <p className="text-[10px] text-gray-300 text-center mt-0.5">PDF only · max 5 MB</p>
                                                     </div>
                                                 </div>
                                             )}

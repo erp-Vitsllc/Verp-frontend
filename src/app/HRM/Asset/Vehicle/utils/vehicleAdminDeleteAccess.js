@@ -27,15 +27,14 @@ export function canShowVehicleDeleteControl({
 
 /**
  * Vehicle card / document / service-record delete visibility:
- * - Inactive profile → any user (option shown to all)
- * - Active profile → portal Super User only (not Flowchart Admin Officer)
+ * Portal Super User only — never Flowchart Admin Officer.
+ * (profileActive kept for call-site compatibility; does not grant access to others.)
  */
 export function canDeleteVehicleProfileRecord({
     isAdminUser = false,
-    profileActive = false,
+    profileActive: _profileActive = false,
 } = {}) {
-    if (profileActive) return Boolean(isAdminUser);
-    return true;
+    return Boolean(isAdminUser);
 }
 
 /** @deprecated Prefer canDeleteVehicleProfileRecord. */

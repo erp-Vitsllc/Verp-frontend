@@ -12,6 +12,7 @@ import {
     paymentToGarageRemarkPatch,
     validatePaymentToGarageFields,
 } from './vehicleGaragePaymentToGarageFields';
+import { validateServiceScheduleDates } from './vehicleServiceScheduleDates';
 
 export const DEFAULT_OIL_SERVICE_TYPE = 'Engine Oil';
 
@@ -256,12 +257,13 @@ export function validateOilServiceScheduleForm(formData) {
     if (!String(formData.garageContact ?? '').trim()) {
         errors.garageContact = 'Garage contact is required';
     }
-    if (!String(formData.serviceStartDate ?? '').trim()) {
-        errors.serviceStartDate = 'Service start date is required';
-    }
-    if (!String(formData.serviceEndDate ?? '').trim() && !String(formData.nextChangeMonth ?? '').trim()) {
-        errors.serviceEndDate = 'Service end date is required';
-    }
+    Object.assign(
+        errors,
+        validateServiceScheduleDates({
+            serviceStartDate: formData.serviceStartDate,
+            serviceEndDate: formData.serviceEndDate || formData.nextChangeMonth,
+        }),
+    );
     // Description is optional for oil schedule / HR approval.
     return errors;
 }

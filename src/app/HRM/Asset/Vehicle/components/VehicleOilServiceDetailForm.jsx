@@ -22,7 +22,6 @@ import {
     isOilServiceAssignmentPending,
     isOilServiceLive,
     isOilServiceScheduledWaiting,
-    isVehicleServiceInitiateEditableStage,
 } from '../utils/vehicleOilServiceAccess';
 import {
     resolveDefaultVehicleServiceAssignedOwnerLabel,
@@ -44,6 +43,9 @@ import {
     normalizeOilPaymentMethod,
     normalizeOilPaymentType,
 } from '../utils/vehicleOilServiceDetailForm';
+import {
+    validateServiceScheduleDates,
+} from '../utils/vehicleServiceScheduleDates';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
 import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
@@ -359,9 +361,9 @@ export default function VehicleOilServiceDetailForm({
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const initiateDone = Boolean(String(remark.oilServiceInitiatedAt || '').trim()) || !assignmentPending;
-    const initiateStageEditable = isVehicleServiceInitiateEditableStage(workflowStage);
-    const canEditInitiateFields =
-        canEditAssignment && ((assignmentPending && !initiateDone) || initiateStageEditable);
+    // Page gates HR-after-submit; Initiate stays editable until Zoho bill is accepted.
+    // initiateDone still gates Send / submit only.
+    const canEditInitiateFields = Boolean(canEditAssignment);
     const fieldsDisabled = !canEditInitiateFields || saving;
 
     useEffect(() => {
@@ -536,6 +538,21 @@ export default function VehicleOilServiceDetailForm({
 
     const handleSaveServiceDates = useCallback(async () => {
         if (!canEditServiceDates || !vehicleId || !serviceId) return;
+        const dateErrors = validateServiceScheduleDates({
+            serviceStartDate: formData.serviceStartDate,
+            serviceEndDate: formData.serviceEndDate,
+        });
+        if (Object.keys(dateErrors).length) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid service dates',
+                description:
+                    dateErrors.serviceStartDate ||
+                    dateErrors.serviceEndDate ||
+                    'Check start and end dates.',
+            });
+            return;
+        }
         setSaving(true);
         try {
             await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}/oil-dates`, {
@@ -589,23 +606,15 @@ export default function VehicleOilServiceDetailForm({
         }
     }, [formData, assignmentPending, onSaved, saving, serviceId, toast, vehicleId]);
 
-    const handleSaveUpdates = useCallback(async () => {
-        if (!initiateStageEditable || !canEditAssignment || saving || !vehicleId || !serviceId) return;
-        if (!isOilServiceDetailFormComplete(formData)) {
-            toast({
-                variant: 'destructive',
-                title: 'Complete required fields',
-                description: 'Fill all Initiate Service fields before saving.',
-            });
-            return;
-        }
+    const handleSaveInitiate = useCallback(async () => {
+        if (!initiateDone || !canEditAssignment || saving || !vehicleId || !serviceId) return;
         setSaving(true);
         try {
-            const body = buildOilServiceDetailSubmitBody(formData, { initiated: false });
+            const body = buildOilServiceDetailSubmitBody(formData, { initiated: true });
             const { data } = await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
             toast({
-                title: 'Changes saved',
-                description: 'Initiate Service details updated.',
+                title: 'Initiate updated',
+                description: 'Payment and initiate details were saved.',
             });
             if (typeof onSaved === 'function') {
                 onSaved(data?.asset || data || null);
@@ -614,21 +623,12 @@ export default function VehicleOilServiceDetailForm({
             toast({
                 variant: 'destructive',
                 title: 'Could not save',
-                description: error.response?.data?.message || 'Try again in a moment.',
+                description: error.response?.data?.message || 'Try again.',
             });
         } finally {
             setSaving(false);
         }
-    }, [
-        canEditAssignment,
-        formData,
-        initiateStageEditable,
-        onSaved,
-        saving,
-        serviceId,
-        toast,
-        vehicleId,
-    ]);
+    }, [canEditAssignment, formData, initiateDone, onSaved, saving, serviceId, toast, vehicleId]);
 
     const canRequest =
         assignmentPending && !saving && canEditAssignment && !initiateDone && isOilServiceDetailFormComplete(formData);
@@ -661,9 +661,9 @@ export default function VehicleOilServiceDetailForm({
                 subtitle={
                     !initiateDone && assignmentPending
                         ? 'Complete the required fields, then click Send to submit'
-                        : initiateStageEditable
-                          ? 'Editable at HR Approval — update details, then Save Changes'
-                          : 'Submitted — view only after HR Approval'
+                        : canEditInitiateFields
+                          ? 'HR can edit payment and initiate details until Zoho bill is accepted'
+                          : 'Submitted — view only after Zoho bill is accepted.'
                 }
                 icon={ClipboardList}
                 iconBg="bg-blue-50"
@@ -678,34 +678,6 @@ export default function VehicleOilServiceDetailForm({
                     onUpdated={onSaved}
                 />
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
-                    <FormFieldCell label="Payment Type" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
-                        <SegmentedToggle
-                            options={OIL_PAYMENT_TYPE_OPTIONS}
-                            value={normalizeOilPaymentType(formData.amountMode)}
-                            selectedFallback="amount"
-                            onChange={(mode) => set('amountMode', mode)}
-                            disabled={fieldsDisabled}
-                        />
-                    </FormFieldCell>
-                    <FormFieldCell label="Payment Method" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
-                        {cashPaymentMode ? (
-                            <SegmentedToggle
-                                options={OIL_PAYMENT_METHOD_OPTIONS}
-                                value={normalizeOilPaymentMethod(formData.paymentMethod)}
-                                selectedFallback="cash"
-                                onChange={(mode) => set('paymentMethod', mode)}
-                                disabled={fieldsDisabled}
-                            />
-                        ) : (
-                            <input
-                                className={`${fieldInput} opacity-60`}
-                                type="text"
-                                readOnly
-                                value="—"
-                                disabled
-                            />
-                        )}
-                    </FormFieldCell>
                     <FormFieldCell label="Warranty Expiry" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
                         <input
                             className={`${fieldInput} ${cashPaymentMode ? 'opacity-60' : ''}`}
@@ -809,28 +781,6 @@ export default function VehicleOilServiceDetailForm({
                     </FormFieldCell>
 
                     {cashPaymentMode ? (
-                        <FormFieldCell label="Amount" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
-                            <div className="relative">
-                                <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
-                                    AED
-                                </span>
-                                <input
-                                    className={`${fieldInput} pl-11`}
-                                    type="number"
-                                    min="0"
-                                    value={formData.value || ''}
-                                    onChange={(e) => {
-                                        set('value', e.target.value);
-                                        set('garageBillAmount', e.target.value);
-                                    }}
-                                    disabled={fieldsDisabled}
-                                    placeholder="0"
-                                />
-                            </div>
-                        </FormFieldCell>
-                    ) : null}
-
-                    {cashPaymentMode ? (
                         <>
                             <FormFieldCell label="Quote 1 (optional)" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
                                 <QuoteField
@@ -860,6 +810,76 @@ export default function VehicleOilServiceDetailForm({
                     ) : null}
                 </div>
 
+                <div className="mt-4">
+                    <FormFieldCell label="Description (optional)" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                        <textarea
+                            className={`${fieldInput} min-h-[88px] w-full resize-y`}
+                            value={formData.serviceIssue || ''}
+                            onChange={(e) => set('serviceIssue', e.target.value)}
+                            disabled={fieldsDisabled}
+                            placeholder="Optional notes"
+                            rows={3}
+                        />
+                    </FormFieldCell>
+                </div>
+
+                <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                        Payment Details
+                    </span>
+                    <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
+                        <FormFieldCell label="Payment Type" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                            <SegmentedToggle
+                                options={OIL_PAYMENT_TYPE_OPTIONS}
+                                value={normalizeOilPaymentType(formData.amountMode)}
+                                selectedFallback="amount"
+                                onChange={(mode) => set('amountMode', mode)}
+                                disabled={fieldsDisabled}
+                            />
+                        </FormFieldCell>
+                        <FormFieldCell label="Payment Method" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
+                            {cashPaymentMode ? (
+                                <SegmentedToggle
+                                    options={OIL_PAYMENT_METHOD_OPTIONS}
+                                    value={normalizeOilPaymentMethod(formData.paymentMethod)}
+                                    selectedFallback="cash"
+                                    onChange={(mode) => set('paymentMethod', mode)}
+                                    disabled={fieldsDisabled}
+                                />
+                            ) : (
+                                <input
+                                    className={`${fieldInput} opacity-60`}
+                                    type="text"
+                                    readOnly
+                                    value="—"
+                                    disabled
+                                />
+                            )}
+                        </FormFieldCell>
+                        {cashPaymentMode ? (
+                            <FormFieldCell label="Amount" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                                <div className="relative">
+                                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                        AED
+                                    </span>
+                                    <input
+                                        className={`${fieldInput} pl-11`}
+                                        type="number"
+                                        min="0"
+                                        value={formData.value || ''}
+                                        onChange={(e) => {
+                                            set('value', e.target.value);
+                                            set('garageBillAmount', e.target.value);
+                                        }}
+                                        disabled={fieldsDisabled}
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </FormFieldCell>
+                        ) : null}
+                    </div>
+                </div>
+
                 {assignmentPending && canEditAssignment && !initiateDone ? (
                     <div className="mt-4 border-t border-gray-100 pt-4">
                         {missingFields.length > 0 ? (
@@ -885,25 +905,19 @@ export default function VehicleOilServiceDetailForm({
                     </div>
                 ) : null}
 
-                {initiateDone && initiateStageEditable && canEditAssignment ? (
-                    <div className="mt-4 border-t border-gray-100 pt-4">
-                        {missingFields.length > 0 ? (
-                            <p className="mb-3 text-xs text-amber-700">
-                                Still required: {missingFields.join(', ')}
-                            </p>
-                        ) : null}
-                        <div className="flex justify-end">
-                            <button
-                                type="button"
-                                onClick={() => void handleSaveUpdates()}
-                                disabled={saving || missingFields.length > 0}
-                                className="min-w-[140px] rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                {saving ? 'Saving...' : 'Save Changes'}
-                            </button>
-                        </div>
+                {initiateDone && canEditInitiateFields ? (
+                    <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void handleSaveInitiate()}
+                            className="min-w-[140px] rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {saving ? 'Saving…' : 'Save'}
+                        </button>
                     </div>
                 ) : null}
+
             </FineFormCard>
         </div>
     );

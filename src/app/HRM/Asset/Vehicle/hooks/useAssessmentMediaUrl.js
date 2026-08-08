@@ -45,8 +45,14 @@ export default function useAssessmentMediaUrl(photo) {
         }
 
         const storageKey = normalizeHandoverPhotoIdentity(photo);
-        if (!storageKey || storageKey.startsWith('data:') || storageKey.startsWith('blob:')) {
-            // Do not put Wasabi/http URLs into <img src> — browser DNS often fails.
+        // Bare http/Wasabi URLs are not safe as <img src> on many networks — proxy by key only.
+        if (
+            !storageKey ||
+            storageKey.startsWith('data:') ||
+            storageKey.startsWith('blob:') ||
+            storageKey.startsWith('http://') ||
+            storageKey.startsWith('https://')
+        ) {
             setUrl(null);
             setFailed(true);
             setLoading(false);

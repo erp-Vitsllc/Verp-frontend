@@ -18,18 +18,21 @@ function directDataUrl(img) {
     return `data:${mime};base64,${img.data}`;
 }
 
-function AddedPhotoThumb({ label, src, onPreview, onRemove, disabled }) {
-    const isDirectUrl =
+function AddedPhotoThumb({ id, label, src, photo, onPreview, onRemove, disabled }) {
+    const isInlineUrl =
         typeof src === 'string' &&
-        (src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('http'));
-    const resolved = useAssessmentMediaUrl(isDirectUrl ? null : src || null);
-    const displaySrc = isDirectUrl ? src : resolved.url || '';
+        (src.startsWith('data:') || src.startsWith('blob:'));
+    // Bare storage keys / objects go through the proxy; never use raw Wasabi http in <img>.
+    const proxyTarget = isInlineUrl ? null : photo || src || null;
+    const resolved = useAssessmentMediaUrl(proxyTarget);
+    const displaySrc = isInlineUrl ? src : resolved.url || '';
 
     return (
         <div className="relative w-[112px] shrink-0">
             <button
                 type="button"
-                onClick={() => displaySrc && onPreview?.(displaySrc)}
+                onClick={() => onPreview?.(id)}
+                disabled={!displaySrc && !resolved.loading}
                 className="h-[96px] w-full overflow-hidden rounded-md border border-gray-200 bg-gray-50"
             >
                 {displaySrc ? (
@@ -92,26 +95,29 @@ export default function VehicleServiceNewConditionPhotoStrip({
         const rows = [];
         (existingImages || []).forEach((img, idx) => {
             const key = String(img?.bodyPartKey || '').trim();
-            const src =
-                resolvedExistingSrc[`existing-${idx}`] ||
-                (typeof img?.url === 'string' ? img.url : '') ||
-                img?.photo ||
-                null;
+            const resolved = resolvedExistingSrc[`existing-${idx}`] || '';
+            const inline =
+                typeof resolved === 'string' &&
+                (resolved.startsWith('data:') || resolved.startsWith('blob:'))
+                    ? resolved
+                    : '';
             rows.push({
                 id: `existing-${idx}`,
                 bodyPartKey: key,
                 label: key ? labelForServiceBodyPartKey(key) || key : img?.name || `Saved ${idx + 1}`,
-                src,
+                src: inline,
+                photo: img,
                 removable: false,
             });
         });
         (newImages || []).forEach((img, idx) => {
             const key = String(img?.bodyPartKey || '').trim();
             rows.push({
-                id: `new-${idx}-${key}`,
+                id: `new-${idx}`,
                 bodyPartKey: key,
                 label: key ? labelForServiceBodyPartKey(key) || key : img?.name || `New ${idx + 1}`,
                 src: directDataUrl(img),
+                photo: img,
                 removable: true,
             });
         });
@@ -210,8 +216,10 @@ export default function VehicleServiceNewConditionPhotoStrip({
                     {addedRows.map((row) => (
                         <AddedPhotoThumb
                             key={row.id}
+                            id={row.id}
                             label={row.label}
                             src={row.src}
+                            photo={row.photo}
                             onPreview={onPreview}
                             disabled={disabled}
                             onRemove={

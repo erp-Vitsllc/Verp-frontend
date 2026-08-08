@@ -90,12 +90,13 @@ export function isPortalSuperUser(sessionUser = null) {
 
     const flags = [user, stored].filter(Boolean);
     if (flags.some((u) => u.isSystemSuperUser === true)) return true;
-    if (flags.some((u) => u.isAdministrator === true)) return true;
     if (flags.some((u) => String(u.name || '').trim() === 'Super User(System)')) return true;
 
     const username = (user?.username || stored?.username || '').toLowerCase();
     const isAdminFlag = flags.some((u) => u.isAdmin === true);
     const isAdministratorFlag = flags.some((u) => u.isAdministrator === true);
+    // Require admin username — do not treat Flowchart Admin Officer as portal Super User
+    // just because isAdministrator / isAdmin flags appear on the session.
     if (username === 'admin' && isAdminFlag && isAdministratorFlag) return true;
 
     return false;
@@ -132,13 +133,10 @@ export const isAdmin = () => {
     }
 };
 
-/** Tools / vehicle asset notification inbox — dismiss trash control (administrator or super user only). */
+/** Tools / vehicle asset notification inbox — dismiss trash control (portal Super User only). */
 export const canDismissAssetInboxNotifications = () => {
     if (typeof window === 'undefined') return false;
     try {
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
-        if (user.isSystemSuperUser === true) return true;
-        if (user.isAdministrator === true) return true;
         return isAdmin();
     } catch {
         return false;

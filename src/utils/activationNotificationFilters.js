@@ -3,6 +3,7 @@ const ACTIVATION_NOTIFICATION_TYPES = new Set([
     'Company Activation',
     'Vehicle Profile Activation',
     'Vehicle Profile Edit',
+    'Vehicle Profile Incomplete',
     'Vehicle Inspection',
     'Vehicle Mortgage Close',
     'Vehicle Disposition Request',

@@ -576,6 +576,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Vehicle Service Request',
         'Vehicle Profile Activation',
         'Vehicle Profile Edit',
+        'Vehicle Profile Incomplete',
         'Vehicle Inspection',
         'Vehicle Mortgage Close',
         'Vehicle Disposition Request',

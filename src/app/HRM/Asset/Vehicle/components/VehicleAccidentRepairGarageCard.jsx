@@ -33,6 +33,10 @@ import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
+import {
+    serviceEndDisabledDays,
+    serviceStartDisabledDays,
+} from '../utils/vehicleServiceScheduleDates';
 
 export default function VehicleAccidentRepairGarageCard({
     asset,
@@ -206,6 +210,7 @@ export default function VehicleAccidentRepairGarageCard({
                             placeholder="dd/mm/yyyy"
                             className={tireDatePickerClass}
                             disabled={fieldsDisabled}
+                            disabledDays={serviceStartDisabledDays()}
                         />
                     </VehicleAccidentRepairFormFieldCell>
                     <VehicleAccidentRepairFormFieldCell
@@ -219,6 +224,7 @@ export default function VehicleAccidentRepairGarageCard({
                             placeholder="dd/mm/yyyy"
                             className={tireDatePickerClass}
                             disabled={fieldsDisabled}
+                            disabledDays={serviceEndDisabledDays(formData.serviceStartDate)}
                         />
                     </VehicleAccidentRepairFormFieldCell>
                 </div>

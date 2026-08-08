@@ -390,6 +390,13 @@ export function buildAssetNotificationPath(rawItem) {
             : '';
     }
 
+    if (type.includes('vehicle profile incomplete')) {
+        const vehicleId = meta?.vehicleMongoId || assetId;
+        const tab = meta?.vehicleTab || 'basic';
+        const focusCard = meta?.focusCard || 'basicDetails';
+        return vehicleId ? buildVehicleDetailPath(vehicleId, { tab, focusCard }) : '';
+    }
+
     if (type.includes('vehicle profile activation') || type.includes('vehicle profile edit')) {
         const vehicleId = meta?.vehicleMongoId || assetId;
         return vehicleId

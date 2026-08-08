@@ -27,6 +27,7 @@ import {
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
+import { canEditVehicleServiceInitiate } from '@/app/HRM/Asset/Vehicle/utils/vehicleServiceInitiateEditAccess';
 import { pickFlowchartHrRow, pickFlowchartAccountsRow } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflow';
 import {
     resolveMechanicalWorkWorkflowStage,
@@ -235,12 +236,14 @@ function VehicleMechanicalWorkDetailPageContent() {
         return asset.canRespondToServiceWorkflow === true;
     }, [asset, mechanicalWorkflowStage]);
 
-    /** Pending: initiate users only. HR stage: HR only. Locked after HR approval. */
-    const canEditAssignment = assignmentPending
-        ? Boolean(canCreateOrInitiate)
-        : mechanicalWorkflowStage === MECHANICAL_WORK_WORKFLOW_STAGES.HR
-          ? Boolean(isFlowchartHr || canRespondToMechanicalWorkflow)
-          : false;
+    /** Draft: create/initiate actors. After Send until Zoho billed: flowchart HR only. */
+    const canEditAssignment = canEditVehicleServiceInitiate({
+        assignmentPending,
+        canCreateOrInitiate,
+        isFlowchartHr,
+        service,
+        asset,
+    });
 
     const handleRequested = useCallback(() => {
         if (typeof draftSubmitRef.current === 'function') {

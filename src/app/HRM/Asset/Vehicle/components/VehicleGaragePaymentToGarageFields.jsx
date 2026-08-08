@@ -5,8 +5,8 @@ import { Plus, Upload, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import {
-    ERP_ATTACHMENT_ACCEPT,
-    validateErpUploadFile,
+    ERP_PDF_ACCEPT,
+    validateErpPdfFile,
 } from '@/utils/uploadFileTypes';
 import { SegmentedToggle } from './VehicleServicePaymentTypeMethodFields';
 import { normalizePaymentToGarage } from '../utils/vehicleGaragePaymentToGarageFields';
@@ -77,7 +77,7 @@ export default function VehicleGaragePaymentToGarageFields({
         if (!files.length) return;
         const accepted = [];
         for (const file of files) {
-            const check = validateErpUploadFile(file);
+            const check = validateErpPdfFile(file);
             if (!check.ok) {
                 toast({
                     variant: 'destructive',
@@ -164,7 +164,7 @@ export default function VehicleGaragePaymentToGarageFields({
                     </FieldCell>
 
                     <FieldCell
-                        label="Attachment"
+                        label="Attachment (PDF)"
                         accentClass={accent?.(2)}
                         minHeightPx={fieldMinHeightPx}
                     >
@@ -179,7 +179,7 @@ export default function VehicleGaragePaymentToGarageFields({
                                             type="file"
                                             className="sr-only"
                                             multiple
-                                            accept={ERP_ATTACHMENT_ACCEPT}
+                                            accept={ERP_PDF_ACCEPT}
                                             disabled={fieldsDisabled}
                                             onChange={(e) => void handleAddFiles(e.target.files)}
                                         />

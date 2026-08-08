@@ -96,8 +96,19 @@ function emptyMonthEntry() {
 /**
  * Employee-level schedules:
  * - Current = approved only (frozen at approval); pending never included.
- * - New = approved (live) + pending preview for the card being viewed only.
+ * - New (pending card) = same frozen approved + this pending item only
+ *   (so New matches Current except for the previewed pending fine/loan).
+ * - New (approved card) = approved live schedules (HR edits) ± this item.
  */
+function shouldFreezeApprovedSchedules({ mode, viewingFine, viewingLoan }) {
+    if (mode === 'current') return true;
+    if (mode !== 'new') return false;
+    // Pending preview must not remix other approved schedules with live edits.
+    if (viewingFine && isPendingSchedulePreviewStatus(viewingFine.fineStatus)) return true;
+    if (viewingLoan && isPendingLoanScheduleStatus(viewingLoan)) return true;
+    return false;
+}
+
 function resolveScheduleFines({
     allEmployeeFines,
     employeeId,
@@ -105,7 +116,7 @@ function resolveScheduleFines({
     viewingLoan,
     mode,
 }) {
-    const useFrozen = mode === 'current';
+    const useFrozen = shouldFreezeApprovedSchedules({ mode, viewingFine, viewingLoan });
 
     let approved = filterApprovedEmployeeFines(allEmployeeFines, employeeId).map((f) =>
         useFrozen ? getFrozenFineSchedule(f) : f,
@@ -133,8 +144,13 @@ function resolveScheduleFines({
     return approved;
 }
 
-function resolveScheduleLoans({ allEmployeeLoans = [], viewingLoan, mode }) {
-    const useFrozen = mode === 'current';
+function resolveScheduleLoans({
+    allEmployeeLoans = [],
+    viewingFine,
+    viewingLoan,
+    mode,
+}) {
+    const useFrozen = shouldFreezeApprovedSchedules({ mode, viewingFine, viewingLoan });
 
     let approved = allEmployeeLoans
         .filter(isApprovedLoanRecord)
@@ -255,6 +271,7 @@ export function buildMonthBoxes({
 
     const scheduleLoans = resolveScheduleLoans({
         allEmployeeLoans,
+        viewingFine: fine,
         viewingLoan,
         mode,
     });

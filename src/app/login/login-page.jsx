@@ -65,9 +65,15 @@ export default function LoginPage() {
                 // Store token and user data
                 const userData = {
                     ...data?.user,
-                    isSystemSuperUser: data?.isSystemSuperUser || data?.isAdministrator || false,
-                    isAdmin: data?.isAdmin || false,
-                    isAdministrator: data?.isAdministrator || false
+                    // Prefer nested user flags (system admin only). Do not promote Flowchart
+                    // Admin Officer via top-level isAdministrator alone.
+                    isSystemSuperUser:
+                        data?.user?.isSystemSuperUser === true ||
+                        data?.isSystemSuperUser === true,
+                    isAdmin: data?.user?.isAdmin === true || data?.isAdmin === true,
+                    isAdministrator:
+                        data?.user?.isAdministrator === true ||
+                        data?.isAdministrator === true,
                 };
                 localStorage.setItem('token', data?.token || '');
                 localStorage.setItem('user', JSON.stringify(userData));

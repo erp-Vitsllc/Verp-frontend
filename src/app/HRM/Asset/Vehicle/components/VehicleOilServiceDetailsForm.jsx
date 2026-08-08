@@ -372,7 +372,7 @@ export default function VehicleOilServiceDetailsForm({
     return (
         <div className="flex flex-col gap-2.5">
             <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
-                <FieldCard label="Garage Invoice" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
+                <FieldCard label="Garage Invoice *" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
                     {renderUploadField(
                         'garageInvoice',
                         hasPersistedGarageInvoice,

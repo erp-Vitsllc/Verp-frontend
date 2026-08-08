@@ -110,7 +110,6 @@ function matchesAccountsHod(fine, user) {
 export function canAccountsPayFineEmployeeShare(fine, user, balance = null, flowchartRows = []) {
     if (!fine || !user) return false;
     const status = String(fine.fineStatus || '');
-    if (status !== 'Approved' && status !== 'Active') return false;
     const bal =
         balance == null
             ? Math.max(
@@ -120,6 +119,8 @@ export function canAccountsPayFineEmployeeShare(fine, user, balance = null, flow
               )
             : Number(balance) || 0;
     if (bal <= 0.01) return false;
+    // Approved workflow (or Paid with leftover balance) — still collectible until balance clears.
+    if (!['Approved', 'Active', 'Paid', 'Completed'].includes(status)) return false;
     return isAccountsFinanceUser(user, flowchartRows) || matchesAccountsHod(fine, user);
 }
 
@@ -129,12 +130,15 @@ export function canAccountsPayFineEmployeeShare(fine, user, balance = null, flow
  */
 export function formatFineProfileStatus(fine) {
     const status = String(fine?.fineStatus || '').trim();
-    if (status === 'Paid' || status === 'Approved' || status === 'Active') return 'Approved';
+    if (status === 'Paid' || status === 'Approved' || status === 'Active' || status === 'Completed') {
+        return 'Approved';
+    }
     return status || '—';
 }
 
 /**
- * Employee Salary → Fine: payment label. Approved fines default to Not Paid until balance clears.
+ * Employee Salary → Fine: payment label.
+ * Balance wins: unpaid amount → Not Paid + PAY, even if fineStatus was marked Paid.
  * @param {object} fine
  * @param {number|null} [balance] outstanding employee share (preferred when known from payments)
  */
@@ -149,7 +153,7 @@ export function formatFineProfilePaymentLabel(fine, balance = null) {
                       (Number(fine.paidAmount || 0) || 0),
               )
             : Number(balance) || 0;
-    if (status === 'Paid' || bal <= 0.01) return 'Paid';
-    if (status === 'Approved' || status === 'Active') return 'Not Paid';
+    if (bal <= 0.01) return 'Paid';
+    if (['Approved', 'Active', 'Paid', 'Completed'].includes(status)) return 'Not Paid';
     return '—';
 }

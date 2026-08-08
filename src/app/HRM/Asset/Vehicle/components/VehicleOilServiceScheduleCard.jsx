@@ -27,6 +27,10 @@ import {
     getOilServiceScheduleMissingFields,
     isOilServiceScheduleFormComplete,
 } from '../utils/vehicleOilServiceDetailForm';
+import {
+    serviceEndDisabledDays,
+    serviceStartDisabledDays,
+} from '../utils/vehicleServiceScheduleDates';
 
 const fieldInput =
     'w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed';
@@ -212,6 +216,7 @@ export default function VehicleOilServiceScheduleCard({
                         placeholder="dd/mm/yyyy"
                         className={datePickerClass}
                         disabled={fieldsDisabled}
+                        disabledDays={serviceStartDisabledDays()}
                     />
                 </FormFieldCell>
                 <FormFieldCell
@@ -228,6 +233,7 @@ export default function VehicleOilServiceScheduleCard({
                         placeholder="dd/mm/yyyy"
                         className={datePickerClass}
                         disabled={fieldsDisabled}
+                        disabledDays={serviceEndDisabledDays(formData.serviceStartDate)}
                     />
                 </FormFieldCell>
             </div>

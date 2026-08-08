@@ -25,9 +25,9 @@ import {
     canUserEditShopSchedule,
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
-    isVehicleServiceInitiateEditableStage,
     resolveOilServiceWorkflowStage,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
+import { canEditVehicleServiceInitiate } from '@/app/HRM/Asset/Vehicle/utils/vehicleServiceInitiateEditAccess';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflowTrackerConfig';
 import {
     readWarmVehicleDetail,
@@ -248,12 +248,14 @@ function VehicleOilServiceDetailPageContent() {
         return !!(rowCode && myCode && rowCode === myCode);
     }, [currentUser, flowchartRows]);
 
-    /** Pending: create/initiate users. HR stage: HR/managers. Locked after HR approval. */
-    const canEditAssignment = assignmentPending
-        ? Boolean(canCreateOrInitiate)
-        : isVehicleServiceInitiateEditableStage(oilWorkflowStage)
-          ? Boolean(canManageOilService || isFlowchartHr || isFlowchartAccounts)
-          : false;
+    /** Draft: create/initiate actors. After Send until Zoho billed: flowchart HR only. */
+    const canEditAssignment = canEditVehicleServiceInitiate({
+        assignmentPending,
+        canCreateOrInitiate,
+        isFlowchartHr,
+        service,
+        asset,
+    });
 
 
     const handleRequested = useCallback(() => {

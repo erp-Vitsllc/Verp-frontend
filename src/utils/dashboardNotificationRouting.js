@@ -461,6 +461,7 @@ export const buildDashboardNotificationPath = (item) => {
         type.includes('vehicle service request') ||
         type.includes('vehicle profile activation') ||
         type.includes('vehicle profile edit') ||
+        type.includes('vehicle profile incomplete') ||
         type.includes('vehicle inspection') ||
         type.includes('vehicle mortgage') ||
         type.includes('vehicle disposition')

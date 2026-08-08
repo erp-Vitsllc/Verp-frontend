@@ -81,7 +81,8 @@ export function looksLikeS3StorageKey(value) {
     if (S3_STORAGE_FOLDER_PREFIXES.some((prefix) => key === prefix || key.startsWith(`${prefix}/`))) {
         return true;
     }
-    return /^[\w.-]+\/[\w./-]+\.(pdf|jpe?g|png)$/i.test(key);
+    // Allow spaces / parentheses in filenames: folder/Report (2).pdf
+    return /^[\w.-]+\/.+\.(pdf|jpe?g|png)$/i.test(key);
 }
 
 function isAppRouteUrl(value) {

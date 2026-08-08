@@ -8,7 +8,7 @@ import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServi
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import { resolveCarDrivenByLabel } from '@/app/HRM/Asset/Vehicle/utils/vehicleCarDrivenBySelect';
-import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 
 const fieldInput =
     'w-full min-h-[36px] px-2.5 py-1.5 bg-white border border-black rounded text-sm text-slate-900 outline-none focus:ring-1 focus:ring-slate-400';
@@ -769,7 +769,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
             onLoaded?.(null);
             return;
         }
-        const check = validateErpUploadFile(file);
+        const check = validateErpPdfFile(file);
         if (!check.ok) {
             toast({
                 variant: 'destructive',
@@ -786,7 +786,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                 toast({
                     variant: 'destructive',
                     title: 'Read failed',
-                    description: 'Could not read the selected file. Try again or use a smaller PDF/image.',
+                    description: 'Could not read the selected file. Try again or use a smaller PDF.',
                 });
                 onFail?.();
                 return;
@@ -1996,7 +1996,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                     <input
                                                         type="file"
                                                         className="sr-only"
-                                                        accept={ERP_ATTACHMENT_ACCEPT}
+                                                        accept={ERP_PDF_ACCEPT}
                                                         onChange={(e) => handleServiceReportUpload(e.target.files?.[0])}
                                                     />
                                                 </label>
@@ -2026,7 +2026,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                     <input
                                                         type="file"
                                                         className="sr-only"
-                                                        accept={ERP_ATTACHMENT_ACCEPT}
+                                                        accept={ERP_PDF_ACCEPT}
                                                         onChange={(e) => handleReturnShopInvoiceUpload(e.target.files?.[0])}
                                                     />
                                                 </label>
@@ -2806,7 +2806,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     </label>
                                     <input
                                         type="file"
-                                        accept={ERP_ATTACHMENT_ACCEPT}
+                                        accept={ERP_PDF_ACCEPT}
                                         onChange={(e) => handleServiceReportUpload(e.target.files?.[0])}
                                         disabled={statusFormFieldsLocked || serviceReportFileReading}
                                         className="mt-1.5 w-full text-sm disabled:opacity-50"
@@ -2832,7 +2832,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     </label>
                                     <input
                                         type="file"
-                                        accept={ERP_ATTACHMENT_ACCEPT}
+                                        accept={ERP_PDF_ACCEPT}
                                         onChange={(e) => handleReturnShopInvoiceUpload(e.target.files?.[0])}
                                         disabled={statusFormFieldsLocked || shopInvoiceFileReading}
                                         className="mt-1.5 w-full text-sm disabled:opacity-50"
@@ -3162,7 +3162,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                 >
                                                     <input
                                                         type="file"
-                                                        accept={ERP_ATTACHMENT_ACCEPT}
+                                                        accept={ERP_PDF_ACCEPT}
                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                         onChange={(e) => {
                                                             const file = e.target.files?.[0];
@@ -3188,7 +3188,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                         ) : (
                                                             <>
                                                                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Upload completion report</p>
-                                                                <p className="text-[10px] text-slate-400 mt-1">PDF (max 5 MB) or JPEG (max 2 MB)</p>
+                                                                <p className="text-[10px] text-slate-400 mt-1">PDF only · max 5 MB</p>
                                                             </>
                                                         )}
                                                     </div>
@@ -3203,7 +3203,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                 >
                                                     <input
                                                         type="file"
-                                                        accept={ERP_ATTACHMENT_ACCEPT}
+                                                        accept={ERP_PDF_ACCEPT}
                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                         onChange={(e) => {
                                                             const file = e.target.files?.[0];
@@ -3229,7 +3229,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                         ) : (
                                                             <>
                                                                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Upload shop invoice</p>
-                                                                <p className="text-[10px] text-slate-400 mt-1">PDF (max 5 MB) or JPEG (max 2 MB)</p>
+                                                                <p className="text-[10px] text-slate-400 mt-1">PDF only · max 5 MB</p>
                                                             </>
                                                         )}
                                                     </div>

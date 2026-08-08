@@ -2,6 +2,7 @@
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
 import { OIL_SERVICE_GARAGE_VENDOR_OPTIONS } from './vehicleOilServiceDetailForm';
 import { normalizeShopServiceDateValue } from './vehicleShopWorkStatus';
+import { validateServiceScheduleDates } from './vehicleServiceScheduleDates';
 
 export { OIL_SERVICE_GARAGE_VENDOR_OPTIONS as MECHANICAL_WORK_GARAGE_VENDOR_OPTIONS };
 
@@ -52,12 +53,7 @@ export function validateMechanicalWorkGarageForm(formData) {
     if (!String(formData.garageContact || '').trim()) {
         errors.garageContact = 'Garage contact is required';
     }
-    if (!String(formData.serviceStartDate || '').trim()) {
-        errors.serviceStartDate = 'Service start date is required';
-    }
-    if (!String(formData.serviceEndDate || '').trim()) {
-        errors.serviceEndDate = 'Service end date is required';
-    }
+    Object.assign(errors, validateServiceScheduleDates(formData));
     return errors;
 }
 

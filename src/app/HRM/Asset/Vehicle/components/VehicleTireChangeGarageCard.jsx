@@ -32,6 +32,10 @@ import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
+import {
+    serviceEndDisabledDays,
+    serviceStartDisabledDays,
+} from '../utils/vehicleServiceScheduleDates';
 
 export default function VehicleTireChangeGarageCard({
     asset,
@@ -187,6 +191,7 @@ export default function VehicleTireChangeGarageCard({
                         placeholder="dd/mm/yyyy"
                         className={tireDatePickerClass}
                         disabled={fieldsDisabled}
+                        disabledDays={serviceStartDisabledDays()}
                     />
                 </VehicleTireChangeFormFieldCell>
                 <VehicleTireChangeFormFieldCell
@@ -200,6 +205,7 @@ export default function VehicleTireChangeGarageCard({
                         placeholder="dd/mm/yyyy"
                         className={tireDatePickerClass}
                         disabled={fieldsDisabled}
+                        disabledDays={serviceEndDisabledDays(formData.serviceStartDate)}
                     />
                 </VehicleTireChangeFormFieldCell>
             </div>

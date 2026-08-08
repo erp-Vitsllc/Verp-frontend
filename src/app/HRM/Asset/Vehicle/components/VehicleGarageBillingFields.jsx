@@ -4,8 +4,8 @@ import { useRef } from 'react';
 import { Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
-    ERP_ATTACHMENT_ACCEPT,
-    validateErpUploadFile,
+    ERP_PDF_ACCEPT,
+    validateErpPdfFile,
 } from '@/utils/uploadFileTypes';
 import ZohoPayAccountSelect from './ZohoPayAccountSelect';
 import VehicleTireChangeFormFieldCell from './VehicleTireChangeFormFieldCell';
@@ -46,7 +46,7 @@ export default function VehicleGarageBillingFields({
     const handleFile = async (fileList) => {
         const file = fileList?.[0];
         if (!file) return;
-        const check = validateErpUploadFile(file);
+        const check = validateErpPdfFile(file);
         if (!check.ok) {
             toast({
                 variant: 'destructive',
@@ -121,7 +121,7 @@ export default function VehicleGarageBillingFields({
 
             {showAttachment ? (
                 <VehicleTireChangeFormFieldCell
-                    label="Attachment"
+                    label="Attachment (PDF)"
                     accentClass={accent?.(1)}
                     minHeightPx={fieldMinHeightPx}
                 >
@@ -135,13 +135,13 @@ export default function VehicleGarageBillingFields({
                             {formData.garageAttachmentName ||
                                 (formData.existingGarageAttachmentUrl
                                     ? 'Attachment on file — click to replace'
-                                    : 'Upload PDF or JPEG')}
+                                    : 'Upload PDF')}
                         </span>
                         <input
                             ref={fileRef}
                             type="file"
                             className="hidden"
-                            accept={ERP_ATTACHMENT_ACCEPT}
+                            accept={ERP_PDF_ACCEPT}
                             disabled={fieldsDisabled}
                             onChange={(e) => {
                                 void handleFile(e.target.files);
@@ -149,7 +149,7 @@ export default function VehicleGarageBillingFields({
                         />
                     </label>
                     <p className="mt-1 text-[10px] text-slate-400">
-                        PDF max 5 MB · JPEG max 2 MB — stored on Accounts approve as Zoho bill
+                        PDF only · max 5 MB — stored on Accounts approve as Zoho bill
                     </p>
                 </VehicleTireChangeFormFieldCell>
             ) : null}

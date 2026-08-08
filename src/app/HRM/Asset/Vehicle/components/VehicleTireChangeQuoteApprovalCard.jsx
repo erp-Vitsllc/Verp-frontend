@@ -229,17 +229,9 @@ export default function VehicleTireChangeQuoteApprovalCard({
             }),
         [assignmentPending, stage, canActHr, canRespondToWorkflow],
     );
-    const canEditEmployeeRows = useMemo(
-        () =>
-            canEditTireChangeQuoteEmployeeRows(assignmentPending, stage, {
-                canActHr,
-                canManageTireChange,
-                canRespondToWorkflow,
-            }),
-        [assignmentPending, stage, canActHr, canManageTireChange, canRespondToWorkflow],
-    );
-    // After HR approve, company/employee pay may still be adjusted (with employee rows).
-    const canEditPaySplit = canEdit || canEditEmployeeRows;
+    const canEditEmployeeRows = false;
+    // Payment split is set on Initiate — HR/Accounts approval cards are view-only for pay.
+    const canEditPaySplit = false;
 
     useEffect(() => {
         let active = true;
@@ -716,11 +708,9 @@ export default function VehicleTireChangeQuoteApprovalCard({
                         ? 'Locked until Initiate Service is sent'
                         : canEdit
                           ? 'Select one quotation, then approve once'
-                          : canEditEmployeeRows
-                            ? 'HR approved — employee rows may still be adjusted'
-                            : hrGate.done
-                              ? 'HR approved this quotation'
-                              : 'Waiting for HR'
+                          : hrGate.done
+                            ? 'HR approved this quotation'
+                            : 'Waiting for HR'
                 }
                 icon={ShieldCheck}
                 iconBg="bg-emerald-50"
@@ -839,228 +829,61 @@ export default function VehicleTireChangeQuoteApprovalCard({
                     ) : null}
                 </div>
 
-                <div className={`mt-4 grid grid-cols-1 sm:grid-cols-2 ${gapClass}`}>
-                    <VehicleTireChangeFormFieldCell
-                        label="Estimated Cost"
-                        accentClass={accent(0)}
-                        minHeightPx={fieldMinHeightPx}
-                    >
-                        <div className="relative">
-                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
-                                AED
+                {(showCompanyPay || showEmployeePay || estimatedCostNum > 0) ? (
+                <div className="mt-4 w-full rounded-xl border border-gray-200 bg-white p-4 space-y-4">
+                    {showCompanyPay ? (
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                                Company payment
                             </span>
-                            <input
-                                className={`${tireMoneyInput} pl-11 text-lg font-bold`}
-                                type="number"
-                                min="0"
-                                value={
-                                    canEditPaySplit
-                                        ? displaySummary.approvedAmount || ''
-                                        : displaySummary.approvedAmount || ''
-                                }
-                                onChange={(e) => setReviewApprovedAmount(e.target.value)}
-                                disabled={!canEditPaySplit}
-                                readOnly={!canEditPaySplit}
-                                placeholder="0.00"
-                            />
+                            <span className="text-xl font-bold tabular-nums text-gray-900">
+                                {companyPayNum.toLocaleString()}{' '}
+                                <span className="text-sm font-bold text-gray-500">AED</span>
+                            </span>
                         </div>
-                    </VehicleTireChangeFormFieldCell>
-                    <VehicleTireChangeFormFieldCell
-                        label="Payment By"
-                        accentClass={accent(2)}
-                        minHeightPx={fieldMinHeightPx}
-                    >
-                        <PaymentByToggle
-                            value={paymentByMode || 'company'}
-                            onChange={handlePaymentByModeChange}
-                            disabled={!canEditPaySplit}
-                        />
-                    </VehicleTireChangeFormFieldCell>
-                </div>
-
-                {showCompanyPay || showEmployeePay ? (
-                    <div className="mt-4 w-full rounded-xl border border-gray-200 bg-white p-4 space-y-4">
-                        {showCompanyPay ? (
+                    ) : null}
+                    {showEmployeePay ? (
+                        <div className="space-y-2.5">
                             <div className="flex items-center justify-between gap-3">
                                 <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
-                                    Company payment
+                                    Employee payment
                                 </span>
-                                <div
-                                    className={`flex w-[160px] shrink-0 items-center justify-end gap-1 ${
-                                        paySplitError || payValidationMessage.includes('Company pay must equal')
-                                            ? 'text-amber-700'
-                                            : ''
-                                    }`}
-                                >
-                                    <input
-                                        className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                        type="number"
-                                        min="0"
-                                        step="1"
-                                        value={companyPayNum || 0}
-                                        onChange={(e) => setReviewField('companyPay', e.target.value)}
-                                        disabled={!canEditPaySplit}
-                                    />
+                                <span className="text-xl font-bold tabular-nums text-gray-900">
+                                    {employeePayNum.toLocaleString()}{' '}
                                     <span className="text-sm font-bold text-gray-500">AED</span>
-                                </div>
+                                </span>
                             </div>
-                        ) : null}
-                        {showEmployeePay ? (
-                            <div className="space-y-2.5">
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
-                                        Employee payment
-                                    </span>
+                            {(employeeRows || []).map((row, index) => {
+                                const paid = Number(row?.paidAmount) || 0;
+                                if (!String(row?.employeeId || '').trim() && !(paid > 0)) {
+                                    return null;
+                                }
+                                return (
                                     <div
-                                        className={`flex w-[160px] shrink-0 items-center justify-end gap-1 ${
-                                            paySplitError || employeeRowsError
-                                                ? 'text-amber-700'
-                                                : ''
-                                        }`}
+                                        key={`emp-row-${index}`}
+                                        className="flex items-center justify-between gap-3"
                                     >
-                                        <input
-                                            className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                            type="number"
-                                            min="0"
-                                            step="1"
-                                            value={employeePayNum || 0}
-                                            onChange={(e) =>
-                                                setReviewField('employeePay', e.target.value)
-                                            }
-                                            disabled={!canEditPaySplit}
-                                        />
-                                        <span className="text-sm font-bold text-gray-500">AED</span>
+                                        <span className="text-sm font-semibold text-gray-800">
+                                            {resolveEmployeeName(row.employeeId)}
+                                        </span>
+                                        <span className="text-base font-semibold tabular-nums text-gray-900">
+                                            AED {paid.toLocaleString()}
+                                        </span>
                                     </div>
-                                </div>
-                                {(employeeRows || []).map((row, index) => {
-                                    const isLastRow = index === (employeeRows || []).length - 1;
-                                    return (
-                                        <div
-                                            key={`emp-row-${index}`}
-                                            className="flex items-center justify-between gap-3"
-                                        >
-                                            <div className="flex min-w-0 flex-1 items-center gap-2">
-                                                {canEditEmployeeRows ? (
-                                                    <select
-                                                        className="min-h-[40px] w-full max-w-[280px] appearance-none border-0 bg-transparent px-0 py-2 text-sm font-semibold text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                                        value={row.employeeId || ''}
-                                                        onChange={(e) =>
-                                                            updateReviewEmployeeRow(
-                                                                index,
-                                                                'employeeId',
-                                                                e.target.value,
-                                                            )
-                                                        }
-                                                        disabled={rowsSaving}
-                                                    >
-                                                        <option value="">Select employee</option>
-                                                        {employeeOptionsForRow(index)}
-                                                    </select>
-                                                ) : (
-                                                    <span className="text-sm font-semibold text-gray-800">
-                                                        {resolveEmployeeName(row.employeeId)}
-                                                    </span>
-                                                )}
-                                                {canEditEmployeeRows &&
-                                                (employeeRows || []).length > 1 ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeReviewEmployeeRow(index)}
-                                                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold text-red-500 hover:bg-red-50"
-                                                        title="Remove"
-                                                    >
-                                                        ×
-                                                    </button>
-                                                ) : null}
-                                                {canEditEmployeeRows && isLastRow ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={addReviewEmployeeRow}
-                                                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
-                                                        title="Add employee"
-                                                    >
-                                                        <Plus size={18} />
-                                                    </button>
-                                                ) : null}
-                                            </div>
-                                            <div className="flex w-[140px] shrink-0 items-center justify-end gap-1">
-                                                <span className="text-xs font-semibold text-gray-400">
-                                                    AED
-                                                </span>
-                                                {canEditEmployeeRows ? (
-                                                    <input
-                                                        className="w-full min-w-0 border-0 bg-transparent py-2 text-right text-base font-semibold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                                        type="number"
-                                                        min="0"
-                                                        step="0.01"
-                                                        value={
-                                                            row.paidAmount === '' ||
-                                                            row.paidAmount == null
-                                                                ? '0'
-                                                                : row.paidAmount
-                                                        }
-                                                        onChange={(e) =>
-                                                            updateReviewEmployeeRow(
-                                                                index,
-                                                                'paidAmount',
-                                                                e.target.value,
-                                                            )
-                                                        }
-                                                        disabled={rowsSaving}
-                                                        placeholder="0"
-                                                    />
-                                                ) : (
-                                                    <span className="text-base font-semibold tabular-nums text-gray-900">
-                                                        {row.paidAmount != null && row.paidAmount !== ''
-                                                            ? Number(row.paidAmount).toLocaleString()
-                                                            : '0'}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        ) : null}
-                        <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                            <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
-                                Total amount
-                            </span>
-                            <div
-                                className={`flex w-[160px] shrink-0 items-center justify-end gap-1 ${
-                                    paySplitError ? 'text-amber-700' : ''
-                                }`}
-                            >
-                                <input
-                                    className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-2xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                    type="number"
-                                    min="0"
-                                    step="1"
-                                    value={estimatedCostNum || 0}
-                                    onChange={(e) => setReviewApprovedAmount(e.target.value)}
-                                    disabled={!canEditPaySplit}
-                                />
-                                <span className="text-sm font-bold text-gray-500">AED</span>
-                            </div>
+                                );
+                            })}
                         </div>
-                        {payValidationMessage ? (
-                            <p className="text-xs font-semibold text-amber-700">
-                                {payValidationMessage}
-                            </p>
-                        ) : null}
-                        {canEditEmployeeRows && !canEdit ? (
-                            <div className="flex justify-end">
-                                <button
-                                    type="button"
-                                    disabled={rowsSaving || !rowsDirty}
-                                    onClick={() => void handleSaveEmployeeRows()}
-                                    className={tireBtnPrimary}
-                                >
-                                    {rowsSaving ? 'Saving…' : 'Save employee rows'}
-                                </button>
-                            </div>
-                        ) : null}
+                    ) : null}
+                    <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                        <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                            Total amount
+                        </span>
+                        <span className="text-2xl font-bold tabular-nums text-gray-900">
+                            {estimatedCostNum.toLocaleString()}{' '}
+                            <span className="text-sm font-bold text-gray-500">AED</span>
+                        </span>
                     </div>
+                </div>
                 ) : null}
 
                 <div className="mt-4 border-t border-gray-100 pt-4">

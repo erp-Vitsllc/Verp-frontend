@@ -409,7 +409,7 @@ export function buildAccidentRepairDetailSubmitBody(formData, { keepPending = tr
     } catch {
         remark = {};
     }
-    remark.requestStatus = keepPending ? 'pending' : remark.requestStatus || 'pending';
+    remark.requestStatus = keepPending ? 'pending' : 'submitted';
     remark.amountMode = amountMode;
     if (paymentMethod) {
         remark.paymentMethod = paymentMethod;

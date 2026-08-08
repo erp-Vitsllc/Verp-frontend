@@ -7,7 +7,8 @@ import { useToast } from '@/hooks/use-toast';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 
 /**
- * Auto-retries Zoho bill create when Accounts approve already ran but bill_number failed.
+ * Auto-retries Zoho bill create when Accounts approve already ran but bill create failed.
+ * Supports Accident Repair multi-bill (remark.zohoBills[]) — retries any bill missing zohoBillId.
  */
 export default function VehicleGarageZohoBillRetry({
     vehicleId,
@@ -23,11 +24,22 @@ export default function VehicleGarageZohoBillRetry({
     const remark = parseVehicleServiceRemark(service) || {};
     const zohoBillId = String(remark.zohoBillId || '').trim();
     const zohoSyncError = String(remark.zohoSyncError || '').trim();
-    const needsRetry = Boolean(zohoSyncError && !zohoBillId && vehicleId && serviceId);
+    const multiBills = Array.isArray(remark.zohoBills) ? remark.zohoBills : [];
+    const pendingMulti = multiBills.filter((b) => !String(b?.zohoBillId || '').trim());
+    const multiErrors = pendingMulti
+        .map((b) => String(b?.zohoSyncError || '').trim())
+        .filter(Boolean);
+    const hasMultiPending = multiBills.length > 0 && pendingMulti.length > 0;
+    const needsRetry = Boolean(
+        vehicleId &&
+            serviceId &&
+            ((zohoSyncError && !zohoBillId && !multiBills.length) ||
+                (hasMultiPending && (zohoSyncError || multiErrors.length))),
+    );
 
     useEffect(() => {
         if (!needsRetry) return;
-        const key = `${serviceId}:${zohoSyncError}`;
+        const key = `${serviceId}:${zohoSyncError}:${pendingMulti.length}:${multiErrors.join('|')}`;
         if (attemptedKey.current === key) return;
         attemptedKey.current = key;
 
@@ -51,7 +63,12 @@ export default function VehicleGarageZohoBillRetry({
                     toast({
                         variant: 'destructive',
                         title: 'Zoho bill still failed',
-                        description: data?.zohoBillMessage || data?.message || zohoSyncError,
+                        description:
+                            data?.zohoBillMessage ||
+                            data?.message ||
+                            zohoSyncError ||
+                            multiErrors[0] ||
+                            'Zoho bill create failed.',
                     });
                 }
             } catch (error) {
@@ -59,7 +76,11 @@ export default function VehicleGarageZohoBillRetry({
                 toast({
                     variant: 'destructive',
                     title: 'Zoho bill retry failed',
-                    description: error.response?.data?.message || error.message || zohoSyncError,
+                    description:
+                        error.response?.data?.message ||
+                        error.message ||
+                        zohoSyncError ||
+                        multiErrors[0],
                 });
             } finally {
                 if (!cancelled) setRetrying(false);
@@ -69,7 +90,17 @@ export default function VehicleGarageZohoBillRetry({
         return () => {
             cancelled = true;
         };
-    }, [needsRetry, vehicleId, serviceId, zohoSyncError, serviceTypeLabel, onUpdated, toast]);
+    }, [
+        needsRetry,
+        vehicleId,
+        serviceId,
+        zohoSyncError,
+        serviceTypeLabel,
+        onUpdated,
+        toast,
+        pendingMulti.length,
+        multiErrors,
+    ]);
 
     if (!needsRetry && !retrying) return null;
 
@@ -78,12 +109,15 @@ export default function VehicleGarageZohoBillRetry({
             {retrying ? (
                 <span className="inline-flex items-center gap-2 font-semibold">
                     <Loader2 size={14} className="animate-spin" />
-                    Creating Zoho bill…
+                    Creating Zoho bill{hasMultiPending ? 's' : ''}…
                 </span>
-            ) : zohoBillId ? null : (
+            ) : zohoBillId && !hasMultiPending ? null : (
                 <span>
                     Zoho bill pending
-                    {zohoSyncError ? `: ${zohoSyncError}` : ''}. Retrying automatically…
+                    {zohoSyncError || multiErrors[0]
+                        ? `: ${zohoSyncError || multiErrors[0]}`
+                        : ''}
+                    . Retrying automatically…
                 </span>
             )}
         </div>

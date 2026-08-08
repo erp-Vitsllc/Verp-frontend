@@ -222,6 +222,7 @@ export function resolveNotificationIconVariant(typeOrItem) {
             return 'asset-settings-service';
         case 'Vehicle Profile Activation':
         case 'Vehicle Profile Edit':
+        case 'Vehicle Profile Incomplete':
         case 'Vehicle Inspection':
         case 'Vehicle Mortgage Close':
             return 'asset-badge-vehicle';

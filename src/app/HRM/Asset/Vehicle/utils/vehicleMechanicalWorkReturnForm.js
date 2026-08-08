@@ -5,6 +5,10 @@ import {
     resolveShopServiceEndDate,
     resolveShopServiceReturnDate,
 } from './vehicleShopWorkStatus';
+import {
+    buildNewConditionImagesPayload,
+    validateNewConditionBodyPartMappings,
+} from './vehicleServiceNewConditionPhotos';
 
 function newOtherDocRow() {
     return {
@@ -113,7 +117,16 @@ export function validateMechanicalWorkReturnForm(formData) {
         errors.newConditionImages = 'New condition photos are required';
     }
 
-    // Garage report, garage invoice, and other documents are optional on Complete.
+    Object.assign(errors, validateNewConditionBodyPartMappings(formData));
+
+    const hasGarageInvoice =
+        !!(formData.garageInvoiceBase64 && formData.garageInvoiceName) ||
+        !!String(formData.existingGarageInvoiceUrl || '').trim();
+    if (!hasGarageInvoice) {
+        errors.garageInvoice = 'Garage invoice is required';
+    }
+
+    // Garage report and other documents remain optional on Complete.
 
     return errors;
 }
@@ -193,13 +206,9 @@ export function buildMechanicalWorkReturnUpdateBody(formData) {
         };
     }
 
-    const freshImages = (formData.newConditionImages || []).filter((img) => img?.data && img?.name);
+    const freshImages = buildNewConditionImagesPayload(formData.newConditionImages);
     if (freshImages.length) {
-        body.newConditionImages = freshImages.map((img) => ({
-            name: img.name,
-            data: img.data,
-            mimeType: img.mimeType || 'image/jpeg',
-        }));
+        body.newConditionImages = freshImages;
     }
 
     return body;

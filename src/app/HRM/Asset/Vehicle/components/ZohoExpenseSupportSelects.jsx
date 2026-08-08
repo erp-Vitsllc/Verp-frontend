@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { mapZohoPaymentAccounts } from '@/utils/zohoVendorPayments';
@@ -57,11 +57,16 @@ export default function ZohoExpenseSupportSelects({
     organizationId = '',
     expenseError = '',
     paidThroughError = '',
+    /** When set and Paid Through is empty, auto-select the first account whose label matches (e.g. "1st Card"). */
+    preferPaidThroughName = '',
 }) {
     const [expenseAccounts, setExpenseAccounts] = useState([]);
     const [paidThroughAccounts, setPaidThroughAccounts] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const preferredPaidThroughAppliedRef = useRef(false);
+    const onPaidThroughChangeRef = useRef(onPaidThroughChange);
+    onPaidThroughChangeRef.current = onPaidThroughChange;
 
     useEffect(() => {
         let cancelled = false;
@@ -118,6 +123,28 @@ export default function ZohoExpenseSupportSelects({
         [paidThroughOptions],
     );
 
+    // Prefer a Paid Through account such as "1st Card" when nothing is selected yet.
+    useEffect(() => {
+        preferredPaidThroughAppliedRef.current = false;
+    }, [organizationId, preferPaidThroughName]);
+
+    useEffect(() => {
+        if (loading || preferredPaidThroughAppliedRef.current) return;
+        if (paidThroughAccountId || !preferPaidThroughName) return;
+        if (!flatPaidThrough.length) return;
+        const needle = String(preferPaidThroughName).trim().toLowerCase();
+        if (!needle) return;
+        const match =
+            flatPaidThrough.find((o) => String(o.label || '').toLowerCase() === needle) ||
+            flatPaidThrough.find((o) => String(o.label || '').toLowerCase().includes(needle));
+        if (!match?.value) return;
+        preferredPaidThroughAppliedRef.current = true;
+        onPaidThroughChangeRef.current?.({
+            id: match.value,
+            name: String(match.label || '').trim(),
+        });
+    }, [loading, paidThroughAccountId, preferPaidThroughName, flatPaidThrough]);
+
     const portalTarget = typeof document !== 'undefined' ? document.body : null;
     const labelClass = 'text-[11px] font-semibold uppercase tracking-wider text-slate-500';
 
@@ -163,7 +190,13 @@ export default function ZohoExpenseSupportSelects({
                             });
                         }}
                         isDisabled={disabled || loading}
-                        placeholder={loading ? 'Loading banks…' : 'Select paid through'}
+                        placeholder={
+                            loading
+                                ? 'Loading banks…'
+                                : preferPaidThroughName
+                                  ? `Select paid through (e.g. ${preferPaidThroughName})`
+                                  : 'Select paid through'
+                        }
                         menuPortalTarget={portalTarget}
                     />
                 </div>

@@ -1606,8 +1606,8 @@ function VehicleDetailsPageContent() {
             : 'employee';
 
     const isVehicleProfileActive = vehicleActPhase === 'active';
+    // Portal Super User only — never Flowchart Admin Officer.
     const canAdminDeleteVehicleRecords = permissionsMounted && checkIsAdmin();
-    // Inactive: all users may delete cards/records. Active: portal Super User only.
     const canDeleteVehicleServiceRecords = canAdminDeleteActivatedVehicleRecord({
         isAdminUser: canAdminDeleteVehicleRecords,
         profileActive: isVehicleProfileActive,

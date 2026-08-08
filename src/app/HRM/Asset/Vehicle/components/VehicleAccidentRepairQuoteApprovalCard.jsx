@@ -795,72 +795,17 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                     ) : null}
                 </div>
 
-                <div className={`grid grid-cols-1 sm:grid-cols-2 ${gapClass}`}>
-                    <VehicleAccidentRepairFormFieldCell
-                        label="Approved Amount"
-                        accentClass={accent(0)}
-                        minHeightPx={fieldMinHeightPx}
-                    >
-                        <div className="relative">
-                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
-                                AED
-                            </span>
-                            <input
-                                className="w-full min-h-[40px] rounded-lg border border-gray-200 bg-white py-2 pl-11 pr-3 text-lg font-bold text-gray-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-50 disabled:text-gray-500"
-                                type="number"
-                                min="0"
-                                value={displaySummary.approvedAmount || ''}
-                                onChange={(e) => setReviewApprovedAmount(e.target.value)}
-                                disabled={!canEdit}
-                                readOnly={!canEdit}
-                                placeholder="0.00"
-                            />
-                        </div>
-                    </VehicleAccidentRepairFormFieldCell>
-                    <VehicleAccidentRepairFormFieldCell
-                        label="Payment By"
-                        accentClass={accent(2)}
-                        minHeightPx={fieldMinHeightPx}
-                    >
-                        <FineSplitToggle
-                            value={paymentByMode || ''}
-                            onChange={handleFineSplitChange}
-                            disabled={!canEdit}
-                        />
-                    </VehicleAccidentRepairFormFieldCell>
-                </div>
-
-                {showCompanyPay || showEmployeePay ? (
+                {(showCompanyPay || showEmployeePay || estimatedCostNum > 0) ? (
                     <div className="mt-4 w-full rounded-xl border border-gray-200 bg-white p-4 space-y-4">
                         {showCompanyPay ? (
                             <div className="flex items-center justify-between gap-3">
                                 <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
                                     Company payment
                                 </span>
-                                <div
-                                    className={`flex w-[160px] shrink-0 items-center justify-end gap-1 ${
-                                        paySplitError ? 'text-amber-700' : ''
-                                    }`}
-                                >
-                                    {canEdit ? (
-                                        <input
-                                            className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                            type="number"
-                                            min="0"
-                                            step="1"
-                                            value={companyPayNum || 0}
-                                            onChange={(e) =>
-                                                setReviewField('companyPay', e.target.value)
-                                            }
-                                            disabled={loading}
-                                        />
-                                    ) : (
-                                        <span className="text-xl font-bold tabular-nums text-gray-900">
-                                            {companyPayNum.toLocaleString()}
-                                        </span>
-                                    )}
+                                <span className="text-xl font-bold tabular-nums text-gray-900">
+                                    {companyPayNum.toLocaleString()}{' '}
                                     <span className="text-sm font-bold text-gray-500">AED</span>
-                                </div>
+                                </span>
                             </div>
                         ) : null}
 
@@ -870,139 +815,31 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                                     <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
                                         Employee payment
                                     </span>
-                                    <div
-                                        className={`flex w-[160px] shrink-0 items-center justify-end gap-1 ${
-                                            paySplitError || employeeRowsError
-                                                ? 'text-amber-700'
-                                                : ''
-                                        }`}
-                                    >
-                                        {canEdit ? (
-                                            <input
-                                                className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                                type="number"
-                                                min="0"
-                                                step="1"
-                                                value={employeePayNum || 0}
-                                                onChange={(e) =>
-                                                    setReviewField('employeePay', e.target.value)
-                                                }
-                                                disabled={loading}
-                                            />
-                                        ) : (
-                                            <span className="text-xl font-bold tabular-nums text-gray-900">
-                                                {employeePayNum.toLocaleString()}
-                                            </span>
-                                        )}
+                                    <span className="text-xl font-bold tabular-nums text-gray-900">
+                                        {employeePayNum.toLocaleString()}{' '}
                                         <span className="text-sm font-bold text-gray-500">AED</span>
-                                    </div>
+                                    </span>
                                 </div>
 
-                                {(employeeRows || []).length ? (
-                                    (employeeRows || []).map((row, index) => {
-                                        const isLastRow = index === (employeeRows || []).length - 1;
-                                        return (
-                                            <div
-                                                key={`hr-emp-row-${index}`}
-                                                className="flex items-center justify-between gap-3"
-                                            >
-                                                <div className="flex min-w-0 flex-1 items-center gap-2">
-                                                    {canEdit ? (
-                                                        <div className="min-w-0 w-full max-w-[320px]">
-                                                            <SearchableEmployeeSelect
-                                                                employees={employees}
-                                                                value={row.employeeId || ''}
-                                                                onChange={(nextId) =>
-                                                                    updateReviewEmployeeRow(
-                                                                        index,
-                                                                        'employeeId',
-                                                                        nextId,
-                                                                    )
-                                                                }
-                                                                disabled={loading}
-                                                                placeholder="Select employee"
-                                                            />
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-sm font-semibold text-gray-800">
-                                                            {resolveEmployeeName(row.employeeId)}
-                                                        </span>
-                                                    )}
-                                                    {canEdit && (employeeRows || []).length > 1 ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => removeEmployeeRow(index)}
-                                                            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold text-red-500 hover:bg-red-50"
-                                                            title="Remove"
-                                                            disabled={loading}
-                                                        >
-                                                            {'\u00d7'}
-                                                        </button>
-                                                    ) : null}
-                                                    {canEdit && isLastRow ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={addEmployeeRow}
-                                                            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
-                                                            title="Add employee"
-                                                            disabled={loading}
-                                                        >
-                                                            <Plus size={18} />
-                                                        </button>
-                                                    ) : null}
-                                                </div>
-                                                <div className="flex w-[140px] shrink-0 items-center justify-end gap-1">
-                                                    <span className="text-xs font-semibold text-gray-400">
-                                                        AED
-                                                    </span>
-                                                    {canEdit ? (
-                                                        <input
-                                                            className="w-full min-w-0 border-0 bg-transparent py-2 text-right text-base font-semibold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                                            type="number"
-                                                            min="0"
-                                                            step="0.01"
-                                                            value={
-                                                                row.paidAmount === '' ||
-                                                                row.paidAmount == null
-                                                                    ? '0'
-                                                                    : row.paidAmount
-                                                            }
-                                                            onChange={(e) =>
-                                                                updateReviewEmployeeRow(
-                                                                    index,
-                                                                    'paidAmount',
-                                                                    e.target.value,
-                                                                )
-                                                            }
-                                                            disabled={loading}
-                                                            placeholder="0"
-                                                        />
-                                                    ) : (
-                                                        <span className="text-base font-semibold tabular-nums text-gray-900">
-                                                            {row.paidAmount != null &&
-                                                            row.paidAmount !== ''
-                                                                ? Number(row.paidAmount).toLocaleString()
-                                                                : '0'}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })
-                                ) : canEdit ? (
-                                    <div className="flex items-center justify-between gap-2">
-                                        <p className="text-sm text-gray-400">Select an employee</p>
-                                        <button
-                                            type="button"
-                                            onClick={addEmployeeRow}
-                                            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
-                                            title="Add employee"
-                                            disabled={loading}
+                                {(employeeRows || []).map((row, index) => {
+                                    const paid = Number(row?.paidAmount) || 0;
+                                    if (!String(row?.employeeId || '').trim() && !(paid > 0)) {
+                                        return null;
+                                    }
+                                    return (
+                                        <div
+                                            key={`hr-emp-row-${index}`}
+                                            className="flex items-center justify-between gap-3"
                                         >
-                                            <Plus size={18} />
-                                        </button>
-                                    </div>
-                                ) : null}
+                                            <span className="text-sm font-semibold text-gray-800">
+                                                {resolveEmployeeName(row.employeeId)}
+                                            </span>
+                                            <span className="text-base font-semibold tabular-nums text-gray-900">
+                                                AED {paid.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         ) : null}
 
@@ -1010,34 +847,11 @@ export default function VehicleAccidentRepairQuoteApprovalCard({
                             <span className="text-sm font-bold uppercase tracking-wide text-gray-500">
                                 Total amount
                             </span>
-                            <div
-                                className={`flex w-[160px] shrink-0 items-center justify-end gap-1 ${
-                                    paySplitError ? 'text-amber-700' : ''
-                                }`}
-                            >
-                                {canEdit ? (
-                                    <input
-                                        className="w-full min-w-0 border-0 bg-transparent py-1 text-right text-2xl font-bold tabular-nums text-gray-900 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-gray-500"
-                                        type="number"
-                                        min="0"
-                                        step="1"
-                                        value={estimatedCostNum || 0}
-                                        onChange={(e) => setReviewApprovedAmount(e.target.value)}
-                                        disabled={loading}
-                                    />
-                                ) : (
-                                    <span className="text-2xl font-bold tabular-nums text-gray-900">
-                                        {(estimatedCostNum || totalPay || 0).toLocaleString()}
-                                    </span>
-                                )}
+                            <span className="text-2xl font-bold tabular-nums text-gray-900">
+                                {(estimatedCostNum || totalPay || 0).toLocaleString()}{' '}
                                 <span className="text-sm font-bold text-gray-500">AED</span>
-                            </div>
+                            </span>
                         </div>
-                        {payValidationMessage ? (
-                            <p className="text-xs font-semibold text-amber-700">
-                                {payValidationMessage}
-                            </p>
-                        ) : null}
                     </div>
                 ) : null}
 

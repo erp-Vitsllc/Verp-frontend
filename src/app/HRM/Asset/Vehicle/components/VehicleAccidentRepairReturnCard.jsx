@@ -41,8 +41,8 @@ import {
     tireViewBtn,
 } from '../utils/vehicleAccidentRepairDetailUi';
 import {
-    ERP_ATTACHMENT_ACCEPT,
-    validateErpUploadFile,
+    ERP_PDF_ACCEPT,
+    validateErpPdfFile,
 } from '@/utils/uploadFileTypes';
 
 function directConditionImageSrc(img) {
@@ -65,15 +65,45 @@ function readUploadFile(file, onDone) {
 }
 
 function UploadField({ label, fileName, existingUrl, disabled, onFile }) {
+    const { toast } = useToast();
+    const [viewing, setViewing] = useState(false);
+
+    const handleView = async () => {
+        if (!existingUrl || viewing) return;
+        setViewing(true);
+        try {
+            const result = await openAttachmentInNewTab(existingUrl, {
+                name: fileName || label || 'Document.pdf',
+                mimeType: 'application/pdf',
+            });
+            if (!result?.ok) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot open document',
+                    description: result?.error || 'Attachment is unavailable. Try re-uploading the file.',
+                });
+            }
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open document',
+                description: error?.message || 'Attachment is unavailable.',
+            });
+        } finally {
+            setViewing(false);
+        }
+    };
+
     return (
         <div className="flex flex-wrap items-center gap-2 min-h-[40px]">
             {existingUrl ? (
                 <button
                     type="button"
                     className={tireViewBtn}
-                    onClick={() => void openAttachmentInNewTab(existingUrl, { name: fileName || label })}
+                    disabled={viewing}
+                    onClick={() => void handleView()}
                 >
-                    View
+                    {viewing ? 'Opening...' : 'View'}
                 </button>
             ) : null}
             {!disabled ? (
@@ -83,7 +113,7 @@ function UploadField({ label, fileName, existingUrl, disabled, onFile }) {
                     <input
                         type="file"
                         className="sr-only"
-                        accept={ERP_ATTACHMENT_ACCEPT}
+                        accept={ERP_PDF_ACCEPT}
                         disabled={disabled}
                         onChange={(e) => {
                             onFile(e.target.files?.[0]);
@@ -133,17 +163,20 @@ export default function VehicleAccidentRepairReturnCard({
         (formData.existingNewConditionImages || []).forEach((img, idx) => {
             const thumb =
                 resolvedExistingPhotoSrc[`existing-${idx}`] || directConditionImageSrc(img);
-            const dataUrl = thumb?.startsWith('data:') ? thumb : '';
-            const photo = dataUrl || img;
-            if (!photo && !thumb) return;
+            const previewUrl =
+                typeof thumb === 'string' &&
+                (thumb.startsWith('data:') || thumb.startsWith('blob:'))
+                    ? thumb
+                    : '';
+            if (!img && !previewUrl) return;
             items.push({
                 key: `existing-${idx}`,
                 label:
                     labelForServiceBodyPartKey(img?.bodyPartKey) ||
                     `Condition photo ${items.length + 1}`,
-                photo,
-                matchSrc: thumb,
-                ...(dataUrl ? { url: dataUrl } : {}),
+                // Keep storage ref for proxy; pass ready blob/data as url for instant view.
+                photo: img || previewUrl,
+                ...(previewUrl ? { url: previewUrl } : {}),
             });
         });
         (formData.newConditionImages || []).forEach((img, idx) => {
@@ -158,7 +191,6 @@ export default function VehicleAccidentRepairReturnCard({
                     `Condition photo ${items.length + 1}`,
                 photo: url,
                 url,
-                matchSrc: url,
             });
         });
         return items;
@@ -169,25 +201,12 @@ export default function VehicleAccidentRepairReturnCard({
     ]);
 
     const openPhotoViewer = useCallback(
-        (src) => {
-            if (!src) return;
-            const index = photoGalleryItems.findIndex((item) => item.matchSrc === src);
-            if (index >= 0) {
-                setViewerExtraItems([]);
-                setViewerStartIndex(index);
-                setViewerOpen(true);
-                return;
-            }
-            setViewerExtraItems([
-                {
-                    key: 'preview-extra',
-                    label: 'Condition photo',
-                    photo: src,
-                    url: src,
-                    matchSrc: src,
-                },
-            ]);
-            setViewerStartIndex(0);
+        (key) => {
+            if (!key) return;
+            const index = photoGalleryItems.findIndex((item) => item.key === key);
+            if (index < 0) return;
+            setViewerExtraItems([]);
+            setViewerStartIndex(index);
             setViewerOpen(true);
         },
         [photoGalleryItems],
@@ -247,7 +266,7 @@ export default function VehicleAccidentRepairReturnCard({
 
     const handleDocFile = (kind, file) => {
         if (!file) return;
-        const check = validateErpUploadFile(file);
+        const check = validateErpPdfFile(file);
         if (!check.ok) {
             toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
             return;
@@ -299,7 +318,7 @@ export default function VehicleAccidentRepairReturnCard({
     const handleOtherDocFile = useCallback(
         (rowId, file) => {
             if (!file) return;
-            const check = validateErpUploadFile(file);
+            const check = validateErpPdfFile(file);
             if (!check.ok) {
                 toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
                 return;

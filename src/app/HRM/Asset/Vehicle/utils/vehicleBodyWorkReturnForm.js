@@ -119,7 +119,14 @@ export function validateBodyWorkReturnForm(formData) {
 
     Object.assign(errors, validateNewConditionBodyPartMappings(formData));
 
-    // Garage report, garage invoice, and other documents are optional on Complete.
+    const hasGarageInvoice =
+        !!(formData.garageInvoiceBase64 && formData.garageInvoiceName) ||
+        !!String(formData.existingGarageInvoiceUrl || '').trim();
+    if (!hasGarageInvoice) {
+        errors.garageInvoice = 'Garage invoice is required';
+    }
+
+    // Garage report and other documents remain optional on Complete.
 
     return errors;
 }

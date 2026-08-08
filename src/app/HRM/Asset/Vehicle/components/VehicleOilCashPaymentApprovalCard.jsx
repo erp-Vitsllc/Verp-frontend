@@ -229,18 +229,38 @@ export default function VehicleOilCashPaymentApprovalCard({
     const [hrDescription, setHrDescription] = useState(() =>
         String(remark.hrReviewDescription || remark.quoteReviewDescription || '').trim(),
     );
+    const [hrAmount, setHrAmount] = useState(() => {
+        const seed =
+            money(remark.garageBillAmount) ||
+            money(remark.amount) ||
+            money(remark.value) ||
+            money(service?.value) ||
+            0;
+        return seed > 0 ? String(seed) : '';
+    });
 
     useEffect(() => {
         setHrQuoteChoice(String(remark.approvedQuotationChoice || '').trim());
         setHrDescription(
             String(remark.hrReviewDescription || remark.quoteReviewDescription || '').trim(),
         );
+        const seed =
+            money(remark.garageBillAmount) ||
+            money(remark.amount) ||
+            money(remark.value) ||
+            money(service?.value) ||
+            0;
+        setHrAmount(seed > 0 ? String(seed) : '');
     }, [
         remark.approvedQuotationChoice,
         remark.hrReviewDescription,
         remark.quoteReviewDescription,
+        remark.garageBillAmount,
+        remark.amount,
+        remark.value,
         service?._id,
         service?.updatedAt,
+        service?.value,
     ]);
 
     const quoteRows = useMemo(() => buildOilQuoteRows(service, remark), [service, remark]);
@@ -255,6 +275,13 @@ export default function VehicleOilCashPaymentApprovalCard({
         money(remark.amount) ||
         money(remark.value) ||
         money(service?.value);
+
+    // When HR picks a quote with an amount, seed the editable Amount field.
+    useEffect(() => {
+        if (!canActOnHr) return;
+        if (!(selectedQuoteAmount > 0)) return;
+        setHrAmount(String(selectedQuoteAmount));
+    }, [canActOnHr, selectedQuoteAmount, hrQuoteChoice]);
     const paymentTypeLabel = oilPaymentTypeLabel(
         accountsQuoteApproved ? remark.amountMode : accountsAmountMode,
     );
@@ -300,7 +327,15 @@ export default function VehicleOilCashPaymentApprovalCard({
         setBusy(true);
         try {
             const description = String(hrDescription || '').trim();
-            const amountNum = selectedQuoteAmount > 0 ? selectedQuoteAmount : null;
+            const editedAmount = money(hrAmount);
+            const amountNum =
+                editedAmount > 0
+                    ? editedAmount
+                    : selectedQuoteAmount > 0
+                      ? selectedQuoteAmount
+                      : quoteAmount > 0
+                        ? quoteAmount
+                        : null;
             const nextRemark = {
                 ...remark,
                 approvedQuotationChoice: hrQuoteChoice || '',
@@ -309,6 +344,7 @@ export default function VehicleOilCashPaymentApprovalCard({
                           amount: amountNum,
                           garageBillAmount: amountNum,
                           value: amountNum,
+                          hrReviewApprovedAmount: amountNum,
                       }
                     : {}),
                 ...(description
@@ -965,13 +1001,30 @@ export default function VehicleOilCashPaymentApprovalCard({
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                                     Amount (AED)
                                 </span>
-                                <p className="mt-1 text-sm font-bold text-gray-900">
-                                    {selectedQuoteAmount > 0
-                                        ? formatAed(selectedQuoteAmount)
-                                        : quoteAmount > 0
-                                          ? formatAed(quoteAmount)
-                                          : '—'}
-                                </p>
+                                {canActOnHr ? (
+                                    <div className="relative mt-1">
+                                        <span className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                            AED
+                                        </span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            className="w-full border-0 bg-transparent py-0.5 pl-9 text-sm font-bold text-gray-900 outline-none focus:ring-0"
+                                            value={hrAmount}
+                                            onChange={(e) => setHrAmount(e.target.value)}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                ) : (
+                                    <p className="mt-1 text-sm font-bold text-gray-900">
+                                        {money(hrAmount) > 0
+                                            ? formatAed(hrAmount)
+                                            : quoteAmount > 0
+                                              ? formatAed(quoteAmount)
+                                              : '—'}
+                                    </p>
+                                )}
                             </div>
                             <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">

@@ -103,17 +103,17 @@ export async function uploadHandoverAssessmentPhoto(file, itemKey, { skipToast =
 /** Load handover/accessories photos via API proxy (avoids Wasabi DNS in the browser). */
 export async function fetchSignedAssessmentMediaUrl(photo) {
     const direct = resolveAssessmentMediaUrl(photo);
-    if (direct?.startsWith('data:')) return direct;
+    if (direct?.startsWith('data:') || direct?.startsWith('blob:')) return direct;
 
     const key = normalizeHandoverPhotoIdentity(photo);
-    if (!key || key.startsWith('data:')) {
-        return direct;
+    if (!key || key.startsWith('data:') || key.startsWith('blob:')) {
+        return direct?.startsWith('data:') || direct?.startsWith('blob:') ? direct : null;
     }
 
     try {
         const blob = await loadStorageFileBlob(key);
         return URL.createObjectURL(blob);
     } catch {
-        return direct?.startsWith('data:') ? direct : null;
+        return null;
     }
 }

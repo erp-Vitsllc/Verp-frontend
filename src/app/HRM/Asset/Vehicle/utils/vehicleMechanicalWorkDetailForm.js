@@ -597,7 +597,7 @@ export function buildMechanicalWorkDetailSubmitBody(formData, { keepPending = tr
         }
     })();
 
-    remark.requestStatus = keepPending ? 'pending' : remark.requestStatus || 'pending';
+    remark.requestStatus = keepPending ? 'pending' : 'submitted';
     remark.amountMode = amountMode;
     if (paymentMethod) {
         remark.paymentMethod = paymentMethod;

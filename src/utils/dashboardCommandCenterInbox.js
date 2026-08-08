@@ -24,6 +24,7 @@ export const VEHICLE_MODULE_TYPES = new Set([
     'Vehicle Service Request',
     'Vehicle Profile Activation',
     'Vehicle Profile Edit',
+    'Vehicle Profile Incomplete',
     'Vehicle Inspection',
     'Vehicle Mortgage Close',
     'Vehicle Disposition Request',

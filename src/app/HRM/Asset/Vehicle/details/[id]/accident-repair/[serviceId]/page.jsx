@@ -27,6 +27,7 @@ import {
     isCurrentUserFlowchartAdminOfficer,
     isOilServiceAssignmentPending,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleOilServiceAccess';
+import { canEditVehicleServiceInitiate } from '@/app/HRM/Asset/Vehicle/utils/vehicleServiceInitiateEditAccess';
 import {
     pickFlowchartAccountsRow,
     pickFlowchartHrRow,
@@ -240,10 +241,14 @@ function VehicleAccidentRepairDetailPageContent() {
         return asset.canRespondToServiceWorkflow === true;
     }, [asset, accidentRepairflowStage]);
 
-    /** Pending initiate only — after Send, Initiate card is view-only. */
-    const canEditAssignment = assignmentPending
-        ? Boolean(canCreateOrInitiate || canManageAccidentRepair)
-        : false;
+    /** Draft: create/initiate actors. After Send until Zoho billed: flowchart HR only. */
+    const canEditAssignment = canEditVehicleServiceInitiate({
+        assignmentPending,
+        canCreateOrInitiate: Boolean(canCreateOrInitiate || canManageAccidentRepair),
+        isFlowchartHr,
+        service,
+        asset,
+    });
 
 
     const handleRequested = useCallback(() => {
@@ -333,7 +338,7 @@ function VehicleAccidentRepairDetailPageContent() {
                         </div>
                     ) : null}
 
-                    {!assignmentPending && !canManageAccidentRepair ? (
+                    {!assignmentPending && !canManageAccidentRepair && !isFlowchartHr ? (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             Only the Super User, Admin Officer, or assigned user can submit service details.
                         </div>

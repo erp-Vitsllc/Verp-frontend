@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ClipboardCheck, Loader2, Plus, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import VehicleServiceLockedSection from './VehicleServiceLockedSection';
+import VehicleServiceNewConditionPhotoStrip from './VehicleServiceNewConditionPhotoStrip';
+import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
@@ -30,25 +32,22 @@ import {
     validateTireChangeReturnForm,
 } from '../utils/vehicleTireChangeReturnForm';
 import {
+    labelForServiceBodyPartKey,
+} from '../utils/vehicleServiceNewConditionPhotos';
+import {
     TIRE_CHANGE_DETAIL_GRID_LAYOUT,
     tireAccent,
     tireBtnPrimary,
     tireBtnSecondary,
     tireDatePickerClass,
     tireFieldSelect,
-    tirePhotoAddBtn,
-    tirePhotoThumb,
     tireUploadBtn,
     tireViewBtn,
 } from '../utils/vehicleTireChangeDetailUi';
 import {
-    ERP_ATTACHMENT_ACCEPT,
-    ERP_JPEG_ACCEPT,
-    filterErpUploadFiles,
-    validateErpUploadFile,
+    ERP_PDF_ACCEPT,
+    validateErpPdfFile,
 } from '@/utils/uploadFileTypes';
-
-const PHOTO_SLOTS = 8;
 
 function directConditionImageSrc(img) {
     const url = String(img?.url || img?.data || '').trim();
@@ -70,15 +69,45 @@ function readUploadFile(file, onDone) {
 }
 
 function UploadField({ label, fileName, existingUrl, disabled, onFile }) {
+    const { toast } = useToast();
+    const [viewing, setViewing] = useState(false);
+
+    const handleView = async () => {
+        if (!existingUrl || viewing) return;
+        setViewing(true);
+        try {
+            const result = await openAttachmentInNewTab(existingUrl, {
+                name: fileName || label || 'Document.pdf',
+                mimeType: 'application/pdf',
+            });
+            if (!result?.ok) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot open document',
+                    description: result?.error || 'Attachment is unavailable. Try re-uploading the file.',
+                });
+            }
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open document',
+                description: error?.message || 'Attachment is unavailable.',
+            });
+        } finally {
+            setViewing(false);
+        }
+    };
+
     return (
         <div className="flex flex-wrap items-center gap-2 min-h-[40px]">
             {existingUrl ? (
                 <button
                     type="button"
                     className={tireViewBtn}
-                    onClick={() => void openAttachmentInNewTab(existingUrl, { name: fileName || label })}
+                    disabled={viewing}
+                    onClick={() => void handleView()}
                 >
-                    View
+                    {viewing ? 'Opening...' : 'View'}
                 </button>
             ) : null}
             {!disabled ? (
@@ -88,7 +117,7 @@ function UploadField({ label, fileName, existingUrl, disabled, onFile }) {
                     <input
                         type="file"
                         className="sr-only"
-                        accept={ERP_ATTACHMENT_ACCEPT}
+                        accept={ERP_PDF_ACCEPT}
                         disabled={disabled}
                         onChange={(e) => {
                             onFile(e.target.files?.[0]);
@@ -100,42 +129,6 @@ function UploadField({ label, fileName, existingUrl, disabled, onFile }) {
             {fileName ? <span className="text-[10px] text-gray-500 truncate max-w-full">{fileName}</span> : null}
         </div>
     );
-}
-
-function PhotoStrip({ existingImages = [], newImages = [], resolvedExistingSrc = {}, disabled, onAdd, onPreview }) {
-    const cells = [];
-    if (!disabled && typeof onAdd === 'function') {
-        cells.push(
-            <button key="add" type="button" onClick={onAdd} className={tirePhotoAddBtn} aria-label="Add photo">
-                <Plus size={20} />
-            </button>,
-        );
-    }
-    (existingImages || []).forEach((img, idx) => {
-        const src = resolvedExistingSrc[`existing-${idx}`] || directConditionImageSrc(img);
-        if (!src) return;
-        cells.push(
-            <button key={`ex-${idx}`} type="button" onClick={() => onPreview(src)} className={tirePhotoThumb}>
-                <img src={src} alt="" className="w-full h-full object-cover" />
-            </button>,
-        );
-    });
-    (newImages || []).forEach((img, idx) => {
-        const mime = img?.mimeType || 'image/jpeg';
-        const src = img?.data ? `data:${mime};base64,${img.data}` : '';
-        if (!src) return;
-        cells.push(
-            <button key={`nw-${idx}`} type="button" onClick={() => onPreview(src)} className={tirePhotoThumb}>
-                <img src={src} alt="" className="w-full h-full object-cover" />
-            </button>,
-        );
-    });
-    while (cells.length < PHOTO_SLOTS) {
-        cells.push(
-            <div key={`empty-${cells.length}`} className={`${tirePhotoThumb} bg-gray-50 border-dashed`} />,
-        );
-    }
-    return <div className="flex flex-wrap gap-2 items-center">{cells.slice(0, PHOTO_SLOTS)}</div>;
 }
 
 export default function VehicleTireChangeReturnCard({
@@ -150,9 +143,10 @@ export default function VehicleTireChangeReturnCard({
 }) {
     const router = useRouter();
     const { toast } = useToast();
-    const photoInputRef = useRef(null);
     const [saving, setSaving] = useState(false);
-    const [lightboxSrc, setLightboxSrc] = useState(null);
+    const [viewerOpen, setViewerOpen] = useState(false);
+    const [viewerStartIndex, setViewerStartIndex] = useState(0);
+    const [viewerExtraItems, setViewerExtraItems] = useState([]);
     const [resolvedExistingPhotoSrc, setResolvedExistingPhotoSrc] = useState({});
     const [formData, setFormData] = useState(() => buildTireChangeReturnFormState(service, asset));
 
@@ -167,6 +161,62 @@ export default function VehicleTireChangeReturnCard({
 
     const canEditReturn = canEditTireChangeReturn(stage, canManage, isComplete, asset);
     const fieldsDisabled = !canEditReturn || saving || assignmentPending;
+
+    const photoGalleryItems = useMemo(() => {
+        const items = [];
+        (formData.existingNewConditionImages || []).forEach((img, idx) => {
+            const thumb =
+                resolvedExistingPhotoSrc[`existing-${idx}`] || directConditionImageSrc(img);
+            const previewUrl =
+                typeof thumb === 'string' &&
+                (thumb.startsWith('data:') || thumb.startsWith('blob:'))
+                    ? thumb
+                    : '';
+            if (!img && !previewUrl) return;
+            items.push({
+                key: `existing-${idx}`,
+                label:
+                    labelForServiceBodyPartKey(img?.bodyPartKey) ||
+                    `Condition photo ${items.length + 1}`,
+                // Keep storage ref for proxy; pass ready blob/data as url for instant view.
+                photo: img || previewUrl,
+                ...(previewUrl ? { url: previewUrl } : {}),
+            });
+        });
+        (formData.newConditionImages || []).forEach((img, idx) => {
+            const url = img?.data
+                ? `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`
+                : '';
+            if (!url) return;
+            items.push({
+                key: `new-${idx}`,
+                label:
+                    labelForServiceBodyPartKey(img?.bodyPartKey) ||
+                    `Condition photo ${items.length + 1}`,
+                photo: url,
+                url,
+            });
+        });
+        return items;
+    }, [
+        formData.existingNewConditionImages,
+        formData.newConditionImages,
+        resolvedExistingPhotoSrc,
+    ]);
+
+    const openPhotoViewer = useCallback(
+        (key) => {
+            if (!key) return;
+            const index = photoGalleryItems.findIndex((item) => item.key === key);
+            if (index < 0) return;
+            setViewerExtraItems([]);
+            setViewerStartIndex(index);
+            setViewerOpen(true);
+        },
+        [photoGalleryItems],
+    );
+
+    const viewerItems = viewerExtraItems.length ? viewerExtraItems : photoGalleryItems;
 
     const { fieldMinHeightPx, gapClass } = TIRE_CHANGE_DETAIL_GRID_LAYOUT;
     const accent = tireAccent;
@@ -223,7 +273,7 @@ export default function VehicleTireChangeReturnCard({
 
     const handleDocFile = (kind, file) => {
         if (!file) return;
-        const check = validateErpUploadFile(file);
+        const check = validateErpPdfFile(file);
         if (!check.ok) {
             toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
             return;
@@ -275,7 +325,7 @@ export default function VehicleTireChangeReturnCard({
     const handleOtherDocFile = useCallback(
         (rowId, file) => {
             if (!file) return;
-            const check = validateErpUploadFile(file);
+            const check = validateErpPdfFile(file);
             if (!check.ok) {
                 toast({ variant: 'destructive', title: 'Invalid file', description: check.message });
                 return;
@@ -292,26 +342,28 @@ export default function VehicleTireChangeReturnCard({
         [toast, updateOtherDocRow],
     );
 
-    const appendPhotos = (files) => {
-        const { accepted, firstError } = filterErpUploadFiles(files, {
-            allowPdf: false,
-            allowJpeg: true,
+    const setBodyPartNewImage = useCallback((bodyPartKey, image) => {
+        const key = String(bodyPartKey || '').trim();
+        if (!key || !image) return;
+        setFormData((prev) => {
+            const list = [...(prev.newConditionImages || [])].filter(
+                (img) => String(img?.bodyPartKey || '').trim() !== key,
+            );
+            list.push({ ...image, bodyPartKey: key });
+            return { ...prev, newConditionImages: list };
         });
-        if (firstError) {
-            toast({ variant: 'destructive', title: 'Invalid file', description: firstError });
-        }
-        accepted.forEach((file) => {
-            readUploadFile(file, (f, base64) => {
-                setFormData((prev) => ({
-                    ...prev,
-                    newConditionImages: [
-                        ...(prev.newConditionImages || []),
-                        { name: f.name, data: base64, mimeType: f.type || 'image/jpeg' },
-                    ],
-                }));
-            });
-        });
-    };
+    }, []);
+
+    const clearBodyPartNewImage = useCallback((bodyPartKey) => {
+        const key = String(bodyPartKey || '').trim();
+        if (!key) return;
+        setFormData((prev) => ({
+            ...prev,
+            newConditionImages: (prev.newConditionImages || []).filter(
+                (img) => String(img?.bodyPartKey || '').trim() !== key,
+            ),
+        }));
+    }, []);
 
     const handleCancel = () => {
         if (vehicleId) {
@@ -405,12 +457,12 @@ export default function VehicleTireChangeReturnCard({
                             />
                         </VehicleTireChangeFormFieldCell>
                         <VehicleTireChangeFormFieldCell
-                            label="Garage Invoice"
+                            label="Garage Invoice *"
                             accentClass={accent(1)}
                             minHeightPx={fieldMinHeightPx}
                         >
                             <UploadField
-                                label="Garage Invoice"
+                                label="Garage Invoice *"
                                 fileName={formData.garageInvoiceName}
                                 existingUrl={formData.existingGarageInvoiceUrl}
                                 disabled={fieldsDisabled}
@@ -524,24 +576,14 @@ export default function VehicleTireChangeReturnCard({
                             New Condition Photos
                         </span>
                         <div className="mt-2">
-                            <PhotoStrip
+                            <VehicleServiceNewConditionPhotoStrip
                                 existingImages={formData.existingNewConditionImages}
                                 newImages={formData.newConditionImages}
                                 resolvedExistingSrc={resolvedExistingPhotoSrc}
                                 disabled={fieldsDisabled}
-                                onAdd={() => photoInputRef.current?.click()}
-                                onPreview={setLightboxSrc}
-                            />
-                            <input
-                                ref={photoInputRef}
-                                type="file"
-                                multiple
-                                className="hidden"
-                                accept={ERP_JPEG_ACCEPT}
-                                onChange={(e) => {
-                                    appendPhotos(e.target.files);
-                                    e.target.value = '';
-                                }}
+                                onPreview={openPhotoViewer}
+                                onSetBodyPartImage={setBodyPartNewImage}
+                                onClearBodyPartImage={clearBodyPartNewImage}
                             />
                         </div>
                     </div>
@@ -592,14 +634,15 @@ export default function VehicleTireChangeReturnCard({
                 </VehicleServiceLockedSection>
             </div>
 
-            {lightboxSrc ? (
-                <div
-                    className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
-                    onClick={() => setLightboxSrc(null)}
-                >
-                    <img src={lightboxSrc} alt="" className="max-h-[90vh] max-w-full rounded-lg" />
-                </div>
-            ) : null}
+            <VehicleHandoverAssessmentPhotoViewer
+                open={viewerOpen}
+                items={viewerItems}
+                startIndex={viewerStartIndex}
+                onClose={() => {
+                    setViewerOpen(false);
+                    setViewerExtraItems([]);
+                }}
+            />
         </>
     );
 }

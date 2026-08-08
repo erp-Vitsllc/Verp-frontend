@@ -32,6 +32,10 @@ import {
     SHOP_SERVICE_CARD,
     resolveShopServiceCardGate,
 } from '../utils/vehicleShopServiceCardGates';
+import {
+    serviceEndDisabledDays,
+    serviceStartDisabledDays,
+} from '../utils/vehicleServiceScheduleDates';
 
 export default function VehicleMechanicalWorkGarageCard({
     asset,
@@ -187,6 +191,7 @@ export default function VehicleMechanicalWorkGarageCard({
                         placeholder="dd/mm/yyyy"
                         className={mechanicalDatePickerClass}
                         disabled={fieldsDisabled}
+                        disabledDays={serviceStartDisabledDays()}
                     />
                 </VehicleMechanicalWorkFormFieldCell>
                 <VehicleMechanicalWorkFormFieldCell
@@ -200,6 +205,7 @@ export default function VehicleMechanicalWorkGarageCard({
                         placeholder="dd/mm/yyyy"
                         className={mechanicalDatePickerClass}
                         disabled={fieldsDisabled}
+                        disabledDays={serviceEndDisabledDays(formData.serviceStartDate)}
                     />
                 </VehicleMechanicalWorkFormFieldCell>
             </div>

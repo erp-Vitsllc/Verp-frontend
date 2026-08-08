@@ -15,10 +15,23 @@ function clampZoom(value) {
 }
 
 function ViewerPhoto({ photo, url, label }) {
-    const resolved = useAssessmentMediaUrl(photo || url);
-    const displayUrl = resolved.url;
+    // Prefer an already-resolved inline preview (blob/data). Re-proxying storage
+    // refs can fail even when the thumbnail already loaded successfully.
+    const inlinePreview =
+        (typeof url === 'string' && (url.startsWith('data:') || url.startsWith('blob:'))
+            ? url
+            : null) ||
+        (typeof photo === 'string' && (photo.startsWith('data:') || photo.startsWith('blob:'))
+            ? photo
+            : null);
 
-    if (resolved.loading && !displayUrl) {
+    const storagePhoto =
+        inlinePreview && (photo === inlinePreview || !photo) ? null : photo || (!inlinePreview ? url : null);
+
+    const resolved = useAssessmentMediaUrl(storagePhoto);
+    const displayUrl = inlinePreview || resolved.url;
+
+    if (!inlinePreview && resolved.loading && !displayUrl) {
         return <Loader2 className="h-8 w-8 animate-spin text-slate-400" />;
     }
 

@@ -21,7 +21,7 @@ import {
     formatNextChangeMonthDisplay,
 } from './vehicleServiceUtils';
 import { useDrivingLicenseHolders } from '@/hooks/useDrivingLicenseHolders';
-import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import ZohoExpenseSupportSelects from './ZohoExpenseSupportSelects';
 
 const ASSET_CONTROLLER_VALUE = '__asset_controller__';
@@ -158,7 +158,7 @@ function UploadField({ label, fileName, onPick, error, disabled = false }) {
                 ref={inputRef}
                 type="file"
                 className="hidden"
-                accept={ERP_ATTACHMENT_ACCEPT}
+                accept={ERP_PDF_ACCEPT}
                 disabled={disabled}
                 onChange={onPick}
             />
@@ -179,6 +179,7 @@ function InvoiceField({
 }) {
     const inputRef = useRef(null);
     const hasExisting = Boolean(String(existingInvoiceUrl || '').trim());
+    const hasNewFile = Boolean(String(fileName || '').trim());
 
     if (disabled) {
         return (
@@ -207,6 +208,51 @@ function InvoiceField({
                         </button>
                     ) : null}
                 </div>
+            </FormField>
+        );
+    }
+
+    // Editable: keep existing invoice visible (View) and allow replace.
+    if (hasExisting && !hasNewFile) {
+        return (
+            <FormField label={label} error={error}>
+                <div
+                    className={`${fieldControl} flex items-center justify-between gap-2 ${
+                        error ? 'border-red-300' : ''
+                    }`}
+                >
+                    <span className="truncate text-slate-800">{existingInvoiceLabel}</span>
+                    <div className="inline-flex shrink-0 items-center gap-1">
+                        <button
+                            type="button"
+                            disabled={viewLoading}
+                            onClick={onView}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
+                        >
+                            {viewLoading ? (
+                                <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                                <Eye size={14} />
+                            )}
+                            View
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => inputRef.current?.click()}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                        >
+                            <Paperclip size={14} />
+                            Replace
+                        </button>
+                    </div>
+                </div>
+                <input
+                    ref={inputRef}
+                    type="file"
+                    className="hidden"
+                    accept={ERP_PDF_ACCEPT}
+                    onChange={onPick}
+                />
             </FormField>
         );
     }
@@ -397,6 +443,7 @@ export default function VehicleCarWashRequestModal({
     const formReadOnly = Boolean(existingService && !accountsReviewMode);
     // Accounts review: initiate fields + Zoho Chart of Accounts stay editable.
     const accountsFieldLocked = false;
+    const showExpenseCategory = Boolean(accountsReviewMode);
 
     // Keep selected month at or after the minimum allowed (previous wash month + 1).
     useEffect(() => {
@@ -421,7 +468,11 @@ export default function VehicleCarWashRequestModal({
     const existingInvoiceUrl = useMemo(() => {
         const direct = String(existingService?.invoice || '').trim();
         if (direct) return direct;
-        return '';
+        // Car wash invoice is also stored as request attachment.
+        const attachment = String(existingService?.attachment || '').trim();
+        if (attachment) return attachment;
+        const remark = parseVehicleServiceRemark(existingService) || {};
+        return String(remark?.invoiceUrl || remark?.invoicePublicId || '').trim();
     }, [existingService]);
 
     const existingInvoiceLabel = useMemo(() => {
@@ -475,6 +526,8 @@ export default function VehicleCarWashRequestModal({
         const month = String(formData.carWashMonth || '').trim();
         const expenseAccountId = String(formData.expenseAccountId || '').trim();
         const paidThroughAccountId = String(formData.paidThroughAccountId || '').trim();
+        const hasInvoice =
+            Boolean(formData.invoiceBase64 && formData.invoiceName) || Boolean(existingInvoiceUrl);
         const nextErrors = {};
         if (!month) nextErrors.carWashMonth = 'Car wash month is required';
         if (!Number.isFinite(amount) || amount <= 0) nextErrors.value = 'Amount is required';
@@ -483,18 +536,28 @@ export default function VehicleCarWashRequestModal({
         if (expenseAccountId && paidThroughAccountId && expenseAccountId === paidThroughAccountId) {
             nextErrors.paidThroughAccountId = 'Paid Through must differ from Expense Account';
         }
+        if (!hasInvoice) nextErrors.invoice = 'Invoice is required';
         if (Object.keys(nextErrors).length) {
             setErrors(nextErrors);
             toast({
                 variant: 'destructive',
                 title: 'Required fields',
-                description: 'Enter Amount, Expense Account, and Paid Through before storing the Zoho Expense.',
+                description:
+                    'Enter Amount, Expense Account, Paid Through, and Invoice before storing the Zoho Expense.',
             });
             return;
         }
 
         const existingRemark = parseVehicleServiceRemark(existingService) || {};
         const expenseName = autoExpenseName;
+        const invoiceFile =
+            formData.invoiceBase64 && formData.invoiceName
+                ? {
+                      name: formData.invoiceName,
+                      data: formData.invoiceBase64,
+                      mimeType: formData.invoiceMime,
+                  }
+                : null;
         const updatedRemark = {
             ...existingRemark,
             carWashMonth: month,
@@ -505,6 +568,12 @@ export default function VehicleCarWashRequestModal({
             paidThroughAccountName: String(formData.paidThroughAccountName || '').trim(),
             garageBillAmount: amount,
             billingTotalAmount: amount,
+            ...(invoiceFile
+                ? {
+                      invoiceName: invoiceFile.name,
+                      attachmentName: invoiceFile.name,
+                  }
+                : {}),
         };
 
         setLoading(true);
@@ -515,6 +584,12 @@ export default function VehicleCarWashRequestModal({
                 serviceUpdates: {
                     value: amount,
                     remark: JSON.stringify(updatedRemark),
+                    ...(invoiceFile
+                        ? {
+                              invoice: invoiceFile,
+                              attachment: invoiceFile,
+                          }
+                        : {}),
                 },
                 ...(existingService?._id ? { serviceRecordId: String(existingService._id) } : {}),
             });
@@ -617,6 +692,9 @@ export default function VehicleCarWashRequestModal({
             if (vehicleCurrentKm === '') e.currentKm = 'Vehicle KM is not available';
             const amount = Number(formData.value);
             if (!Number.isFinite(amount) || amount <= 0) e.value = 'Amount is required';
+            if (!formData.invoiceBase64 || !formData.invoiceName) {
+                e.invoice = 'Invoice is required';
+            }
         }
         if (
             formData.carWashMonth &&
@@ -647,6 +725,16 @@ export default function VehicleCarWashRequestModal({
             String(formData.serviceIssue || '').trim() ||
             `Car wash request — ${typeLabel}${monthLabel ? ` (${monthLabel})` : ''}`;
 
+        // Car wash Invoice is the request attachment (also stored on service.invoice).
+        const invoiceFile =
+            formData.invoiceBase64 && formData.invoiceName
+                ? {
+                      name: formData.invoiceName,
+                      data: formData.invoiceBase64,
+                      mimeType: formData.invoiceMime,
+                  }
+                : null;
+
         return {
             ...buildAddServiceBody({
                 serviceType: 'Car Wash',
@@ -660,27 +748,24 @@ export default function VehicleCarWashRequestModal({
                 carWashMonth: formData.carWashMonth,
                 carWashType: formData.carWashType,
                 amountMode: 'amount',
-                attachmentName: formData.amountReceiptName,
-                attachmentBase64: formData.amountReceiptBase64,
-                attachmentMime: formData.amountReceiptMime,
+                attachmentName: invoiceFile?.name || formData.amountReceiptName,
+                attachmentBase64: invoiceFile?.data || formData.amountReceiptBase64,
+                attachmentMime: invoiceFile?.mimeType || formData.amountReceiptMime,
+                invoiceName: invoiceFile?.name || '',
+                invoiceBase64: invoiceFile?.data || '',
+                invoiceMime: invoiceFile?.mimeType || '',
             }),
             serviceRequestSource: 'vehicle_asset_detail',
             isDraft: forDraft,
-            invoice:
-                formData.invoiceBase64 && formData.invoiceName
-                    ? {
-                          name: formData.invoiceName,
-                          data: formData.invoiceBase64,
-                          mimeType: formData.invoiceMime,
-                      }
-                    : null,
+            invoice: invoiceFile,
+            attachment: invoiceFile,
         };
     };
 
     const handleFilePick = async (event, kind) => {
         const file = event.target.files?.[0];
         if (!file) return;
-        const check = validateErpUploadFile(file);
+        const check = validateErpPdfFile(file);
         if (!check.ok) {
             toast({
                 variant: 'destructive',
@@ -698,7 +783,16 @@ export default function VehicleCarWashRequestModal({
                     invoiceName: file.name,
                     invoiceBase64: base64,
                     invoiceMime: file.type,
+                    // Keep request attachment in sync with invoice.
+                    amountReceiptName: file.name,
+                    amountReceiptBase64: base64,
+                    amountReceiptMime: file.type,
                 }));
+                setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.invoice;
+                    return next;
+                });
             } else {
                 setFormData((prev) => ({
                     ...prev,
@@ -875,128 +969,148 @@ export default function VehicleCarWashRequestModal({
 
                 {/* Form body */}
                 <form
-                    className="flex-1 overflow-y-auto px-6 py-6 bg-white"
+                    className="flex-1 overflow-y-auto px-6 py-6 bg-white space-y-6"
                     onSubmit={(e) => {
                         e.preventDefault();
                         postRequest(false);
                     }}
                 >
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
-                        <SelectField
-                            label="Vehicle Assigned"
-                            value={formData.vehicleOwnerEmployeeId}
-                            onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
-                            disabled={formReadOnly || accountsFieldLocked}
-                        >
-                            <option value="">Select assignee</option>
-                            {employeeOptions.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                </option>
-                            ))}
-                            {!formData.vehicleOwnerEmployeeId ? (
-                                <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
-                            ) : null}
-                        </SelectField>
+                    <section className="space-y-4">
+                        <div className="border-b border-slate-100 pb-2">
+                            <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                1. Car Wash Request
+                            </h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
+                            <SelectField
+                                label="Vehicle Assigned"
+                                value={formData.vehicleOwnerEmployeeId}
+                                onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                disabled={formReadOnly || accountsFieldLocked}
+                            >
+                                <option value="">Select assignee</option>
+                                {employeeOptions.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                    </option>
+                                ))}
+                                {!formData.vehicleOwnerEmployeeId ? (
+                                    <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                ) : null}
+                            </SelectField>
 
-                        <SelectField
-                            label="Vehicle Driven By"
-                            value={formData.carDrivenByEmployeeId}
-                            onChange={(e) => set('carDrivenByEmployeeId', e.target.value)}
-                            disabled={formReadOnly || accountsFieldLocked}
-                        >
-                            <option value="">Select driver with driving license</option>
-                            {drivenByEmployeeOptions.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                </option>
-                            ))}
-                        </SelectField>
+                            <SelectField
+                                label="Vehicle Driven By"
+                                value={formData.carDrivenByEmployeeId}
+                                onChange={(e) => set('carDrivenByEmployeeId', e.target.value)}
+                                disabled={formReadOnly || accountsFieldLocked}
+                            >
+                                <option value="">Select driver with driving license</option>
+                                {drivenByEmployeeOptions.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                    </option>
+                                ))}
+                            </SelectField>
 
-                        <FormField label="Car Wash Month" error={errors.carWashMonth}>
-                            <MonthYearPicker
-                                value={formData.carWashMonth}
-                                onChange={(v) => set('carWashMonth', v || '')}
-                                placeholder="Select month"
-                                valueFormat="yyyy-MM"
-                                fromYear={
-                                    minSelectableCarWashMonth
-                                        ? Number(minSelectableCarWashMonth.slice(0, 4))
-                                        : new Date().getFullYear() - 2
-                                }
-                                toYear={new Date().getFullYear() + 10}
-                                minMonth={minSelectableCarWashMonth || undefined}
-                                disabled={formReadOnly}
-                                className={`shadow-none font-medium ${
-                                    errors.carWashMonth ? 'border-red-300' : ''
-                                }`}
-                            />
-                            {!formReadOnly && !accountsFieldLocked ? (
-                                <p className="text-[11px] text-slate-400">
-                                    {previousWashMonth
-                                        ? `Must be after ${formatNextChangeMonthDisplay(previousWashMonth)}. Previous and earlier months are disabled. One wash per vehicle per month.`
-                                        : 'One wash per vehicle per month.'}
-                                </p>
-                            ) : null}
-                        </FormField>
-
-                        <SelectField
-                            label="Car Wash Type"
-                            value={formData.carWashType}
-                            onChange={(e) => set('carWashType', e.target.value)}
-                            error={errors.carWashType}
-                            disabled={formReadOnly || accountsFieldLocked}
-                        >
-                            <option value="">Select wash type</option>
-                            {carWashTypeOptions.map((typeName) => (
-                                <option key={typeName} value={typeName}>
-                                    {typeName}
-                                </option>
-                            ))}
-                        </SelectField>
-
-                        <InvoiceField
-                            label="Invoice"
-                            fileName={formData.invoiceName}
-                            onPick={(e) => handleFilePick(e, 'invoice')}
-                            disabled={formReadOnly || accountsFieldLocked}
-                            existingInvoiceUrl={existingInvoiceUrl}
-                            existingInvoiceLabel={existingInvoiceLabel}
-                            onView={() => void handleViewInvoice()}
-                            viewLoading={invoiceViewLoading}
-                        />
-
-                        <FormField label="Amount" error={errors.value}>
-                            <div className="relative">
-                                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
-                                    AED
-                                </span>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={formData.value}
-                                    onChange={(e) => set('value', e.target.value)}
-                                    placeholder="0.00"
+                            <FormField label="Car Wash Month" error={errors.carWashMonth}>
+                                <MonthYearPicker
+                                    value={formData.carWashMonth}
+                                    onChange={(v) => set('carWashMonth', v || '')}
+                                    placeholder="Select month"
+                                    valueFormat="yyyy-MM"
+                                    fromYear={
+                                        minSelectableCarWashMonth
+                                            ? Number(minSelectableCarWashMonth.slice(0, 4))
+                                            : new Date().getFullYear() - 2
+                                    }
+                                    toYear={new Date().getFullYear() + 10}
+                                    minMonth={minSelectableCarWashMonth || undefined}
                                     disabled={formReadOnly}
-                                    className={`${fieldControl} pl-12 tabular-nums ${errors.value ? 'border-red-300' : ''} ${formReadOnly ? 'opacity-70 cursor-not-allowed bg-slate-50' : ''}`}
+                                    className={`shadow-none font-medium ${
+                                        errors.carWashMonth ? 'border-red-300' : ''
+                                    }`}
                                 />
-                            </div>
-                        </FormField>
+                                {!formReadOnly && !accountsFieldLocked ? (
+                                    <p className="text-[11px] text-slate-400">
+                                        {previousWashMonth
+                                            ? `Must be after ${formatNextChangeMonthDisplay(previousWashMonth)}. Previous and earlier months are disabled. One wash per vehicle per month.`
+                                            : 'One wash per vehicle per month.'}
+                                    </p>
+                                ) : null}
+                            </FormField>
 
-                        <FormField label="Description (optional)">
-                            <textarea
-                                rows={3}
-                                value={formData.serviceIssue || ''}
-                                onChange={(e) => set('serviceIssue', e.target.value)}
-                                placeholder="Enter description..."
-                                disabled={formReadOnly}
-                                className={`${fieldControl} min-h-[88px] resize-y ${formReadOnly ? 'opacity-70 cursor-not-allowed bg-slate-50' : ''}`}
+                            <SelectField
+                                label="Car Wash Type"
+                                value={formData.carWashType}
+                                onChange={(e) => set('carWashType', e.target.value)}
+                                error={errors.carWashType}
+                                disabled={formReadOnly || accountsFieldLocked}
+                            >
+                                <option value="">Select wash type</option>
+                                {carWashTypeOptions.map((typeName) => (
+                                    <option key={typeName} value={typeName}>
+                                        {typeName}
+                                    </option>
+                                ))}
+                            </SelectField>
+
+                            <InvoiceField
+                                label="Invoice"
+                                fileName={formData.invoiceName}
+                                onPick={(e) => handleFilePick(e, 'invoice')}
+                                error={errors.invoice}
+                                disabled={formReadOnly || accountsFieldLocked}
+                                existingInvoiceUrl={existingInvoiceUrl}
+                                existingInvoiceLabel={existingInvoiceLabel}
+                                onView={() => void handleViewInvoice()}
+                                viewLoading={invoiceViewLoading}
                             />
-                        </FormField>
 
-                        {accountsReviewMode ? (
-                            <>
+                            {!showExpenseCategory ? (
+                                <FormField label="Amount" error={errors.value}>
+                                    <div className="relative">
+                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                                            AED
+                                        </span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={formData.value}
+                                            onChange={(e) => set('value', e.target.value)}
+                                            placeholder="0.00"
+                                            disabled={formReadOnly}
+                                            className={`${fieldControl} pl-12 tabular-nums ${errors.value ? 'border-red-300' : ''} ${formReadOnly ? 'opacity-70 cursor-not-allowed bg-slate-50' : ''}`}
+                                        />
+                                    </div>
+                                </FormField>
+                            ) : null}
+
+                            <FormField label="Description (optional)">
+                                <textarea
+                                    rows={3}
+                                    value={formData.serviceIssue || ''}
+                                    onChange={(e) => set('serviceIssue', e.target.value)}
+                                    placeholder="Enter description..."
+                                    disabled={formReadOnly}
+                                    className={`${fieldControl} min-h-[88px] resize-y ${formReadOnly ? 'opacity-70 cursor-not-allowed bg-slate-50' : ''}`}
+                                />
+                            </FormField>
+                        </div>
+                    </section>
+
+                    {showExpenseCategory ? (
+                        <section className="space-y-4">
+                            <div className="border-b border-slate-100 pb-2">
+                                <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                    2. Add Expense (Zoho)
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500">
+                                    Expense Account, Amount, and Paid Through (e.g. 1st Card).
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
                                 <FormField label="Name (auto)">
                                     <input
                                         type="text"
@@ -1005,10 +1119,30 @@ export default function VehicleCarWashRequestModal({
                                         className={`${fieldControl} opacity-70 cursor-not-allowed bg-slate-50`}
                                     />
                                 </FormField>
+
+                                <FormField label="Amount" error={errors.value}>
+                                    <div className="relative">
+                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                                            AED
+                                        </span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={formData.value}
+                                            onChange={(e) => set('value', e.target.value)}
+                                            placeholder="0.00"
+                                            disabled={loading}
+                                            className={`${fieldControl} pl-12 tabular-nums ${errors.value ? 'border-red-300' : ''}`}
+                                        />
+                                    </div>
+                                </FormField>
+
                                 <ZohoExpenseSupportSelects
                                     expenseAccountId={formData.expenseAccountId}
                                     paidThroughAccountId={formData.paidThroughAccountId}
                                     disabled={loading}
+                                    preferPaidThroughName="1st Card"
                                     expenseError={errors.expenseAccountId}
                                     paidThroughError={errors.paidThroughAccountId}
                                     onExpenseAccountChange={({ id, name }) => {
@@ -1036,9 +1170,9 @@ export default function VehicleCarWashRequestModal({
                                         });
                                     }}
                                 />
-                            </>
-                        ) : null}
-                    </div>
+                            </div>
+                        </section>
+                    ) : null}
                 </form>
 
                 {/* Footer actions */}
