@@ -64,8 +64,154 @@ export function resolveBulkAssignmentGroupId(rawItem = {}) {
     if (rawItem?.bulkKind === 'assignment' && meta?.bulkAssignmentGroupId) {
         return String(meta.bulkAssignmentGroupId);
     }
-    const fromRow = rawItem?.bulkAssignmentGroupId || rawItem?.groupId;
-    return fromRow ? String(fromRow) : '';
+    const fromRow =
+        rawItem?.bulkAssignmentGroupId ||
+        rawItem?.groupId ||
+        meta?.bulkAssignmentGroupId ||
+        rawItem?.asset?.bulkAssignmentGroupId ||
+        rawItem?.primaryAsset?.bulkAssignmentGroupId ||
+        rawItem?.raw?.bulkAssignmentGroupId ||
+        rawItem?.raw?.asset?.bulkAssignmentGroupId;
+    if (fromRow) return String(fromRow);
+
+    // Fallback: bulk assignment wording in extra1 + multi asset ids on the row.
+    const extra1 = String(rawItem?.extra1 || item.extra1 || '').toLowerCase();
+    const bulkIds = rawItem?.bulkAssetIds || meta?.bulkAssetIds || [];
+    if (
+        Array.isArray(bulkIds) &&
+        bulkIds.length > 1 &&
+        (extra1.includes('bulk assignment') || meta?.isBulkAssignment === true)
+    ) {
+        // No stable group id — still signal bulk via empty string is wrong; callers need a real id.
+        // Prefer first pendingActionDetails group if present on asset.
+        const nested =
+            rawItem?.asset?.pendingActionDetails?.bulkAssignment?.groupId ||
+            rawItem?.primaryAsset?.pendingActionDetails?.bulkAssignment?.groupId;
+        if (nested) return String(nested);
+    }
+    return '';
+}
+
+/** True when this inbox row is an AC bulk-assignment batch (open acknowledge modal, never single-asset page). */
+export function isBulkAssignmentInboxRow(rawItem = {}) {
+    if (resolveBulkAssignmentGroupId(rawItem)) return true;
+    const meta = parseAssetNotificationMeta(
+        normalizeAssetNotificationItem(rawItem).extra3 || rawItem?.extra3,
+    );
+    if (meta?.isBulkAssignment === true) return true;
+    if (rawItem?.bulkKind === 'assignment' && rawItem?.isBulk) return true;
+    const extra1 = String(rawItem?.extra1 || '').toLowerCase();
+    const type = String(rawItem?.requestType || rawItem?.type || '').trim();
+    if (
+        extra1.includes('bulk assignment') &&
+        (type === 'Asset' || type === 'Asset Assignment' || rawItem?.isBulk)
+    ) {
+        return true;
+    }
+    return false;
+}
+
+const BULK_ACTION_REQUEST_TYPES = new Set([
+    'Asset Leave',
+    'Asset Return',
+    'Asset End of Life',
+    'Asset Loss Damage',
+    'Asset Transfer',
+    'Asset Reassign',
+    'Asset Approval',
+    'Asset Bulk Action',
+]);
+
+function resolveBulkActionAssetIds(rawItem = {}) {
+    const meta = parseAssetNotificationMeta(
+        normalizeAssetNotificationItem(rawItem).extra3 || rawItem?.extra3,
+    );
+    const fromRow = Array.isArray(rawItem?.bulkAssetIds) ? rawItem.bulkAssetIds : [];
+    const fromBulkAssets = Array.isArray(rawItem?.bulkAssets)
+        ? rawItem.bulkAssets.map((a) => a?._id || a?.id).filter(Boolean)
+        : [];
+    const fromMeta = Array.isArray(meta?.assetIds)
+        ? meta.assetIds
+        : Array.isArray(meta?.bulkAssetIds)
+          ? meta.bulkAssetIds
+          : [];
+    const fromAsset = Array.isArray(rawItem?.asset?.pendingActionDetails?.bulkAssetIds)
+        ? rawItem.asset.pendingActionDetails.bulkAssetIds
+        : [];
+    return [
+        ...new Set(
+            [...fromRow, ...fromBulkAssets, ...fromMeta, ...fromAsset]
+                .map((id) => String(id).trim())
+                .filter(Boolean),
+        ),
+    ];
+}
+
+function looksLikeBulkActionLabel(rawItem = {}) {
+    const extra1 = String(rawItem?.extra1 || '').toLowerCase();
+    if (!extra1) return false;
+    if (/^bulk\s+/.test(extra1)) return true;
+    return (
+        extra1.includes('bulk leave') ||
+        extra1.includes('bulk return') ||
+        extra1.includes('bulk end of life') ||
+        extra1.includes('bulk end of services') ||
+        extra1.includes('bulk loss') ||
+        extra1.includes('bulk transfer') ||
+        extra1.includes('bulk reassign') ||
+        extra1.includes('bulk approval') ||
+        /\(\s*\d+\s+assets?\s*\)/.test(extra1)
+    );
+}
+
+/**
+ * Bulk leave / return / EOL / L&D / transfer / creation — open BulkPendingResolveModal (list + checkboxes).
+ * Never navigate to a single asset detail page for these.
+ */
+export function isBulkActionInboxRow(rawItem = {}) {
+    if (!rawItem || isBulkAssignmentInboxRow(rawItem)) return false;
+    const type = String(rawItem?.requestType || rawItem?.type || '').trim();
+    const meta = parseAssetNotificationMeta(
+        normalizeAssetNotificationItem(rawItem).extra3 || rawItem?.extra3,
+    );
+    const ids = resolveBulkActionAssetIds(rawItem);
+    const bulkAssetsLen = Array.isArray(rawItem?.bulkAssets) ? rawItem.bulkAssets.length : 0;
+    const totalAssets = Number(meta?.totalAssets) || 0;
+    const multi =
+        ids.length > 1 || bulkAssetsLen > 1 || totalAssets > 1 || looksLikeBulkActionLabel(rawItem);
+    if (!multi) return false;
+
+    if (rawItem?.isBulk || meta?.isBulk === true || meta?.isBulkCreation === true) return true;
+    if (BULK_ACTION_REQUEST_TYPES.has(type)) return true;
+    if (looksLikeBulkActionLabel(rawItem)) return true;
+    if (rawItem?.bulkKind && rawItem.bulkKind !== 'assignment') return true;
+    return false;
+}
+
+/** Normalize a bulk-action inbox row so the resolve modal always has bulkAssetIds. */
+export function withBulkActionAssetIds(rawItem = {}) {
+    const ids = resolveBulkActionAssetIds(rawItem);
+    const requestType = String(rawItem?.requestType || rawItem?.type || '').trim();
+    const base = {
+        ...rawItem,
+        requestType: requestType || rawItem?.requestType,
+        type: rawItem?.type || requestType,
+    };
+    if (!ids.length) return base;
+    return {
+        ...base,
+        isBulk: true,
+        bulkKind:
+            rawItem?.bulkKind && rawItem.bulkKind !== 'assignment'
+                ? rawItem.bulkKind
+                : requestType === 'Asset Approval' ||
+                    parseAssetNotificationMeta(rawItem?.extra3)?.isBulkCreation
+                  ? 'creation'
+                  : requestType === 'Asset Return'
+                    ? 'return'
+                    : 'action',
+        bulkAssetIds: ids,
+    };
 }
 
 /** Dashboard extra3 may store a full frontend URL — router needs an app-relative path. */
@@ -197,7 +343,9 @@ export function resolvePendingInboxRowPath(rawItem = {}) {
 /** True when a pending-inbox row should appear in Vehicle/Tools modal (matches bell count). */
 export function isDisplayableAssetPendingInboxRow(row = {}) {
     if (!row) return false;
-    if (resolveBulkAssignmentGroupId(row)) return true;
+    if (resolveBulkAssignmentGroupId(row) || isBulkAssignmentInboxRow(row) || isBulkActionInboxRow(row)) {
+        return true;
+    }
     if (row?.isBulk && Array.isArray(row.bulkAssetIds) && row.bulkAssetIds.length > 1) return true;
     if (String(row?.requestType || '').trim() === 'Asset Owner On Duty') return true;
     return Boolean(resolvePendingInboxRowPath(row));
@@ -275,6 +423,11 @@ export function buildAssetNotificationPath(rawItem) {
     const type = typeRaw.toLowerCase();
     const meta = parseAssetNotificationMeta(item.extra3);
     const assetId = item.id ? String(item.id) : '';
+
+    // Bulk leave / transfer / EOL / return / L&D / creation → modal only (no detail page).
+    if (isBulkActionInboxRow(rawItem) || isBulkAssignmentInboxRow(rawItem)) {
+        return '';
+    }
 
     if (
         type.includes('utility bill') ||
@@ -465,6 +618,22 @@ export function buildAssetNotificationPath(rawItem) {
         return buildAssetListPath(params);
     }
 
+    // Bare requestType "Asset" bulk rows (legacy) — never send to a single asset detail page.
+    if (
+        (typeRaw === 'Asset' || typeRaw === 'Asset Assignment') &&
+        meta?.isBulkAssignment === true &&
+        Array.isArray(meta?.bulkAssetIds) &&
+        meta.bulkAssetIds.length > 1
+    ) {
+        const gid = meta?.bulkAssignmentGroupId;
+        if (gid) {
+            return buildAssetListPath({
+                bulkAssignmentGroup: String(gid),
+                ...(assetId ? { focusAsset: assetId } : {}),
+            });
+        }
+    }
+
     const vehicleId = meta?.vehicleMongoId || (meta?.isFleetVehicle ? assetId : null);
     if (typeRaw === 'Asset Approval' && meta?.isFleetVehicle && vehicleId) {
         return buildVehicleDetailPath(vehicleId, { focusCard: 'pendingApproval' });
@@ -507,6 +676,13 @@ export function buildAssetNotificationPath(rawItem) {
     }
 
     if (typeRaw === 'Asset Assignment') {
+        // Bulk batch must never fall through to a single-asset Accept page.
+        if (meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {
+            return buildAssetListPath({
+                bulkAssignmentGroup: String(meta.bulkAssignmentGroupId),
+                ...(assetId ? { focusAsset: assetId } : {}),
+            });
+        }
         const historyId = meta?.historyId;
         const vehicleId = meta?.vehicleMongoId || assetId;
         if (meta?.assignmentOutcome) {
@@ -517,6 +693,13 @@ export function buildAssetNotificationPath(rawItem) {
             return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/assign/${encodeURIComponent(String(historyId))}`;
         }
         return buildAssetDetailPath(assetId, { tab: 'document', focusCard: 'pendingAssignment' });
+    }
+
+    if (typeRaw === 'Asset' && meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {
+        return buildAssetListPath({
+            bulkAssignmentGroup: String(meta.bulkAssignmentGroupId),
+            ...(assetId ? { focusAsset: assetId } : {}),
+        });
     }
 
     if (typeRaw === 'Asset' && String(item.extra2 || '').toLowerCase().includes('assign')) {

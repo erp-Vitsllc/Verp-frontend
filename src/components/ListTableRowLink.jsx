@@ -65,8 +65,10 @@ export default function ListTableRowLink({
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
             return;
         }
+        // Must navigate here — do not call handleNavigateFromListClick after preventDefault,
+        // that helper bails when defaultPrevented and left the row click a no-op.
         event.preventDefault();
-        handleNavigateFromListClick(event, router, href, listReturnHref);
+        navigateFromList(router, href, listReturnHref);
     };
 
     const handleRowClick = (event) => {

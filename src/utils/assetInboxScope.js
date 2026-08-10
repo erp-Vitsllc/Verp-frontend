@@ -29,7 +29,7 @@ function requestTypeOf(row = {}) {
     return String(row?.requestType || row?.type || '').trim();
 }
 
-/** Fleet shared Asset * rows belong in Vehicle (plate / isFleetVehicle / vehicleMongoId). */
+/** Fleet shared Asset * rows belong in Vehicle (explicit fleet flags / plate). */
 export function isFleetSharedAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
     if (!FLEET_SHARED_TYPES.has(type)) return false;
@@ -41,9 +41,6 @@ export function isFleetSharedAssetInboxRow(row = {}) {
     const asset = row?.asset || null;
     const plate = String(asset?.plateNumber || '').trim();
     if (plate) return true;
-
-    const typeName = String(asset?.typeId?.name || asset?.type || '').trim();
-    if (/vehicle|car|fleet|truck/i.test(typeName)) return true;
 
     return false;
 }

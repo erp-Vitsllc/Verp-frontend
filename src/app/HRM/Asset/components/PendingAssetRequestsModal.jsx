@@ -18,6 +18,9 @@ import {
 } from '@/utils/assetInboxScope';
 import {
     resolveBulkAssignmentGroupId,
+    isBulkAssignmentInboxRow,
+    isBulkActionInboxRow,
+    withBulkActionAssetIds,
     resolvePendingInboxRowPath,
     isDisplayableAssetPendingInboxRow,
 } from '@/utils/assetNotificationRouting';
@@ -201,13 +204,28 @@ export default function PendingAssetRequestsModal({
             return;
         }
 
-        // One bulk-assign notification → open select/accept modal here (no asset-page redirect).
+        // Bulk-assign → Accept/Reject checkbox modal (never single-asset page).
         const assignmentGroupId = resolveBulkAssignmentGroupId(row);
+        if (assignmentGroupId || isBulkAssignmentInboxRow(row)) {
+            if (assignmentGroupId) {
+                setBulkAssignmentGroupId(assignmentGroupId);
+                return;
+            }
+            toast({
+                variant: 'destructive',
+                title: 'Batch unavailable',
+                description: 'This bulk assignment has no group id. Refresh and try again.',
+            });
+            return;
+        }
+
+        // Bulk leave / return / EOL / L&D / transfer / creation → list modal BEFORE any page redirect.
         if (
-            assignmentGroupId &&
-            (row.bulkKind === 'assignment' || row.isBulk || String(row.requestType || '').includes('Assignment'))
+            isBulkActionInboxRow(row) ||
+            (row?.isBulk && Array.isArray(row?.bulkAssetIds) && row.bulkAssetIds.length > 1) ||
+            (Array.isArray(row?.bulkAssets) && row.bulkAssets.length > 1)
         ) {
-            setBulkAssignmentGroupId(assignmentGroupId);
+            setBulkRow(withBulkActionAssetIds(row));
             return;
         }
 
@@ -220,16 +238,6 @@ export default function PendingAssetRequestsModal({
             }
             navigateFromNotificationClick(router, path);
             onClose();
-            return;
-        }
-
-        if (
-            row.isBulk &&
-            row.bulkKind !== 'assignment' &&
-            Array.isArray(row.bulkAssetIds) &&
-            row.bulkAssetIds.length > 1
-        ) {
-            setBulkRow(row);
             return;
         }
 
@@ -250,8 +258,9 @@ export default function PendingAssetRequestsModal({
             await axiosInstance.delete(`/AssetItem/dashboard/pending-inbox/${actionId}`);
             setItems((prev) => {
                 const next = prev.filter((item) => item.dashboardActionId !== actionId);
+                const fetchScope = inboxScope === 'utility' ? 'tools' : inboxScope;
                 const cacheParams =
-                    inboxScope === 'tools' || inboxScope === 'vehicle' ? { scope: inboxScope } : {};
+                    fetchScope === 'tools' || fetchScope === 'vehicle' ? { scope: fetchScope } : {};
                 rememberPendingInbox(ASSET_PENDING_INBOX_ENDPOINT, cacheParams, next);
                 if (typeof onPendingInboxCount === 'function') {
                     onPendingInboxCount(
@@ -260,7 +269,13 @@ export default function PendingAssetRequestsModal({
                 }
                 return next;
             });
-            invalidateAssetPendingInbox(inboxScope === 'vehicle' ? 'vehicle' : inboxScope === 'tools' ? 'tools' : 'all');
+            invalidateAssetPendingInbox(
+                inboxScope === 'vehicle'
+                    ? 'vehicle'
+                    : inboxScope === 'tools' || inboxScope === 'utility'
+                      ? 'tools'
+                      : 'all',
+            );
             toast({ title: 'Notification removed' });
             setBulkRow((prev) => (prev?.dashboardActionId === actionId ? null : prev));
             await load({ force: true });
@@ -323,7 +338,15 @@ export default function PendingAssetRequestsModal({
                     }
                     onItemClick={handleRowActivate}
                     getItemHref={(row) => {
-                        if (resolveBulkAssignmentGroupId(row)) return '';
+                        if (
+                            resolveBulkAssignmentGroupId(row) ||
+                            isBulkAssignmentInboxRow(row) ||
+                            isBulkActionInboxRow(row) ||
+                            (row?.isBulk && Array.isArray(row?.bulkAssetIds) && row.bulkAssetIds.length > 1) ||
+                            (Array.isArray(row?.bulkAssets) && row.bulkAssets.length > 1)
+                        ) {
+                            return '';
+                        }
                         return resolvePendingInboxRowPath(row) || '';
                     }}
                     onDelete={

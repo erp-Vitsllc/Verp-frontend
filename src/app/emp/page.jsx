@@ -11,9 +11,10 @@ import { hasAnyPermission, isAdmin, hasPermission, canAccessAddEmployee } from '
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc } from '@/utils/dashboardNotificationRouting';
-import { resolveBulkAssignmentGroupId } from '@/utils/assetNotificationRouting';
+import { resolveBulkAssignmentGroupId, isBulkActionInboxRow, withBulkActionAssetIds } from '@/utils/assetNotificationRouting';
 import BulkAssignmentAcknowledgeModal from '@/app/HRM/Asset/components/BulkAssignmentAcknowledgeModal';
-import { ASSET_PENDING_INBOX_CHANGED } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
+import BulkPendingResolveModal from '@/app/HRM/Asset/components/BulkPendingResolveModal';
+import { ASSET_PENDING_INBOX_CHANGED, invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { buildEmployeeListBellFromStats, buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
@@ -65,6 +66,22 @@ function formatNationalityDisplay(value) {
     const byCode = Country.getCountryByCode(trimmed.toUpperCase());
     if (byCode) return byCode.name;
     return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
+/** Trailing digits only — ignore company prefix (VEGA / NNIT / …). */
+function employeeIdSortNumber(employeeId) {
+    const match = String(employeeId || '').trim().match(/(\d+)\s*$/);
+    if (!match) return Number.POSITIVE_INFINITY;
+    return Number(match[1]);
+}
+
+function compareEmployeesByIdNumber(a, b) {
+    const numA = employeeIdSortNumber(a?.employeeId);
+    const numB = employeeIdSortNumber(b?.employeeId);
+    if (numA !== numB) return numA - numB;
+    return String(a?.employeeId || '').localeCompare(String(b?.employeeId || ''), undefined, {
+        sensitivity: 'base',
+    });
 }
 
 /** Ascending: soonest expiry / most urgent first, then employee name A–Z. */
@@ -220,6 +237,7 @@ function EmployeeContent() {
     const [myRequestCount, setMyRequestCount] = useState(0);
     const [showNotificationsModal, setShowNotificationsModal] = useState(false);
     const [bulkAssignmentGroupId, setBulkAssignmentGroupId] = useState(null);
+    const [bulkActionRow, setBulkActionRow] = useState(null);
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsRefreshing, setNotificationsRefreshing] = useState(false);
@@ -773,11 +791,7 @@ function EmployeeContent() {
         if (noFilters) {
             return [...employees]
                 .filter((emp) => String(emp?.status || '').trim() !== 'Left User')
-                .sort((a, b) => {
-                    const idA = (a.employeeId || '').toString();
-                    const idB = (b.employeeId || '').toString();
-                    return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
-                });
+                .sort(compareEmployeesByIdNumber);
         }
 
         let result = employees.filter(emp => {
@@ -820,12 +834,8 @@ function EmployeeContent() {
                 return sortByContractExpiry === 'asc' ? dateA - dateB : dateB - dateA;
             });
         } else {
-            // Default sort by Employee ID
-            result = [...result].sort((a, b) => {
-                const idA = (a.employeeId || '').toString();
-                const idB = (b.employeeId || '').toString();
-                return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
-            });
+            // Default sort by EMP ID number only (ignore VEGA/NNIT prefix)
+            result = [...result].sort(compareEmployeesByIdNumber);
         }
 
         return result;
@@ -2112,7 +2122,7 @@ function EmployeeContent() {
             </div>
 
             <NotificationInboxModal
-                isOpen={showNotificationsModal && !bulkAssignmentGroupId}
+                isOpen={showNotificationsModal && !bulkAssignmentGroupId && !bulkActionRow}
                 onClose={() => setShowNotificationsModal(false)}
                 subtitle="Profile activations, company activations, and pending items."
                 items={notificationRows}
@@ -2125,6 +2135,10 @@ function EmployeeContent() {
                         setBulkAssignmentGroupId(bulkGroupId);
                         return;
                     }
+                    if (isBulkActionInboxRow(item)) {
+                        setBulkActionRow(withBulkActionAssetIds(item));
+                        return;
+                    }
                     const path = buildDashboardNotificationPath(item);
                     if (path) {
                         navigateFromNotificationClick(router, path);
@@ -2132,7 +2146,7 @@ function EmployeeContent() {
                     }
                 }}
                 getItemHref={(item) => {
-                    if (resolveBulkAssignmentGroupId(item)) return '';
+                    if (resolveBulkAssignmentGroupId(item) || isBulkActionInboxRow(item)) return '';
                     return buildDashboardNotificationPath(item) || '';
                 }}
                 onDelete={isAdmin() ? handleDeleteNotification : undefined}
@@ -2144,6 +2158,20 @@ function EmployeeContent() {
                 onSuccess={() => {
                     setBulkAssignmentGroupId(null);
                     try {
+                        window.dispatchEvent(new Event(ASSET_PENDING_INBOX_CHANGED));
+                    } catch {
+                        /* ignore */
+                    }
+                }}
+            />
+            <BulkPendingResolveModal
+                isOpen={!!bulkActionRow}
+                row={bulkActionRow}
+                onClose={() => setBulkActionRow(null)}
+                onSuccess={() => {
+                    setBulkActionRow(null);
+                    try {
+                        invalidateAssetPendingInbox('all');
                         window.dispatchEvent(new Event(ASSET_PENDING_INBOX_CHANGED));
                     } catch {
                         /* ignore */

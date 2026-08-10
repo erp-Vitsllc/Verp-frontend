@@ -27,7 +27,7 @@ function isRequestAborted(err) {
 
 /**
  * Bulk-assign batch: assignee reviews assets in one notification.
- * Checked = accept now; unchecked stay pending (notification remains until 0 pending).
+ * Checked = Accept or Reject now; unchecked stay pending (bell remains until none left).
  */
 export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClose, onSuccess }) {
     const { toast } = useToast();
@@ -129,14 +129,14 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
         return `${base}?tab=document`;
     }, []);
 
-    const submit = async () => {
+    const submitAccept = async () => {
         if (!groupId || allIds.length === 0) return;
         const acceptedAssetIds = allIds.filter((id) => checked.has(id));
         if (acceptedAssetIds.length === 0) {
             toast({
                 variant: 'destructive',
                 title: 'Nothing selected',
-                description: 'Select at least one asset to accept. Unselected assets stay pending.',
+                description: 'Tick the assets you want to accept. Unticked assets stay pending.',
             });
             return;
         }
@@ -166,6 +166,43 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
         }
     };
 
+    const submitReject = async () => {
+        if (!groupId || allIds.length === 0) return;
+        const rejectedAssetIds = allIds.filter((id) => checked.has(id));
+        if (rejectedAssetIds.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing selected',
+                description: 'Tick the assets you want to reject. Unticked assets stay pending.',
+            });
+            return;
+        }
+        setSubmitting(true);
+        try {
+            const res = await axiosInstance.put('/AssetItem/bulk-assignment-respond', {
+                groupId,
+                acceptedAssetIds: [],
+                rejectedAssetIds,
+                comments: comments.trim() || undefined,
+            });
+            toast({
+                title: 'Assignment updated',
+                description: res.data?.message || 'Selected assets were rejected.',
+            });
+            onSuccess?.({ remainingPending: res.data?.remainingPending });
+            onClose?.();
+        } catch (e) {
+            const msg = apiErrorMessage(e, 'Try again.');
+            toastRef.current({
+                variant: 'destructive',
+                title: 'Could not submit',
+                description: msg,
+            });
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     if (!isOpen || !groupId) return null;
 
     return (
@@ -179,7 +216,7 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                         <div className="min-w-0">
                             <h2 className="text-lg font-black text-slate-900 tracking-tight">Bulk assignment</h2>
                             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Select assets to accept. Unselected stay pending until you accept or reject them.
+                                Tick assets, then Accept or Reject. Unticked assets stay pending.
                             </p>
                         </div>
                     </div>
@@ -205,8 +242,8 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                         <>
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <p className="text-xs font-semibold text-slate-500">
-                                    {acceptedCount} selected to accept
-                                    {leavePendingCount > 0 ? ` · ${leavePendingCount} stay pending` : ''}
+                                    {acceptedCount} selected
+                                    {leavePendingCount > 0 ? ` · ${leavePendingCount} stay pending if you act now` : ''}
                                 </p>
                                 <div className="flex gap-2">
                                     <button
@@ -281,9 +318,13 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                                             </div>
                                             {!isOn ? (
                                                 <p className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide pt-1">
-                                                    Will stay pending
+                                                    Stays pending (not selected)
                                                 </p>
-                                            ) : null}
+                                            ) : (
+                                                <p className="text-[10px] font-semibold text-sky-800 uppercase tracking-wide pt-1">
+                                                    Selected for Accept / Reject
+                                                </p>
+                                            )}
                                         </div>
                                     </label>
                                 );
@@ -306,7 +347,7 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                                 placeholder="Optional note for accepted assets"
                             />
                         </div>
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end gap-2 flex-wrap">
                             <button
                                 type="button"
                                 onClick={onClose}
@@ -317,7 +358,19 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                             </button>
                             <button
                                 type="button"
-                                onClick={submit}
+                                onClick={submitReject}
+                                disabled={submitting || acceptedCount === 0}
+                                className="px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 shadow-lg shadow-rose-100"
+                            >
+                                {submitting
+                                    ? 'Saving…'
+                                    : leavePendingCount > 0
+                                      ? `Reject ${acceptedCount} selected`
+                                      : `Reject all (${acceptedCount})`}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitAccept}
                                 disabled={submitting || acceptedCount === 0}
                                 className="px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 shadow-lg shadow-sky-100"
                             >

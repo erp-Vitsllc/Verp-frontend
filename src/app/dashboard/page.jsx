@@ -12,8 +12,14 @@ import axiosInstance from '@/utils/axios';
 
 import { mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
 import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
-import { resolveBulkAssignmentGroupId } from '@/utils/assetNotificationRouting';
+import {
+    resolveBulkAssignmentGroupId,
+    isBulkActionInboxRow,
+    withBulkActionAssetIds,
+} from '@/utils/assetNotificationRouting';
 import BulkAssignmentAcknowledgeModal from '@/app/HRM/Asset/components/BulkAssignmentAcknowledgeModal';
+import BulkPendingResolveModal from '@/app/HRM/Asset/components/BulkPendingResolveModal';
+import { ASSET_PENDING_INBOX_CHANGED, invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import {
     serviceIdFromNotificationHref,
     vehicleIdFromNotificationHref,
@@ -26,7 +32,6 @@ import {
     formatCommandCenterNotificationMessage,
 } from '@/utils/dashboardCommandCenterInbox';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
-import { ASSET_PENDING_INBOX_CHANGED } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { FINE_PENDING_INBOX_CHANGED } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { PAYMENT_PENDING_INBOX_CHANGED } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
 import { REWARD_PENDING_INBOX_CHANGED } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
@@ -210,6 +215,7 @@ function DashboardContent() {
     const [selectedUser, setSelectedUser] = useState(null); // null = self
 
     const [bulkAssignmentGroupId, setBulkAssignmentGroupId] = useState(null);
+    const [bulkActionRow, setBulkActionRow] = useState(null);
 
     const [hasTeam, setHasTeam] = useState(false);
 
@@ -629,6 +635,12 @@ function DashboardContent() {
         const bulkGroupId = resolveBulkAssignmentGroupId(item);
         if (bulkGroupId) {
             setBulkAssignmentGroupId(bulkGroupId);
+            return;
+        }
+
+        // Bulk leave / return / EOL / L&D / transfer / creation → list modal.
+        if (isBulkActionInboxRow(item)) {
+            setBulkActionRow(withBulkActionAssetIds(item));
             return;
         }
 
@@ -2060,6 +2072,20 @@ function DashboardContent() {
             onSuccess={() => {
                 setBulkAssignmentGroupId(null);
                 try {
+                    window.dispatchEvent(new Event(ASSET_PENDING_INBOX_CHANGED));
+                } catch {
+                    /* ignore */
+                }
+            }}
+        />
+        <BulkPendingResolveModal
+            isOpen={!!bulkActionRow}
+            row={bulkActionRow}
+            onClose={() => setBulkActionRow(null)}
+            onSuccess={() => {
+                setBulkActionRow(null);
+                try {
+                    invalidateAssetPendingInbox('all');
                     window.dispatchEvent(new Event(ASSET_PENDING_INBOX_CHANGED));
                 } catch {
                     /* ignore */

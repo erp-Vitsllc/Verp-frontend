@@ -19,9 +19,10 @@ import {
     getCachedEmployeeDashboardStats,
 } from '@/utils/employeeDashboardStatsFetch';
 import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
-import { resolveBulkAssignmentGroupId } from '@/utils/assetNotificationRouting';
+import { resolveBulkAssignmentGroupId, isBulkActionInboxRow, withBulkActionAssetIds } from '@/utils/assetNotificationRouting';
 import BulkAssignmentAcknowledgeModal from '@/app/HRM/Asset/components/BulkAssignmentAcknowledgeModal';
-import { ASSET_PENDING_INBOX_CHANGED } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
+import BulkPendingResolveModal from '@/app/HRM/Asset/components/BulkPendingResolveModal';
+import { ASSET_PENDING_INBOX_CHANGED, invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import {
@@ -133,6 +134,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
     const [myRequestCount, setMyRequestCount] = useState(0);
     const [showNotificationsModal, setShowNotificationsModal] = useState(false);
     const [bulkAssignmentGroupId, setBulkAssignmentGroupId] = useState(null);
+    const [bulkActionRow, setBulkActionRow] = useState(null);
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsRefreshing, setNotificationsRefreshing] = useState(false);
@@ -556,7 +558,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             </div>
 
             <NotificationInboxModal
-                isOpen={showNotificationsModal && !bulkAssignmentGroupId}
+                isOpen={showNotificationsModal && !bulkAssignmentGroupId && !bulkActionRow}
                 onClose={() => setShowNotificationsModal(false)}
                 subtitle="Profile activations, company activations, and pending items."
                 items={notificationRows}
@@ -569,6 +571,10 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                         setBulkAssignmentGroupId(bulkGroupId);
                         return;
                     }
+                    if (isBulkActionInboxRow(item)) {
+                        setBulkActionRow(withBulkActionAssetIds(item));
+                        return;
+                    }
                     const path = buildDashboardNotificationPath(item);
                     if (path) {
                         navigateFromNotificationClick(router, path);
@@ -576,7 +582,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                     }
                 }}
                 getItemHref={(item) => {
-                    if (resolveBulkAssignmentGroupId(item)) return '';
+                    if (resolveBulkAssignmentGroupId(item) || isBulkActionInboxRow(item)) return '';
                     return buildDashboardNotificationPath(item) || '';
                 }}
                 onDelete={isAdmin() ? handleDeleteNotification : undefined}
@@ -588,6 +594,20 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                 onSuccess={() => {
                     setBulkAssignmentGroupId(null);
                     try {
+                        window.dispatchEvent(new Event(ASSET_PENDING_INBOX_CHANGED));
+                    } catch {
+                        /* ignore */
+                    }
+                }}
+            />
+            <BulkPendingResolveModal
+                isOpen={!!bulkActionRow}
+                row={bulkActionRow}
+                onClose={() => setBulkActionRow(null)}
+                onSuccess={() => {
+                    setBulkActionRow(null);
+                    try {
+                        invalidateAssetPendingInbox('all');
                         window.dispatchEvent(new Event(ASSET_PENDING_INBOX_CHANGED));
                     } catch {
                         /* ignore */

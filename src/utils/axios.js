@@ -130,6 +130,15 @@ axiosInstance.interceptors.response.use(
         return response;
     },
     (error) => {
+        // AbortController / effect cleanup — not a real failure; skip logs & toasts
+        const isCanceled =
+            error?.code === 'ERR_CANCELED' ||
+            error?.name === 'CanceledError' ||
+            error?.name === 'AbortError';
+        if (isCanceled) {
+            return Promise.reject(error);
+        }
+
         // Check if this is a silent error (permission check)
         const requestUrl = error.config?.url || '';
         const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') ||

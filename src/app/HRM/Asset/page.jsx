@@ -2950,11 +2950,11 @@ function AssetPageContent() {
 
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap">
 
-                                                                <div className="flex flex-col items-start gap-1">
+                                                                <div className="flex flex-col items-start gap-0.5">
 
                                                                     {assetListShouldShowWaitingBadge(item) ? (
 
-                                                                        <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100 whitespace-nowrap" title={`Waiting for: ${getAssetListWaitingLabel(item)}`}>
+                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap text-amber-600 bg-amber-50 border border-amber-100" title={`Waiting for: ${getAssetListWaitingLabel(item)}`}>
 
                                                                             Waiting: {getAssetListWaitingLabel(item)}
 
@@ -2962,7 +2962,7 @@ function AssetPageContent() {
 
                                                                     ) : (
 
-                                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(item.status, item)}`}>
+                                                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap ${getAssetStatusBadgeClass(item.status, item)}`}>
 
                                                                             {(() => {
                                                                                 const statusStr = String(item.status || '');
@@ -2986,6 +2986,8 @@ function AssetPageContent() {
                                                                                         asset={item}
                                                                                         assigneeStr={assigneeStr}
                                                                                         line={line}
+                                                                                        className="text-[9px] font-bold uppercase tracking-wide leading-none"
+                                                                                        linkClassName="text-[9px] font-bold uppercase tracking-wide leading-none"
                                                                                     />
                                                                                 );
                                                                             })()}
