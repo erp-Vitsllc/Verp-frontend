@@ -7,7 +7,7 @@ import {
     FineFormCard,
     formatMoney,
 } from '../../Fine/components/FineFormCardShared';
-import { formatRewardStatusLabel, formatRewardPaymentLabel } from '../utils/rewardStatusDisplay';
+import { formatRewardStatusLabel, formatRewardPaymentStatusLabel } from '../utils/rewardStatusDisplay';
 
 export default function RewardFormCard1({ reward, employee, formatDate }) {
     if (!reward) return null;
@@ -25,7 +25,7 @@ export default function RewardFormCard1({ reward, employee, formatDate }) {
         reward.rewardStatus || reward.approvalStatus,
         reward
     );
-    const paymentLabel = formatRewardPaymentLabel(reward);
+    const paymentLabel = formatRewardPaymentStatusLabel(reward);
 
     return (
         <FineFormCard
@@ -52,12 +52,12 @@ export default function RewardFormCard1({ reward, employee, formatDate }) {
                 />
                 <DetailField label="Title" value={reward.title || '—'} />
                 <DetailField
-                    label="Payment"
+                    label="Payment Status"
                     value={paymentLabel}
                     valueClassName={
-                        paymentLabel === 'Paid'
-                            ? 'font-semibold text-green-700'
-                            : paymentLabel === 'Not Paid'
+                        paymentLabel === 'Billed'
+                            ? 'font-semibold text-emerald-700'
+                            : paymentLabel === 'Pending'
                               ? 'font-semibold text-amber-700'
                               : undefined
                     }

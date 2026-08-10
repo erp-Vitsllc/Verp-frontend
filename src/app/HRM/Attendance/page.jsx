@@ -29,6 +29,7 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
         };
 
         animationFrame = requestAnimationFrame(animate);
+
         return () => cancelAnimationFrame(animationFrame);
     }, [value, duration]);
 
@@ -36,10 +37,6 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
 };
 
 const OVERVIEW_STATS = [
-    { label: 'Present', value: 0 },
-    { label: 'Absent', value: 0 },
-    { label: 'Late', value: 0 },
-    { label: 'On Leave', value: 0 },
     { label: 'Half Day', value: 0 },
     { label: 'Weekend', value: 0 },
     { label: 'Holiday', value: 0 },
@@ -49,24 +46,23 @@ const OVERVIEW_STATS = [
 export default function AttendancePage() {
     return (
         <PermissionGuard moduleId="hrm_attendance" permissionType="view">
-            <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+            <div
+                className="flex min-h-screen w-full max-w-full overflow-x-hidden"
+                style={{ backgroundColor: '#F2F6F9' }}
+            >
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
-                            <div className="min-w-0">
-                                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">Attendance</h1>
-                                <p className="text-sm sm:text-base text-gray-600">
-                                    Track and manage employee attendance
-                                </p>
-                            </div>
-                        </div>
-
+                    <div
+                        className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden"
+                        style={{ backgroundColor: '#F2F6F9' }}
+                    >
+                        {/* Left column (~50%): overview + calendar. Right column left empty. */}
                         <div className={HEADER_PAIR_GRID}>
-                            {/* Left column: Overview card + month calendar (same width) */}
-                            <div className="flex flex-col gap-3 sm:gap-4 lg:gap-6 min-w-0">
-                                <div className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}>
+                            <div className="flex flex-col gap-3 sm:gap-4 lg:gap-6 min-w-0 w-full">
+                                <div
+                                    className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
+                                >
                                     <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">
                                         Attendance Overview
                                     </h3>
@@ -87,19 +83,7 @@ export default function AttendancePage() {
                                     </div>
                                 </div>
 
-                                {/* Full calendar — Day / Week / Month / Year + month grid */}
                                 <AttendanceMonthCalendar />
-                            </div>
-
-                            <div className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD} self-start`}>
-                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-2 sm:mb-4 shrink-0">
-                                    Attendance Summary
-                                </h3>
-                                <div className="flex-1 flex items-center justify-center min-h-0">
-                                    <p className="text-sm text-slate-400 text-center px-4">
-                                        Charts and attendance trends will appear here.
-                                    </p>
-                                </div>
                             </div>
                         </div>
                     </div>

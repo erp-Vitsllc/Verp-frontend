@@ -90,10 +90,60 @@ export function filterEntriesWithoutOccupiedBill(entries = [], bills = [], billM
     return (entries || []).filter((e) => !occupied.has(String(e?.id || '')));
 }
 
+/**
+ * YYYY-MM when the utility account row became available for billing.
+ * Prefer createdAt; fall back to contract start.
+ */
+export function entryAvailableFromMonth(entry) {
+    const created = entry?.createdAt || entry?.created_at || null;
+    if (created) {
+        const d = new Date(created);
+        if (!Number.isNaN(d.getTime())) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        }
+    }
+    const contractStart = String(entry?.values?.contractStart || entry?.contractStart || '').trim();
+    if (/^\d{4}-\d{2}/.test(contractStart)) {
+        return contractStart.slice(0, 7);
+    }
+    return '';
+}
+
+/**
+ * Only accounts that already existed in the selected bill month.
+ * Created in Aug → shown for Aug and later; not shown for Jul / Jun / Mar, etc.
+ */
+export function filterEntriesAvailableForBillMonth(entries = [], billMonth = '') {
+    const ym = String(billMonth || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(ym)) return Array.isArray(entries) ? [...entries] : [];
+    return (entries || []).filter((entry) => {
+        const from = entryAvailableFromMonth(entry);
+        if (!from) return true;
+        return from <= ym;
+    });
+}
+
+/** Active accounts for a month that still need billing (available + not occupied). */
+export function filterBillableEntriesForMonth(entries = [], bills = [], billMonth = '') {
+    const available = filterEntriesAvailableForBillMonth(entries, billMonth);
+    return filterEntriesWithoutOccupiedBill(available, bills, billMonth);
+}
+
 /** True when every entry already has Approved / Paid for that month. */
 export function isMonthFullyOccupied(entries = [], bills = [], billMonth = '') {
     const list = Array.isArray(entries) ? entries : [];
     if (!list.length) return false;
     const occupied = entryIdsWithOccupiedBillForMonth(bills, billMonth);
     return list.every((e) => occupied.has(String(e?.id || '')));
+}
+
+/**
+ * Month can be selected when it has at least one account created on/before that month
+ * that is still unbilled. Empty months (no eligible rows) and fully billed months are disabled.
+ */
+export function isBillMonthSelectable(entries = [], bills = [], billMonth = '') {
+    const ym = String(billMonth || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(ym)) return false;
+    const billable = filterBillableEntriesForMonth(entries, bills, ym);
+    return billable.length > 0;
 }

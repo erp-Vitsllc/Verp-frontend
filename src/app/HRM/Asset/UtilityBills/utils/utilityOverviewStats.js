@@ -129,7 +129,7 @@ function formatExpiryDate(value) {
     return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-/** Entries with a contract end date, soonest expiry first. */
+/** Active (not expired) contracts with an end date, soonest end first. */
 export function buildContractExpiryRows(entries = []) {
     const today = startOfToday();
 
@@ -137,8 +137,16 @@ export function buildContractExpiryRows(entries = []) {
         .map((entry) => {
             const end = String(entry?.values?.contractEnd || '').trim();
             if (!end) return null;
-            const time = new Date(end).getTime();
-            if (Number.isNaN(time)) return null;
+            const endDate = new Date(end);
+            if (Number.isNaN(endDate.getTime())) return null;
+            const endDay = new Date(
+                endDate.getFullYear(),
+                endDate.getMonth(),
+                endDate.getDate(),
+            ).getTime();
+            const daysLeft = Math.ceil((endDay - today) / MS_PER_DAY);
+            // Only list contracts that are still active (not expired).
+            if (daysLeft < 0) return null;
             return {
                 id: String(entry.id || ''),
                 type: String(entry.type || ''),
@@ -146,8 +154,8 @@ export function buildContractExpiryRows(entries = []) {
                 subtitle: String(entry?.values?.accountNumber || entry?.values?.location || ''),
                 endDate: end,
                 endLabel: formatExpiryDate(end),
-                daysLeft: Math.ceil((time - today) / MS_PER_DAY),
-                time,
+                daysLeft,
+                time: endDay,
             };
         })
         .filter(Boolean)

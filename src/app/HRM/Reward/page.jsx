@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import { canAccessCreateReward } from '@/app/HRM/Reward/utils/rewardPermissionAccess';
-import { formatRewardStatusLabel } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
+import { formatRewardStatusLabel, formatRewardPaymentStatusLabel } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { fetchRewardPendingInbox } from '@/utils/pendingInboxFetch';
 import {
     countVisibleRewardPendingInbox,
@@ -274,8 +274,22 @@ function RewardContent() {
         const status = (r.rewardStatus || '').toLowerCase();
         const type = (r.rewardType || '').toLowerCase();
 
-        if (selectedStatus === 'Pending') return status.includes('pending') || status === 'draft'; // Include all pending statuses and draft
-        if (selectedStatus === 'Approved') return status === 'approved' || status === 'approved (paid)' || status === 'active';
+        if (selectedStatus === 'Pending') {
+            // After management, cash/gift is Completed + Payment Pending — keep under Approved, not Pending
+            return (
+                (status.includes('pending') || status === 'draft') &&
+                status !== 'pending accounts'
+            );
+        }
+        if (selectedStatus === 'Approved') {
+            return (
+                status === 'approved' ||
+                status === 'approved (paid)' ||
+                status === 'active' ||
+                status === 'completed' ||
+                status === 'pending accounts'
+            );
+        }
         if (selectedStatus === 'Rejected') return status === 'rejected';
         if (selectedStatus === 'Draft') return status === 'draft';
         if (selectedStatus === 'Cash') return type === 'cash';
@@ -533,6 +547,9 @@ function RewardContent() {
                                             <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 REWARD STATUS
                                             </th>
+                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                PAYMENT STATUS
+                                            </th>
                                             <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 ACTIONS
                                             </th>
@@ -541,13 +558,13 @@ function RewardContent() {
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="6" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="7" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     Loading rewards...
                                                 </td>
                                             </tr>
                                         ) : filteredRewards.length === 0 ? (
                                             <tr>
-                                                <td colSpan="6" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="7" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     No rewards found matching "{selectedStatus}".
                                                 </td>
                                             </tr>
@@ -580,9 +597,9 @@ function RewardContent() {
                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
                                                         <div className="relative z-10 pointer-events-none">
                                                             <span
-                                                                className={`px-3 py-1 rounded-full text-xs font-medium ${reward.rewardStatus === 'Active' || reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)'
+                                                                className={`px-3 py-1 rounded-full text-xs font-medium ${reward.rewardStatus === 'Active' || reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)' || reward.rewardStatus === 'Pending Accounts' || reward.rewardStatus === 'Completed'
                                                                     ? 'bg-green-100 text-green-800'
-                                                                    : reward.rewardStatus === 'Pending' || reward.rewardStatus === 'Pending Accounts' || reward.rewardStatus === 'Pending Authorization'
+                                                                    : reward.rewardStatus === 'Pending' || reward.rewardStatus === 'Pending Authorization'
                                                                         ? 'bg-yellow-100 text-yellow-800'
                                                                         : reward.rewardStatus === 'Rejected' || reward.rewardStatus === 'Cancelled'
                                                                             ? 'bg-red-100 text-red-800'
@@ -591,6 +608,26 @@ function RewardContent() {
                                                             >
                                                                 {formatRewardStatusLabel(reward.rewardStatus, reward) || 'N/A'}
                                                             </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
+                                                        <div className="relative z-10 pointer-events-none">
+                                                            {(() => {
+                                                                const paymentStatus = formatRewardPaymentStatusLabel(reward);
+                                                                return (
+                                                                    <span
+                                                                        className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                                                            paymentStatus === 'Billed'
+                                                                                ? 'bg-emerald-100 text-emerald-800'
+                                                                                : paymentStatus === 'Pending'
+                                                                                    ? 'bg-amber-100 text-amber-800'
+                                                                                    : 'bg-gray-100 text-gray-500'
+                                                                        }`}
+                                                                    >
+                                                                        {paymentStatus}
+                                                                    </span>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     </td>
                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
@@ -692,13 +729,22 @@ function RewardContent() {
                                         </div>
                                     </div>
                                     <div className="relative z-10 pointer-events-none flex flex-col items-end gap-1.5">
-                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)' || reward.rewardStatus === 'Active'
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Approved (Paid)' || reward.rewardStatus === 'Active' || reward.rewardStatus === 'Pending Accounts' || reward.rewardStatus === 'Completed'
                                             ? 'bg-green-100 text-green-700'
-                                            : reward.rewardStatus === 'Pending' || reward.rewardStatus === 'Pending Accounts' || reward.rewardStatus === 'Pending Authorization'
+                                            : reward.rewardStatus === 'Pending' || reward.rewardStatus === 'Pending Authorization'
                                                 ? 'bg-yellow-100 text-yellow-700'
                                                 : 'bg-gray-100 text-gray-600'
                                             }`}>
                                             {formatRewardStatusLabel(reward.rewardStatus, reward)}
+                                        </span>
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                            formatRewardPaymentStatusLabel(reward) === 'Billed'
+                                                ? 'bg-emerald-100 text-emerald-700'
+                                                : formatRewardPaymentStatusLabel(reward) === 'Pending'
+                                                    ? 'bg-amber-100 text-amber-700'
+                                                    : 'bg-gray-100 text-gray-500'
+                                        }`}>
+                                            {formatRewardPaymentStatusLabel(reward)}
                                         </span>
                                         {reward.amount && (
                                             <span className="text-sm font-bold text-gray-800">

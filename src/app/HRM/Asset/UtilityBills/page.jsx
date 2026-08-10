@@ -223,6 +223,18 @@ function formatCellValue(key, values) {
     return v[key] || '—';
 }
 
+/** True when contract end date is before today (expired). */
+function isContractPeriodExpired(values) {
+    const end = String(values?.contractEnd || '').trim();
+    if (!end) return false;
+    const endDate = new Date(end);
+    if (Number.isNaN(endDate.getTime())) return false;
+    const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    return endDay < todayStart;
+}
+
 function isLongCellValue(key, text) {
     const t = String(text ?? '');
     if (LONG_TEXT_KEYS.has(key)) return t.length > 28 || t.includes('\n');
@@ -1367,7 +1379,11 @@ function UtilityBillsPageContent() {
                                                                     listReturnHref="/HRM/Asset/UtilityBills"
                                                                 >
                                                                 <tr
-                                                                    className="cursor-pointer transition-colors bg-white hover:bg-blue-50/50"
+                                                                    className={`cursor-pointer transition-colors bg-white hover:bg-blue-50/50 ${
+                                                                        manageMenuEntryId === entry.id
+                                                                            ? 'relative z-50'
+                                                                            : ''
+                                                                    }`}
                                                                 >
                                                                     <td className="px-2 sm:px-3 lg:px-4 py-2 sm:py-3 align-middle whitespace-nowrap text-xs sm:text-sm text-gray-500 tabular-nums">
                                                                         {index + 1}
@@ -1396,8 +1412,17 @@ function UtilityBillsPageContent() {
                                                                         }
 
                                                                         if (col.key === 'contractPeriod') {
+                                                                            const expired = isContractPeriodExpired(entry.values);
                                                                             return (
-                                                                                <td key={col.key} className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-700 tabular-nums">
+                                                                                <td
+                                                                                    key={col.key}
+                                                                                    className={`px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm tabular-nums ${
+                                                                                        expired
+                                                                                            ? 'bg-emerald-50 text-emerald-700 font-semibold'
+                                                                                            : 'text-gray-700'
+                                                                                    }`}
+                                                                                    title={expired ? 'Contract period expired' : undefined}
+                                                                                >
                                                                                     {raw}
                                                                                 </td>
                                                                             );
@@ -1548,7 +1573,7 @@ function UtilityBillsPageContent() {
                                                                                         </button>
                                                                                         {manageMenuEntryId === entry.id ? (
                                                                                             <div
-                                                                                                className="absolute right-0 z-30 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+                                                                                                className="absolute right-0 z-[100] mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
                                                                                                 onClick={(e) => e.stopPropagation()}
                                                                                             >
                                                                                                 <button

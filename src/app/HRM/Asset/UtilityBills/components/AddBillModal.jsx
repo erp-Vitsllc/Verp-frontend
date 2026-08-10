@@ -13,7 +13,9 @@ import {
 } from '../utils/utilityBillsStorage';
 import {
     entryIdsWithOccupiedBillForMonth,
-    filterEntriesWithoutOccupiedBill,
+    filterBillableEntriesForMonth,
+    filterEntriesAvailableForBillMonth,
+    isBillMonthSelectable,
     isMonthFullyOccupied,
 } from '../utils/utilityBillStats';
 import { openUtilityAttachment } from '../utils/openUtilityAttachment';
@@ -210,7 +212,7 @@ function titleFromBillMonth(billMonth) {
 }
 
 function filterUnbilledEntries(entries, existingBills, billMonth) {
-    return filterEntriesWithoutOccupiedBill(entries, existingBills, billMonth);
+    return filterBillableEntriesForMonth(entries, existingBills, billMonth);
 }
 
 function isMonthBeforeCurrent(ym, currentYm = currentBillMonthValue()) {
@@ -221,8 +223,8 @@ function isMonthBeforeCurrent(ym, currentYm = currentBillMonthValue()) {
 }
 
 /**
- * Earliest month that still has unbilled accounts, starting from the current calendar month.
- * Fully billed months are skipped.
+ * Earliest month that still has billable accounts (created on/before month + unbilled),
+ * starting from the current calendar month.
  */
 function findFirstOpenMonth(entries, bills, preferredMonth) {
     const currentYm = currentBillMonthValue();
@@ -234,26 +236,22 @@ function findFirstOpenMonth(entries, bills, preferredMonth) {
 
     let ym = currentYm;
     for (let i = 0; i < 48; i++) {
-        if (!isMonthFullyOccupied(entries, bills, ym)) return ym;
+        if (isBillMonthSelectable(entries, bills, ym)) return ym;
         ym = nextBillMonthValue(ym);
     }
     return currentYm;
 }
 
 /**
- * Month is selectable unless every active account already has Approved / Paid for it.
- * - Partial billed → enabled (only unbilled rows load)
- * - None billed → enabled (all rows load)
- * - All billed → disabled
+ * Month is selectable when it has at least one account created on/before that month
+ * that is still unbilled. Months with no eligible rows (or fully billed) are disabled.
  */
 function isMonthSelectable(ym, entries, bills) {
-    if (!/^\d{4}-\d{2}$/.test(String(ym || ''))) return false;
-    if (entries?.length && isMonthFullyOccupied(entries, bills, ym)) return false;
-    return true;
+    return isBillMonthSelectable(entries, bills, ym);
 }
 
 /**
- * Default: current calendar month when it still has unbilled accounts.
+ * Default: current calendar month when it still has billable accounts.
  * Otherwise draft/preferred if open, else first incomplete month from today.
  */
 function resolveWorkingMonth(entries, existingBills, preferredMonth) {
@@ -1127,25 +1125,26 @@ export default function AddBillModal({
         const map = new Map();
         for (let m = 0; m < 12; m++) {
             const ym = monthKeyForYearMonth(pickerYear, m);
+            const available = filterEntriesAvailableForBillMonth(listEntries, ym);
             const occupied = entryIdsWithOccupiedBillForMonth(mergedBills, ym);
-            const unbilledCount = listEntries.filter(
+            const unbilledCount = available.filter(
                 (e) => !occupied.has(String(e?.id || '')),
             ).length;
-            const full =
-                listEntries.length > 0 && unbilledCount === 0
-                    ? true
-                    : isMonthFullyOccupied(listEntries, mergedBills, ym);
+            const noRows = available.length === 0;
+            const full = available.length > 0 && unbilledCount === 0;
             const past = isMonthBeforeCurrent(ym, currentYm);
             const isCurrent = ym === currentYm;
-            // Only fully billed months are disabled. Partial / empty months stay clickable.
+            const disabled = noRows || full;
             map.set(ym, {
                 full,
                 past,
                 isCurrent,
-                partial: !full && occupied.size > 0 && unbilledCount > 0,
-                empty: !full && occupied.size === 0,
+                noRows,
+                partial: !full && !noRows && occupied.size > 0 && unbilledCount > 0,
+                empty: !full && !noRows && occupied.size === 0,
                 unbilledCount,
-                disabled: Boolean(full && listEntries.length > 0),
+                availableCount: available.length,
+                disabled,
             });
         }
         return map;
@@ -1153,13 +1152,20 @@ export default function AddBillModal({
 
     const applyBillMonth = (ym, { preserveDraft = false, draftRows = [] } = {}) => {
         if (!/^\d{4}-\d{2}$/.test(String(ym || ''))) return;
-        if (listEntries.length && isMonthFullyOccupied(listEntries, mergedBills, ym)) {
+        const available = filterEntriesAvailableForBillMonth(listEntries, ym);
+        if (!available.length) {
             setError(
-                `${titleFromBillMonth(ym)} is complete — every active account already has an Approved / Paid bill.`,
+                `${titleFromBillMonth(ym)} has no accounts — none were created on or before this month.`,
             );
             return;
         }
-        // Partial: only not-billed rows. None billed: all rows. Billed accounts stay out (no values taken).
+        if (isMonthFullyOccupied(available, mergedBills, ym)) {
+            setError(
+                `${titleFromBillMonth(ym)} is complete — every eligible account already has an Approved / Paid bill.`,
+            );
+            return;
+        }
+        // Only accounts created on/before this month, and not already billed.
         const unbilled = filterUnbilledEntries(listEntries, mergedBills, ym);
         setBillMonth(ym);
         setPickerYear(yearFromBillMonth(ym));
@@ -1177,15 +1183,25 @@ export default function AddBillModal({
             : [];
         setRows(buildRowsFromEntries(unbilled, scopedDraft));
 
-        const occupiedCount = listEntries.length - unbilled.length;
+        const occupiedCount = available.length - unbilled.length;
+        const skippedNew = listEntries.length - available.length;
         if (unbilled.length === 0) {
             setInfo(
-                `All active accounts already have an Approved / Paid bill for ${titleFromBillMonth(ym)}.`,
+                `No billable accounts for ${titleFromBillMonth(ym)} (none left unbilled, or none created yet for this month).`,
             );
-        } else if (occupiedCount > 0) {
-            setInfo(
-                `Showing ${unbilled.length} of ${listEntries.length} accounts still not billed for ${titleFromBillMonth(ym)}. Already billed accounts are excluded.`,
-            );
+        } else if (occupiedCount > 0 || skippedNew > 0) {
+            const parts = [
+                `Showing ${unbilled.length} account${unbilled.length === 1 ? '' : 's'} for ${titleFromBillMonth(ym)}.`,
+            ];
+            if (skippedNew > 0) {
+                parts.push(
+                    `${skippedNew} created after this month ${skippedNew === 1 ? 'is' : 'are'} hidden.`,
+                );
+            }
+            if (occupiedCount > 0) {
+                parts.push(`${occupiedCount} already billed ${occupiedCount === 1 ? 'is' : 'are'} excluded.`);
+            }
+            setInfo(parts.join(' '));
         } else {
             setInfo('');
         }
@@ -1649,6 +1665,7 @@ export default function AddBillModal({
                                             past: false,
                                             partial: false,
                                             empty: true,
+                                            noRows: false,
                                             disabled: false,
                                         };
                                         const selected = ym === billMonth;
@@ -1659,13 +1676,15 @@ export default function AddBillModal({
                                                 type="button"
                                                 disabled={disabled}
                                                 title={
-                                                    occ.full
-                                                        ? 'All accounts billed for this month — cannot select'
-                                                        : occ.partial
-                                                          ? 'Partially billed — only not-billed accounts will show'
-                                                          : occ.empty
-                                                            ? `Select ${label} ${pickerYear} — all accounts will show`
-                                                            : `Select ${label} ${pickerYear}`
+                                                    occ.noRows
+                                                        ? 'No accounts created on or before this month'
+                                                        : occ.full
+                                                          ? 'All eligible accounts billed for this month — cannot select'
+                                                          : occ.partial
+                                                            ? 'Partially billed — only not-billed accounts will show'
+                                                            : occ.empty
+                                                              ? `Select ${label} ${pickerYear} — accounts created by this month will show`
+                                                              : `Select ${label} ${pickerYear}`
                                                 }
                                                 onClick={() => applyBillMonth(ym)}
                                                 className={`relative rounded-lg px-2 py-2.5 text-xs font-semibold transition-colors ${
@@ -1690,9 +1709,9 @@ export default function AddBillModal({
                                     })}
                                 </div>
                                 <p className="mt-2.5 text-[10px] text-gray-500 leading-relaxed">
-                                    Default is the current month. Fully billed months are disabled.
-                                    Partially billed months open with only remaining (not billed)
-                                    accounts. Empty months show all accounts.
+                                    Accounts appear only from the month they were created onward
+                                    (e.g. created in Aug → not shown in Jul or earlier). Months with
+                                    no eligible accounts, or fully billed months, are disabled.
                                 </p>
                             </div>
                         ) : null}

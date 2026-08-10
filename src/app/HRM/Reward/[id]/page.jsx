@@ -29,7 +29,7 @@ import { Download, Check, X, Edit, Loader2, Lock, Send, Trash2, FileText, Paperc
 import CertificateEditModal from '../components/CertificateEditModal';
 import RewardFormCards from '../components/RewardFormCards';
 import RewardAttachmentTab from '../components/RewardAttachmentTab';
-import { formatRewardStatusLabel, formatRewardPaymentLabel } from '../utils/rewardStatusDisplay';
+import { formatRewardStatusLabel, formatRewardPaymentStatusLabel } from '../utils/rewardStatusDisplay';
 import { canEditRewardCertificate } from '../utils/rewardPermissionAccess';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -901,7 +901,7 @@ export default function RewardDetailsPage({ params }) {
                                     const remainingAmount = Math.max(0, totalAmount - paidAmount);
                                     const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
                                     const statusLabel = formatRewardStatusLabel(status, reward);
-                                    const paymentLabel = formatRewardPaymentLabel(reward);
+                                    const paymentLabel = formatRewardPaymentStatusLabel(reward);
 
                                     const statusBoxClass =
                                         isApprovedState ? 'bg-green-50 border-green-100 text-green-700' :
@@ -913,11 +913,23 @@ export default function RewardDetailsPage({ params }) {
 
                                     if (!isApprovedState) {
                                         cells.push(
-                                            <div key="status" className={`${compactBox} ${statusBoxClass}`}>
+                                            <div key="status" className={`${compactBox} ${status === 'Pending Accounts' ? 'bg-green-50 border-green-100 text-green-700' : statusBoxClass}`}>
                                                 <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Current Status</span>
                                                 <span className="text-sm font-bold truncate ml-2">{statusLabel || 'Unknown'}</span>
                                             </div>
                                         );
+                                        if (paymentLabel !== '—') {
+                                            const paymentBilled = paymentLabel === 'Billed';
+                                            cells.push(
+                                                <div
+                                                    key="payment-status-active"
+                                                    className={`${compactBox} ${paymentBilled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}
+                                                >
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Payment Status</span>
+                                                    <span className="text-sm font-bold truncate ml-2">{paymentLabel}</span>
+                                                </div>
+                                            );
+                                        }
                                     }
 
                                     cells.push(
@@ -958,13 +970,13 @@ export default function RewardDetailsPage({ params }) {
                                                                                             </div>
                                         );
                                         if (paymentLabel !== '—') {
-                                            const paymentPaid = paymentLabel === 'Paid';
+                                            const paymentBilled = paymentLabel === 'Billed';
                                             cells.push(
                                                 <div
                                                     key="payment-status"
-                                                    className={`${compactBox} ${paymentPaid ? 'bg-green-50 border-green-100 text-green-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}
+                                                    className={`${compactBox} ${paymentBilled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}
                                                 >
-                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Payment</span>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Payment Status</span>
                                                     <span className="text-sm font-bold truncate ml-2">{paymentLabel}</span>
                                                 </div>
                                             );

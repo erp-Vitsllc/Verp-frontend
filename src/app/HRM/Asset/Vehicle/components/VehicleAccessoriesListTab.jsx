@@ -12,8 +12,8 @@ import {
     buildFlatOldAccessoryRows,
     buildSyncedAssetAccessories,
     buildVehicleAccessoriesListTableSets,
+    hasStoredAssessmentPhoto,
     resolveAccessoriesListPrimaryHandoverEntry,
-    resolveAssessmentMediaUrl,
 } from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import AssessmentMediaImage from './AssessmentMediaImage';
@@ -32,9 +32,7 @@ function AccessoryStatusBadge({ status }) {
 }
 
 function AccessoryImageCell({ row, onPreview }) {
-    const photoUrl = row.photoUrl || resolveAssessmentMediaUrl(row.photo);
-
-    if (!photoUrl) {
+    if (!hasStoredAssessmentPhoto(row.photo)) {
         return (
             <div className="flex h-[115px] max-w-[220px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-400">
                 No image
@@ -51,7 +49,7 @@ function AccessoryImageCell({ row, onPreview }) {
                 title={`View ${row.label}`}
             >
                 <AssessmentMediaImage
-                    photo={row.photo || photoUrl}
+                    photo={row.photo}
                     alt={row.label}
                     fit="contain"
                     className="max-h-full max-w-full object-contain object-center"
@@ -121,9 +119,8 @@ export default function VehicleAccessoriesListTab({
         () =>
             tabRows
                 .map((row) => {
-                    const url = row.photoUrl || resolveAssessmentMediaUrl(row.photo);
-                    if (!url) return null;
-                    return { key: row.listKey, label: row.label, url };
+                    if (!hasStoredAssessmentPhoto(row.photo)) return null;
+                    return { key: row.listKey, label: row.label, photo: row.photo };
                 })
                 .filter(Boolean),
         [tabRows],

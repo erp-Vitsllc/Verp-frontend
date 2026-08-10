@@ -4960,7 +4960,7 @@ function AssetDetailsPageContent() {
                             onSuccess={fetchAssetDetails}
                             mode="asset"
                             initialData={asset}
-                            canEditAssetValue={userIsAdmin}
+                            canEditAssetValue={true}
                         />
                     )}
 

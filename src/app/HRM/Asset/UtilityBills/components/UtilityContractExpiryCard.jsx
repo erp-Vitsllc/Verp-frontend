@@ -6,18 +6,16 @@ import { UTILITY_TYPE_COLORS } from '../utils/utilityOverviewStats';
 import { formatBillMoney } from '../utils/utilityBillStats';
 
 function expiryTone(daysLeft) {
-    if (daysLeft < 0) return 'bg-rose-50 border-rose-200 text-rose-700';
     if (daysLeft <= 30) return 'bg-amber-50 border-amber-200 text-amber-700';
-    return 'bg-gray-50 border-gray-200 text-gray-600';
+    return 'bg-emerald-50 border-emerald-200 text-emerald-700';
 }
 
 function expiryNote(daysLeft) {
-    if (daysLeft < 0) return `Expired ${Math.abs(daysLeft)}d ago`;
     if (daysLeft === 0) return 'Expires today';
     return `${daysLeft}d left`;
 }
 
-/** Left half: nearest contract expiry dates. Right half: deduction share per utility type. */
+/** Left half: active (not expired) contracts. Right half: deduction share per utility type. */
 export default function UtilityContractExpiryCard({
     expiryRows = [],
     typeDistribution = [],
@@ -27,11 +25,11 @@ export default function UtilityContractExpiryCard({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 flex-1 min-h-0">
             <div className="flex flex-col min-h-0">
                 <h3 className="text-[10px] sm:text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-2 shrink-0">
-                    Contract Expiry
+                    Active Contract
                 </h3>
                 {expiryRows.length === 0 ? (
                     <div className="flex-1 flex items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-3 min-h-0">
-                        <p className="text-xs text-gray-500 text-center">No contract end dates yet.</p>
+                        <p className="text-xs text-gray-500 text-center">No active contracts.</p>
                     </div>
                 ) : (
                     <div className="flex-1 overflow-y-auto min-h-0 pr-0.5 space-y-1.5">

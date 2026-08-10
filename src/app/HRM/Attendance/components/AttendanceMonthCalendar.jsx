@@ -113,39 +113,35 @@ function DayStatsRow({ day, strengthCount, selected, enlarged }) {
 
     return (
         <div
-            className={`h-full w-full flex items-center gap-3 sm:gap-5 px-3 sm:px-4 transition-colors ${
-                isFuture
+            className={`h-full w-full flex items-center gap-3 sm:gap-5 px-3 sm:px-4 transition-colors ${isFuture
                     ? 'bg-gray-50'
                     : enlarged
-                      ? 'bg-white'
-                      : selected && !today
-                        ? 'bg-blue-50/40'
-                        : 'bg-white'
-            }`}
+                        ? 'bg-white'
+                        : selected && !today
+                            ? 'bg-blue-50/40'
+                            : 'bg-white'
+                }`}
         >
             {/* Day + date — always visible */}
             <div className="flex items-center gap-2 sm:gap-3 w-24 sm:w-36 shrink-0">
                 {today ? (
                     <span
-                        className={`bg-black text-white font-semibold inline-flex items-center justify-center shrink-0 ${
-                            enlarged ? 'h-8 w-8 text-base' : 'h-7 w-7 text-sm'
-                        }`}
+                        className={`bg-black text-white font-semibold inline-flex items-center justify-center shrink-0 ${enlarged ? 'h-8 w-8 text-base' : 'h-7 w-7 text-sm'
+                            }`}
                     >
                         {day.getDate()}
                     </span>
                 ) : (
                     <span
-                        className={`font-bold tabular-nums w-7 text-center shrink-0 ${
-                            enlarged ? 'text-lg sm:text-xl' : 'text-base sm:text-lg'
-                        } ${isFuture ? 'text-gray-300' : 'text-gray-900'}`}
+                        className={`font-bold tabular-nums w-7 text-center shrink-0 ${enlarged ? 'text-lg sm:text-xl' : 'text-base sm:text-lg'
+                            } ${isFuture ? 'text-gray-300' : 'text-gray-900'}`}
                     >
                         {day.getDate()}
                     </span>
                 )}
                 <span
-                    className={`font-medium truncate ${enlarged ? 'text-base sm:text-lg' : 'text-sm sm:text-base'} ${
-                        isFuture ? 'text-gray-300' : 'text-gray-500'
-                    }`}
+                    className={`font-medium truncate ${enlarged ? 'text-base sm:text-lg' : 'text-sm sm:text-base'} ${isFuture ? 'text-gray-300' : 'text-gray-500'
+                        }`}
                 >
                     {format(day, 'EEE')}
                 </span>
@@ -189,31 +185,27 @@ function DayStatsPanel({ day, strengthCount, compact = false }) {
 
     return (
         <div
-            className={`h-full w-full bg-white flex flex-col overflow-hidden ${
-                compact ? 'p-1.5 sm:p-2 min-h-[160px] sm:min-h-[200px]' : 'p-4 sm:p-6 min-h-[280px] sm:min-h-[360px]'
-            } ${isFuture ? 'bg-gray-50 opacity-60' : ''}`}
+            className={`h-full w-full bg-white flex flex-col overflow-hidden ${compact ? 'p-1.5 sm:p-2 min-h-[160px] sm:min-h-[200px]' : 'p-4 sm:p-6 min-h-[280px] sm:min-h-[360px]'
+                } ${isFuture ? 'bg-gray-50 opacity-60' : ''}`}
         >
             <div className="flex items-start justify-between shrink-0 gap-1">
                 <span
-                    className={`font-medium text-gray-500 truncate ${
-                        compact ? 'text-[10px] sm:text-xs' : 'text-base sm:text-lg'
-                    }`}
+                    className={`font-medium text-gray-500 truncate ${compact ? 'text-[10px] sm:text-xs' : 'text-base sm:text-lg'
+                        }`}
                 >
                     {compact ? format(day, 'EEE') : format(day, 'EEEE')}
                 </span>
                 {today ? (
                     <span
-                        className={`bg-black text-white font-semibold inline-flex items-center justify-center shrink-0 ${
-                            compact ? 'h-5 w-5 text-[10px]' : 'h-10 w-10 sm:h-12 sm:w-12 text-lg sm:text-xl'
-                        }`}
+                        className={`bg-black text-white font-semibold inline-flex items-center justify-center shrink-0 ${compact ? 'h-5 w-5 text-[10px]' : 'h-10 w-10 sm:h-12 sm:w-12 text-lg sm:text-xl'
+                            }`}
                     >
                         {day.getDate()}
                     </span>
                 ) : (
                     <span
-                        className={`font-bold text-gray-800 tabular-nums shrink-0 ${
-                            compact ? 'text-xs sm:text-sm' : 'text-2xl sm:text-3xl'
-                        }`}
+                        className={`font-bold text-gray-800 tabular-nums shrink-0 ${compact ? 'text-xs sm:text-sm' : 'text-2xl sm:text-3xl'
+                            }`}
                     >
                         {day.getDate()}
                     </span>
@@ -222,9 +214,8 @@ function DayStatsPanel({ day, strengthCount, compact = false }) {
 
             <div className={`flex-1 min-h-0 flex items-center justify-center ${compact ? 'gap-2 sm:gap-3' : 'gap-8 sm:gap-10'}`}>
                 <span
-                    className={`font-black text-gray-900 tabular-nums leading-none ${
-                        compact ? 'text-xl sm:text-2xl lg:text-3xl' : 'text-5xl sm:text-6xl lg:text-7xl'
-                    }`}
+                    className={`font-black text-gray-900 tabular-nums leading-none ${compact ? 'text-xl sm:text-2xl lg:text-3xl' : 'text-5xl sm:text-6xl lg:text-7xl'
+                        }`}
                 >
                     {stats.strength}
                 </span>
@@ -233,9 +224,8 @@ function DayStatsPanel({ day, strengthCount, compact = false }) {
                     aria-hidden
                 />
                 <span
-                    className={`font-black text-emerald-600 tabular-nums leading-none ${
-                        compact ? 'text-xl sm:text-2xl lg:text-3xl' : 'text-5xl sm:text-6xl lg:text-7xl'
-                    }`}
+                    className={`font-black text-emerald-600 tabular-nums leading-none ${compact ? 'text-xl sm:text-2xl lg:text-3xl' : 'text-5xl sm:text-6xl lg:text-7xl'
+                        }`}
                 >
                     {stats.present}
                 </span>
@@ -248,11 +238,10 @@ function DayStatsPanel({ day, strengthCount, compact = false }) {
                     <span
                         key={row.key}
                         title={row.label}
-                        className={`rounded-none ring-1 inline-flex items-center justify-center font-bold tabular-nums shrink-0 ${
-                            compact
+                        className={`rounded-none ring-1 inline-flex items-center justify-center font-bold tabular-nums shrink-0 ${compact
                                 ? 'h-4 w-4 sm:h-5 sm:min-w-[1.25rem] sm:w-auto sm:px-0.5 text-[8px] sm:text-[10px]'
                                 : 'h-10 sm:h-12 min-w-[2.5rem] sm:min-w-[3rem] px-2 text-base sm:text-lg'
-                        } ${row.color}`}
+                            } ${row.color}`}
                     >
                         {stats[row.key]}
                     </span>
@@ -279,9 +268,8 @@ function MonthGrid({
                 {WEEKDAYS.map((label) => (
                     <div
                         key={label}
-                        className={`text-center font-medium text-gray-500 border-r border-gray-200 [&:nth-child(7n)]:border-r-0 ${
-                            compact ? 'px-1 py-1 text-[10px]' : 'px-2 py-2 text-xs sm:text-sm'
-                        }`}
+                        className={`text-center font-medium text-gray-500 border-r border-gray-200 [&:nth-child(7n)]:border-r-0 ${compact ? 'px-1 py-1 text-[10px]' : 'px-2 py-2 text-xs sm:text-sm'
+                            }`}
                     >
                         {compact ? label.charAt(0) : label}
                     </div>
@@ -302,9 +290,8 @@ function MonthGrid({
                     return (
                         <div
                             key={dayKey}
-                            className={`relative aspect-square w-full border-r border-b border-gray-200 [&:nth-child(7n)]:border-r-0 ${
-                                isHovered ? 'z-50' : 'z-0'
-                            }`}
+                            className={`relative aspect-square w-full border-r border-b border-gray-200 [&:nth-child(7n)]:border-r-0 ${isHovered ? 'z-50' : 'z-0'
+                                }`}
                             onMouseEnter={() => {
                                 if (!compact && !isFuture) setHoveredDayKey(dayKey);
                             }}
@@ -319,42 +306,38 @@ function MonthGrid({
                                     if (isFuture) return;
                                     onSelectDay(day);
                                 }}
-                                className={`text-left transition-all duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                                    isHovered && !isFuture
+                                className={`text-left transition-all duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${isHovered && !isFuture
                                         ? 'absolute left-1/2 top-1/2 z-50 aspect-square w-[min(200%,14rem)] -translate-x-1/2 -translate-y-1/2 rounded-none bg-white p-0 shadow-md border border-gray-200'
-                                        : `absolute inset-0 ${compact ? 'p-0.5' : 'p-1 sm:p-1.5'} ${
-                                              isFuture
-                                                  ? 'bg-gray-50 cursor-not-allowed'
-                                                  : inMonth
-                                                    ? 'bg-white hover:bg-gray-50'
-                                                    : 'bg-[#f7f7f8] hover:bg-gray-50'
-                                          } ${selected && !today && !isFuture ? 'bg-blue-50/60' : ''}`
-                                }`}
+                                        : `absolute inset-0 ${compact ? 'p-0.5' : 'p-1 sm:p-1.5'} ${isFuture
+                                            ? 'bg-gray-50 cursor-not-allowed'
+                                            : inMonth
+                                                ? 'bg-white hover:bg-gray-50'
+                                                : 'bg-[#f7f7f8] hover:bg-gray-50'
+                                        } ${selected && !today && !isFuture ? 'bg-blue-50/60' : ''}`
+                                    }`}
                             >
                                 {isHovered && !isFuture ? (
                                     <DayHoverCard day={day} today={today} stats={stats} />
                                 ) : (
                                     <div className="flex justify-end">
                                         <span
-                                            className={`inline-flex items-center justify-center leading-none ${
-                                                compact
+                                            className={`inline-flex items-center justify-center leading-none ${compact
                                                     ? 'text-[10px]'
                                                     : 'text-[11px] sm:text-xs lg:text-sm'
-                                            } ${
-                                                today
+                                                } ${today
                                                     ? `${compact ? 'h-4 w-4 text-[9px]' : 'h-5 w-5 sm:h-6 sm:w-6'} rounded-full bg-black text-white font-semibold`
                                                     : isFuture
-                                                      ? 'text-gray-300'
-                                                      : inMonth
-                                                        ? 'text-gray-900 font-medium'
-                                                        : 'text-gray-400'
-                                            }`}
+                                                        ? 'text-gray-300'
+                                                        : inMonth
+                                                            ? 'text-gray-900 font-medium'
+                                                            : 'text-gray-400'
+                                                }`}
                                         >
                                             {today
                                                 ? day.getDate()
                                                 : !compact && showMonthAbbrev
-                                                  ? format(day, 'd MMM')
-                                                  : day.getDate()}
+                                                    ? format(day, 'd MMM')
+                                                    : day.getDate()}
                                         </span>
                                     </div>
                                 )}
@@ -386,18 +369,18 @@ export default function AttendanceMonthCalendar() {
                 const rows = Array.isArray(res.data?.employees)
                     ? res.data.employees
                     : Array.isArray(res.data)
-                      ? res.data
-                      : Array.isArray(res.data?.data)
-                        ? res.data.data
-                        : [];
+                        ? res.data
+                        : Array.isArray(res.data?.data)
+                            ? res.data.data
+                            : [];
                 const fromPagination = Number(res.data?.pagination?.total);
                 const activeCount = Number.isFinite(fromPagination)
                     ? fromPagination
                     : rows.filter((emp) => {
-                          const profile = String(emp?.profileStatus || '').trim().toLowerCase();
-                          const status = String(emp?.status || '').trim().toLowerCase();
-                          return profile === 'active' || status === 'active';
-                      }).length;
+                        const profile = String(emp?.profileStatus || '').trim().toLowerCase();
+                        const status = String(emp?.status || '').trim().toLowerCase();
+                        return profile === 'active' || status === 'active';
+                    }).length;
                 if (!cancelled) setStrengthCount(activeCount);
             } catch {
                 if (!cancelled) setStrengthCount(0);
@@ -473,11 +456,10 @@ export default function AttendanceMonthCalendar() {
                                         setView(option);
                                         setHoveredDayKey(null);
                                     }}
-                                    className={`px-3 sm:px-4 py-1.5 text-sm font-medium transition-colors ${
-                                        active
+                                    className={`px-3 sm:px-4 py-1.5 text-sm font-medium transition-colors ${active
                                             ? 'bg-white text-gray-900 shadow-sm'
                                             : 'text-gray-500 hover:text-gray-800'
-                                    }`}
+                                        }`}
                                 >
                                     {option}
                                 </button>
@@ -550,9 +532,8 @@ export default function AttendanceMonthCalendar() {
                         return (
                             <div
                                 key={dayKey}
-                                className={`relative flex-1 min-h-[3.25rem] border-b border-gray-200 last:border-b-0 ${
-                                    isHovered ? 'z-50' : 'z-0'
-                                }`}
+                                className={`relative flex-1 min-h-[3.25rem] border-b border-gray-200 last:border-b-0 ${isHovered ? 'z-50' : 'z-0'
+                                    }`}
                                 onMouseEnter={() => {
                                     if (!isFuture) setHoveredDayKey(dayKey);
                                 }}
@@ -565,11 +546,10 @@ export default function AttendanceMonthCalendar() {
                                         if (isFuture) return;
                                         selectDay(day, 'Day');
                                     }}
-                                    className={`text-left disabled:cursor-not-allowed transition-all duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                                        isHovered && !isFuture
+                                    className={`text-left disabled:cursor-not-allowed transition-all duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${isHovered && !isFuture
                                             ? 'absolute inset-x-0 top-1/2 z-50 h-[min(140%,5.5rem)] -translate-y-1/2 bg-white shadow-lg border border-gray-200'
                                             : 'absolute inset-0'
-                                    }`}
+                                        }`}
                                 >
                                     <DayStatsRow
                                         day={day}
@@ -610,7 +590,7 @@ export default function AttendanceMonthCalendar() {
                                 selectedDate={selectedDate}
                                 strengthCount={strengthCount}
                                 hoveredDayKey={null}
-                                setHoveredDayKey={() => {}}
+                                setHoveredDayKey={() => { }}
                                 compact
                                 onSelectDay={(day) => selectDay(day, 'Month')}
                             />

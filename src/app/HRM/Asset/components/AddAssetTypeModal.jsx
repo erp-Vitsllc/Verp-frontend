@@ -99,7 +99,7 @@ export default function AddAssetTypeModal({
                     total: initialData.total || 0,
                     assigned: initialData.assigned || 0,
                     unassigned: initialData.unassigned || 0,
-                    assetValue: initialData.assetValue || '',
+                    assetValue: initialData.assetValue != null && initialData.assetValue !== '' ? initialData.assetValue : '',
                     purchaseDate: initialData.purchaseDate ? new Date(initialData.purchaseDate).toISOString().split('T')[0] : '',
                     quantity: initialData.quantity || 1,
                     invoiceNumber: initialData.invoiceNumber || '',
