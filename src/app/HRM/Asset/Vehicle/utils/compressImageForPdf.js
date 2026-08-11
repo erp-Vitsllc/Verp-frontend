@@ -268,6 +268,21 @@ export function preparePageSurfacesForPdfCapture(root, pageSurfaceClass) {
 }
 
 /**
+ * Wait until PDF photo slots finish resolving storage keys → blob URLs.
+ * Slots mark themselves with data-pdf-assessment-photo="loading|ready|empty|failed".
+ */
+export async function waitForPdfAssessmentPhotos(root, { timeoutMs = 20000 } = {}) {
+    if (!root?.querySelectorAll) return;
+
+    const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 20000);
+    while (Date.now() < deadline) {
+        const loading = root.querySelectorAll('[data-pdf-assessment-photo="loading"]');
+        if (!loading.length) return;
+        await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+}
+
+/**
  * Wait for fonts/images, then inline remote photos as data URLs so PDF capture matches on-screen preview.
  */
 export async function prepareImagesForPdfCapture(
@@ -276,6 +291,7 @@ export async function prepareImagesForPdfCapture(
 ) {
     if (!root) return;
 
+    await waitForPdfAssessmentPhotos(root);
     await waitForFontsAndImagesInElement(root);
     preparePageSurfacesForPdfCapture(root, pageSurfaceClass);
     preparePhotoPanelsForPdfCapture(root);

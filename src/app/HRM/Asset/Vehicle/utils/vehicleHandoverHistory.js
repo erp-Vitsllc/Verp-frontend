@@ -158,6 +158,33 @@ function resolveFleetHandoverLifecycle(entry, vehicle) {
         flow?.historyId && entry?._id && String(flow.historyId) === String(entry._id);
     const vehicleStatus = String(vehicle?.acceptanceStatus || '').trim();
 
+    // Returns/unassigns: resolve before generic lifecycle so a newer pending cycle
+    // cannot rewrite an already-completed return row to Pending.
+    if (action === 'Returned' || action === 'Unassigned') {
+        const isLinkedReturn =
+            action === 'Returned' &&
+            flow?.isReturn &&
+            flow?.historyId &&
+            entry?._id &&
+            String(flow.historyId) === String(entry._id);
+        if (isLinkedReturn) {
+            if (lifecycle === 'approved') return 'approved';
+            const stage = String(flow.stage || '').toLowerCase();
+            if (stage === 'hr' || stage === 'management' || stage === 'hod') return 'accepted';
+            return 'pending';
+        }
+        if (lifecycle === 'rejected') return 'rejected';
+        if (
+            lifecycle === 'approved' ||
+            lifecycle === 'accepted' ||
+            String(entry?.details?.status || '').trim() === 'ApprovedAndFinalized'
+        ) {
+            return lifecycle === 'accepted' ? 'accepted' : 'approved';
+        }
+        // Unlinked return rows are finished history — never show live pending.
+        return 'approved';
+    }
+
     if (
         vehicleStatus === 'Accepted' &&
         !isLinked &&
@@ -178,22 +205,6 @@ function resolveFleetHandoverLifecycle(entry, vehicle) {
 
     if (lifecycle === 'approved' || lifecycle === 'accepted' || lifecycle === 'pending' || lifecycle === 'rejected') {
         return lifecycle;
-    }
-
-    if (action === 'Returned' || action === 'Unassigned') {
-        const isLinkedReturn =
-            action === 'Returned' &&
-            flow?.isReturn &&
-            flow?.historyId &&
-            entry?._id &&
-            String(flow.historyId) === String(entry._id);
-        if (isLinkedReturn) {
-            const stage = String(flow.stage || '').toLowerCase();
-            if (stage === 'hr' || stage === 'management' || stage === 'hod') return 'accepted';
-            return 'pending';
-        }
-        if (lifecycle) return lifecycle;
-        return 'approved';
     }
 
     if (action === 'Accepted') {
@@ -789,18 +800,40 @@ function handoverLifecycleRank(entry) {
     if (action === 'Accepted') return 3;
     if (action === 'Assigned' && lifecycle === 'accepted') return 3;
     if (action === 'Assigned') return 2;
+    // Completed returns without an explicit lifecycle are still finished rows.
+    if (
+        (action === 'Returned' || action === 'Unassigned') &&
+        (lifecycle === 'approved' ||
+            String(entry?.details?.status || '').trim() === 'ApprovedAndFinalized' ||
+            !lifecycle)
+    ) {
+        return 4;
+    }
     return 1;
 }
 
+/** Prefer finished states — never let a later pending row downgrade an approved duplicate. */
 function pickBestHandoverLifecycle(entries) {
-    const order = ['approved', 'accepted', 'pending', 'rejected'];
+    // Higher index wins. Rejected is kept lowest so a successful twin stays approved.
+    const order = ['rejected', 'pending', 'accepted', 'approved'];
     let best = '';
     let bestRank = -1;
     for (const entry of entries) {
         const lifecycle = String(entry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
-        const normalized =
-            lifecycle ||
-            (String(entry?.action || '').trim() === 'Accepted' ? 'accepted' : 'pending');
+        const action = String(entry?.action || '').trim();
+        let normalized = lifecycle;
+        if (!normalized) {
+            if (action === 'Accepted') normalized = 'accepted';
+            else if (
+                action === 'Returned' ||
+                action === 'Unassigned' ||
+                String(entry?.details?.status || '').trim() === 'ApprovedAndFinalized'
+            ) {
+                normalized = 'approved';
+            } else {
+                normalized = 'pending';
+            }
+        }
         const rank = order.indexOf(normalized);
         if (rank >= 0 && rank > bestRank) {
             bestRank = rank;
@@ -810,6 +843,11 @@ function pickBestHandoverLifecycle(entries) {
     return best;
 }
 
+function isReturnOrUnassignHandoverAction(entry) {
+    const action = String(entry?.action || '').trim();
+    return action === 'Returned' || action === 'Unassigned';
+}
+
 /** Collapse duplicate rows for the same assignment (e.g. extra Accepted row after HR). */
 function dedupeSameHandoverAssignments(entries) {
     const groups = new Map();
@@ -817,6 +855,11 @@ function dedupeSameHandoverAssignments(entries) {
     for (const entry of entries) {
         if (isVehicleInspectionHandoverEntry(entry)) {
             groups.set(`insp:${entry?._id || Math.random()}`, [entry]);
+            continue;
+        }
+        // Each return/unassign cycle is its own row — never merge with another return or assign.
+        if (isReturnOrUnassignHandoverAction(entry)) {
+            groups.set(`return:${entry?._id || Math.random()}`, [entry]);
             continue;
         }
         const key = handoverAssignmentKey(entry);

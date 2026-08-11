@@ -467,10 +467,22 @@ export default function AddAssetTypeModal({
                 finalImage = canvas.toDataURL('image/jpeg', 0.92);
             }
 
-            // Always add image if it is a newly cropped/selected image (base64)
-            if (finalImage && finalImage.startsWith('data:image')) {
-                payload.imagePreview = finalImage;
-                payload.photo = finalImage;
+            // Persist newly cropped base64 uploads, and also type/category preview
+            // refs (S3 keys or signed URLs). Previously only data:image was sent, so
+            // selecting a type with a photo showed in the form but never saved on the asset.
+            if (finalImage && typeof finalImage === 'string' && finalImage.trim()) {
+                const trimmed = finalImage.trim();
+                const isData = trimmed.startsWith('data:image');
+                const isExistingRef =
+                    !isData &&
+                    !trimmed.startsWith('blob:') &&
+                    (trimmed.startsWith('http') ||
+                        trimmed.includes('/') ||
+                        trimmed.startsWith('asset-photos/'));
+                if (isData || isExistingRef) {
+                    payload.imagePreview = trimmed;
+                    payload.photo = trimmed;
+                }
             }
 
             if (initialData && initialData._id) {

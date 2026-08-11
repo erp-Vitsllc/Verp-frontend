@@ -21,6 +21,7 @@ import {
     restoreImageSources,
     snapshotImageSources,
     syncCapturedStylesInClone,
+    waitForPdfAssessmentPhotos,
 } from './compressImageForPdf';
 
 const CAPTURE_ROOT_ID = 'vehicle-handover-form-view';
@@ -210,6 +211,8 @@ export async function downloadVehicleHandoverPdfFromDom({ filename, rootId = CAP
     ) {
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
+
+    await waitForPdfAssessmentPhotos(root);
 
     root.scrollIntoView({ block: 'center', inline: 'nearest' });
 

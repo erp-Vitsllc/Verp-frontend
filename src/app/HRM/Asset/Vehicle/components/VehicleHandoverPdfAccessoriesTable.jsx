@@ -1,8 +1,7 @@
 'use client';
 
 import { PDF_ACCESSORY_LABELS, PDF_CELL_LABEL_CLASS, PDF_CELL_STYLE, PDF_TABLE_HEADER_CLASS, PDF_TABLE_STYLE } from '../utils/vehicleHandoverFormPdfConstants';
-import { resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
-import VehicleHandoverAssessmentPhotoPanel from './VehicleHandoverAssessmentPhotoPanel';
+import VehicleHandoverPdfAssessmentPhoto from './VehicleHandoverPdfAssessmentPhoto';
 import { PDF_ACCESSORY_PHOTO_HEIGHT, PDF_CELL, PDF_TABLE } from './VehicleHandoverPdfBodyConditionPage';
 
 function chunkAccessoryPairs(rows) {
@@ -11,25 +10,6 @@ function chunkAccessoryPairs(rows) {
         pairs.push({ left: rows[i], right: rows[i + 1] || null });
     }
     return pairs;
-}
-
-function PdfAccessoryPhotoSlot({ photoUrl, label, photoHeight }) {
-    return (
-        <div className="mt-1 leading-none">
-            {photoUrl ? (
-                <VehicleHandoverAssessmentPhotoPanel
-                    url={photoUrl}
-                    label={label}
-                    sizeClass="w-full max-w-full"
-                    borderClass="border-0"
-                    roundedClass="rounded-none"
-                    heightClass={photoHeight}
-                />
-            ) : (
-                <div className={`w-full ${photoHeight} bg-white`} aria-hidden="true" />
-            )}
-        </div>
-    );
 }
 
 function PdfAccessoryCell({ row, photoHeight = PDF_ACCESSORY_PHOTO_HEIGHT }) {
@@ -43,7 +23,11 @@ function PdfAccessoryCell({ row, photoHeight = PDF_ACCESSORY_PHOTO_HEIGHT }) {
                 <p className="mb-1 min-h-[16px] border-b border-black pb-0.5 text-[10pt] leading-snug">
                     &nbsp;
                 </p>
-                <PdfAccessoryPhotoSlot photoUrl={null} label="" photoHeight={photoHeight} />
+                <VehicleHandoverPdfAssessmentPhoto
+                    photo={null}
+                    label=""
+                    heightClass={photoHeight}
+                />
             </td>
         );
     }
@@ -51,7 +35,6 @@ function PdfAccessoryCell({ row, photoHeight = PDF_ACCESSORY_PHOTO_HEIGHT }) {
     const label = PDF_ACCESSORY_LABELS[row.key] || `${row.label}.`;
     const statusLabel =
         row.present === true ? 'Yes' : row.present === false ? 'No' : '—';
-    const photoUrl = row.present === true ? resolveAssessmentMediaUrl(row.photo) : null;
     const comment = String(row.comment || row.notes || '').trim();
 
     return (
@@ -65,7 +48,11 @@ function PdfAccessoryCell({ row, photoHeight = PDF_ACCESSORY_PHOTO_HEIGHT }) {
             <p className="mb-1 min-h-[16px] border-b border-black pb-0.5 text-[10pt] leading-snug">
                 {comment || '\u00A0'}
             </p>
-            <PdfAccessoryPhotoSlot photoUrl={photoUrl} label={label} photoHeight={photoHeight} />
+            <VehicleHandoverPdfAssessmentPhoto
+                photo={row.present === true ? row.photo : null}
+                label={label}
+                heightClass={photoHeight}
+            />
         </td>
     );
 }

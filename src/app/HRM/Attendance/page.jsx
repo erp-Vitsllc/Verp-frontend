@@ -57,35 +57,46 @@ export default function AttendancePage() {
                         className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden"
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
-                        {/* Left column (~50%): overview + calendar. Right column left empty. */}
+                        {/* Header pair: overview + summary. Calendar below stays full width. */}
                         <div className={HEADER_PAIR_GRID}>
-                            <div className="flex flex-col gap-3 sm:gap-4 lg:gap-6 min-w-0 w-full">
-                                <div
-                                    className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
-                                >
-                                    <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">
-                                        Attendance Overview
-                                    </h3>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 flex-1">
-                                        {OVERVIEW_STATS.map((item) => (
-                                            <div
-                                                key={item.label}
-                                                className="bg-gray-50 p-2 sm:p-3 lg:p-4 rounded-xl flex flex-col items-center justify-center text-center border border-transparent"
-                                            >
-                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2 break-words text-center leading-tight">
-                                                    {item.label}
-                                                </span>
-                                                <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
-                                                    <AnimatedCounter value={item.value} />
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
+                            <div
+                                className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
+                            >
+                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">
+                                    Attendance Overview
+                                </h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 flex-1">
+                                    {OVERVIEW_STATS.map((item) => (
+                                        <div
+                                            key={item.label}
+                                            className="bg-gray-50 p-2 sm:p-3 lg:p-4 rounded-xl flex flex-col items-center justify-center text-center border border-transparent"
+                                        >
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2 break-words text-center leading-tight">
+                                                {item.label}
+                                            </span>
+                                            <span className="text-xl sm:text-2xl lg:text-3xl font-black text-[#EA3D2F]">
+                                                <AnimatedCounter value={item.value} />
+                                            </span>
+                                        </div>
+                                    ))}
                                 </div>
+                            </div>
 
-                                <AttendanceMonthCalendar />
+                            <div
+                                className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col ${HEADER_PAIR_CARD_DASHBOARD}`}
+                            >
+                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-2 sm:mb-4 shrink-0">
+                                    Attendance Summary
+                                </h3>
+                                <div className="flex-1 flex items-center justify-center min-h-0">
+                                    <p className="text-sm text-slate-400 text-center px-4">
+                                        Charts and attendance trends will appear here.
+                                    </p>
+                                </div>
                             </div>
                         </div>
+
+                        <AttendanceMonthCalendar />
                     </div>
                 </div>
             </div>

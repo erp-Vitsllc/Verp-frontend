@@ -1,6 +1,13 @@
 'use client';
 
-import { PDF_INK, PDF_PAGE1_CELL_CLASS, PDF_PAGE1_CLASS, PDF_PAGE1_FONT_FAMILY, PDF_SECTION_EMPHASIS_CLASS } from '../utils/vehicleHandoverFormPdfConstants';
+import {
+    PDF_INK,
+    PDF_PAGE1_CELL_CLASS,
+    PDF_PAGE1_CLASS,
+    PDF_PAGE1_FONT_FAMILY,
+    PDF_SECTION_EMPHASIS_CLASS,
+} from '../utils/vehicleHandoverFormPdfConstants';
+import { VEHICLE_HANDOVER_POLICY_BLOCKS } from '../utils/vehicleHandoverPdfPolicyBlocks';
 import { VehicleHandoverPolicyTitle } from './VehicleHandoverPdfTitles';
 
 const PAGE1_CELL = PDF_PAGE1_CELL_CLASS;
@@ -31,12 +38,44 @@ function TableRow({ row }) {
     );
 }
 
-function PolicySection({ heading, children }) {
+export function PolicySection({ heading, children }) {
     return (
         <p className="text-[10.5pt] leading-[1.35]">
             <span className={PDF_SECTION_EMPHASIS_CLASS}>{heading}</span>
             {children}
         </p>
+    );
+}
+
+export function VehicleHandoverPdfPolicyBlocks({ blockIds = null, className = '' }) {
+    const idSet = Array.isArray(blockIds) ? new Set(blockIds) : null;
+    const blocks = VEHICLE_HANDOVER_POLICY_BLOCKS.filter((block) =>
+        idSet ? idSet.has(block.id) : true,
+    );
+
+    if (!blocks.length) return null;
+
+    return (
+        <div className={`space-y-2 text-left ${className}`}>
+            {blocks.map((block) => {
+                if (block.type === 'paragraph') {
+                    return (
+                        <p
+                            key={block.id}
+                            data-pdf-policy-block={block.id}
+                            className="text-[10.5pt] leading-[1.35]"
+                        >
+                            {block.text}
+                        </p>
+                    );
+                }
+                return (
+                    <div key={block.id} data-pdf-policy-block={block.id}>
+                        <PolicySection heading={block.heading}>{block.text}</PolicySection>
+                    </div>
+                );
+            })}
+        </div>
     );
 }
 
@@ -54,105 +93,81 @@ export function VehicleHandoverPdfPage1Styles() {
     );
 }
 
-export default function VehicleHandoverPdfPage1({ headerTable, className = '' }) {
-    const firstRow = ['Vehicle NO', headerTable.vehicleNo, 'Model', headerTable.model, 'Year', headerTable.year];
+export function VehicleHandoverPdfPage1HeaderTable({ headerTable }) {
+    const firstRow = [
+        'Vehicle NO',
+        headerTable.vehicleNo,
+        'Model',
+        headerTable.model,
+        'Year',
+        headerTable.year,
+    ];
     const bodyRows = [
         ['Asset No', headerTable.assetNo, 'Brand', headerTable.brand, 'Reg Expiry', headerTable.regExpiry],
-        ['Handover By', headerTable.handoverBy, 'Hand Over to', headerTable.handoverTo, 'Warranty', headerTable.warranty],
-        ['Current KM', headerTable.currentKm || headerTable.currentUsage, 'Hand Over Date', headerTable.handoverDate, 'Driving License Age', headerTable.drivingLicenseAge],
-        ['Vehicle Value', headerTable.vehicleValue, 'Insurance by', headerTable.insuranceBy, 'Insurance Expiry', headerTable.insuranceExpiry],
+        [
+            'Handover By',
+            headerTable.handoverBy,
+            'Hand Over to',
+            headerTable.handoverTo,
+            'Warranty',
+            headerTable.warranty,
+        ],
+        [
+            'Current KM',
+            headerTable.currentKm || headerTable.currentUsage,
+            'Hand Over Date',
+            headerTable.handoverDate,
+            'Driving License Age',
+            headerTable.drivingLicenseAge,
+        ],
+        [
+            'Vehicle Value',
+            headerTable.vehicleValue,
+            'Insurance by',
+            headerTable.insuranceBy,
+            'Insurance Expiry',
+            headerTable.insuranceExpiry,
+        ],
     ];
 
     return (
-        <div className={`${PDF_PAGE1_CLASS} flex h-full flex-col ${className}`}>
+        <table className="w-full border-collapse" data-pdf-page1-header-table="true">
+            <tbody>
+                <TableRow row={firstRow} />
+                {bodyRows.map((row) => (
+                    <TableRow key={row[0]} row={row} />
+                ))}
+                <tr>
+                    <TableEmptyCell />
+                    <TableEmptyCell />
+                    <TableEmptyCell />
+                    <TableEmptyCell />
+                    <TableEmptyCell />
+                    <TableEmptyCell />
+                </tr>
+            </tbody>
+        </table>
+    );
+}
+
+export default function VehicleHandoverPdfPage1({
+    headerTable,
+    policyBlockIds = null,
+    className = '',
+}) {
+    return (
+        <div className={`${PDF_PAGE1_CLASS} flex h-full min-h-0 flex-col overflow-hidden ${className}`}>
             <VehicleHandoverPdfPage1Styles />
 
-            <VehicleHandoverPolicyTitle className="mb-10" />
+            <VehicleHandoverPolicyTitle className="mb-6 shrink-0" />
 
-            <table className="w-full border-collapse">
-                <tbody>
-                    <TableRow row={firstRow} />
-                    {bodyRows.map((row) => (
-                        <TableRow key={row[0]} row={row} />
-                    ))}
-                    <tr>
-                        <TableEmptyCell />
-                        <TableEmptyCell />
-                        <TableEmptyCell />
-                        <TableEmptyCell />
-                        <TableEmptyCell />
-                        <TableEmptyCell />
-                    </tr>
-                </tbody>
-            </table>
+            <div className="shrink-0">
+                <VehicleHandoverPdfPage1HeaderTable headerTable={headerTable} />
+            </div>
 
-            <div className="mt-4 space-y-2 text-left">
-                    <p className="text-[10.5pt] leading-[1.35]">
-                        This Vehicle Usage Policy outlines the guidelines and responsibilities for employees using
-                        company vehicles, especially when they are used for personal purposes outside of office hours.
-                        The policy also addresses the procedures to be followed in case of accidents and the driver&apos;s
-                        financial responsibility during garage downtime.
-                    </p>
-
-                    <PolicySection heading="Vehicle Assignment:">
-                        {' '}
-                        Vehicles are provided solely for business purposes.
-                    </PolicySection>
-
-                    <PolicySection heading="Personal Use:">
-                        {' '}
-                        Employees may use company vehicles for personal purposes which includes picking and dropping off
-                        at the airport or any other personal errands outside office hours only after informing HR Personal
-                        {' '}use of vehicle is a privilege not an entitlement. Misuse may result in disciplinary action.
-                    </PolicySection>
-
-                    <PolicySection heading="Accident:">
-                        {' '}
-                        In the event of any accident outside office hours, assigned employee / driver must report it to HR providing
-                        {' '}all relevant information and documents.
-                    </PolicySection>
-
-                    <PolicySection heading="Financial Responsibility during garage time:">
-                        {' '}
-                        If the unavailability of vehicle is due to an accident caused by driver&apos;s negligence, the
-                        driver is responsible for any repair or rental car costs incurred during the garage time.
-                    </PolicySection>
-
-                    <PolicySection heading="Premium Adjustments/ Total Loss:">
-                        {' '}
-                        If an employee&apos;s driving record leads to increased insurance premiums for the company or
-                        reduces the amount recoverable in the event of a total loss, the employee may be required to
-                        contribute to these costs. The contribution amount will be determined based on the increase in
-                        premiums directly attributed to the employee&apos;s driving record
-                    </PolicySection>
-
-                    <PolicySection heading="Liability Caps:">
-                        {' '}
-                        Employees will be financially responsible for all damages resulting from accidents where their
-                        negligence is proven. This applies to both company vehicle and third- party claims
-                    </PolicySection>
-
-                    <PolicySection heading="Usage Fees:">
-                        {' '}
-                        For employees with a history of frequent accidents (2 and above in a year), a nominal usage fee
-                        of AED 1000 will be deducted from their salary. This fee is intended to contribute towards
-                        maintenance and operational costs associated with their use of company vehicles.
-                    </PolicySection>
-
-                    <PolicySection heading="Repair Costs:">
-                        {' '}
-                        If an employee is found at fault for an accident, they may be required to cover the full amount of
-                        vehicle repair costs. This will be assessed based on the extent of the damage and repair needs.
-                    </PolicySection>
-
-                    <PolicySection heading="Maintenance & Cleanliness:">
-                        {' '}
-                        Assigned employee is responsible for ensuring the cleanliness and proper maintenance of the Vehicle
-                        they use at all times. Vehicles used for picking and dropping employees at the site must be washed
-                        twice while other vehicles should be washed once. Company will reimburse the bill once it is
-                        submitted.
-                    </PolicySection>
-                </div>
+            <div className="mt-4 min-h-0 flex-1 overflow-hidden">
+                <VehicleHandoverPdfPolicyBlocks blockIds={policyBlockIds} />
+            </div>
         </div>
     );
 }

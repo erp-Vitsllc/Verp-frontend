@@ -25,7 +25,8 @@ export const PDF_CANVAS_MAX_WIDTH = PDF_A4_WIDTH_PX * PDF_CAPTURE_SCALE;
 export const PDF_LETTERHEAD_BG_URL = '/assets/handover_form_bg.png';
 /** Content inset so body text clears the letterhead header and footer artwork */
 export const PDF_PAGE_PADDING_TOP = '28mm';
-export const PDF_PAGE_PADDING_BOTTOM = '32mm';
+/** Extra clearance so body text never paints over letterhead footer contact / logos */
+export const PDF_PAGE_PADDING_BOTTOM = '36mm';
 export const PDF_PAGE_PADDING_X = '18mm';
 /** @deprecated use PDF_PAGE_PADDING_TOP / PDF_PAGE_PADDING_BOTTOM */
 export const PDF_PAGE_PADDING_Y = '15mm';

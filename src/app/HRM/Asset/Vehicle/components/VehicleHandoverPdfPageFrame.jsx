@@ -56,11 +56,12 @@ export function VehicleHandoverPdfPageStyles() {
                 z-index: 1;
                 height: 100%;
                 min-height: 0;
-                overflow: visible;
+                overflow: hidden;
             }
 
             .${PDF_PAGE_SURFACE_COMPACT_CLASS} .${PDF_PAGE_SURFACE_CLASS}__content {
                 height: auto;
+                overflow: visible;
             }
 
             @media print {
@@ -68,7 +69,7 @@ export function VehicleHandoverPdfPageStyles() {
                     box-shadow: none;
                     border: none;
                     margin: 0 !important;
-                    overflow: visible;
+                    overflow: hidden;
                     page-break-after: always;
                     break-after: page;
                     -webkit-print-color-adjust: exact !important;
@@ -77,6 +78,7 @@ export function VehicleHandoverPdfPageStyles() {
 
                 .${PDF_PAGE_SURFACE_COMPACT_CLASS} {
                     height: auto;
+                    overflow: visible;
                     page-break-inside: avoid;
                     break-inside: avoid;
                     page-break-after: always;

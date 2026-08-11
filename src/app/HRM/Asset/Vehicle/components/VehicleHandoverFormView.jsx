@@ -11,8 +11,15 @@ import {
     PDF_CONTENT_WIDTH_PX,
     waitForPdfMeasureImages,
 } from '../utils/vehicleHandoverPdfBodyPagination';
+import {
+    splitPolicyBlocksByHeight,
+    VEHICLE_HANDOVER_POLICY_BLOCKS,
+} from '../utils/vehicleHandoverPdfPolicyBlocks';
 import { PdfRoot } from './VehicleHandoverPdfParts';
-import VehicleHandoverPdfPage1 from './VehicleHandoverPdfPage1';
+import VehicleHandoverPdfPage1, {
+    VehicleHandoverPdfPage1HeaderTable,
+    VehicleHandoverPdfPolicyBlocks,
+} from './VehicleHandoverPdfPage1';
 import VehicleHandoverPdfPage2 from './VehicleHandoverPdfPage2';
 import VehicleHandoverPdfPage3 from './VehicleHandoverPdfPage3';
 import VehicleHandoverPdfBodyConditionPage, {
@@ -22,6 +29,7 @@ import VehicleHandoverPdfBodyConditionPage, {
 import VehicleHandoverPdfClosingSection from './VehicleHandoverPdfClosingSection';
 import VehicleHandoverPdfPageFrame, { VehicleHandoverPdfPageStyles } from './VehicleHandoverPdfPageFrame';
 import { PDF_LETTERHEAD_BG_URL } from '../utils/vehicleHandoverFormPdfConstants';
+import { VehicleHandoverPolicyTitle } from './VehicleHandoverPdfTitles';
 
 function buildFallbackBodyLayout(pairs) {
     if (!pairs?.length) {
@@ -48,6 +56,17 @@ function buildFallbackBodyLayout(pairs) {
     };
 }
 
+function buildFallbackPolicyLayout() {
+    // Keep intro through Repair Costs on page 1; spill Maintenance if needed.
+    const page1Ids = VEHICLE_HANDOVER_POLICY_BLOCKS.filter((b) => b.id !== 'maintenance').map(
+        (b) => b.id,
+    );
+    const page2Ids = VEHICLE_HANDOVER_POLICY_BLOCKS.filter((b) => b.id === 'maintenance').map(
+        (b) => b.id,
+    );
+    return { page1Ids, page2Ids, ready: false };
+}
+
 const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormView(
     { historyEntry, vehicle, isPrint = false },
     ref,
@@ -59,13 +78,16 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
 
     const pairs = formData?.bodyConditionPairs || [];
     const [bodyLayout, setBodyLayout] = useState(() => buildFallbackBodyLayout(pairs));
+    const [policyLayout, setPolicyLayout] = useState(() => buildFallbackPolicyLayout());
     const measureRootRef = useRef(null);
+    const page1HeaderMeasureRef = useRef(null);
     const page2MeasureRef = useRef(null);
     const closingMeasureRef = useRef(null);
     const measureTokenRef = useRef(0);
 
     useEffect(() => {
         setBodyLayout(buildFallbackBodyLayout(pairs));
+        setPolicyLayout(buildFallbackPolicyLayout());
     }, [pairs]);
 
     useLayoutEffect(() => {
@@ -84,6 +106,26 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
             if (cancelled || token !== measureTokenRef.current) return;
 
             const availableHeight = PDF_CONTENT_HEIGHT_PX;
+
+            // --- Policy page-1 split (never overlap letterhead footer) ---
+            const page1HeaderHeight = Math.ceil(
+                page1HeaderMeasureRef.current?.getBoundingClientRect().height || 0,
+            );
+            const policyNodes = Array.from(root.querySelectorAll('[data-pdf-policy-block]'));
+            const policyHeights = VEHICLE_HANDOVER_POLICY_BLOCKS.map((block) => {
+                const node = policyNodes.find(
+                    (el) => el.getAttribute('data-pdf-policy-block') === block.id,
+                );
+                return Math.ceil(node?.getBoundingClientRect().height || 0);
+            });
+            const availableForPolicy = Math.max(
+                80,
+                availableHeight - page1HeaderHeight - 16, // mt-4 under table
+            );
+            const nextPolicy = splitPolicyBlocksByHeight(policyHeights, availableForPolicy);
+            setPolicyLayout({ ...nextPolicy, ready: true });
+
+            // --- Body-condition pagination ---
             const page2Height = Math.ceil(page2MeasureRef.current?.getBoundingClientRect().height || 0);
             const closingHeight = Math.ceil(closingMeasureRef.current?.getBoundingClientRect().height || 0);
             const rowNodes = Array.from(root.querySelectorAll('[data-pdf-measure-pair]'));
@@ -100,6 +142,63 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
                 });
                 return;
             }
+
+            let leadPair = null;
+            let remainingPairs = pairs;
+            let remainingHeights = pairHeights;
+
+            const leadHeight = pairHeights[0] || 0;
+            const leadGap = 12;
+            // Re-measure page2 with policy continuation included via measure layer below.
+            const remainingOnPage2 = availableHeight - page2Height - leadGap;
+            if (leadHeight > 0 && remainingOnPage2 >= leadHeight) {
+                leadPair = pairs[0];
+                remainingPairs = pairs.slice(1);
+                remainingHeights = pairHeights.slice(1);
+            }
+
+            const packed = packMeasuredHeightsIntoPages(remainingHeights, availableHeight, {
+                trailingHeight: closingHeight,
+            });
+            const pages = mapIndexPagesToPairs(remainingPairs, packed.pages);
+
+            setBodyLayout({
+                leadPair,
+                pages,
+                closingAlone: packed.closingAlone || pages.length === 0,
+                ready: true,
+            });
+        };
+
+        run();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [formData, pairs]);
+
+    // Second pass: once policy continuation is known, re-check whether lead body row still fits on page 2.
+    useLayoutEffect(() => {
+        if (!formData || !policyLayout.ready || !bodyLayout.ready) return undefined;
+        if (!pairs.length) return undefined;
+
+        const token = ++measureTokenRef.current;
+        let cancelled = false;
+
+        const run = async () => {
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            if (cancelled || token !== measureTokenRef.current) return;
+
+            const availableHeight = PDF_CONTENT_HEIGHT_PX;
+            const page2Height = Math.ceil(page2MeasureRef.current?.getBoundingClientRect().height || 0);
+            const closingHeight = Math.ceil(closingMeasureRef.current?.getBoundingClientRect().height || 0);
+            const root = measureRootRef.current;
+            if (!root) return;
+
+            const rowNodes = Array.from(root.querySelectorAll('[data-pdf-measure-pair]'));
+            const pairHeights = rowNodes.map((node) =>
+                Math.ceil(node.getBoundingClientRect().height || 0),
+            );
 
             let leadPair = null;
             let remainingPairs = pairs;
@@ -128,11 +227,10 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
         };
 
         run();
-
         return () => {
             cancelled = true;
         };
-    }, [formData, pairs]);
+    }, [formData, pairs, policyLayout.page2Ids, policyLayout.ready]);
 
     if (!formData) return null;
 
@@ -146,6 +244,7 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
     const showClosingOnLastContinuation =
         hasBodyPages && !lastBodyPageIsPage3 && !closingAlone;
     const showClosingOnlyPage = closingAlone || !hasBodyPages;
+    const paginationReady = bodyLayout.ready && policyLayout.ready;
 
     const containerClass = isPrint
         ? 'flex flex-col items-center gap-0'
@@ -156,7 +255,7 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
             ref={ref}
             id="vehicle-handover-form-view"
             className={containerClass}
-            data-pdf-pagination-ready={bodyLayout.ready ? 'true' : 'false'}
+            data-pdf-pagination-ready={paginationReady ? 'true' : 'false'}
         >
             <VehicleHandoverPdfPageStyles />
             <img
@@ -185,8 +284,19 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
                 className="pointer-events-none absolute left-[-12000px] top-0 overflow-hidden opacity-0"
                 style={{ width: PDF_CONTENT_WIDTH_PX }}
             >
+                <div ref={page1HeaderMeasureRef}>
+                    <VehicleHandoverPolicyTitle className="mb-6" />
+                    <VehicleHandoverPdfPage1HeaderTable headerTable={headerTable} />
+                </div>
+                <div className="mt-4 space-y-2">
+                    <VehicleHandoverPdfPolicyBlocks />
+                </div>
                 <div ref={page2MeasureRef}>
-                    <VehicleHandoverPdfPage2 accessories={accessories} bodyConditionLeadPair={null} />
+                    <VehicleHandoverPdfPage2
+                        accessories={accessories}
+                        bodyConditionLeadPair={null}
+                        policyContinuationIds={policyLayout.page2Ids}
+                    />
                 </div>
                 {pairs.map((pair) => (
                     <div
@@ -208,13 +318,18 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
             </div>
 
             <VehicleHandoverPdfPageFrame>
-                <VehicleHandoverPdfPage1 headerTable={headerTable} className="h-full" />
+                <VehicleHandoverPdfPage1
+                    headerTable={headerTable}
+                    policyBlockIds={policyLayout.page1Ids}
+                    className="h-full"
+                />
             </VehicleHandoverPdfPageFrame>
 
             <VehicleHandoverPdfPageFrame>
                 <VehicleHandoverPdfPage2
                     accessories={accessories}
                     bodyConditionLeadPair={bodyConditionLeadPair}
+                    policyContinuationIds={policyLayout.page2Ids}
                     className="h-full"
                 />
             </VehicleHandoverPdfPageFrame>

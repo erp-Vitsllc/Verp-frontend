@@ -49,8 +49,8 @@ import { EmployeeAssignmentStatusLine } from '@/components/EmployeeNameLink';
 
 import { UserPlus, Square, CheckSquare, User, Users } from 'lucide-react';
 
-import { sanitizeUrl } from '@/utils/security';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
+import StorageImage from '@/components/StorageImage';
 
 import AssignAssetModal from './components/AssignAssetModal';
 
@@ -411,6 +411,8 @@ const ACCESSORY_CATALOG_STATUS_FILTER_OPTIONS = [
     { value: 'Unattached', label: 'Unattached' },
     { value: 'Pending', label: 'Pending' },
     { value: 'Attached', label: 'Attached' },
+    { value: 'Lost', label: 'Lost' },
+    { value: 'EndOfLife', label: 'End of life' },
 ];
 
 function matchesAccessoryCatalogStatusFilter(row, filter) {
@@ -767,8 +769,8 @@ function AssetPageContent() {
     const [accessoryCatalog, setAccessoryCatalog] = useState([]);
 
     const [loadingAccessoryCatalog, setLoadingAccessoryCatalog] = useState(false);
-    /** Default: pool (Unattached + Pending). Use filter for Attached, Lost, End of life, etc. */
-    const [accessoryCatalogStatusFilter, setAccessoryCatalogStatusFilter] = useState('pool');
+    /** Default: all stored statuses so Attached / Lost accessories are not hidden. */
+    const [accessoryCatalogStatusFilter, setAccessoryCatalogStatusFilter] = useState('all');
     const [lossDamageStatusFilter, setLossDamageStatusFilter] = useState('All');
     const [lossDamageSubTab, setLossDamageSubTab] = useState('assets');
     const [expandedAccessoryCatalogId, setExpandedAccessoryCatalogId] = useState(null);
@@ -1445,8 +1447,7 @@ function AssetPageContent() {
     const accessoryCatalogFiltered = useMemo(() => {
         const q = (searchQuery || '').toLowerCase().trim();
         return accessoryCatalog.filter((row) => {
-            const s = String(catalogRowStatus(row) || '').trim().toLowerCase();
-            if (activeTab === 'accessories' && ['lost', 'rejected', 'end of life', 'endoflife'].includes(s)) return false;
+            // Show every stored catalog status (including Lost / End of life) when filter allows it.
             if (!matchesAccessoryCatalogStatusFilter(row, accessoryCatalogStatusFilter)) return false;
             if (!q) return true;
             const name = (row.name || '').toLowerCase();
@@ -1454,7 +1455,7 @@ function AssetPageContent() {
             const id = (row.accessoryCatalogId || '').toLowerCase();
             return name.includes(q) || desc.includes(q) || id.includes(q);
         });
-    }, [accessoryCatalog, accessoryCatalogStatusFilter, searchQuery, activeTab]);
+    }, [accessoryCatalog, accessoryCatalogStatusFilter, searchQuery]);
 
     const typeTabDownloadAssets = useMemo(() => {
         const q = (deferredSearchQuery || '').toLowerCase().trim();
@@ -2349,7 +2350,7 @@ function AssetPageContent() {
 
                                     setSearchQuery('');
 
-                                    setAccessoryCatalogStatusFilter('pool');
+                                    setAccessoryCatalogStatusFilter('all');
 
                                 }}
 
@@ -3197,7 +3198,7 @@ function AssetPageContent() {
 
                                                                         {cat.imagePreview ? (
 
-                                                                            <img src={sanitizeUrl(cat.imagePreview, false)} alt={cat.name} className="w-full h-full object-cover" />
+                                                                            <StorageImage src={cat.imagePreview} alt={cat.name} className="w-full h-full object-cover" placeholderClassName="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50" />
 
                                                                         ) : (
 
@@ -3889,7 +3890,7 @@ function AssetPageContent() {
 
                                                                                 {type.imagePreview ? (
 
-                                                                                    <img src={sanitizeUrl(type.imagePreview, false)} alt={type.type} className="w-full h-full object-cover" />
+                                                                                    <StorageImage src={type.imagePreview} alt={type.type} className="w-full h-full object-cover" placeholderClassName="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50" />
 
                                                                                 ) : (
 

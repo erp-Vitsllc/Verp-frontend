@@ -599,7 +599,7 @@ function AssetDetailsPageContent() {
         return eid === 'flowchart_assetcontroller';
     }, [userIsAdmin, effectiveIsAssetController, hasAssetModuleAnyPerm, currentUserEmployeeId, asset?.assetControllerId]);
 
-    /** Pending accessory additions — assignee, designated approver, or anyone who counts as Asset Controller for edits (API also filters). */
+    /** Pending accessory additions — assignee, designated approver, requester, or Asset Controller. */
     const canSeePendingAccessoryAdds = useMemo(() => {
         if (canEditAccessoryAttached) return true;
         const eid = currentUserEmployeeId?.toString();
@@ -608,8 +608,16 @@ function AssetDetailsPageContent() {
         if (assigneeRef && eid === assigneeRef.toString()) return true;
         const ar = asset?.actionRequiredBy?._id ?? asset?.actionRequiredBy;
         if (ar && eid === ar.toString()) return true;
-        return false;
-    }, [canEditAccessoryAttached, currentUserEmployeeId, asset?.assignedTo, asset?.actionRequiredBy]);
+        const pendingRequestedByMe = (asset?.accessories || []).some((acc) => {
+            const pendingAdd =
+                String(acc?.status || '').trim() === 'Pending' &&
+                String(acc?.pendingAction || '').trim() === 'Add';
+            if (!pendingAdd) return false;
+            const req = acc?.pendingActionDetails?.requestedBy?._id ?? acc?.pendingActionDetails?.requestedBy;
+            return req && eid === req.toString();
+        });
+        return pendingRequestedByMe;
+    }, [canEditAccessoryAttached, currentUserEmployeeId, asset?.assignedTo, asset?.actionRequiredBy, asset?.accessories]);
 
     /** Lost accessories on a Lost asset stay visible until manually detached. */
     const accessoriesVisibleOnAssetPage = useMemo(() => {
@@ -1456,10 +1464,21 @@ function AssetDetailsPageContent() {
 
     const handleUploadImage = async () => {
         const st = String(asset?.status ?? '').trim().toLowerCase();
-        if (st === 'draft' || st === 'rejected') return;
+        if (st === 'draft' || st === 'rejected') {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot upload',
+                description: 'Images cannot be added while the asset is Draft or Rejected.',
+            });
+            return;
+        }
         const { base64, file, caption, date } = imageUploadModal;
+        if (!base64 || !file) {
+            toast({ variant: 'destructive', title: 'Error', description: 'No image selected.' });
+            return;
+        }
         try {
-            await axiosInstance.post(`/AssetItem/${assetId}/images`, {
+            const { data: saved } = await axiosInstance.post(`/AssetItem/${assetId}/images`, {
                 imageData: base64,
                 imageName: file.name,
                 imageMime: file.type,
@@ -1467,7 +1486,18 @@ function AssetDetailsPageContent() {
                 date: date || new Date().toISOString()
             });
             toast({ title: 'Success', description: 'Image uploaded.' });
-            setImageUploadModal({ isOpen: false, file: null, base64: null, caption: '', date: '' });
+            setImageUploadModal({ isOpen: false, file: null, base64: null, caption: '', date: new Date().toISOString().split('T')[0] });
+            // Show immediately — do not wait only on refetch (avoids empty tab if refresh is slow).
+            setAsset((prev) => {
+                if (!prev) return prev;
+                const nextImages = [...(Array.isArray(prev.images) ? prev.images : []), saved];
+                return {
+                    ...prev,
+                    images: nextImages,
+                    photo: prev.photo || saved?.photo || saved?.url || prev.photo,
+                    imagePreview: prev.imagePreview || saved?.imagePreview || saved?.url || prev.imagePreview,
+                };
+            });
             fetchAssetDetails();
         } catch (err) {
             const serverMsg =

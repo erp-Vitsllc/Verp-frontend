@@ -1,7 +1,7 @@
 'use client';
 
 import { PDF_LINK, PDF_PAGE1_CLASS, PDF_SECTION_EMPHASIS_CLASS } from '../utils/vehicleHandoverFormPdfConstants';
-import { VehicleHandoverPdfPage1Styles } from './VehicleHandoverPdfPage1';
+import { VehicleHandoverPdfPage1Styles, VehicleHandoverPdfPolicyBlocks } from './VehicleHandoverPdfPage1';
 import { PdfAccessoriesTable } from './VehicleHandoverPdfAccessoriesTable';
 import { PdfBodyConditionTable, PDF_ACCESSORY_PHOTO_HEIGHT, PDF_BODY_LEAD_PHOTO_HEIGHT } from './VehicleHandoverPdfBodyConditionPage';
 import { VehicleHandoverAssessmentTitle } from './VehicleHandoverPdfTitles';
@@ -9,18 +9,28 @@ import { VehicleHandoverAssessmentTitle } from './VehicleHandoverPdfTitles';
 export default function VehicleHandoverPdfPage2({
     accessories = [],
     bodyConditionLeadPair = null,
+    policyContinuationIds = null,
     className = '',
 }) {
+    const hasPolicyContinuation = Array.isArray(policyContinuationIds) && policyContinuationIds.length > 0;
+
     return (
-        <div className={`${PDF_PAGE1_CLASS} ${className}`}>
+        <div className={`${PDF_PAGE1_CLASS} flex h-full min-h-0 flex-col overflow-hidden ${className}`}>
             <VehicleHandoverPdfPage1Styles />
 
-            <p className={`text-[11pt] leading-[1.45] ${PDF_SECTION_EMPHASIS_CLASS}`}>
+            {hasPolicyContinuation ? (
+                <VehicleHandoverPdfPolicyBlocks
+                    blockIds={policyContinuationIds}
+                    className="mb-3 shrink-0"
+                />
+            ) : null}
+
+            <p className={`shrink-0 text-[11pt] leading-[1.45] ${PDF_SECTION_EMPHASIS_CLASS}`}>
                 By signing below, I acknowledge that I have read, understood, and agree to comply with the terms and
                 conditions outlined in the policy.
             </p>
 
-            <p className="mt-3 text-[11pt] italic leading-[1.45]">
+            <p className="mt-3 shrink-0 text-[11pt] italic leading-[1.45]">
                 <span style={{ color: PDF_LINK }} className={PDF_SECTION_EMPHASIS_CLASS}>Important Note</span>
                 {' '}
                 : -Please be advised that if evidence of any scratches or damages is not provided during the handover
@@ -31,7 +41,7 @@ export default function VehicleHandoverPdfPage2({
                 Kindly mark all relevant details in the vehicle condition report.
             </p>
 
-            <div className="mt-5">
+            <div className="mt-5 min-h-0 flex-1 overflow-hidden">
                 <VehicleHandoverAssessmentTitle className="mb-3" />
                 <PdfAccessoriesTable
                     rows={accessories}
@@ -40,7 +50,7 @@ export default function VehicleHandoverPdfPage2({
             </div>
 
             {bodyConditionLeadPair ? (
-                <div className="mt-3 mb-[6mm]">
+                <div className="mt-3 mb-[6mm] shrink-0">
                     <PdfBodyConditionTable
                         pairs={[bodyConditionLeadPair]}
                         showTitleRow

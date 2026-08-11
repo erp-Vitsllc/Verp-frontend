@@ -11,8 +11,8 @@ import {
     PDF_PAGE1_CLASS,
     PDF_ROOT_CLASS,
 } from '../utils/vehicleHandoverFormPdfConstants';
-import { resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverAssessmentPhotoPanel from './VehicleHandoverAssessmentPhotoPanel';
+import VehicleHandoverPdfAssessmentPhoto from './VehicleHandoverPdfAssessmentPhoto';
 
 export function VehicleHandoverPdfThemeStyles() {
     return (
@@ -112,7 +112,6 @@ export function PdfPhotoBlock({ photoUrl, label, onPhotoClick }) {
 }
 
 export function PdfAccessoryRow({ row, onPhotoClick }) {
-    const photoUrl = resolveAssessmentMediaUrl(row.photo);
     const label = PDF_ACCESSORY_LABELS[row.key] || `${row.label}.`;
     const yesLabel = row.present === true ? 'Yes' : row.present === false ? 'No' : '—';
 
@@ -135,10 +134,11 @@ export function PdfAccessoryRow({ row, onPhotoClick }) {
                 If yes ({' '}
                 <span className="vhf-pdf-link">Photo</span> Required mandatory)
             </p>
-            <PdfPhotoBlock
-                photoUrl={photoUrl}
+            <VehicleHandoverPdfAssessmentPhoto
+                photo={row.photo}
                 label={label}
-                onPhotoClick={photoUrl && onPhotoClick ? () => onPhotoClick(row.key) : undefined}
+                heightClass="h-[100px]"
+                sizeClass="w-full max-w-[148px]"
             />
         </div>
     );
@@ -155,7 +155,6 @@ export function PdfAccessoriesList({ rows, onPhotoClick, className = '' }) {
 }
 
 export function PdfBodyConditionCell({ view, onPhotoClick }) {
-    const photoUrl = resolveAssessmentMediaUrl(view.photo);
     const label = PDF_BODY_CONDITION_LABELS[view.key] || view.label;
 
     return (
@@ -167,10 +166,11 @@ export function PdfBodyConditionCell({ view, onPhotoClick }) {
             <p className="min-h-[24px] border-b border-black pb-1 text-[11pt]">
                 {view.comment || ''}
             </p>
-            <PdfPhotoBlock
-                photoUrl={photoUrl}
+            <VehicleHandoverPdfAssessmentPhoto
+                photo={view.photo}
                 label={label}
-                onPhotoClick={photoUrl && onPhotoClick ? () => onPhotoClick(view.key) : undefined}
+                heightClass="h-[100px]"
+                sizeClass="w-full max-w-[148px]"
             />
         </td>
     );

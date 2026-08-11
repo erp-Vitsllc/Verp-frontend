@@ -1,6 +1,10 @@
 export function resolveAssetPrimaryPhoto(asset) {
     if (!asset) return null;
-    return asset.imagePreview || asset.photo || asset.assetPhoto || null;
+    const galleryFirst =
+        Array.isArray(asset.images) && asset.images.length
+            ? asset.images[0]?.url || asset.images[0]
+            : null;
+    return asset.imagePreview || asset.photo || asset.assetPhoto || galleryFirst || null;
 }
 
 export function buildAssetGalleryImages(asset) {

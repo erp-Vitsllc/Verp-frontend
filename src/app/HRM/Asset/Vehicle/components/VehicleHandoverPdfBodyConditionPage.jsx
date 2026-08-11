@@ -1,9 +1,8 @@
 'use client';
 
 import { PDF_BODY_CONDITION_LABELS, PDF_CELL_CLASS, PDF_CELL_LABEL_CLASS, PDF_CELL_STYLE, PDF_LINK, PDF_PAGE1_CLASS, PDF_TABLE_CLASS, PDF_TABLE_HEADER_CLASS, PDF_TABLE_STYLE } from '../utils/vehicleHandoverFormPdfConstants';
-import { resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
 import { VehicleHandoverPdfPage1Styles } from './VehicleHandoverPdfPage1';
-import VehicleHandoverAssessmentPhotoPanel from './VehicleHandoverAssessmentPhotoPanel';
+import VehicleHandoverPdfAssessmentPhoto from './VehicleHandoverPdfAssessmentPhoto';
 import VehicleHandoverPdfClosingSection from './VehicleHandoverPdfClosingSection';
 
 export const PDF_TABLE = PDF_TABLE_CLASS;
@@ -40,7 +39,6 @@ function resolveRightLinkLabel(key) {
 }
 
 export function PdfBodyConditionViewCell({ view, linkLabel, photoHeight = PDF_BODY_PHOTO_HEIGHT }) {
-    const photoUrl = resolveAssessmentMediaUrl(view.photo);
     const label = PDF_BODY_CONDITION_LABELS[view.key] || view.label;
     const comment = String(view?.comment || '').trim();
 
@@ -67,20 +65,11 @@ export function PdfBodyConditionViewCell({ view, linkLabel, photoHeight = PDF_BO
             <p className="mb-1 min-h-[16px] border-b border-black pb-0.5 text-[10pt] leading-snug">
                 {comment || '\u00A0'}
             </p>
-            <div className="mt-1 leading-none">
-                {photoUrl ? (
-                    <VehicleHandoverAssessmentPhotoPanel
-                        url={photoUrl}
-                        label={label}
-                        sizeClass="w-full max-w-full"
-                        borderClass="border-0"
-                        roundedClass="rounded-none"
-                        heightClass={photoHeight}
-                    />
-                ) : (
-                    <div className={`w-full ${photoHeight} bg-white`} aria-hidden="true" />
-                )}
-            </div>
+            <VehicleHandoverPdfAssessmentPhoto
+                photo={view?.photo}
+                label={label}
+                heightClass={photoHeight}
+            />
         </td>
     );
 }

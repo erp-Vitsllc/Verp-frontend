@@ -8,7 +8,7 @@ import { Plus, MoreVertical, Search } from 'lucide-react';
 import { useRouter, useParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
-import { sanitizeUrl } from '@/utils/security';
+import StorageImage from '@/components/StorageImage';
 import AddAssetItemModal from './components/AddAssetItemModal';
 
 export default function AssetItemsPage() {
@@ -165,8 +165,15 @@ export default function AssetItemsPage() {
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     <div className="flex items-center gap-3">
-                                                        {item.photo || item.imagePreview ? (
-                                                            <img src={sanitizeUrl(item.photo || item.imagePreview, false)} alt={item.name} className="w-8 h-8 rounded-full object-cover bg-gray-100" />
+                                                        {item.photo || item.imagePreview || item.images?.[0]?.url ? (
+                                                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-100 shrink-0">
+                                                                <StorageImage
+                                                                    src={item.photo || item.imagePreview || item.images?.[0]?.url}
+                                                                    alt={item.name}
+                                                                    className="w-full h-full object-cover"
+                                                                    placeholderClassName="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 font-bold text-xs"
+                                                                />
+                                                            </div>
                                                         ) : (
                                                             <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 font-bold text-xs">
                                                                 {item.name.substring(0, 2).toUpperCase()}

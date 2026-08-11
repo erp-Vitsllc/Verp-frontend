@@ -79,7 +79,7 @@ function VehicleHandoverPrintContent() {
                 });
             }
             if (!cancelled) setImagesCompressed(true);
-        }, 400);
+        }, 250);
 
         return () => {
             cancelled = true;
