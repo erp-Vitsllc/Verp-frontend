@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { Suspense, useCallback, useMemo } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { addDays, format, isValid, parseISO, startOfDay } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -9,11 +9,27 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import MarkAttendanceTable from './components/MarkAttendanceTable';
 
+/** Company calendar day (Asia/Dubai) as yyyy-MM-dd — matches backend midnight routine. */
+function getDubaiDateKey(date = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+}
+
 function parseDateParam(value) {
-    if (!value) return startOfDay(new Date());
+    if (!value) {
+        const todayKey = getDubaiDateKey();
+        const parsed = parseISO(todayKey);
+        return isValid(parsed) ? startOfDay(parsed) : startOfDay(new Date());
+    }
     const parsed = parseISO(String(value));
     if (isValid(parsed)) return startOfDay(parsed);
-    return startOfDay(new Date());
+    const todayKey = getDubaiDateKey();
+    const fallback = parseISO(todayKey);
+    return isValid(fallback) ? startOfDay(fallback) : startOfDay(new Date());
 }
 
 function MarkAttendanceContent() {
@@ -22,20 +38,66 @@ function MarkAttendanceContent() {
     const dateParam = searchParams.get('date');
 
     const selectedDate = useMemo(() => parseDateParam(dateParam), [dateParam]);
+    const dateKey = format(selectedDate, 'yyyy-MM-dd');
+    const fullDateLabel = format(selectedDate, 'EEEE, d MMMM yyyy');
+
+    // Follow "today" so after 12 AM (Dubai) the page opens a fresh empty day.
+    const [followToday, setFollowToday] = useState(() => {
+        if (!dateParam) return true;
+        return dateParam === getDubaiDateKey();
+    });
+    const [dayRolledOver, setDayRolledOver] = useState(false);
+    const lastDubaiDayRef = useRef(getDubaiDateKey());
 
     const goToDate = useCallback(
-        (nextDate) => {
+        (nextDate, { follow = false } = {}) => {
             const date = format(startOfDay(nextDate), 'yyyy-MM-dd');
+            setFollowToday(follow || date === getDubaiDateKey());
+            setDayRolledOver(false);
             router.replace(`/HRM/Attendance/mark?date=${date}`);
         },
         [router],
     );
 
-    const goPrev = () => goToDate(addDays(selectedDate, -1));
-    const goNext = () => goToDate(addDays(selectedDate, 1));
+    const goPrev = () => goToDate(addDays(selectedDate, -1), { follow: false });
+    const goNext = () => goToDate(addDays(selectedDate, 1), { follow: false });
 
-    const fullDateLabel = format(selectedDate, 'EEEE, d MMMM yyyy');
-    const dateKey = format(selectedDate, 'yyyy-MM-dd');
+    useEffect(() => {
+        if (!dateParam) {
+            const today = getDubaiDateKey();
+            router.replace(`/HRM/Attendance/mark?date=${today}`);
+            setFollowToday(true);
+        }
+    }, [dateParam, router]);
+
+    useEffect(() => {
+        const checkRollover = () => {
+            const dubaiToday = getDubaiDateKey();
+            if (dubaiToday === lastDubaiDayRef.current) return;
+
+            lastDubaiDayRef.current = dubaiToday;
+
+            // Previous day marks stay in DB; switch live view to the new empty day.
+            if (followToday) {
+                setDayRolledOver(true);
+                setFollowToday(true);
+                router.replace(`/HRM/Attendance/mark?date=${dubaiToday}`);
+            }
+        };
+
+        const intervalId = setInterval(checkRollover, 15 * 1000);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') checkRollover();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('focus', checkRollover);
+
+        return () => {
+            clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener('focus', checkRollover);
+        };
+    }, [followToday, router]);
 
     return (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-visible">
@@ -47,6 +109,11 @@ function MarkAttendanceContent() {
                     <p className="text-sm text-gray-500 mt-1">
                         Mark and review attendance for the selected date.
                     </p>
+                    {dayRolledOver ? (
+                        <p className="text-xs text-emerald-700 mt-1">
+                            New day started — previous day is saved. Status is empty for today; mark again.
+                        </p>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-1 self-start sm:self-auto">

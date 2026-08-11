@@ -29,6 +29,31 @@ function formatDisplayTime(value) {
     return value;
 }
 
+function applyDayRecordsToState(employees, records) {
+    const byId = new Map(
+        (Array.isArray(records) ? records : []).map((r) => [String(r.employeeMongoId), r]),
+    );
+    const nextMarks = {};
+    const nextEmployees = employees.map((e) => {
+        const rec = byId.get(e.id);
+        if (!rec) {
+            return { ...e, timeIn: '—', timeOut: '—' };
+        }
+        nextMarks[e.id] = {
+            key: rec.statusKey,
+            label: rec.statusLabel,
+            reason: rec.reason || '',
+            attachmentName: rec.attachmentName || '',
+        };
+        return {
+            ...e,
+            timeIn: rec.timeIn ? formatDisplayTime(rec.timeIn) : '—',
+            timeOut: rec.timeOut ? formatDisplayTime(rec.timeOut) : '—',
+        };
+    });
+    return { nextEmployees, nextMarks };
+}
+
 function mapActiveEmployee(emp) {
     const id = String(emp?._id || emp?.id || emp?.employeeId || '');
     const name =
@@ -189,31 +214,35 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
             <td className="px-3 py-3 text-sm text-gray-600 tabular-nums align-middle">{employee.empNo}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeIn}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeOut}</td>
-            <td className="px-3 py-3 align-middle text-right min-w-[180px]">
-                <div className="inline-flex flex-col items-end gap-1 min-h-[36px]">
-                    <div className="inline-flex items-center justify-end gap-2">
-                        {mark?.label ? (
-                            <span
-                                className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded max-w-[140px] truncate"
-                                title={[mark.label, mark.reason].filter(Boolean).join(' — ')}
-                            >
-                                {mark.label}
+            <td className="px-3 py-3 align-middle min-w-[140px]">
+                {mark?.label ? (
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                        <span
+                            className="inline-flex w-fit text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded max-w-full truncate"
+                            title={[mark.label, mark.reason].filter(Boolean).join(' — ')}
+                        >
+                            {mark.label}
+                        </span>
+                        {mark?.reason ? (
+                            <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={mark.reason}>
+                                {mark.reason}
                             </span>
                         ) : null}
-                        <button
-                            ref={buttonRef}
-                            type="button"
-                            onClick={() => (menuOpen ? closeMenu() : openMenu())}
-                            className="h-8 px-3 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-xs font-semibold whitespace-nowrap transition-colors"
-                        >
-                            Mark Attendance
-                        </button>
                     </div>
-                    {mark?.reason ? (
-                        <span className="text-[10px] text-gray-500 max-w-[200px] truncate" title={mark.reason}>
-                            {mark.reason}
-                        </span>
-                    ) : null}
+                ) : (
+                    <span className="text-sm text-gray-400">—</span>
+                )}
+            </td>
+            <td className="px-3 py-3 align-middle text-right min-w-[150px]">
+                <div className="relative inline-flex items-center justify-end min-h-[36px]">
+                    <button
+                        ref={buttonRef}
+                        type="button"
+                        onClick={() => (menuOpen ? closeMenu() : openMenu())}
+                        className="h-8 px-3 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-xs font-semibold whitespace-nowrap transition-colors"
+                    >
+                        Mark Attendance
+                    </button>
                     {menuOpen && anchorRect ? (
                         <MarkAttendanceMenu
                             anchorRect={anchorRect}
@@ -233,10 +262,20 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
 export default function MarkAttendanceTable({ dateKey }) {
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [dayLoading, setDayLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [marks, setMarks] = useState({});
     const [formState, setFormState] = useState(null);
+    const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+    const [bulkAnchorRect, setBulkAnchorRect] = useState(null);
+    const bulkButtonRef = useRef(null);
+    const employeesRef = useRef([]);
+
+    useEffect(() => {
+        employeesRef.current = employees;
+    }, [employees]);
 
     useEffect(() => {
         let cancelled = false;
@@ -268,21 +307,63 @@ export default function MarkAttendanceTable({ dateKey }) {
         };
     }, []);
 
+    // Load stored attendance for the selected day
     useEffect(() => {
+        if (loading) return;
+        let cancelled = false;
+
         setSelectedIds(new Set());
-        setMarks({});
         setFormState(null);
-        setEmployees((prev) =>
-            prev.map((e) => ({
-                ...e,
-                timeIn: '—',
-                timeOut: '—',
-            })),
-        );
-    }, [dateKey]);
+        setBulkMenuOpen(false);
+        setBulkAnchorRect(null);
+
+        (async () => {
+            setDayLoading(true);
+            try {
+                const res = await axiosInstance.get('/Attendance', {
+                    params: { date: dateKey },
+                    skipToast: true,
+                });
+                if (cancelled) return;
+                const records = Array.isArray(res.data?.records) ? res.data.records : [];
+                const { nextEmployees, nextMarks } = applyDayRecordsToState(
+                    employeesRef.current,
+                    records,
+                );
+                setEmployees(nextEmployees);
+                setMarks(nextMarks);
+            } catch (err) {
+                if (cancelled) return;
+                // Keep employees list; clear day marks if day fetch fails
+                setMarks({});
+                setEmployees((prev) =>
+                    prev.map((e) => ({
+                        ...e,
+                        timeIn: '—',
+                        timeOut: '—',
+                    })),
+                );
+                console.error('Failed to load day attendance', err);
+            } finally {
+                if (!cancelled) setDayLoading(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [dateKey, loading]);
+
+    useEffect(() => {
+        if (selectedIds.size <= 1) {
+            setBulkMenuOpen(false);
+            setBulkAnchorRect(null);
+        }
+    }, [selectedIds.size]);
 
     const allChecked = employees.length > 0 && selectedIds.size === employees.length;
     const someChecked = selectedIds.size > 0 && selectedIds.size < employees.length;
+    const showBulkMark = selectedIds.size > 1;
 
     const toggleAll = () => {
         if (allChecked) {
@@ -301,21 +382,24 @@ export default function MarkAttendanceTable({ dateKey }) {
         });
     };
 
-    const applyMark = (employeeId, payload) => {
+    const applyMarkToIds = async (ids, payload) => {
+        const idSet = new Set(ids);
         const { markKey, markLabel, timeIn, timeOut, reason, attachmentName } = payload;
-        setMarks((prev) => ({
-            ...prev,
-            [employeeId]: {
+
+        const optimisticMarks = {};
+        idSet.forEach((id) => {
+            optimisticMarks[id] = {
                 key: markKey,
                 label: markLabel,
                 reason: reason || '',
                 attachmentName: attachmentName || '',
-            },
-        }));
+            };
+        });
 
+        setMarks((prev) => ({ ...prev, ...optimisticMarks }));
         setEmployees((prev) =>
             prev.map((e) => {
-                if (e.id !== employeeId) return e;
+                if (!idSet.has(e.id)) return e;
                 if (timeIn != null && timeOut != null) {
                     return {
                         ...e,
@@ -323,17 +407,58 @@ export default function MarkAttendanceTable({ dateKey }) {
                         timeOut: formatDisplayTime(timeOut),
                     };
                 }
-                // Leave / not marked: clear punch times
                 return { ...e, timeIn: '—', timeOut: '—' };
             }),
         );
+
+        const marksPayload = employeesRef.current
+            .filter((e) => idSet.has(e.id))
+            .map((e) => ({
+                employeeMongoId: e.id,
+                employeeId: e.empNo,
+                employeeName: e.name,
+                statusKey: markKey,
+                statusLabel: markLabel,
+                timeIn: timeIn != null ? timeIn : '',
+                timeOut: timeOut != null ? timeOut : '',
+                reason: reason || '',
+                attachmentName: attachmentName || '',
+            }));
+
+        setSaving(true);
+        try {
+            await axiosInstance.post('/Attendance/mark', {
+                date: dateKey,
+                marks: marksPayload,
+            });
+        } catch (err) {
+            console.error('Failed to save attendance', err);
+            // Reload day from server to stay consistent
+            try {
+                const res = await axiosInstance.get('/Attendance', {
+                    params: { date: dateKey },
+                    skipToast: true,
+                });
+                const records = Array.isArray(res.data?.records) ? res.data.records : [];
+                const { nextEmployees, nextMarks } = applyDayRecordsToState(
+                    employeesRef.current,
+                    records,
+                );
+                setEmployees(nextEmployees);
+                setMarks(nextMarks);
+            } catch {
+                /* ignore */
+            }
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleRequestMark = (employee, key, label) => {
+        if (saving) return;
         const config = getMarkFormConfig(key);
         if (!config) {
-            // e.g. not marked — apply immediately
-            applyMark(employee.id, {
+            applyMarkToIds([employee.id], {
                 markKey: key,
                 markLabel: label,
                 timeIn: null,
@@ -343,7 +468,49 @@ export default function MarkAttendanceTable({ dateKey }) {
             });
             return;
         }
-        setFormState({ employee, markKey: key, markLabel: label });
+        setFormState({
+            mode: 'single',
+            employee,
+            employeeIds: [employee.id],
+            markKey: key,
+            markLabel: label,
+        });
+    };
+
+    const handleBulkRequestMark = (key, label) => {
+        if (saving) return;
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) return;
+        const config = getMarkFormConfig(key);
+        if (!config) {
+            applyMarkToIds(ids, {
+                markKey: key,
+                markLabel: label,
+                timeIn: null,
+                timeOut: null,
+                reason: '',
+                attachmentName: '',
+            });
+            return;
+        }
+        setFormState({
+            mode: 'bulk',
+            employee: null,
+            employeeIds: ids,
+            markKey: key,
+            markLabel: label,
+        });
+    };
+
+    const openBulkMenu = () => {
+        const rect = bulkButtonRef.current?.getBoundingClientRect();
+        if (rect) setBulkAnchorRect(rect);
+        setBulkMenuOpen(true);
+    };
+
+    const closeBulkMenu = () => {
+        setBulkMenuOpen(false);
+        setBulkAnchorRect(null);
     };
 
     if (loading) {
@@ -360,8 +527,45 @@ export default function MarkAttendanceTable({ dateKey }) {
 
     return (
         <>
+            {dayLoading ? (
+                <div className="px-1 pb-2 text-xs text-gray-400">Loading day attendance…</div>
+            ) : null}
+            {saving ? (
+                <div className="px-1 pb-2 text-xs text-gray-400">Saving attendance…</div>
+            ) : null}
+
+            {showBulkMark ? (
+                <div className="flex items-center justify-between gap-3 px-1 pb-3">
+                    <p className="text-sm text-gray-600">
+                        <span className="font-semibold text-gray-900">{selectedIds.size}</span> employees
+                        selected
+                    </p>
+                    <div className="relative">
+                        <button
+                            ref={bulkButtonRef}
+                            type="button"
+                            disabled={saving}
+                            onClick={() => (bulkMenuOpen ? closeBulkMenu() : openBulkMenu())}
+                            className="h-9 px-4 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-sm font-semibold whitespace-nowrap transition-colors disabled:opacity-60"
+                        >
+                            Mark Attendance All
+                        </button>
+                        {bulkMenuOpen && bulkAnchorRect ? (
+                            <MarkAttendanceMenu
+                                anchorRect={bulkAnchorRect}
+                                onClose={closeBulkMenu}
+                                onSelect={(key, label) => {
+                                    closeBulkMenu();
+                                    handleBulkRequestMark(key, label);
+                                }}
+                            />
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+
             <div className="overflow-x-auto overflow-y-visible">
-                <table className="w-full min-w-[780px] border-collapse">
+                <table className="w-full min-w-[900px] border-collapse">
                     <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
                             <th className="px-3 py-3 text-left w-10">
@@ -392,6 +596,9 @@ export default function MarkAttendanceTable({ dateKey }) {
                             <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
                                 Time Out
                             </th>
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                                Status
+                            </th>
                             <th className="px-3 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500">
                                 Action
                             </th>
@@ -416,14 +623,18 @@ export default function MarkAttendanceTable({ dateKey }) {
             <MarkAttendanceDetailsModal
                 open={Boolean(formState)}
                 employee={formState?.employee}
+                employeeIds={formState?.employeeIds}
                 markKey={formState?.markKey}
                 markLabel={formState?.markLabel}
                 onClose={() => setFormState(null)}
                 onSave={(payload) => {
-                    if (formState?.employee?.id) {
-                        applyMark(formState.employee.id, payload);
-                    }
+                    const ids = formState?.employeeIds?.length
+                        ? formState.employeeIds
+                        : formState?.employee?.id
+                          ? [formState.employee.id]
+                          : [];
                     setFormState(null);
+                    if (ids.length) applyMarkToIds(ids, payload);
                 }}
             />
         </>

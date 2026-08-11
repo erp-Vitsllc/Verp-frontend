@@ -3184,8 +3184,8 @@ function AssetDetailsPageContent() {
                                                                             toggleBulkAssetSelection(bulkAssetIdStr);
                                                                         }}
                                                                         className={`p-1 rounded-lg border transition-all shrink-0 ${isSelected
-                                                                                ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                                                                                : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'
+                                                                            ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                                                                            : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'
                                                                             }`}
                                                                         aria-label={
                                                                             isSelected
@@ -3242,14 +3242,14 @@ function AssetDetailsPageContent() {
                                 key: 'reassign',
                                 label:
                                     asset?.status === 'Assigned' ||
-                                    isLeaveActive(asset) ||
-                                    isAssetAssignmentAcknowledgmentPending(asset)
+                                        isLeaveActive(asset) ||
+                                        isAssetAssignmentAcknowledgmentPending(asset)
                                         ? 'Reassign'
                                         : 'Assign',
                                 displayLabel:
                                     asset?.status === 'Assigned' ||
-                                    isLeaveActive(asset) ||
-                                    isAssetAssignmentAcknowledgmentPending(asset)
+                                        isLeaveActive(asset) ||
+                                        isAssetAssignmentAcknowledgmentPending(asset)
                                         ? 'Reassign'
                                         : 'Assign',
                                 disabled: isServiceActive(asset),
@@ -3273,8 +3273,8 @@ function AssetDetailsPageContent() {
                                     }
                                     const holderName = asset?.assignedTo
                                         ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim() ||
-                                          asset.assignedTo.employeeId ||
-                                          'Current holder'
+                                        asset.assignedTo.employeeId ||
+                                        'Current holder'
                                         : 'Current holder';
                                     setBulkReassignHolderLabel(holderName);
                                     setBulkReassignLoading(true);
@@ -3287,8 +3287,8 @@ function AssetDetailsPageContent() {
                                         const list = Array.isArray(res.data)
                                             ? res.data
                                             : Array.isArray(res.data?.items)
-                                              ? res.data.items
-                                              : [];
+                                                ? res.data.items
+                                                : [];
                                         const pool = list.filter((a) => {
                                             const st = String(a?.status || '').trim();
                                             if (st !== 'Assigned') return false;
@@ -3779,14 +3779,14 @@ function AssetDetailsPageContent() {
                                                                                                     </button>
                                                                                                     {/* Unattach — Lost asset/accessory only; Asset Controller or admin */}
                                                                                                     {showUnattachForLostItem && (
-                                                                                                    <button
-                                                                                                        disabled={isAccessoryTabLocked}
-                                                                                                        onClick={() => handleUnattachAccessory(acc)}
-                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                                                                                                        title="Detach accessory from this lost asset (Asset Controller only)"
-                                                                                                    >
-                                                                                                        <ArrowDownLeft size={12} /> Unattach
-                                                                                                    </button>
+                                                                                                        <button
+                                                                                                            disabled={isAccessoryTabLocked}
+                                                                                                            onClick={() => handleUnattachAccessory(acc)}
+                                                                                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                                                                                                            title="Detach accessory from this lost asset (Asset Controller only)"
+                                                                                                        >
+                                                                                                            <ArrowDownLeft size={12} /> Unattach
+                                                                                                        </button>
                                                                                                     )}
                                                                                                 </>
                                                                                             );

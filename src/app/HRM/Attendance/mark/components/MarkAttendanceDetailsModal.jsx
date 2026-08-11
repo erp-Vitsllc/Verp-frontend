@@ -43,6 +43,7 @@ export function getMarkFormConfig(markKey) {
 export default function MarkAttendanceDetailsModal({
     open,
     employee,
+    employeeIds = null,
     markKey,
     markLabel,
     onClose,
@@ -55,6 +56,8 @@ export default function MarkAttendanceDetailsModal({
     const [attachment, setAttachment] = useState(null);
     const [error, setError] = useState('');
     const fileRef = useRef(null);
+    const bulkCount = Array.isArray(employeeIds) ? employeeIds.length : 0;
+    const isBulk = bulkCount > 1;
 
     useEffect(() => {
         if (!open) return;
@@ -64,7 +67,7 @@ export default function MarkAttendanceDetailsModal({
         setAttachment(null);
         setError('');
         if (fileRef.current) fileRef.current.value = '';
-    }, [open, markKey, employee?.id]);
+    }, [open, markKey, employee?.id, bulkCount]);
 
     useEffect(() => {
         if (!open) return;
@@ -96,6 +99,10 @@ export default function MarkAttendanceDetailsModal({
         });
     };
 
+    const subtitle = isBulk
+        ? `Applying to ${bulkCount} selected employees`
+        : [employee?.name, employee?.empNo].filter(Boolean).join(' · ');
+
     return createPortal(
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
             <button
@@ -112,10 +119,7 @@ export default function MarkAttendanceDetailsModal({
                 <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
                     <div className="min-w-0">
                         <h2 className="text-base font-semibold text-gray-900">{markLabel}</h2>
-                        <p className="text-sm text-gray-500 mt-0.5 truncate">
-                            {employee?.name}
-                            {employee?.empNo ? ` · ${employee.empNo}` : ''}
-                        </p>
+                        <p className="text-sm text-gray-500 mt-0.5 truncate">{subtitle}</p>
                     </div>
                     <button
                         type="button"
@@ -221,7 +225,7 @@ export default function MarkAttendanceDetailsModal({
                             type="submit"
                             className="h-9 px-4 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-sm font-semibold"
                         >
-                            Save
+                            {isBulk ? `Save for ${bulkCount}` : 'Save'}
                         </button>
                     </div>
                 </form>

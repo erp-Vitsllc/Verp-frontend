@@ -36,6 +36,7 @@ import { FINE_PENDING_INBOX_CHANGED } from '@/app/HRM/Fine/utils/finePendingInbo
 import { PAYMENT_PENDING_INBOX_CHANGED } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
 import { REWARD_PENDING_INBOX_CHANGED } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 import { LOAN_PENDING_INBOX_CHANGED } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
+import DashboardAttendanceCalendar from '@/app/dashboard/components/DashboardAttendanceCalendar';
 
 import {
     isDashboardPendingItem,
@@ -56,8 +57,6 @@ import {
 import { navHrefProps } from '@/utils/linkContextMenu';
 
 import {
-
-    TrendingUp,
 
     Clock,
 
@@ -1560,7 +1559,7 @@ function DashboardContent() {
 
                                         onClick={() => setIsExpanded(true)}
 
-                                        className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[200px] sm:min-h-[240px] lg:min-h-[300px] cursor-pointer hover:shadow-md hover:border-blue-100 transition-all group relative overflow-hidden"
+                                        className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[200px] sm:min-h-[240px] lg:h-[300px] lg:min-h-[300px] lg:max-h-[300px] cursor-pointer hover:shadow-md hover:border-blue-100 transition-all group relative overflow-hidden"
 
                                     >
 
@@ -1598,7 +1597,7 @@ function DashboardContent() {
 
                                     {/* Card 2: Net Profit Margin (Dummy) */}
 
-                                    <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[200px] sm:min-h-[240px] lg:min-h-[300px]">
+                                    <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[200px] sm:min-h-[240px] lg:h-[300px] lg:min-h-[300px] lg:max-h-[300px] overflow-hidden">
 
                                         <div>
 
@@ -1632,75 +1631,8 @@ function DashboardContent() {
 
 
 
-                                    {/* Card 3: Your Balance (Dummy) */}
-
-                                    <div className="col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-5 lg:p-8 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[180px] sm:min-h-[240px] lg:min-h-[300px] relative overflow-hidden">
-
-                                        <div className="flex justify-between items-start z-10 gap-2">
-
-                                            <div className="min-w-0">
-
-                                                <p className="text-[9px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1">Your Balance</p>
-
-                                                <h3 className="text-xl sm:text-3xl lg:text-4xl font-black text-slate-900 tracking-tight break-words">$780,560<span className="text-base sm:text-xl lg:text-2xl text-slate-400">.00</span></h3>
-
-                                            </div>
-
-                                            <div className="bg-blue-600 text-white px-2 sm:px-3 py-0.5 sm:py-1 rounded font-black italic tracking-tighter text-xs sm:text-lg shrink-0">VISA</div>
-
-                                        </div>
-
-
-
-                                        <div className="z-10 mt-3 sm:mt-0">
-
-                                            <p className="text-[9px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 sm:mb-2">Your Account Number</p>
-
-                                            <div className="flex items-center gap-2 sm:gap-4 text-slate-900 text-sm sm:text-lg lg:text-xl font-black tracking-widest flex-wrap">
-
-                                                <span>••••</span>
-
-                                                <span>••••</span>
-
-                                                <span>••••</span>
-
-                                                <span>5637</span>
-
-                                            </div>
-
-                                        </div>
-
-
-
-                                        <div className="flex justify-between items-end z-10 border-t border-slate-100 pt-6 mt-4">
-
-                                            <div>
-
-                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Account Holder</p>
-
-                                                <p className="text-sm font-bold text-slate-700">Alicia Christensen</p>
-
-                                            </div>
-
-                                            <div>
-
-                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Account Type</p>
-
-                                                <p className="text-sm font-bold text-slate-700">Savings</p>
-
-                                            </div>
-
-                                        </div>
-
-
-
-                                        <div className="absolute top-1/2 right-0 transform -translate-y-1/2 translate-x-1/4 opacity-5 pointer-events-none">
-
-                                            <TrendingUp className="w-64 h-64 text-slate-900" />
-
-                                        </div>
-
-                                    </div>
+                                    {/* Card 3: My Attendance calendar (logged-in user) */}
+                                    <DashboardAttendanceCalendar />
 
 
 
