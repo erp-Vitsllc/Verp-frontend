@@ -2,24 +2,7 @@
 
 import { X } from 'lucide-react';
 import { format } from 'date-fns';
-
-/** Placeholder day detail until attendance API is wired. */
-export function getDayDetailStats(_day, totalStaff = 0) {
-    return {
-        totalStaff,
-        officePresent: 0,
-        officeTotal: 0,
-        sitePresent: 0,
-        siteTotal: 0,
-        totalPresent: 0,
-        absentAuthorized: 0,
-        absentUnauthorized: 0,
-        sickLeave: 0,
-        workFromHome: 0,
-        lateArrived: 0,
-        notMarked: 0,
-    };
-}
+import { emptyDayDetailStats } from './AttendanceDayDetailPanel';
 
 function StatRow({ label, value, subValue = null }) {
     return (
@@ -35,11 +18,12 @@ function StatRow({ label, value, subValue = null }) {
     );
 }
 
-export default function AttendanceDayDetailModal({ isOpen, onClose, day, totalStaff = 0 }) {
+export default function AttendanceDayDetailModal({ isOpen, onClose, day, stats = null, totalStaff = 0 }) {
     if (!isOpen || !day) return null;
 
-    const stats = getDayDetailStats(day, totalStaff);
+    const resolved = stats || emptyDayDetailStats(totalStaff);
     const dateLabel = format(day, 'EEEE, d MMMM yyyy');
+    const notMarkedOrUnauthorized = Number(resolved.notMarked) || 0;
 
     return (
         <div
@@ -75,27 +59,27 @@ export default function AttendanceDayDetailModal({ isOpen, onClose, day, totalSt
                 </div>
 
                 <div className="px-5 py-2 max-h-[70vh] overflow-y-auto">
-                    <StatRow label="Total staff" value={stats.totalStaff} />
+                    <StatRow label="Total staff" value={resolved.totalStaff ?? totalStaff} />
                     <StatRow
                         label="Office staff"
-                        value={`${stats.officePresent} / ${stats.officeTotal}`}
+                        value={`${resolved.officePresent} / ${resolved.officeTotal}`}
                         subValue="Present / total office staff"
                     />
                     <StatRow
                         label="Site staff"
-                        value={`${stats.sitePresent} / ${stats.siteTotal}`}
+                        value={`${resolved.sitePresent} / ${resolved.siteTotal}`}
                         subValue="Present / total site staff"
                     />
-                    <StatRow label="Total present" value={stats.totalPresent} />
+                    <StatRow label="Total present" value={resolved.totalPresent} />
                     <StatRow
                         label="Absent"
-                        value={`${stats.absentAuthorized + stats.absentUnauthorized}`}
-                        subValue={`Authorized (${stats.absentAuthorized}) · Unauthorized (${stats.absentUnauthorized})`}
+                        value={`${(Number(resolved.absentAuthorized) || 0) + notMarkedOrUnauthorized}`}
+                        subValue={`Authorized (${resolved.absentAuthorized || 0}) · Unauthorized (${notMarkedOrUnauthorized})`}
                     />
-                    <StatRow label="Sick leave" value={stats.sickLeave} />
-                    <StatRow label="Work from home" value={stats.workFromHome} />
-                    <StatRow label="Late arrived" value={stats.lateArrived} />
-                    <StatRow label="Not marked attendance" value={stats.notMarked} />
+                    <StatRow label="Sick leave" value={resolved.sickLeave} />
+                    <StatRow label="Work from home" value={resolved.workFromHome} />
+                    <StatRow label="Late arrived" value={resolved.lateArrived} />
+                    <StatRow label="Not marked attendance" value={notMarkedOrUnauthorized} />
                 </div>
             </div>
         </div>

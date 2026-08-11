@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import AttendanceDayDetailPanel from './AttendanceDayDetailPanel';
+import AttendanceDayDetailPanel, { emptyDayDetailStats } from './AttendanceDayDetailPanel';
 
 const VIEW_OPTIONS = ['Day', 'Week', 'Month', 'Year'];
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -49,34 +49,51 @@ const ICON_LEGEND = [
     { key: 'late', icon: Clock, label: 'Late arrival', iconClass: 'text-amber-700' },
     { key: 'sick', icon: Stethoscope, label: 'Sick leave', iconClass: 'text-red-600' },
     { key: 'wfh', icon: Home, label: 'Work from home', iconClass: 'text-blue-700' },
-    { key: 'notMarked', icon: UserMinus, label: 'Not marked', iconClass: 'text-gray-500' },
+    { key: 'notMarked', icon: UserMinus, label: 'Not marked / Unauthorized', iconClass: 'text-gray-500' },
 ];
 
-/** Placeholder day stats until attendance API is wired. Sat 1st has full demo counts. */
-function getDayAttendanceStats(day, strengthCount = 0) {
-    const isSatFirst = day.getDate() === 1 && day.getDay() === 6;
-
-    if (isSatFirst) {
-        const total = strengthCount > 0 ? strengthCount : 8;
-        return {
-            activeEmployees: total,
-            present: 6,
-            onLeave: 2,
-            lateArrived: 1,
-            sickLeave: 1,
-            workFromHome: 2,
-            notMarked: 1,
-        };
-    }
-
+function emptyDayAttendanceStats(strengthCount = 0) {
+    const total = Number(strengthCount) || 0;
     return {
-        activeEmployees: strengthCount,
+        activeEmployees: total,
         present: 0,
         onLeave: 0,
         lateArrived: 0,
         sickLeave: 0,
         workFromHome: 0,
         notMarked: 0,
+        officePresent: 0,
+        officeTotal: total,
+        sitePresent: 0,
+        siteTotal: 0,
+        totalPresent: 0,
+        absentAuthorized: 0,
+        absentUnauthorized: 0,
+        totalStaff: total,
+    };
+}
+
+function mapApiDayStats(raw, strengthCount = 0) {
+    if (!raw || typeof raw !== 'object') return emptyDayAttendanceStats(strengthCount);
+    const total = Number(raw.activeEmployees ?? raw.totalStaff ?? strengthCount) || 0;
+    const notMarked = Number(raw.notMarked) || 0;
+    return {
+        activeEmployees: total,
+        present: Number(raw.present) || 0,
+        onLeave: Number(raw.onLeave) || 0,
+        lateArrived: Number(raw.lateArrived) || 0,
+        sickLeave: Number(raw.sickLeave) || 0,
+        workFromHome: Number(raw.workFromHome) || 0,
+        notMarked,
+        officePresent: Number(raw.officePresent) || 0,
+        officeTotal: Number(raw.officeTotal ?? total) || 0,
+        sitePresent: Number(raw.sitePresent) || 0,
+        siteTotal: Number(raw.siteTotal) || 0,
+        totalPresent: Number(raw.totalPresent) || 0,
+        absentAuthorized: Number(raw.absentAuthorized) || 0,
+        // Unauthorized and not marked share the same count.
+        absentUnauthorized: notMarked,
+        totalStaff: total,
     };
 }
 
@@ -245,7 +262,7 @@ function DayCellStats({ day, today, inMonth, isFuture, stats }) {
                         <IconCount
                             icon={UserMinus}
                             count={stats.notMarked}
-                            label="Not marked"
+                            label="Not marked / Unauthorized"
                             iconClass="text-gray-500"
                             countFirst
                         />
@@ -365,6 +382,7 @@ function MonthGrid({
     cursorDate,
     selectedDate,
     strengthCount = 0,
+    dayStatsByDate = {},
     onSelectDay,
     compact = false,
 }) {
@@ -400,7 +418,7 @@ function MonthGrid({
                     const today = isToday(day);
                     const selected = isSameDay(day, selectedDate);
                     const isFuture = isAfter(startOfDay(day), startOfDay(new Date()));
-                    const stats = getDayAttendanceStats(day, strengthCount);
+                    const stats = dayStatsByDate[dayKey] || emptyDayAttendanceStats(strengthCount);
 
                     return (
                         <div
@@ -456,39 +474,66 @@ export default function AttendanceMonthCalendar() {
     const [selectedDate, setSelectedDate] = useState(() => new Date());
     const [strengthCount, setStrengthCount] = useState(0);
     const [detailDay, setDetailDay] = useState(() => new Date());
+    const [dayStatsByDate, setDayStatsByDate] = useState({});
+
+    const fetchRange = useMemo(() => {
+        if (view === 'Week') {
+            const days = getWeekDays(cursorDate);
+            return {
+                from: format(days[0], 'yyyy-MM-dd'),
+                to: format(days[days.length - 1], 'yyyy-MM-dd'),
+            };
+        }
+        if (view === 'Day') {
+            const key = format(cursorDate, 'yyyy-MM-dd');
+            return { from: key, to: key };
+        }
+        if (view === 'Year') {
+            return {
+                from: format(startOfYear(cursorDate), 'yyyy-MM-dd'),
+                to: format(endOfYear(cursorDate), 'yyyy-MM-dd'),
+            };
+        }
+        const gridDays = getMonthGridDays(cursorDate);
+        return {
+            from: format(gridDays[0], 'yyyy-MM-dd'),
+            to: format(gridDays[gridDays.length - 1], 'yyyy-MM-dd'),
+        };
+    }, [cursorDate, view]);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             try {
-                const res = await axiosInstance.get('/Employee', {
-                    params: { profileStatus: 'active', limit: 5000 },
+                const res = await axiosInstance.get('/Attendance/calendar', {
+                    params: {
+                        from: fetchRange.from,
+                        to: fetchRange.to,
+                        month: format(cursorDate, 'yyyy-MM'),
+                    },
                     skipToast: true,
                 });
-                const rows = Array.isArray(res.data?.employees)
-                    ? res.data.employees
-                    : Array.isArray(res.data)
-                      ? res.data
-                      : Array.isArray(res.data?.data)
-                        ? res.data.data
-                        : [];
-                const fromPagination = Number(res.data?.pagination?.total);
-                const activeCount = Number.isFinite(fromPagination)
-                    ? fromPagination
-                    : rows.filter((emp) => {
-                          const profile = String(emp?.profileStatus || '').trim().toLowerCase();
-                          const status = String(emp?.status || '').trim().toLowerCase();
-                          return profile === 'active' || status === 'active';
-                      }).length;
-                if (!cancelled) setStrengthCount(activeCount);
+                const total = Number(res.data?.totalStaff) || 0;
+                const daysPayload =
+                    res.data?.days && typeof res.data.days === 'object' ? res.data.days : {};
+                const mapped = {};
+                for (const [dateKey, raw] of Object.entries(daysPayload)) {
+                    mapped[dateKey] = mapApiDayStats(raw, total);
+                }
+                if (!cancelled) {
+                    setStrengthCount(total);
+                    setDayStatsByDate(mapped);
+                }
             } catch {
-                if (!cancelled) setStrengthCount(0);
+                if (!cancelled) {
+                    setDayStatsByDate({});
+                }
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [fetchRange.from, fetchRange.to, cursorDate]);
 
     const weekDays = useMemo(() => getWeekDays(cursorDate), [cursorDate]);
     const yearMonths = useMemo(() => {
@@ -496,6 +541,27 @@ export default function AttendanceMonthCalendar() {
         const end = endOfYear(cursorDate);
         return eachMonthOfInterval({ start, end });
     }, [cursorDate]);
+
+    const detailStats = useMemo(() => {
+        if (!detailDay) return emptyDayDetailStats(strengthCount);
+        const key = format(detailDay, 'yyyy-MM-dd');
+        const fromApi = dayStatsByDate[key];
+        if (!fromApi) return emptyDayDetailStats(strengthCount);
+
+        const hasMarkedActivity =
+            (fromApi.present || 0) > 0 ||
+            (fromApi.onLeave || 0) > 0 ||
+            (fromApi.lateArrived || 0) > 0 ||
+            (fromApi.sickLeave || 0) > 0 ||
+            (fromApi.workFromHome || 0) > 0 ||
+            (fromApi.notMarked || 0) > 0;
+
+        // Day with no marks yet — detail treats everyone as not marked / unauthorized.
+        if (!hasMarkedActivity && strengthCount > 0) {
+            return emptyDayDetailStats(strengthCount);
+        }
+        return fromApi;
+    }, [detailDay, dayStatsByDate, strengthCount]);
 
     const title = useMemo(() => {
         if (view === 'Day') return format(cursorDate, 'EEEE, d MMMM yyyy');
@@ -613,6 +679,7 @@ export default function AttendanceMonthCalendar() {
                     cursorDate={cursorDate}
                     selectedDate={selectedDate}
                     strengthCount={strengthCount}
+                    dayStatsByDate={dayStatsByDate}
                     onSelectDay={openDayDetail}
                 />
                 )}
@@ -685,6 +752,7 @@ export default function AttendanceMonthCalendar() {
                                     cursorDate={monthDate}
                                     selectedDate={selectedDate}
                                     strengthCount={strengthCount}
+                                    dayStatsByDate={dayStatsByDate}
                                     compact
                                     onSelectDay={openDayDetail}
                                 />
@@ -698,6 +766,7 @@ export default function AttendanceMonthCalendar() {
                 <div className="w-full lg:w-1/4 min-w-0 lg:sticky lg:top-4 self-start">
                     <AttendanceDayDetailPanel
                         day={detailDay}
+                        stats={detailStats}
                         totalStaff={strengthCount}
                         onClose={() => setDetailDay(new Date())}
                     />

@@ -3,41 +3,22 @@
 import { format } from 'date-fns';
 import { X } from 'lucide-react';
 
-/** Placeholder day detail until attendance API is wired. Sat 1st has full demo counts. */
-export function getDayDetailStats(day, totalStaff = 0) {
-    const isSatFirst = day && day.getDate() === 1 && day.getDay() === 6;
-    const total = totalStaff > 0 ? totalStaff : 8;
-
-    if (isSatFirst) {
-        return {
-            totalStaff: total,
-            officePresent: 4,
-            officeTotal: 5,
-            sitePresent: 2,
-            siteTotal: 3,
-            totalPresent: 6,
-            absentAuthorized: 1,
-            absentUnauthorized: 1,
-            sickLeave: 1,
-            workFromHome: 2,
-            lateArrived: 1,
-            notMarked: 1,
-        };
-    }
-
+export function emptyDayDetailStats(totalStaff = 0) {
+    const total = Number(totalStaff) || 0;
     return {
         totalStaff: total,
         officePresent: 0,
-        officeTotal: 0,
+        officeTotal: total,
         sitePresent: 0,
         siteTotal: 0,
         totalPresent: 0,
         absentAuthorized: 0,
-        absentUnauthorized: 0,
+        // Unauthorized leave is counted with not marked (same bucket).
+        absentUnauthorized: total,
         sickLeave: 0,
         workFromHome: 0,
         lateArrived: 0,
-        notMarked: 0,
+        notMarked: total,
     };
 }
 
@@ -58,7 +39,7 @@ function StatRow({ label, value, subValue = null }) {
 /**
  * Side panel (1/4 width) — shows day attendance list inline, not a popup modal.
  */
-export default function AttendanceDayDetailPanel({ day, totalStaff = 0, onClose }) {
+export default function AttendanceDayDetailPanel({ day, stats = null, totalStaff = 0, onClose }) {
     if (!day) {
         return (
             <div className="h-full min-h-[320px] bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center p-5 text-center">
@@ -70,10 +51,12 @@ export default function AttendanceDayDetailPanel({ day, totalStaff = 0, onClose 
         );
     }
 
-    const stats = getDayDetailStats(day, totalStaff);
+    const resolved = stats || emptyDayDetailStats(totalStaff);
     const dateLabel = format(day, 'EEEE, d MMMM yyyy');
     const dateParam = format(day, 'yyyy-MM-dd');
     const markUrl = `/HRM/Attendance/mark?date=${encodeURIComponent(dateParam)}`;
+    // Unauthorized and not marked are the same count.
+    const notMarkedOrUnauthorized = Number(resolved.notMarked) || 0;
 
     const openMarkAttendance = () => {
         window.open(markUrl, '_blank', 'noopener,noreferrer');
@@ -99,27 +82,27 @@ export default function AttendanceDayDetailPanel({ day, totalStaff = 0, onClose 
             </div>
 
             <div className="px-4 py-1 flex-1 overflow-y-auto">
-                <StatRow label="Total staff" value={stats.totalStaff} />
+                <StatRow label="Total staff" value={resolved.totalStaff ?? totalStaff} />
                 <StatRow
                     label="Office staff"
-                    value={`${stats.officePresent} / ${stats.officeTotal}`}
+                    value={`${resolved.officePresent} / ${resolved.officeTotal}`}
                     subValue="Present / total office staff"
                 />
                 <StatRow
                     label="Site staff"
-                    value={`${stats.sitePresent} / ${stats.siteTotal}`}
+                    value={`${resolved.sitePresent} / ${resolved.siteTotal}`}
                     subValue="Present / total site staff"
                 />
-                <StatRow label="Total present" value={stats.totalPresent} />
+                <StatRow label="Total present" value={resolved.totalPresent} />
                 <StatRow
                     label="Absent"
-                    value={`${stats.absentAuthorized + stats.absentUnauthorized}`}
-                    subValue={`Authorized (${stats.absentAuthorized}) · Unauthorized (${stats.absentUnauthorized})`}
+                    value={`${(Number(resolved.absentAuthorized) || 0) + notMarkedOrUnauthorized}`}
+                    subValue={`Authorized (${resolved.absentAuthorized || 0}) · Unauthorized (${notMarkedOrUnauthorized})`}
                 />
-                <StatRow label="Sick leave" value={stats.sickLeave} />
-                <StatRow label="Work from home" value={stats.workFromHome} />
-                <StatRow label="Late arrived" value={stats.lateArrived} />
-                <StatRow label="Not marked attendance" value={stats.notMarked} />
+                <StatRow label="Sick leave" value={resolved.sickLeave} />
+                <StatRow label="Work from home" value={resolved.workFromHome} />
+                <StatRow label="Late arrived" value={resolved.lateArrived} />
+                <StatRow label="Not marked attendance" value={notMarkedOrUnauthorized} />
             </div>
 
             <div className="px-4 py-3 border-t border-gray-100 shrink-0">

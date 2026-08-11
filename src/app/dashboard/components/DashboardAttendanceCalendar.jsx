@@ -258,7 +258,7 @@ export default function DashboardAttendanceCalendar() {
 
     return (
         <>
-            <div className="col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-4 sm:p-5 shadow-sm border border-slate-100 flex flex-col overflow-hidden min-h-[200px] sm:min-h-[240px] lg:h-[300px] lg:max-h-[300px] lg:min-h-[300px]">
+            <div className="col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-4 sm:p-5 shadow-sm border border-slate-100 flex flex-col overflow-hidden min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:max-h-[380px] lg:min-h-[380px]">
                 <div className="flex items-center justify-between gap-2 shrink-0">
                     <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em]">
                         My Attendance

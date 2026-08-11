@@ -1559,7 +1559,7 @@ function DashboardContent() {
 
                                         onClick={() => setIsExpanded(true)}
 
-                                        className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[200px] sm:min-h-[240px] lg:h-[300px] lg:min-h-[300px] lg:max-h-[300px] cursor-pointer hover:shadow-md hover:border-blue-100 transition-all group relative overflow-hidden"
+                                        className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] cursor-pointer hover:shadow-md hover:border-blue-100 transition-all group relative overflow-hidden"
 
                                     >
 
@@ -1581,7 +1581,7 @@ function DashboardContent() {
 
                                         <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0">
 
-                                            <ActivityPieChart data={scopedStats} currentFilter={filter} size={45} />
+                                            <ActivityPieChart data={scopedStats} currentFilter={filter} size={52} />
 
                                         </div>
 
@@ -1597,7 +1597,7 @@ function DashboardContent() {
 
                                     {/* Card 2: Net Profit Margin (Dummy) */}
 
-                                    <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[200px] sm:min-h-[240px] lg:h-[300px] lg:min-h-[300px] lg:max-h-[300px] overflow-hidden">
+                                    <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] overflow-hidden">
 
                                         <div>
 
@@ -1609,7 +1609,7 @@ function DashboardContent() {
 
                                         <div className="flex items-center justify-center py-2 sm:py-4">
 
-                                            <div className="relative w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 rounded-full flex items-center justify-center">
+                                            <div className="relative w-28 h-28 sm:w-36 sm:h-36 lg:w-44 lg:h-44 rounded-full flex items-center justify-center">
 
                                                 {/* Background Circle */}
 
