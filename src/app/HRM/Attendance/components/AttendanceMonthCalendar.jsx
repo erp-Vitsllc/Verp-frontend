@@ -468,7 +468,7 @@ function MonthGrid({
     );
 }
 
-export default function AttendanceMonthCalendar() {
+export default function AttendanceMonthCalendar({ staffType = 'office' }) {
     const [view, setView] = useState('Month');
     const [cursorDate, setCursorDate] = useState(() => new Date());
     const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -510,6 +510,7 @@ export default function AttendanceMonthCalendar() {
                         from: fetchRange.from,
                         to: fetchRange.to,
                         month: format(cursorDate, 'yyyy-MM'),
+                        staffType: staffType === 'site' ? 'site' : 'office',
                     },
                     skipToast: true,
                 });
@@ -533,7 +534,7 @@ export default function AttendanceMonthCalendar() {
         return () => {
             cancelled = true;
         };
-    }, [fetchRange.from, fetchRange.to, cursorDate]);
+    }, [fetchRange.from, fetchRange.to, cursorDate, staffType]);
 
     const weekDays = useMemo(() => getWeekDays(cursorDate), [cursorDate]);
     const yearMonths = useMemo(() => {
@@ -612,7 +613,9 @@ export default function AttendanceMonthCalendar() {
                         Attendance Calendar
                     </h2>
                     <p className="text-sm text-gray-500 mt-1">
-                        Track presence, leave, sick days, and remote work across your team.
+                        {staffType === 'site'
+                            ? 'Site staffs — track presence, leave, and attendance on site.'
+                            : 'Office staff — track presence, leave, sick days, and remote work.'}
                     </p>
                 </div>
 

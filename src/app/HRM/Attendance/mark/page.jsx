@@ -3,10 +3,12 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { addDays, format, isValid, parseISO, startOfDay } from 'date-fns';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import MarkAttendanceTable from './components/MarkAttendanceTable';
 
 /** Company calendar day (Asia/Dubai) as yyyy-MM-dd — matches backend midnight routine. */
@@ -47,6 +49,7 @@ function MarkAttendanceContent() {
         return dateParam === getDubaiDateKey();
     });
     const [dayRolledOver, setDayRolledOver] = useState(false);
+    const [calendarOpen, setCalendarOpen] = useState(false);
     const lastDubaiDayRef = useRef(getDubaiDateKey());
 
     const goToDate = useCallback(
@@ -61,6 +64,12 @@ function MarkAttendanceContent() {
 
     const goPrev = () => goToDate(addDays(selectedDate, -1), { follow: false });
     const goNext = () => goToDate(addDays(selectedDate, 1), { follow: false });
+
+    const handleCalendarSelect = (day) => {
+        if (!day) return;
+        goToDate(day, { follow: false });
+        setCalendarOpen(false);
+    };
 
     useEffect(() => {
         if (!dateParam) {
@@ -125,10 +134,33 @@ function MarkAttendanceContent() {
                     >
                         <ChevronLeft size={18} />
                     </button>
-                    <div className="min-w-[12rem] sm:min-w-[16rem] px-3 text-center">
-                        <p className="text-sm sm:text-base font-semibold text-gray-900">{fullDateLabel}</p>
-                        <p className="text-[11px] text-gray-400 tabular-nums mt-0.5">{dateKey}</p>
-                    </div>
+                    <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                        <PopoverTrigger asChild>
+                            <button
+                                type="button"
+                                className="min-w-[12rem] sm:min-w-[16rem] px-3 py-1.5 text-center rounded-lg border border-transparent hover:border-gray-200 hover:bg-gray-50 transition-colors"
+                                aria-label="Open calendar to choose date"
+                            >
+                                <p className="text-sm sm:text-base font-semibold text-gray-900 inline-flex items-center justify-center gap-1.5">
+                                    <CalendarDays size={15} className="text-gray-500 shrink-0" />
+                                    {fullDateLabel}
+                                </p>
+                                <p className="text-[11px] text-gray-400 tabular-nums mt-0.5">{dateKey}</p>
+                            </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="end">
+                            <Calendar
+                                mode="single"
+                                selected={selectedDate}
+                                onSelect={handleCalendarSelect}
+                                defaultMonth={selectedDate}
+                                captionLayout="dropdown"
+                                fromYear={2020}
+                                toYear={new Date().getFullYear() + 5}
+                                initialFocus
+                            />
+                        </PopoverContent>
+                    </Popover>
                     <button
                         type="button"
                         onClick={goNext}

@@ -26,6 +26,7 @@ export function getMarkFormConfig(markKey) {
     }
     if (
         markKey === 'sick_leave' ||
+        markKey === 'authorized_leave' ||
         markKey === 'unauthorized_leave' ||
         markKey === 'on_leave'
     ) {

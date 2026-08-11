@@ -840,6 +840,44 @@ export default function WorkDetailsModal({
                             </div>
                         )}
 
+                        {/* Work Location — Office / Site (drives Attendance tabs) */}
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Work Location <span className="text-red-500">*</span>
+                            </label>
+                            <div className="w-full md:flex-1">
+                                <div className="inline-flex items-center rounded-xl border border-gray-200 bg-gray-50 p-0.5">
+                                    <button
+                                        type="button"
+                                        disabled={submitting}
+                                        onClick={() => handleChange('staffType', 'office')}
+                                        className={`min-w-[5.5rem] px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
+                                            form.staffType !== 'site'
+                                                ? 'bg-white text-[#EA3D2F] shadow-sm'
+                                                : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                    >
+                                        Office
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={submitting}
+                                        onClick={() => handleChange('staffType', 'site')}
+                                        className={`min-w-[5.5rem] px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
+                                            form.staffType === 'site'
+                                                ? 'bg-white text-[#EA3D2F] shadow-sm'
+                                                : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                    >
+                                        Site
+                                    </button>
+                                </div>
+                                <p className="mt-1.5 text-xs text-gray-400">
+                                    Active employees appear under this group on the Attendance page.
+                                </p>
+                            </div>
+                        </div>
+
                         {/* Overtime Toggle */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">

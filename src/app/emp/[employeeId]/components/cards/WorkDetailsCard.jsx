@@ -235,6 +235,35 @@ export default function WorkDetailsCard({
                     { label: 'Company Email ID', value: employee.companyEmail || '—', show: !!employee.companyEmail },
                     { label: 'Work Email', value: employee.workEmail || '—', show: !!employee.workEmail },
                     {
+                        label: 'Work Location',
+                        value: (
+                            <span
+                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                    employee.staffType === 'site'
+                                        ? 'bg-amber-50 text-amber-700'
+                                        : 'bg-sky-50 text-sky-700'
+                                }`}
+                            >
+                                {employee.staffType === 'site' ? 'Site' : 'Office'}
+                            </span>
+                        ),
+                        show: !isCompanyProfile,
+                    },
+                    {
+                        label: 'Work Location (Pending Approval)',
+                        value:
+                            pendingWorkProposal?.proposedData?.staffType === 'site'
+                                ? 'Site'
+                                : pendingWorkProposal?.proposedData?.staffType === 'office'
+                                  ? 'Office'
+                                  : null,
+                        show:
+                            !isCompanyProfile &&
+                            !!pendingWorkProposal?.proposedData?.staffType &&
+                            pendingWorkProposal.proposedData.staffType !==
+                                (employee.staffType === 'site' ? 'site' : 'office'),
+                    },
+                    {
                         label: 'Portal Access',
                         value: (
                             <span className={`font-bold ${employee.enablePortalAccess ? 'text-emerald-500' : 'text-rose-500'}`}>

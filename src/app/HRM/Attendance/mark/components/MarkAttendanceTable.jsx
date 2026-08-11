@@ -16,11 +16,12 @@ const MARK_OPTIONS = [
         label: 'On leave',
         children: [
             { key: 'sick_leave', label: 'Sick leave' },
+            { key: 'authorized_leave', label: 'Authorized leave' },
             { key: 'unauthorized_leave', label: 'Unauthorized leave' },
         ],
     },
     { key: 'late_arrived', label: 'Late arrived' },
-    { key: 'not_marked', label: 'Not marked attendance' },
+    { key: 'clear_attendance', label: 'Clear attendance' },
 ];
 
 function formatDisplayTime(value) {
@@ -168,7 +169,11 @@ function MarkAttendanceMenu({ anchorRect, onSelect, onClose }) {
                         type="button"
                         role="menuitem"
                         onClick={() => onSelect(opt.key, opt.label)}
-                        className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                        className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${
+                            opt.key === 'clear_attendance'
+                                ? 'text-gray-500 border-t border-gray-100 mt-0.5'
+                                : 'text-gray-700'
+                        }`}
                     >
                         {opt.label}
                     </button>
@@ -385,31 +390,45 @@ export default function MarkAttendanceTable({ dateKey }) {
     const applyMarkToIds = async (ids, payload) => {
         const idSet = new Set(ids);
         const { markKey, markLabel, timeIn, timeOut, reason, attachmentName } = payload;
+        const isClear = markKey === 'clear_attendance';
 
-        const optimisticMarks = {};
-        idSet.forEach((id) => {
-            optimisticMarks[id] = {
-                key: markKey,
-                label: markLabel,
-                reason: reason || '',
-                attachmentName: attachmentName || '',
-            };
-        });
+        if (isClear) {
+            setMarks((prev) => {
+                const next = { ...prev };
+                idSet.forEach((id) => {
+                    delete next[id];
+                });
+                return next;
+            });
+            setEmployees((prev) =>
+                prev.map((e) => (idSet.has(e.id) ? { ...e, timeIn: '—', timeOut: '—' } : e)),
+            );
+        } else {
+            const optimisticMarks = {};
+            idSet.forEach((id) => {
+                optimisticMarks[id] = {
+                    key: markKey,
+                    label: markLabel,
+                    reason: reason || '',
+                    attachmentName: attachmentName || '',
+                };
+            });
 
-        setMarks((prev) => ({ ...prev, ...optimisticMarks }));
-        setEmployees((prev) =>
-            prev.map((e) => {
-                if (!idSet.has(e.id)) return e;
-                if (timeIn != null && timeOut != null) {
-                    return {
-                        ...e,
-                        timeIn: formatDisplayTime(timeIn),
-                        timeOut: formatDisplayTime(timeOut),
-                    };
-                }
-                return { ...e, timeIn: '—', timeOut: '—' };
-            }),
-        );
+            setMarks((prev) => ({ ...prev, ...optimisticMarks }));
+            setEmployees((prev) =>
+                prev.map((e) => {
+                    if (!idSet.has(e.id)) return e;
+                    if (timeIn != null && timeOut != null) {
+                        return {
+                            ...e,
+                            timeIn: formatDisplayTime(timeIn),
+                            timeOut: formatDisplayTime(timeOut),
+                        };
+                    }
+                    return { ...e, timeIn: '—', timeOut: '—' };
+                }),
+            );
+        }
 
         const marksPayload = employeesRef.current
             .filter((e) => idSet.has(e.id))

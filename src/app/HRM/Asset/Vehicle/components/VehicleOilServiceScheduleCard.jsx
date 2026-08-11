@@ -23,7 +23,6 @@ import {
 } from '../utils/vehicleOilServiceAccess';
 import {
     buildOilServiceDetailFormState,
-    buildOilServiceDetailSubmitBody,
     getOilServiceScheduleMissingFields,
     isOilServiceScheduleFormComplete,
 } from '../utils/vehicleOilServiceDetailForm';
@@ -102,9 +101,20 @@ export default function VehicleOilServiceScheduleCard({
         if (!canSubmitSchedule || !vehicleId || !serviceId) return;
         setSaving(true);
         try {
-            const body = buildOilServiceDetailSubmitBody(formData);
-            await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}`, body);
-            const { data } = await axiosInstance.post(`/AssetItem/${vehicleId}/service/${serviceId}/submit-request`);
+            // Admin Schedule uses /oil-dates (same as shop garage APIs) — not the Initiate PUT
+            // which is HR-only after Send until Zoho billed.
+            await axiosInstance.put(`/AssetItem/${vehicleId}/service/${serviceId}/oil-dates`, {
+                serviceStartDate: formData.serviceStartDate || '',
+                serviceEndDate: formData.serviceEndDate || '',
+                garageName: formData.garageName || '',
+                garageLocation: formData.garageLocation || '',
+                garageContact: formData.garageContact || '',
+                zohoVendorId: formData.zohoVendorId || '',
+                serviceIssue: formData.serviceIssue || '',
+            });
+            const { data } = await axiosInstance.post(
+                `/AssetItem/${vehicleId}/service/${serviceId}/submit-request`,
+            );
             toast({
                 title: 'Service scheduled',
                 description: 'Garage, dates, and description were submitted for this oil service.',

@@ -2939,6 +2939,7 @@ function EmployeeProfilePageContent() {
                 secondaryReportee: form.secondaryReportee || null,
                 companyEmail: form.companyEmail,
                 enablePortalAccess: form.enablePortalAccess,
+                staffType: form.staffType === 'site' ? 'site' : 'office',
             };
 
             const blockedStatuses = ['Termination', 'Resignation', 'Notice', 'Left User'];
@@ -9316,6 +9317,14 @@ function EmployeeProfilePageContent() {
                                         canReviewHeldPendingsAsHod={canReviewHeldPendingsAsHod}
                                         onOpenHeldPendingsReview={() => setShowHeldPendingsHodModal(true)}
                                         snapshotResolveContext={snapshotResolveContext}
+                                        onEnsureSnapshotLookups={() => {
+                                            if (
+                                                reportingAuthorityOptions.length === 0 &&
+                                                !reportingAuthorityLoading
+                                            ) {
+                                                fetchReportingAuthorities();
+                                            }
+                                        }}
                                     />
                                 </div>
 
@@ -10587,7 +10596,9 @@ function EmployeeProfilePageContent() {
 
             {approvalSubmitViewingChange && (() => {
                 const { previousRows: diffPrevRows, proposedRows: diffPropRows } =
-                    filterSnapshotRowsToChangesOnly(approvalSubmitViewingChange);
+                    filterSnapshotRowsToChangesOnly(approvalSubmitViewingChange, {
+                        resolveContext: snapshotResolveContext,
+                    });
                 return (
                     <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
                         <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">

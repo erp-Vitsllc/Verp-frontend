@@ -97,6 +97,7 @@ function ProfileHeader({
     canViewActivation = true,
     canCreateActivation = true,
     snapshotResolveContext = null,
+    onEnsureSnapshotLookups = null,
     className = '',
     compactHeader = false,
     stackProfileWithExtra = false,
@@ -337,6 +338,7 @@ function ProfileHeader({
         setShowRejectAllConfirm(false);
         setRejectAllReason('');
         setShowActivationModal(true);
+        onEnsureSnapshotLookups?.();
     };
 
     const handleActivationRejectAll = async () => {
@@ -1352,7 +1354,10 @@ function ProfileHeader({
                 </ModalPortal>
             )}
             {viewingChange && (() => {
-                const { previousRows: diffPrevRows, proposedRows: diffPropRows } = filterSnapshotRowsToChangesOnly(viewingChange);
+                const { previousRows: diffPrevRows, proposedRows: diffPropRows } = filterSnapshotRowsToChangesOnly(
+                    viewingChange,
+                    { resolveContext: snapshotResolveContext || {} },
+                );
                 return (
                     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
                         <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">

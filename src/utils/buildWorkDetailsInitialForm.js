@@ -67,5 +67,6 @@ export function buildWorkDetailsInitialForm(employee, holdEntryOverride = null) 
             ? effectiveWork.company?._id
             : (effectiveWork.company || ''),
         enablePortalAccess: effectiveWork.enablePortalAccess || false,
+        staffType: effectiveWork.staffType === 'site' ? 'site' : 'office',
     };
 }

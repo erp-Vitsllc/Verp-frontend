@@ -16,11 +16,12 @@ const MARK_OPTIONS = [
         label: 'On leave',
         children: [
             { key: 'sick_leave', label: 'Sick leave' },
+            { key: 'authorized_leave', label: 'Authorized leave' },
             { key: 'unauthorized_leave', label: 'Unauthorized leave' },
         ],
     },
     { key: 'late_arrived', label: 'Late arrived' },
-    { key: 'not_marked', label: 'Not marked attendance' },
+    { key: 'clear_attendance', label: 'Clear attendance' },
 ];
 
 function displayName(person) {
@@ -322,7 +323,11 @@ export default function AttendanceTeamTreeModal({
                                             key={opt.key}
                                             type="button"
                                             onClick={() => requestMark(opt.key, opt.label)}
-                                            className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                                            className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                                                opt.key === 'clear_attendance'
+                                                    ? 'text-slate-500 border-t border-slate-100 mt-0.5'
+                                                    : 'text-slate-700'
+                                            }`}
                                         >
                                             {opt.label}
                                         </button>

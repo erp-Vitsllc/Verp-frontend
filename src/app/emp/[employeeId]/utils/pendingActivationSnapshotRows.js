@@ -272,6 +272,11 @@ function buildWorkDetailsSnapshotRows(data, resolveContext = {}) {
     if (data.enablePortalAccess !== undefined && data.enablePortalAccess !== null) {
         pushScalarRow(rows, covered, 'Portal Access', data.enablePortalAccess, 'enablePortalAccess');
     }
+    if (data.staffType !== undefined && data.staffType !== null && data.staffType !== '') {
+        const loc = String(data.staffType).toLowerCase() === 'site' ? 'Site' : 'Office';
+        rows.push({ label: 'Work Location', value: loc });
+        covered.add('staffType');
+    }
     if (data.reportingAuthority) {
         rows.push({
             label: 'Reporting Authority',
@@ -502,12 +507,31 @@ export function activationSnapshotRowSignature(row) {
 }
 
 /**
+ * Keep only keys present on the proposed (edited) payload so the current card
+ * compares against the fields that were actually submitted — not the full prior card.
+ */
+export function scopeSnapshotToProposedKeys(previous = {}, proposed = {}) {
+    if (!proposed || typeof proposed !== 'object' || Array.isArray(proposed)) return {};
+    if (!previous || typeof previous !== 'object' || Array.isArray(previous)) return {};
+    const out = {};
+    for (const key of Object.keys(proposed)) {
+        if (Object.prototype.hasOwnProperty.call(previous, key)) {
+            out[key] = previous[key];
+        }
+    }
+    return out;
+}
+
+/**
  * Prior / proposed row lists limited to labels where displayed value or document URL differs.
- * Falls back to full rows if no differences are detected (legacy / shape mismatch).
+ * Rows are paired by label (same order on both sides). Only proposed-side fields are considered
+ * so partial update payloads do not surface untouched current-card fields.
+ * Falls back to proposed-scoped rows if no differences are detected (legacy / shape mismatch).
  */
 export function filterSnapshotRowsToChangesOnly(entry, options = {}) {
-    const prevData = resolveActivationSnapshot(entry, 'previous');
+    const prevDataFull = resolveActivationSnapshot(entry, 'previous');
     const propData = resolveActivationSnapshot(entry, 'proposed');
+    const prevData = scopeSnapshotToProposedKeys(prevDataFull, propData);
     const rowOpts = { entry, resolveContext: options.resolveContext || {} };
     const prevRows = buildActivationSnapshotRows(prevData, rowOpts);
     const propRows = buildActivationSnapshotRows(propData, rowOpts);
@@ -519,31 +543,33 @@ export function filterSnapshotRowsToChangesOnly(entry, options = {}) {
     for (const r of prevRows) {
         if (!prevByLabel.has(r.label)) prevByLabel.set(r.label, r);
     }
-    const propLabels = new Set(propRows.map((r) => r.label));
-    const changed = new Set();
+    const propByLabel = new Map();
+    for (const r of propRows) {
+        if (!propByLabel.has(r.label)) propByLabel.set(r.label, r);
+    }
 
+    const changedLabels = [];
+    const seen = new Set();
     for (const pr of propRows) {
         const oldR = prevByLabel.get(pr.label);
-        if (!oldR) {
-            changed.add(pr.label);
-            continue;
-        }
-        if (activationSnapshotRowSignature(oldR) !== activationSnapshotRowSignature(pr)) {
-            changed.add(pr.label);
-        }
-    }
-    for (const r of prevRows) {
-        if (!propLabels.has(r.label)) changed.add(r.label);
+        const differs =
+            !oldR || activationSnapshotRowSignature(oldR) !== activationSnapshotRowSignature(pr);
+        if (!differs || seen.has(pr.label)) continue;
+        seen.add(pr.label);
+        changedLabels.push(pr.label);
     }
 
-    if (changed.size === 0) {
-        return { previousRows: prevRows, proposedRows: propRows, usedFullFallback: true };
+    const placeholder = (label) => ({ label, value: '-' });
+    const pairRows = (labels) => ({
+        previousRows: labels.map((label) => prevByLabel.get(label) || placeholder(label)),
+        proposedRows: labels.map((label) => propByLabel.get(label) || placeholder(label)),
+    });
+
+    if (changedLabels.length === 0) {
+        const propLabels = propRows.map((r) => r.label);
+        return { ...pairRows(propLabels), usedFullFallback: true };
     }
-    return {
-        previousRows: prevRows.filter((r) => changed.has(r.label)),
-        proposedRows: propRows.filter((r) => changed.has(r.label)),
-        usedFullFallback: false,
-    };
+    return { ...pairRows(changedLabels), usedFullFallback: false };
 }
 
 export function formatSnapshotFallbackJson(value) {

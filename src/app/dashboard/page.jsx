@@ -37,6 +37,7 @@ import { PAYMENT_PENDING_INBOX_CHANGED } from '@/app/Accounts/Payments/utils/pay
 import { REWARD_PENDING_INBOX_CHANGED } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 import { LOAN_PENDING_INBOX_CHANGED } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
 import DashboardAttendanceCalendar from '@/app/dashboard/components/DashboardAttendanceCalendar';
+import DashboardCheckInOutCard from '@/app/dashboard/components/DashboardCheckInOutCard';
 
 import {
     isDashboardPendingItem,
@@ -1595,39 +1596,8 @@ function DashboardContent() {
 
 
 
-                                    {/* Card 2: Net Profit Margin (Dummy) */}
-
-                                    <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] overflow-hidden">
-
-                                        <div>
-
-                                            <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">Net Profit Margin</h3>
-
-                                            <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">Measures your business at generating prof... <span className="text-blue-500 cursor-pointer hover:underline">Learn more</span></p>
-
-                                        </div>
-
-                                        <div className="flex items-center justify-center py-2 sm:py-4">
-
-                                            <div className="relative w-28 h-28 sm:w-36 sm:h-36 lg:w-44 lg:h-44 rounded-full flex items-center justify-center">
-
-                                                {/* Background Circle */}
-
-                                                <svg className="absolute w-full h-full transform -rotate-90" viewBox="0 0 160 160">
-
-                                                    <circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="12" fill="transparent" />
-
-                                                    <circle cx="80" cy="80" r="70" stroke="#3b82f6" strokeWidth="12" fill="transparent" strokeDasharray="440" strokeDashoffset="140" strokeLinecap="round" />
-
-                                                </svg>
-
-                                                <span className="text-2xl sm:text-3xl lg:text-4xl font-black text-blue-600">68%</span>
-
-                                            </div>
-
-                                        </div>
-
-                                    </div>
+                                    {/* Card 2: Check In / Out with live timer */}
+                                    <DashboardCheckInOutCard />
 
 
 
