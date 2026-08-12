@@ -18,6 +18,12 @@ import {
     pickFlowchartAdminRow,
 } from './vehicleHandoverAssignWorkflow';
 import { resolveShopServiceFlowchartActors } from './vehicleShopServiceWorkflowActors';
+import {
+    buildServiceEditTimelineEvents,
+    collectHistoryEditActivities,
+    collectRemarkEditActivities,
+    insertTimelineEventsAfterStep,
+} from './vehicleServiceEditTimeline';
 
 /** Same labels as Oil cash — kept local to avoid circular import with oil workflow utils. */
 export const SHOP_SERVICE_CASH_WORKFLOW_STEPS = [
@@ -534,7 +540,19 @@ export function buildShopServiceDetailWorkflowEvents(
         hrEvent.badgeVariant = 'pending';
     }
 
-    return events;
+    return appendShopEditEventsBetweenScheduleAndHr(events, remark, history, activityLogKey);
+}
+
+function appendShopEditEventsBetweenScheduleAndHr(events, remark, history, activityLogKey = '') {
+    const editActivities = [
+        ...collectRemarkEditActivities(remark, activityLogKey),
+        ...collectHistoryEditActivities(history),
+    ];
+    const editEvents = buildServiceEditTimelineEvents(editActivities, {
+        idPrefix: 'shop-edit',
+        slot: 'mid',
+    });
+    return insertTimelineEventsAfterStep(events, 2, editEvents);
 }
 
 /** Accident Repair: no quotation HR before garage — HR is On-Service approval. */
@@ -724,5 +742,5 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
         hrEvent.detail = 'Flowchart HR must approve (opens with Schedule)';
     }
 
-    return events;
+    return appendShopEditEventsBetweenScheduleAndHr(events, remark, history, 'tireActivityLog');
 }

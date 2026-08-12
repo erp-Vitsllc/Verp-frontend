@@ -30,6 +30,11 @@ import {
     serviceEndDisabledDays,
     serviceStartDisabledDays,
 } from '../utils/vehicleServiceScheduleDates';
+import {
+    getScheduleSubmitButtonLabel,
+    getScheduleSubmitStatus,
+    getScheduleSubmitStatusLabel,
+} from '../utils/vehicleServiceScheduleSubmitStatus';
 
 const fieldInput =
     'w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed';
@@ -71,6 +76,8 @@ export default function VehicleOilServiceScheduleCard({
     );
     const initiated = isOilServiceInitiated(remark);
     const submitted = isOilServiceAssignmentSubmitted(remark);
+    const scheduleSubmitStatus = getScheduleSubmitStatus(remark);
+    const scheduleStatusLabel = getScheduleSubmitStatusLabel(scheduleSubmitStatus);
     const awaitingSchedule = isOilServiceAwaitingSchedule(remark);
     const stepLocked = scheduleGate.locked;
     // Admin Officer: edit anytime once unlocked, until service complete.
@@ -116,7 +123,7 @@ export default function VehicleOilServiceScheduleCard({
                 `/AssetItem/${vehicleId}/service/${serviceId}/submit-request`,
             );
             toast({
-                title: 'Service scheduled',
+                title: 'Schedule submitted',
                 description: 'Garage, dates, and description were submitted for this oil service.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset || asset);
@@ -144,12 +151,12 @@ export default function VehicleOilServiceScheduleCard({
                 zohoVendorId: formData.zohoVendorId || '',
                 serviceIssue: formData.serviceIssue || '',
             });
-            toast({ title: 'Schedule updated', description: 'Garage and dates were saved.' });
+            toast({ title: 'Schedule resubmitted', description: 'Garage and dates were saved.' });
             if (typeof onUpdated === 'function') onUpdated(data?.asset || asset);
         } catch (error) {
             toast({
                 variant: 'destructive',
-                title: 'Could not update schedule',
+                title: 'Could not resubmit schedule',
                 description: error.response?.data?.message || 'Try again in a moment.',
             });
         } finally {
@@ -267,7 +274,7 @@ export default function VehicleOilServiceScheduleCard({
                     {missingFields.length > 0 ? (
                         <p className="mb-3 text-xs text-amber-700">Still required: {missingFields.join(', ')}</p>
                     ) : null}
-                    <div className="flex justify-end">
+                    <div className="flex items-center justify-end gap-3">
                         <button
                             type="button"
                             onClick={() => void handleSubmitSchedule()}
@@ -275,19 +282,24 @@ export default function VehicleOilServiceScheduleCard({
                             className="min-w-[140px] rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
                             title={missingFields.length ? `Missing: ${missingFields.join(', ')}` : ''}
                         >
-                            {saving ? 'Submitting...' : 'OK'}
+                            {getScheduleSubmitButtonLabel({ status: '', saving })}
                         </button>
                     </div>
                 </div>
             ) : submitted && canManage ? (
-                <div className="mt-4 flex justify-end border-t border-gray-100 pt-4">
+                <div className="mt-4 flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
+                    {scheduleStatusLabel ? (
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-700 border border-emerald-100">
+                            {scheduleStatusLabel}
+                        </span>
+                    ) : null}
                     <button
                         type="button"
                         onClick={() => void handleUpdateSchedule()}
                         disabled={!canUpdateSchedule}
                         className="min-w-[140px] rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                        {saving ? 'Updating...' : 'Update'}
+                        {getScheduleSubmitButtonLabel({ status: scheduleSubmitStatus || 'submitted', saving })}
                     </button>
                 </div>
             ) : null}

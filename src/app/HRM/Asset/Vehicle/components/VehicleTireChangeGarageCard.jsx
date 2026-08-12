@@ -36,6 +36,11 @@ import {
     serviceEndDisabledDays,
     serviceStartDisabledDays,
 } from '../utils/vehicleServiceScheduleDates';
+import {
+    getScheduleSubmitButtonLabel,
+    getScheduleSubmitStatus,
+    getScheduleSubmitStatusLabel,
+} from '../utils/vehicleServiceScheduleSubmitStatus';
 
 export default function VehicleTireChangeGarageCard({
     asset,
@@ -52,6 +57,11 @@ export default function VehicleTireChangeGarageCard({
     const [formData, setFormData] = useState(() => buildTireChangeGarageFormState(service, asset));
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
+    const scheduleSubmitStatus = getScheduleSubmitStatus(
+        remark,
+        asset?.activeServiceWorkflow,
+    );
+    const scheduleStatusLabel = getScheduleSubmitStatusLabel(scheduleSubmitStatus);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const stage = String(workflowStage || '').toLowerCase();
     const isComplete = stage === TIRE_CHANGE_WORKFLOW_STAGES.COMPLETE;
@@ -101,8 +111,10 @@ export default function VehicleTireChangeGarageCard({
                 body,
             );
             toast({
-                title: 'Service scheduled',
-                description: 'Garage and dates were submitted for this tire change.',
+                title: scheduleSubmitStatus ? 'Schedule resubmitted' : 'Schedule submitted',
+                description: scheduleSubmitStatus
+                    ? 'Garage and dates were resubmitted for this tire change.'
+                    : 'Garage and dates were submitted for this tire change.',
             });
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (error) {
@@ -225,7 +237,12 @@ export default function VehicleTireChangeGarageCard({
             </div>
 
             {canEditGarage ? (
-                <div className="mt-4 flex justify-end border-t border-gray-100 pt-4">
+                <div className="mt-4 flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
+                    {scheduleStatusLabel ? (
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-700 border border-emerald-100">
+                            {scheduleStatusLabel}
+                        </span>
+                    ) : null}
                     <button
                         type="button"
                         disabled={saving}
@@ -235,10 +252,13 @@ export default function VehicleTireChangeGarageCard({
                         {saving ? (
                             <span className="inline-flex items-center justify-center gap-2">
                                 <Loader2 size={14} className="animate-spin" />
-                                Submitting...
+                                {getScheduleSubmitButtonLabel({
+                                    status: scheduleSubmitStatus,
+                                    saving: true,
+                                })}
                             </span>
                         ) : (
-                            'OK'
+                            getScheduleSubmitButtonLabel({ status: scheduleSubmitStatus })
                         )}
                     </button>
                 </div>

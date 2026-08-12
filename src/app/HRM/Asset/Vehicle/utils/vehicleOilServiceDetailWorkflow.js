@@ -11,6 +11,11 @@ import {
     pickFlowchartAdminRow,
 } from './vehicleHandoverAssignWorkflow';
 import { resolveShopServiceFlowchartActors } from './vehicleShopServiceWorkflowActors';
+import {
+    buildServiceEditTimelineEvents,
+    dedupeScheduleEditActivities,
+    insertTimelineEventsAfterStep,
+} from './vehicleServiceEditTimeline';
 
 /** Warranty (no payment) — Initiate → Schedule → On Service → Complete Service. */
 export const OIL_SERVICE_WORKFLOW_STEPS = [
@@ -288,13 +293,24 @@ function buildLegacyOilActivityLog(service, asset, remark, { history, stage, flo
     }
 
     history
-        .filter((h) => h.action === 'date_change')
+        .filter((h) =>
+            ['date_change', 'schedule_resubmitted', 'initiate_edited'].includes(
+                String(h.action || '').toLowerCase(),
+            ),
+        )
         .forEach((h) => {
+            const action = String(h.action || '').toLowerCase();
             legacy.push({
-                type: 'date_change',
+                type: action,
                 at: h.at,
                 byName: resolveOilActorName(h.byName, actorOpts),
-                note: h.note || 'Service date updated',
+                note:
+                    h.note ||
+                    (action === 'initiate_edited'
+                        ? 'Initiate Service updated'
+                        : action === 'schedule_resubmitted'
+                          ? 'Schedule resubmitted'
+                          : 'Service date updated'),
                 field: h.field,
                 from: h.from,
                 to: h.to,
@@ -493,34 +509,12 @@ function buildStepEvent(step, { isDone, isActive, isRejected, actor, date, detai
     };
 }
 
-function buildDateChangeEvents(activities, slot = 'pre') {
-    return activities
-        .filter((a) => a.type === 'date_change')
-        .map((a, index) => {
-            const fieldLabel = a.field === 'end' ? 'End date' : 'Start date';
-            const detail =
-                a.from || a.to
-                    ? `${fieldLabel}: ${formatOilDate(a.from)} → ${formatOilDate(a.to)}`
-                    : a.note || 'Service date updated';
-
-            return {
-                id: `oil-date-change-${slot}-${index}-${a.at || index}`,
-                kind: 'schedule-edit',
-                label: a.note || 'Service date updated',
-                badge: 'Done',
-                badgeVariant: 'approved',
-                actor: a.byName || 'Admin',
-                date: a.at,
-                detail,
-                connectorGreen: true,
-                isLast: false,
-            };
-        });
-}
-
-function partitionDateChangeEvents(activities, service, asset) {
-    const dateActivities = activities.filter((a) => a.type === 'date_change');
-    if (!dateActivities.length) {
+function partitionServiceEditActivities(activities, service, asset) {
+    const editTypes = new Set(['date_change', 'schedule_resubmitted', 'initiate_edited']);
+    const editActivities = dedupeScheduleEditActivities(
+        activities.filter((a) => editTypes.has(a.type)),
+    );
+    if (!editActivities.length) {
         return { beforeOnService: [], afterOnService: [] };
     }
 
@@ -532,7 +526,12 @@ function partitionDateChangeEvents(activities, service, asset) {
     const before = [];
     const after = [];
 
-    for (const activity of dateActivities) {
+    for (const activity of editActivities) {
+        // Initiate / schedule edits always sit between Schedule and next stage.
+        if (activity.type === 'schedule_resubmitted' || activity.type === 'initiate_edited') {
+            before.push(activity);
+            continue;
+        }
         const changeMs = activity.at ? new Date(activity.at).getTime() : 0;
         const isBeforeOnService =
             waiting || (!live && (onServiceMs == null || changeMs < onServiceMs));
@@ -541,8 +540,14 @@ function partitionDateChangeEvents(activities, service, asset) {
     }
 
     return {
-        beforeOnService: buildDateChangeEvents(before, 'pre'),
-        afterOnService: buildDateChangeEvents(after, 'post'),
+        beforeOnService: buildServiceEditTimelineEvents(before, {
+            idPrefix: 'oil-edit',
+            slot: 'pre',
+        }),
+        afterOnService: buildServiceEditTimelineEvents(after, {
+            idPrefix: 'oil-edit',
+            slot: 'post',
+        }),
     };
 }
 
@@ -790,42 +795,37 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
         });
     });
 
-    const { beforeOnService: dateEventsBeforeOnService, afterOnService: dateEventsAfterOnService } =
-        partitionDateChangeEvents(activities, service, asset);
+    const { beforeOnService: editEventsBeforeOnService, afterOnService: editEventsAfterOnService } =
+        partitionServiceEditActivities(activities, service, asset);
 
-    const decorateDateEvents = (rows) =>
-        rows.map((row) => ({
-            ...row,
-            actor:
-                formatTrackerActorName(
-                    resolveOilActorName(row.actor, { remark, asset, service, flowchartActors, flowchartRows }),
-                ) || adminOfficer,
-        }));
+    const midScheduleEdits = editEventsBeforeOnService;
+    const postOnServiceEdits = editEventsAfterOnService;
 
     if (!isCash) {
         const [initiateStep, scheduledStep, onServiceStep, endServiceStep] = workflowEvents;
 
-        const tailCount = dateEventsAfterOnService.length + (endServiceStep ? 1 : 0);
-        if (onServiceStep) {
-            onServiceStep.isLast = tailCount === 0;
-            onServiceStep.connectorGreen = currentActiveStepId > 3;
+        const withEdits = insertTimelineEventsAfterStep(
+            [initiateStep, scheduledStep, onServiceStep, endServiceStep].filter(Boolean),
+            2,
+            midScheduleEdits,
+        );
+        // Keep post-on-service date extends after On Service step.
+        const onServiceIdx = withEdits.findIndex((e) => Number(e.stepNumber) === 3);
+        let ordered = withEdits;
+        if (postOnServiceEdits.length && onServiceIdx >= 0) {
+            ordered = [
+                ...withEdits.slice(0, onServiceIdx + 1),
+                ...postOnServiceEdits,
+                ...withEdits.slice(onServiceIdx + 1),
+            ];
         }
-        if (endServiceStep) {
-            endServiceStep.isLast = true;
-            endServiceStep.connectorGreen = currentActiveStepId > 4;
-        }
-
-        return [
-            initiateStep,
-            scheduledStep,
-            ...decorateDateEvents(dateEventsBeforeOnService),
-            onServiceStep,
-            ...decorateDateEvents(dateEventsAfterOnService),
-            endServiceStep,
-        ].filter(Boolean);
+        ordered.forEach((row, i) => {
+            row.isLast = i === ordered.length - 1;
+        });
+        return ordered.filter(Boolean);
     }
 
-    // Cash: Initiate → Schedule + HR (parallel) → Accounts → On Service → Complete → Make Payment
+    // Cash: Initiate → Schedule → [edits] → HR → Accounts → On Service → Complete → Make Payment
     const [
         initiateStep,
         scheduledStep,
@@ -863,15 +863,31 @@ export function buildOilServiceDetailWorkflowEvents(asset, service, flowchartRow
         accountsStep.isLast = true;
     }
 
-    return [
-        initiateStep,
-        scheduledStep,
-        hrStep,
-        accountsQuoteStep,
-        ...decorateDateEvents(dateEventsBeforeOnService),
-        onServiceStep,
-        ...decorateDateEvents(dateEventsAfterOnService),
-        endServiceStep,
-        accountsStep,
-    ].filter(Boolean);
+    let cashOrdered = insertTimelineEventsAfterStep(
+        [
+            initiateStep,
+            scheduledStep,
+            hrStep,
+            accountsQuoteStep,
+            onServiceStep,
+            endServiceStep,
+            accountsStep,
+        ].filter(Boolean),
+        2,
+        midScheduleEdits,
+    );
+    if (postOnServiceEdits.length) {
+        const onIdx = cashOrdered.findIndex((e) => Number(e.stepNumber) === 5);
+        if (onIdx >= 0) {
+            cashOrdered = [
+                ...cashOrdered.slice(0, onIdx + 1),
+                ...postOnServiceEdits,
+                ...cashOrdered.slice(onIdx + 1),
+            ];
+        }
+    }
+    cashOrdered.forEach((row, i) => {
+        row.isLast = i === cashOrdered.length - 1;
+    });
+    return cashOrdered.filter(Boolean);
 }
