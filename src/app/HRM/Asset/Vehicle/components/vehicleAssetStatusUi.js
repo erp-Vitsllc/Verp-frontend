@@ -250,9 +250,39 @@ export function resolveVehicleListAssignedToDisplay(vehicle) {
 
 /**
  * Fleet list Service Status — "On Service" when a service is ongoing / pending, else empty.
+ * After Complete Service (or Car Wash send), Accounts Zoho billing must NOT show On Service.
  */
 export function resolveVehicleListServiceStatusLabel(vehicle) {
     if (!vehicle) return '';
+
+    const wf = vehicle.activeServiceWorkflow || {};
+    const stage = String(wf.stage || '')
+        .toLowerCase()
+        .trim();
+    const typeLabel = String(wf.serviceTypeLabel || wf.serviceType || '')
+        .trim()
+        .toLowerCase();
+
+    if (wf.serviceWorkCompleted === true) {
+        return '';
+    }
+
+    // Billing / closed stages — service work is done (or never On Service).
+    if (
+        stage === 'pending_billing' ||
+        stage === 'billed' ||
+        stage === 'complete' ||
+        stage === 'completed' ||
+        stage === 'rejected' ||
+        stage === 'cancelled' ||
+        stage === 'canceled'
+    ) {
+        return '';
+    }
+    // Oil cash Make Payment uses pending_accounts after Complete Service only.
+    if (stage === 'pending_accounts' && typeLabel.includes('oil')) {
+        return '';
+    }
 
     if (vehicle.onServiceActive === true) return 'On Service';
 
@@ -268,10 +298,6 @@ export function resolveVehicleListServiceStatusLabel(vehicle) {
         return 'On Service';
     }
 
-    const wf = vehicle.activeServiceWorkflow || {};
-    const stage = String(wf.stage || '')
-        .toLowerCase()
-        .trim();
     const hasActiveRecord = Boolean(
         String(wf.serviceRecordId || wf.serviceId || '').trim(),
     );

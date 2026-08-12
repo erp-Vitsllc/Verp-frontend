@@ -619,7 +619,7 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
                   return { label: 'Complete', tone: 'complete' };
               }
               if (stage === 'pending_billing' || stage === 'pending_accounts') {
-                  return { label: 'Incomplete — Waiting for Expense', tone: 'pending' };
+                  return { label: 'Completed', tone: 'complete' };
               }
               if (paymentStatus === 'not_paid' || stage === 'complete') {
                   return { label: 'Not paid', tone: 'complete' };

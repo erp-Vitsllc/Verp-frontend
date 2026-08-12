@@ -124,6 +124,91 @@ function isFineWorkflowConnectorGreen(step, fine, workflow = []) {
     return false;
 }
 
+/** Higher = further in the approval pipeline (used to block soft-refresh status regression). */
+const FINE_STATUS_RANK = {
+    Draft: 0,
+    Pending: 1,
+    'Pending Review': 1,
+    'Pending HR': 1,
+    'Pending Accounts': 2,
+    'Pending Finance': 2,
+    'Pending Authorization': 3,
+    'Pending Management': 3,
+    Approved: 4,
+    Active: 4,
+    Completed: 4,
+    Paid: 5,
+    Rejected: 4,
+    Cancelled: 4,
+    Withdrawn: 4,
+};
+
+function fineStatusRank(status) {
+    return FINE_STATUS_RANK[String(status || '')] ?? -1;
+}
+
+function roleForFineStatus(status) {
+    const s = String(status || '');
+    if (s === 'Pending HR' || s === 'Pending Review' || s === 'Pending') return 'HR';
+    if (s === 'Pending Accounts' || s === 'Pending Finance') return 'Accounts';
+    if (s === 'Pending Authorization' || s === 'Pending Management') return 'Management';
+    return null;
+}
+
+/** Optimistic status + mark the current pending workflow step Approved so Approve/Reject hide immediately. */
+function applyOptimisticFineAction(prev, { fromStatus, toStatus, isReject = false }) {
+    if (!prev || !toStatus) return prev;
+    const workflow = Array.isArray(prev.workflow)
+        ? prev.workflow.map((step) => ({ ...step }))
+        : [];
+    const fromRole = roleForFineStatus(fromStatus);
+    if (fromRole) {
+        const roles = fromRole === 'Management' ? ['Management', 'CEO'] : [fromRole];
+        const pending = workflow.find((w) => w.status === 'Pending' && roles.includes(w.role));
+        if (pending) {
+            pending.status = isReject ? 'Rejected' : 'Approved';
+            pending.actionedAt = new Date().toISOString();
+        }
+    }
+    return {
+        ...prev,
+        fineStatus: toStatus,
+        workflow,
+        ...(isReject ? { rejectionReason: prev.rejectionReason } : {}),
+    };
+}
+
+function mergeFinePreferringAdvancedStatus(prev, incoming, lockedStatus = null) {
+    if (!incoming) return prev;
+    if (!prev) {
+        if (lockedStatus && fineStatusRank(lockedStatus) > fineStatusRank(incoming.fineStatus)) {
+            return { ...incoming, fineStatus: lockedStatus };
+        }
+        return incoming;
+    }
+    const preferredStatus = [lockedStatus, prev.fineStatus, incoming.fineStatus]
+        .filter(Boolean)
+        .sort((a, b) => fineStatusRank(b) - fineStatusRank(a))[0];
+    const merged = {
+        ...prev,
+        ...incoming,
+        fineStatus: preferredStatus || incoming.fineStatus || prev.fineStatus,
+    };
+    // Keep local workflow if refresh returned an older pending step after we just approved.
+    if (
+        fineStatusRank(prev.fineStatus) >= fineStatusRank(incoming.fineStatus) &&
+        Array.isArray(prev.workflow) &&
+        prev.workflow.length > 0
+    ) {
+        const prevHasAdvanced = prev.workflow.some((w) => w.status === 'Approved' || w.status === 'Rejected');
+        const incomingPendingOnly = (incoming.workflow || []).every((w) => w.status !== 'Approved');
+        if (prevHasAdvanced && incomingPendingOnly) {
+            merged.workflow = prev.workflow;
+        }
+    }
+    return merged;
+}
+
 /** Base fine portion for one row (never includes service charge). */
 function getFineBaseRowAmount(fine, emp, isCo) {
     if (isCo) {
@@ -191,6 +276,8 @@ function FineDetailsPageContent() {
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
     const confirmActionInFlightRef = useRef(false);
+    /** Prevent soft-refresh from regressing status after a successful approve/reject. */
+    const lockedFineStatusRef = useRef(null);
     const [imageError, setImageError] = useState(false);
     const [activeTab, setActiveTab] = useState('fineForm'); // 'fineForm', 'historyDetails', 'approvedAttachments'
     const [assetDetails, setAssetDetails] = useState(null);
@@ -271,6 +358,7 @@ function FineDetailsPageContent() {
             }
 
             const rollBackFineStatus = () => {
+                lockedFineStatusRef.current = null;
                 if (!currentFineStatus) return;
                 setFine((prev) =>
                     prev ? { ...prev, fineStatus: currentFineStatus } : prev,
@@ -278,7 +366,14 @@ function FineDetailsPageContent() {
             };
 
             if (optimisticStatus) {
-                setFine((prev) => (prev ? { ...prev, fineStatus: optimisticStatus } : prev));
+                lockedFineStatusRef.current = optimisticStatus;
+                setFine((prev) =>
+                    applyOptimisticFineAction(prev, {
+                        fromStatus: currentFineStatus,
+                        toStatus: optimisticStatus,
+                        isReject: action === 'reject' || optimisticStatus === 'Rejected',
+                    }),
+                );
             }
 
             // PDF is generated on the server after Approved — do not block UI.
@@ -287,7 +382,9 @@ function FineDetailsPageContent() {
             if (action === 'approve') {
                 const isAccountsStage =
                     currentFineStatus === 'Pending Accounts' || currentFineStatus === 'Pending Finance';
-                const isManagementStage = currentFineStatus === 'Pending Authorization';
+                const isManagementStage =
+                    currentFineStatus === 'Pending Authorization' ||
+                    currentFineStatus === 'Pending Management';
 
                 const groupParties = Array.isArray(partyPayables) && partyPayables.length > 0
                     ? partyPayables
@@ -406,12 +503,16 @@ function FineDetailsPageContent() {
                     }
                 }
                 res = await axiosInstance.put(`/Fine/${targetId}/approve`, approveBody);
+                const serverStatus = res?.data?.fine?.fineStatus || optimisticStatus;
+                if (serverStatus) lockedFineStatusRef.current = serverStatus;
                 if (res?.data?.fine) {
-                    setFine((prev) => ({
-                        ...(prev || {}),
-                        ...res.data.fine,
-                        fineStatus: res.data.fine.fineStatus || optimisticStatus || prev?.fineStatus,
-                    }));
+                    setFine((prev) =>
+                        mergeFinePreferringAdvancedStatus(prev, res.data.fine, lockedFineStatusRef.current),
+                    );
+                } else if (optimisticStatus) {
+                    setFine((prev) =>
+                        prev ? { ...prev, fineStatus: optimisticStatus } : prev,
+                    );
                 }
                 toast({
                     title: "Success",
@@ -436,6 +537,14 @@ function FineDetailsPageContent() {
                     fineStatus: 'Rejected',
                     rejectionReason: rejectionReason
                 });
+                lockedFineStatusRef.current = 'Rejected';
+                if (res?.data?.fine) {
+                    setFine((prev) =>
+                        mergeFinePreferringAdvancedStatus(prev, res.data.fine, 'Rejected'),
+                    );
+                } else {
+                    setFine((prev) => (prev ? { ...prev, fineStatus: 'Rejected', rejectionReason } : prev));
+                }
                 toast({
                     title: "Success",
                     description: "Fine rejected successfully.",
@@ -458,6 +567,12 @@ function FineDetailsPageContent() {
                 }
 
                 res = await axiosInstance.put(`/Fine/${targetId}/status`, payload);
+                if (status) lockedFineStatusRef.current = status;
+                if (res?.data?.fine) {
+                    setFine((prev) =>
+                        mergeFinePreferringAdvancedStatus(prev, res.data.fine, lockedFineStatusRef.current),
+                    );
+                }
                 toast({
                     title: "Success",
                     description: `Fine status updated to ${status}.`,
@@ -466,13 +581,15 @@ function FineDetailsPageContent() {
                 });
             }
 
-            // Soft refresh for names / Zoho ids (status already updated in UI)
-            void refreshData();
+            // Soft refresh for names / Zoho ids (never regress status — Approve/Reject must hide on first success)
+            await refreshData();
             notifyFinePendingInboxChanged();
         } catch (err) {
             console.error("Action error:", err);
-            void refreshData();
             const isDedupe = err?.code === 'ACTION_DEDUPED' || /duplicate request blocked/i.test(String(err?.message || ''));
+            // Keep locked status on dedupe (first approve likely already succeeded); otherwise roll back lock via refresh.
+            if (!isDedupe) lockedFineStatusRef.current = null;
+            await refreshData();
             if (!isDedupe && !err?.silent) {
                 toast({
                     title: "Error",
@@ -559,7 +676,9 @@ function FineDetailsPageContent() {
 
         const isAccountsStage =
             fine?.fineStatus === 'Pending Accounts' || fine?.fineStatus === 'Pending Finance';
-        const isManagementStage = fine?.fineStatus === 'Pending Authorization';
+        const isManagementStage =
+            fine?.fineStatus === 'Pending Authorization' ||
+            fine?.fineStatus === 'Pending Management';
 
         if (isAccountsStage) {
             const groupParties = Array.isArray(partyPayables) && partyPayables.length > 0
@@ -678,7 +797,17 @@ function FineDetailsPageContent() {
         try {
             if (!id) return;
             const fineRes = await axiosInstance.get(`/Fine/${id}`);
-            setFine(fineRes.data);
+            const incoming = fineRes.data;
+            setFine((prev) =>
+                mergeFinePreferringAdvancedStatus(prev, incoming, lockedFineStatusRef.current),
+            );
+            // Only clear the lock once the server itself has caught up (not just local merge).
+            if (
+                lockedFineStatusRef.current &&
+                fineStatusRank(incoming?.fineStatus) >= fineStatusRank(lockedFineStatusRef.current)
+            ) {
+                lockedFineStatusRef.current = null;
+            }
         } catch (e) {
             console.error('Fine soft refresh failed, reloading page', e);
             window.location.reload();
@@ -2011,7 +2140,7 @@ function FineDetailsPageContent() {
                                             while (cells.length < 6) {
                                                 cells.push(<div key={`pad-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-300 opacity-40`}><span className="text-[10px]">—</span><span>—</span></div>);
                                             }
-                                        } else if (canPerformAction()) {
+                                        } else if (canPerformAction() && !actionLoading) {
                                             if (isDraft) {
                                                 cells.push(
                                                     <button key="submit" type="button" onClick={() => handleUpdateStatus('Pending')} className={`${compactBox} border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100`}>

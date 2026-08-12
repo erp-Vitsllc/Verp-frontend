@@ -129,13 +129,13 @@ export function resolveOilServiceHeaderStatus(service, asset) {
     }
     if (stage === 'pending_accounts' && vehicleServiceDone) {
         return {
-            label: 'Complete — awaiting billing',
-            boxClass: 'bg-amber-50 border-amber-100 text-amber-800',
+            label: 'Completed',
+            boxClass: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         };
     }
     if (stage === 'complete' || vehicleServiceDone) {
         return {
-            label: 'Complete',
+            label: 'Completed',
             boxClass: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         };
     }

@@ -609,7 +609,7 @@ export default function VehicleCarWashRequestModal({
                 title: 'Store to Zoho Expense failed',
                 description:
                     error.response?.data?.message ||
-                    'Could not create Zoho Expense. Status stays Incomplete until Zoho succeeds.',
+                    'Could not create Zoho Expense. Service stays Completed; retry Zoho Expense when ready.',
             });
         } finally {
             setLoading(false);
@@ -868,7 +868,7 @@ export default function VehicleCarWashRequestModal({
                                     <Calendar size={14} className="text-slate-400 shrink-0" />
                                     <span>
                                         {accountsReviewMode
-                                            ? 'Incomplete until Zoho Expense succeeds'
+                                            ? 'Completed — store Zoho Expense'
                                             : `Dated ${formatDatedHeader(new Date())}`}
                                     </span>
                                 </p>

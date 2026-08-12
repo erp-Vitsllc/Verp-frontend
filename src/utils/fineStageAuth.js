@@ -56,11 +56,23 @@ function getFlowchartEmployeeIdForRole(fine, expectedRole) {
     return null;
 }
 
+const TERMINAL_FINE_STATUSES = new Set([
+    'Approved',
+    'Active',
+    'Completed',
+    'Paid',
+    'Rejected',
+    'Cancelled',
+    'Withdrawn',
+]);
+
 /**
  * Current flowchart assignee OR stored workflow assignee may act (+ Admin).
+ * Terminal statuses never show Approve/Reject — including for portal admin.
  */
 export function canUserActOnFineStage({ user, fine, isAdmin = false }) {
     if (!user || !fine) return false;
+    if (TERMINAL_FINE_STATUSES.has(String(fine.fineStatus || ''))) return false;
     if (isAdmin) return true;
 
     const workflow = fine.workflow || [];

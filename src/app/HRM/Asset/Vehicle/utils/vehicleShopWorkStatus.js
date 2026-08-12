@@ -92,10 +92,10 @@ export function resolveShopWorkTableStatusLabel(service, asset) {
         stage === 'pending_billing' ||
         (vehicleServiceDone && String(remark.workflowStage || '').toLowerCase() === 'pending_billing')
     ) {
-        return { label: 'Complete — Waiting for Bill', tone: 'pending' };
+        return { label: 'Completed', tone: 'complete' };
     }
     if (stage === 'complete' || vehicleServiceDone) {
-        return { label: 'Complete', tone: 'complete' };
+        return { label: 'Completed', tone: 'complete' };
     }
     if (stage === 'rejected') {
         return { label: 'Rejected', tone: 'rejected' };
@@ -123,7 +123,8 @@ export function resolveShopWorkHeaderStatus(service, asset) {
         Scheduled: 'bg-violet-50 border-violet-100 text-violet-700',
         'On Service': 'bg-amber-50 border-amber-100 text-amber-700',
         'Awaiting Billing': 'bg-sky-50 border-sky-100 text-sky-800',
-        'Complete — Waiting for Bill': 'bg-sky-50 border-sky-100 text-sky-800',
+        'Complete — Waiting for Bill': 'bg-emerald-50 border-emerald-100 text-emerald-700',
+        Completed: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         Billed: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         Complete: 'bg-emerald-50 border-emerald-100 text-emerald-700',
         Rejected: 'bg-slate-50 border-slate-100 text-slate-600',

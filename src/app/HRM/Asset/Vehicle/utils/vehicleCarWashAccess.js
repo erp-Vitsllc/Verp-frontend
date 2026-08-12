@@ -36,7 +36,8 @@ export function resolveCarWashTableStatusLabel(service, asset) {
         return { label: 'Complete', tone: 'complete' };
     }
     if (stage === 'pending_billing' || stage === 'pending_accounts') {
-        return { label: 'Incomplete — Waiting for Expense', tone: 'pending' };
+        // Completed on Send; Accounts expense still open until billed.
+        return { label: 'Completed', tone: 'complete' };
     }
     if (paymentStatus === 'not_paid' || (stage === 'complete' && paymentStatus !== 'paid')) {
         return { label: 'Not paid', tone: 'complete' };
@@ -76,10 +77,20 @@ export function canUserValidateCarWashAccounts(service, asset, isFlowchartAccoun
 }
 
 export function isCarWashAccountsReviewOpen(service, asset) {
-    const { label } = resolveCarWashTableStatusLabel(service, asset);
+    if (!asset || !service) return false;
+    const remark = parseVehicleServiceRemark(service) || {};
+    const billingStatus = String(remark.billingStatus || '').toLowerCase();
+    const paymentStatus = String(remark.carWashPaymentStatus || '').toLowerCase();
+    if (billingStatus === 'billed' || paymentStatus === 'billed') return false;
+
+    const stage = resolveCarWashWorkflowStage(service, asset);
+    if (stage === 'rejected' || stage === 'billed') return false;
+
+    // Open for Accounts until Zoho Expense succeeds (status may already be Completed).
     return (
-        label === 'Incomplete — Waiting for Expense' ||
-        label === 'Complete — Waiting for Bill' ||
-        label === 'Pending'
+        stage === 'pending_billing' ||
+        stage === 'pending_accounts' ||
+        paymentStatus === 'pending' ||
+        String(remark.requestStatus || '').toLowerCase() === 'submitted'
     );
 }
