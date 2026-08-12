@@ -4951,7 +4951,15 @@ function VehicleDetailsPageContent() {
                                 };
                                 return (
                                     <div id="asset-focus-vehicleService" className="w-full max-w-none space-y-5">
-                                        {asset?.nextServiceDate ? (
+                                        {asset?.onServiceActive ? (
+                                            <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-sm text-amber-950 w-full">
+                                                <span className="font-bold">On service</span>
+                                                <span className="text-amber-800/80">
+                                                    {' '}
+                                                    — next oil service date is set when this visit is completed.
+                                                </span>
+                                            </div>
+                                        ) : asset?.nextServiceDate ? (
                                             <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-950 w-full">
                                                 <span className="font-bold">Next service:</span>{' '}
                                                 {(() => {

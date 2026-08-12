@@ -144,7 +144,7 @@ export default function VehicleOilServiceDetailsPanel({
                       ? 'This request was rejected'
                       : stepLocked
                         ? 'Locked until previous steps are done'
-                        : 'Fill required fields — Save draft or Send to close this service'
+                        : 'Enter return/hand-over, next service KM & date, then Send — that next date auto-creates the next oil request + service-due email'
             }
             icon={ClipboardList}
             iconBg="bg-teal-50"

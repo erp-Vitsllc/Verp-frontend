@@ -94,6 +94,16 @@ export default function AttendanceDayDetailPanel({ day, stats = null, totalStaff
                     subValue="Present / total site staff"
                 />
                 <StatRow label="Total present" value={resolved.totalPresent} />
+                {resolved.isWeeklyOff || (resolved.weeklyOff || 0) > 0 ? (
+                    <StatRow
+                        label="Off Day (weekly)"
+                        value={resolved.weeklyOff || resolved.totalStaff || totalStaff}
+                        subValue="From Working Time schedule for this staff group"
+                    />
+                ) : null}
+                {(resolved.holiday || 0) > 0 ? (
+                    <StatRow label="Holiday" value={resolved.holiday} />
+                ) : null}
                 <StatRow
                     label="Absent"
                     value={`${(Number(resolved.absentAuthorized) || 0) + notMarkedOrUnauthorized}`}

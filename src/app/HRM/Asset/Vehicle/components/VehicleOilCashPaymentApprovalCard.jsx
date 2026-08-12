@@ -631,29 +631,41 @@ export default function VehicleOilCashPaymentApprovalCard({
     };
 
     if (mode === 'payment') {
+        const isWarrantyPayment = !isOilPayablePaymentMode(remark.amountMode);
         return (
             <div className={`w-full ${className}`.trim()}>
                 <VehicleOilServiceLockedSection locked={paymentLocked} message={paymentLockMessage}>
                     <FineFormCard
                         title="Make Payment"
                         subtitle={
-                            paymentLocked
-                                ? 'Visible preview — unlocks after Complete Service for cash billing'
-                                : 'Submit billing — Zoho bill create sets status to Billed'
+                            isWarrantyPayment
+                                ? 'Warranty — no Zoho bill / payment step'
+                                : paymentLocked
+                                  ? 'Visible preview — unlocks after Complete Service for cash billing'
+                                  : 'Submit billing — Zoho bill create sets status to Billed'
                         }
                         icon={Wallet}
                         iconBg="bg-sky-50"
                         iconColor="text-sky-700"
                         className="w-full"
                     >
-                        <VehicleGarageZohoBillRetry
-                            vehicleId={vehicleId}
-                            serviceId={serviceId}
-                            service={service}
-                            serviceTypeLabel="Oil Service"
-                            onUpdated={onUpdated}
-                        />
+                        {!isWarrantyPayment ? (
+                            <VehicleGarageZohoBillRetry
+                                vehicleId={vehicleId}
+                                serviceId={serviceId}
+                                service={service}
+                                serviceTypeLabel="Oil Service"
+                                onUpdated={onUpdated}
+                            />
+                        ) : null}
 
+                        {isWarrantyPayment ? (
+                            <p className="text-sm text-gray-600">
+                                This oil service is <span className="font-semibold text-gray-800">Warranty</span> —
+                                there is no amount and no Zoho bill. Complete Service finishes the workflow.
+                            </p>
+                        ) : (
+                        <>
                         <div className="space-y-4">
                             <p className="text-sm text-gray-600">
                                 Service work is <span className="font-semibold text-gray-800">complete</span>. Edit
@@ -853,6 +865,8 @@ export default function VehicleOilCashPaymentApprovalCard({
                                 Waiting for flowchart Accounts to submit billing to Zoho.
                             </p>
                         ) : null}
+                        </>
+                        )}
                     </FineFormCard>
                 </VehicleOilServiceLockedSection>
             </div>

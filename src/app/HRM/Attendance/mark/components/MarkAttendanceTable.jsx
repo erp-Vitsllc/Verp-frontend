@@ -35,6 +35,8 @@ function formatStatusLabel(mark) {
     if (mark.key === 'on_office' || String(mark.label).trim().toLowerCase() === 'on office') {
         return 'On work';
     }
+    if (mark.key === 'weekly_off') return 'Off Day';
+    if (mark.key === 'holiday') return mark.label || 'Holiday';
     return mark.label || '';
 }
 
@@ -239,7 +241,11 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
                 {mark?.label || mark?.key ? (
                     <div className="flex flex-col gap-0.5 min-w-0">
                         <span
-                            className="inline-flex w-fit text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded max-w-full truncate"
+                            className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${
+                                mark.key === 'weekly_off' || mark.key === 'holiday'
+                                    ? 'text-[#9B59B6] bg-purple-50'
+                                    : 'text-emerald-700 bg-emerald-50'
+                            }`}
                             title={[formatStatusLabel(mark), mark.reason].filter(Boolean).join(' — ')}
                         >
                             {formatStatusLabel(mark)}

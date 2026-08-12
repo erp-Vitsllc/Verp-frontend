@@ -436,7 +436,9 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
             if (!onServiceLive) {
                 return {
                     locked: true,
-                    message: 'Unlocks at On Service (after Accounts Approve)',
+                    message: isCash
+                        ? 'Unlocks at On Service (after Accounts Approve)'
+                        : 'Unlocks at On Service (after Schedule — when service start date is reached)',
                 };
             }
             return { locked: false, message: '', active: true, done: false };

@@ -1238,13 +1238,19 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         const garagePayload = buildWorkflowUploadPayload(formPayload.garageInvoice);
         const otherDocPayload = buildWorkflowUploadPayload(formPayload.otherDocument);
         const nextKm = formPayload.nextServiceKm !== '' ? Number(formPayload.nextServiceKm) : undefined;
+        const nextServiceDate =
+            String(formPayload.nextServiceDate || '').trim().slice(0, 10) || undefined;
 
         const remark = {
             ...existing,
             returnDate: String(formPayload.returnDate || '').trim() || undefined,
             handOverDate: String(formPayload.handOverDate || '').trim() || undefined,
             nextChangeKm: Number.isFinite(nextKm) ? nextKm : undefined,
-            nextChangeMonth: String(formPayload.nextServiceMonth || '').trim() || undefined,
+            nextServiceDate,
+            nextChangeMonth:
+                String(formPayload.nextServiceMonth || formPayload.nextServiceDate || '')
+                    .trim()
+                    .slice(0, 7) || undefined,
             garageInvoiceName: garagePayload?.name || existing.garageInvoiceName,
             returnOtherDocName: otherDocPayload?.name || existing.returnOtherDocName,
         };

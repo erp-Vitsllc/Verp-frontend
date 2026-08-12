@@ -24,7 +24,7 @@ import {
 import { isAdmin } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import { navHrefProps } from '@/utils/linkContextMenu';
-import HrHolidaysPanel from './components/HrHolidaysPanel';
+import HrPanel from './components/HrPanel';
 
 const RESPONSIBILITY_CATEGORIES = [
     { id: 'assigneduser', label: 'Assigned User' },
@@ -1118,7 +1118,7 @@ export default function GlobalFlowChartPage() {
                                     </div>
                                 </div>
                             ) : (
-                                <HrHolidaysPanel />
+                                <HrPanel />
                             )}
                         </div>
                     </div>

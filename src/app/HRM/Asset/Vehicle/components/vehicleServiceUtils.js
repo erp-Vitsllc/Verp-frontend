@@ -475,19 +475,32 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
         latestCompleted?.currentKm ??
         asset?.currentKilometer ??
         '—';
-    const nextOilServiceKm =
-        requestMeta?.nextChangeKm ?? completedMeta?.nextChangeKm ?? '—';
-    const nextOilServiceDate =
-        requestMeta?.nextChangeMonth
-            ? `${requestMeta.nextChangeMonth}-01`
-            : requestMeta?.nextServiceDate ||
-              asset?.nextServiceDate ||
-              (completedMeta?.nextChangeMonth ? `${completedMeta.nextChangeMonth}-01` : null);
 
     const serviceId = service ? normalizeMongoId(service._id) : normalizeMongoId(id);
     const statusInfo = service
         ? oilServiceRequestTableStatus(service, asset)
         : { label: 'Draft', tone: 'draft' };
+    const rowComplete = String(statusInfo?.tone || '').toLowerCase() === 'complete';
+
+    // Next oil KM/date are set on Complete Service. While the request is open,
+    // do not show nextChangeMonth (that field is the garage visit end month) or
+    // fall back to vehicle.nextServiceDate (previous due date).
+    let nextOilServiceKm = '—';
+    let nextOilServiceDate = null;
+    if (rowComplete) {
+        nextOilServiceKm =
+            requestMeta?.nextChangeKm != null && String(requestMeta.nextChangeKm).trim() !== ''
+                ? requestMeta.nextChangeKm
+                : '—';
+        nextOilServiceDate = requestMeta?.nextServiceDate || null;
+    } else if (requestMeta?.nextServiceDate) {
+        nextOilServiceDate = requestMeta.nextServiceDate;
+        nextOilServiceKm =
+            requestMeta?.nextChangeKm != null && String(requestMeta.nextChangeKm).trim() !== ''
+                ? requestMeta.nextChangeKm
+                : '—';
+    }
+
     const amountInfo = resolveServiceAmountTypeAndStatus(requestMeta || service);
 
     return {
@@ -557,9 +570,11 @@ export function buildOilServicePendingRequestBody(asset) {
             amountMode: 'amount',
             requestStatus: 'pending',
             currentKm,
-            nextChangeKm: completedMeta?.nextChangeKm ?? 0,
+            // Next oil KM/date are entered when Completing Service — do not copy the
+            // previous due month/km onto a brand-new open request.
+            nextChangeKm: '',
             serviceEndDate: '',
-            nextChangeMonth: completedMeta?.nextChangeMonth || '',
+            nextChangeMonth: '',
             oilServiceTypeText: '',
         }),
         serviceRequestSource: 'vehicle_asset_detail',

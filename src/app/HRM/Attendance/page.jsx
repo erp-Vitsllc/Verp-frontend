@@ -43,7 +43,14 @@ const OVERVIEW_STATS = [
     { label: 'Total Staff', value: 0 },
 ];
 
+const STAFF_TABS = [
+    { key: 'office', label: 'Office Staff' },
+    { key: 'site', label: 'Site Staffs' },
+];
+
 export default function AttendancePage() {
+    const [staffTab, setStaffTab] = useState('office');
+
     return (
         <PermissionGuard moduleId="hrm_attendance" permissionType="view">
             <div
@@ -57,7 +64,6 @@ export default function AttendancePage() {
                         className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden"
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
-                        {/* Header pair: overview + summary. Calendar below stays full width. */}
                         <div className={HEADER_PAIR_GRID}>
                             <div
                                 className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
@@ -96,7 +102,24 @@ export default function AttendancePage() {
                             </div>
                         </div>
 
-                        <AttendanceMonthCalendar />
+                        <div className="mt-3 sm:mt-4 mb-3 flex items-center gap-2 bg-white p-1 rounded-xl border border-gray-100 w-full sm:w-fit overflow-x-auto">
+                            {STAFF_TABS.map((tab) => (
+                                <button
+                                    key={tab.key}
+                                    type="button"
+                                    onClick={() => setStaffTab(tab.key)}
+                                    className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-all ${
+                                        staffTab === tab.key
+                                            ? 'bg-blue-600 text-white shadow-sm'
+                                            : 'text-slate-500 hover:text-blue-600 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        <AttendanceMonthCalendar staffType={staffTab} />
                     </div>
                 </div>
             </div>

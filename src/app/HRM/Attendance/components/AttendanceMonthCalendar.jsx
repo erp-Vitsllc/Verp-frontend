@@ -62,6 +62,9 @@ function emptyDayAttendanceStats(strengthCount = 0) {
         sickLeave: 0,
         workFromHome: 0,
         notMarked: 0,
+        holiday: 0,
+        weeklyOff: 0,
+        isWeeklyOff: false,
         officePresent: 0,
         officeTotal: total,
         sitePresent: 0,
@@ -85,6 +88,9 @@ function mapApiDayStats(raw, strengthCount = 0) {
         sickLeave: Number(raw.sickLeave) || 0,
         workFromHome: Number(raw.workFromHome) || 0,
         notMarked,
+        holiday: Number(raw.holiday) || 0,
+        weeklyOff: Number(raw.weeklyOff) || 0,
+        isWeeklyOff: Boolean(raw.isWeeklyOff),
         officePresent: Number(raw.officePresent) || 0,
         officeTotal: Number(raw.officeTotal ?? total) || 0,
         sitePresent: Number(raw.sitePresent) || 0,
@@ -180,6 +186,37 @@ function DayCellStats({ day, today, inMonth, isFuture, stats }) {
                 <div className="flex justify-end shrink-0">
                     <span className="text-sm sm:text-base font-normal text-gray-300 tabular-nums leading-none">
                         {day.getDate()}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
+    if (stats?.isWeeklyOff) {
+        return (
+            <div className="h-full w-full flex flex-col p-2 sm:p-2.5 overflow-hidden bg-[#9B59B6]/10">
+                <div className="flex justify-end shrink-0">
+                    {today ? (
+                        <span className="h-6 w-6 sm:h-7 sm:w-7 rounded-full bg-blue-600 text-white text-xs sm:text-sm font-medium inline-flex items-center justify-center tabular-nums">
+                            {day.getDate()}
+                        </span>
+                    ) : (
+                        <span
+                            className={`text-sm sm:text-base font-normal tabular-nums leading-none ${
+                                inMonth ? 'text-gray-900' : 'text-gray-500'
+                            }`}
+                        >
+                            {day.getDate()}
+                        </span>
+                    )}
+                </div>
+                <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#9B59B6]" />
+                    <span className="text-[10px] sm:text-xs font-bold text-[#9B59B6] uppercase tracking-wider">
+                        Off Day
+                    </span>
+                    <span className="text-[10px] text-slate-500 tabular-nums">
+                        {stats.activeEmployees || 0} staff
                     </span>
                 </div>
             </div>
@@ -503,7 +540,7 @@ export default function AttendanceMonthCalendar({ staffType = null }) {
 
     useEffect(() => {
         let cancelled = false;
-        (async () => {
+        const load = async () => {
             try {
                 const params = {
                     from: fetchRange.from,
@@ -533,9 +570,16 @@ export default function AttendanceMonthCalendar({ staffType = null }) {
                     setDayStatsByDate({});
                 }
             }
-        })();
+        };
+        load();
+        const onWorkingTime = () => load();
+        const onHolidays = () => load();
+        window.addEventListener('verp:working-time-changed', onWorkingTime);
+        window.addEventListener('verp:holidays-changed', onHolidays);
         return () => {
             cancelled = true;
+            window.removeEventListener('verp:working-time-changed', onWorkingTime);
+            window.removeEventListener('verp:holidays-changed', onHolidays);
         };
     }, [fetchRange.from, fetchRange.to, cursorDate, staffType]);
 
@@ -558,7 +602,10 @@ export default function AttendanceMonthCalendar({ staffType = null }) {
             (fromApi.lateArrived || 0) > 0 ||
             (fromApi.sickLeave || 0) > 0 ||
             (fromApi.workFromHome || 0) > 0 ||
-            (fromApi.notMarked || 0) > 0;
+            (fromApi.notMarked || 0) > 0 ||
+            (fromApi.weeklyOff || 0) > 0 ||
+            (fromApi.holiday || 0) > 0 ||
+            Boolean(fromApi.isWeeklyOff);
 
         // Day with no marks yet — detail treats everyone as not marked / unauthorized.
         if (!hasMarkedActivity && strengthCount > 0) {

@@ -16,10 +16,12 @@ import AttendanceTeamTreeModal from './AttendanceTeamTreeModal';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 const PRESENT_KEYS = new Set(['on_office', 'work_from_home', 'late_arrived']);
 const LEAVE_KEYS = new Set(['on_leave', 'sick_leave', 'authorized_leave']);
 const UNAUTHORIZED_KEYS = new Set(['unauthorized_leave']);
+const OFF_DAY_KEYS = new Set(['holiday', 'weekly_off']);
 
 function getDubaiDateKey(date = new Date()) {
     return new Intl.DateTimeFormat('en-CA', {
@@ -46,7 +48,7 @@ function toTitleName(name) {
         .join(' ');
 }
 
-function dayTone({ record, isSunday, isFuture, isHoliday, holidayName }) {
+function dayTone({ record, isFuture, isHoliday, isWeeklyOff, holidayName }) {
     if (isHoliday || record?.statusKey === 'holiday') {
         const why =
             holidayName ||
@@ -55,6 +57,12 @@ function dayTone({ record, isSunday, isFuture, isHoliday, holidayName }) {
         return {
             cell: 'bg-[#9B59B6] text-white',
             label: why ? `Holiday — ${why}` : 'Holiday',
+        };
+    }
+    if (isWeeklyOff || record?.statusKey === 'weekly_off') {
+        return {
+            cell: 'bg-[#9B59B6] text-white',
+            label: record?.reason || 'Off Day',
         };
     }
     if (isFuture) {
@@ -92,10 +100,10 @@ function dayTone({ record, isSunday, isFuture, isHoliday, holidayName }) {
             label: 'Checked in',
         };
     }
-    if (isSunday) {
+    if (record && OFF_DAY_KEYS.has(record.statusKey)) {
         return {
-            cell: 'bg-[#E74C3C] text-white',
-            label: 'Absent',
+            cell: 'bg-[#9B59B6] text-white',
+            label: record.statusLabel || 'Off Day',
         };
     }
     return {
@@ -118,6 +126,8 @@ export default function DashboardAttendanceCalendar() {
     const [recordsByDate, setRecordsByDate] = useState({});
     const [todayRecord, setTodayRecord] = useState(null);
     const [employeeName, setEmployeeName] = useState('');
+    const [staffType, setStaffType] = useState('office');
+    const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));
     const [selfEmployeeId, setSelfEmployeeId] = useState('');
     const [viewEmployeeId, setViewEmployeeId] = useState('');
     const [isSelf, setIsSelf] = useState(true);
@@ -169,6 +179,8 @@ export default function DashboardAttendanceCalendar() {
             setRecordsByDate(map);
             setTodayRecord(res.data?.todayRecord || map[todayKey] || null);
             setEmployeeName(res.data?.employee?.name || '');
+            setStaffType(res.data?.employee?.staffType === 'site' ? 'site' : 'office');
+            setOffWeekdays(new Set(Array.isArray(res.data?.offWeekdays) ? res.data.offWeekdays : []));
             setIsSelf(res.data?.isSelf !== false);
             if (!viewEmployeeId && res.data?.employee?.id) {
                 setSelfEmployeeId(String(res.data.employee.id));
@@ -192,11 +204,14 @@ export default function DashboardAttendanceCalendar() {
             if (!viewEmployeeId) loadMonth();
         };
         const onHolidays = () => loadHolidays();
+        const onWorkingTime = () => loadMonth();
         window.addEventListener(ATTENDANCE_CHECK_CHANGED, onChanged);
         window.addEventListener('verp:holidays-changed', onHolidays);
+        window.addEventListener('verp:working-time-changed', onWorkingTime);
         return () => {
             window.removeEventListener(ATTENDANCE_CHECK_CHANGED, onChanged);
             window.removeEventListener('verp:holidays-changed', onHolidays);
+            window.removeEventListener('verp:working-time-changed', onWorkingTime);
         };
     }, [loadMonth, loadHolidays, viewEmployeeId]);
 
@@ -218,6 +233,11 @@ export default function DashboardAttendanceCalendar() {
                     <div className="min-w-0">
                         <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em]">
                             My Attendance
+                            {staffType ? (
+                                <span className="ml-1.5 text-slate-500 normal-case tracking-normal">
+                                    · {staffType === 'site' ? 'Site' : 'Office'}
+                                </span>
+                            ) : null}
                         </p>
                         <h3 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight leading-tight mt-0.5">
                             {format(monthAnchor, 'MMMM yyyy')}
@@ -313,20 +333,24 @@ export default function DashboardAttendanceCalendar() {
                             {days.map((day) => {
                                 if (!isSameMonth(day, monthAnchor)) return null;
                                 const dateKey = format(day, 'yyyy-MM-dd');
-                                const isSunday = getDay(day) === 0;
+                                const weekdayKey = WEEKDAY_KEYS[getDay(day)];
                                 const isFuture = dateKey > todayKey;
                                 const record = recordsByDate[dateKey];
                                 const holidayName =
                                     holidayNamesByDate[dateKey] ||
-                                    record?.reason ||
+                                    (record?.statusKey === 'holiday' ? record?.reason : '') ||
                                     '';
                                 const isHoliday =
                                     holidayDates.has(dateKey) || record?.statusKey === 'holiday';
+                                const isWeeklyOff =
+                                    !isHoliday &&
+                                    (record?.statusKey === 'weekly_off' ||
+                                        offWeekdays.has(weekdayKey));
                                 const tone = dayTone({
                                     record,
-                                    isSunday,
                                     isFuture,
                                     isHoliday,
+                                    isWeeklyOff,
                                     holidayName,
                                 });
                                 const isToday = dateKey === todayKey;
@@ -360,7 +384,7 @@ export default function DashboardAttendanceCalendar() {
                                 <span className="h-2 w-2 rounded-full bg-[#4A90E2]" /> On Leave
                             </span>
                             <span className="inline-flex items-center gap-1.5">
-                                <span className="h-2 w-2 rounded-full bg-[#9B59B6]" /> Holiday
+                                <span className="h-2 w-2 rounded-full bg-[#9B59B6]" /> Holiday / Off Day
                             </span>
                         </div>
                     </div>

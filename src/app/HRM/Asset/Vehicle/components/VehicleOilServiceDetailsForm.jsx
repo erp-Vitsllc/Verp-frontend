@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
+import { isOilPayablePaymentMode } from '../utils/vehicleOilServiceDetailForm';
 import {
     OIL_SERVICE_DETAIL_GRID_ACCENTS,
     OIL_SERVICE_DETAIL_GRID_LAYOUT,
@@ -265,7 +266,9 @@ export default function VehicleOilServiceDetailsForm({
     const accent = (index) => OIL_SERVICE_DETAIL_GRID_ACCENTS[index % OIL_SERVICE_DETAIL_GRID_ACCENTS.length];
     const formComplete = isServiceDetailsComplete(form, hasPersistedGarageInvoice, currentKm);
     const missingFields = getServiceDetailsMissingFields(form, hasPersistedGarageInvoice, currentKm);
-    const chargeMissing = !hasValidServiceCharge(form);
+    // Warranty has no payable amount — charge warning is cash-path only.
+    const requiresServiceCharge = isOilPayablePaymentMode(remark.amountMode);
+    const chargeMissing = requiresServiceCharge && !hasValidServiceCharge(form);
     const canSaveDraft = showActions && !saving && !submitting;
     const canSend = showActions && !saving && !submitting && formComplete;
     const serviceEndMinDate = useMemo(
@@ -449,6 +452,10 @@ export default function VehicleOilServiceDetailsForm({
                             Must be after service end date
                         </p>
                     ) : null}
+                    <p className="mt-1 text-[10px] font-medium text-teal-700/80">
+                        On this date VeRP auto-creates the next oil service request and sends a service-due
+                        email to complete further procedures.
+                    </p>
                 </FieldCard>
             </div>
 
