@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Upload, Trash2, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { DatePicker } from "@/components/ui/date-picker";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import Select from 'react-select';
 import {
@@ -52,6 +53,7 @@ export default function AddVehicleFineModal({
         companyAmount: '',
         payableDuration: '1',
         monthStart: new Date().toISOString().split('T')[0].slice(0, 7), // YYYY-MM
+        awardedDate: new Date().toISOString().split('T')[0],
         description: '',
         attachment: null,
         attachmentBase64: '',
@@ -158,6 +160,9 @@ export default function AddVehicleFineModal({
                 companyAmount: uiCompanyAmount,
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+                awardedDate: initialData.awardedDate
+                    ? new Date(initialData.awardedDate).toISOString().split('T')[0]
+                    : new Date().toISOString().split('T')[0],
                 description: initialData.description || '',
                 attachment: null,
                 attachmentBase64: '',
@@ -205,6 +210,7 @@ export default function AddVehicleFineModal({
                 companyAmount: '',
                 payableDuration: '1',
                 monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                awardedDate: new Date().toISOString().split('T')[0],
                 description: '',
                 attachment: null,
                 attachmentBase64: '',
@@ -640,6 +646,7 @@ export default function AddVehicleFineModal({
                 companyAmount: compStoredBase,
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
+                awardedDate: formData.awardedDate || new Date().toISOString().split('T')[0],
                 serviceCharge: serviceChargeAmount,
                 vehicleId: selectedVehicleId,
                 assetId:
@@ -1070,6 +1077,17 @@ export default function AddVehicleFineModal({
                                 ) : null}
                             </div>
                         )}
+
+                        {/* Fine Issued Date */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Fine Issued Date</label>
+                            <DatePicker
+                                value={formData.awardedDate}
+                                onChange={(date) => setFormData((prev) => ({ ...prev, awardedDate: date }))}
+                                className="w-full bg-gray-50 border-gray-200"
+                                disabled={submitting}
+                            />
+                        </div>
 
                         {/* Month Start */}
                         <div className="space-y-1.5" data-schedule-field>

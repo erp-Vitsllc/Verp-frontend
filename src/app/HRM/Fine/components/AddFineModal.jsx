@@ -605,10 +605,10 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                         </div>
                     </div>
 
-                    {/* Awarded Date */}
+                    {/* Fine Issued Date */}
                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                            Fine Date
+                            Fine Issued Date
                         </label>
                         <div className="w-full md:flex-1">
                             <DatePicker

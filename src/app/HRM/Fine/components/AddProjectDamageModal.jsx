@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Upload, Plus, Trash2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { DatePicker } from "@/components/ui/date-picker";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import Select from 'react-select';
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
@@ -42,6 +43,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     const [daysWorked, setDaysWorked] = useState('');
     const [payableDuration, setPayableDuration] = useState('1');
     const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
+    const [awardedDate, setAwardedDate] = useState(new Date().toISOString().split('T')[0]);
     const [searchQuery, setSearchQuery] = useState('');
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
@@ -105,6 +107,11 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 fineSource: initialData.fineSource || '',
             });
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
+            setAwardedDate(
+                initialData.awardedDate
+                    ? new Date(initialData.awardedDate).toISOString().split('T')[0]
+                    : new Date().toISOString().split('T')[0],
+            );
             setPayableDuration(String(initialData.payableDuration || '1'));
 
             // Populate assignedEmployees
@@ -154,6 +161,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             setSearchQuery('');
             setPayableDuration('1');
             setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
+            setAwardedDate(new Date().toISOString().split('T')[0]);
         }
     }, [isOpen, initialData, employees]);
 
@@ -418,6 +426,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
+                awardedDate: awardedDate || new Date().toISOString().split('T')[0],
                 serviceCharge: serviceChargeAmount,
                 fineAmount: grandTotalFine,
                 employeeAmount: totalEmpAmount,
@@ -594,6 +603,15 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                     {errors.deductionSchedule ? (
                         <p className="text-xs text-red-500">{errors.deductionSchedule}</p>
                     ) : null}
+                    <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-gray-700">Fine Issued Date</label>
+                        <DatePicker
+                            value={awardedDate}
+                            onChange={(date) => setAwardedDate(date)}
+                            className="w-full bg-gray-50 border-gray-200"
+                            disabled={submitting}
+                        />
+                    </div>
                     <div className="grid grid-cols-2 gap-5">
                         <div className="space-y-1.5" data-schedule-field>
                             <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>

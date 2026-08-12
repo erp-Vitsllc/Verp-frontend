@@ -2340,7 +2340,7 @@ function FineDetailsPageContent() {
                                                 <span className="font-semibold text-gray-800">{fine.category || '-'}</span>
                                             </div>
                                             <div>
-                                                <span className="text-xs text-gray-400 block font-medium">Awarded Date</span>
+                                                <span className="text-xs text-gray-400 block font-medium">Fine Issued Date</span>
                                                 <span className="font-semibold text-gray-800">{formatDate(fine.awardedDate || fine.createdAt)}</span>
                                             </div>
                                             <div>

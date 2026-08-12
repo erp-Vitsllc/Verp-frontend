@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Upload, Trash2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { DatePicker } from "@/components/ui/date-picker";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
@@ -92,6 +93,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         companyAmount: '',
         payableDuration: '1',
         monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+        awardedDate: new Date().toISOString().split('T')[0],
         description: '',
         attachment: null,
         attachmentBase64: '',
@@ -454,6 +456,9 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 companyAmount: uiCompanyAmount,
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+                awardedDate: initialData.awardedDate
+                    ? new Date(initialData.awardedDate).toISOString().split('T')[0]
+                    : new Date().toISOString().split('T')[0],
                 description: initialData.description || '',
                 attachment: attachmentForUi,
                 attachmentBase64: '',
@@ -540,6 +545,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             setFormData({
                 fineAmount: '', responsibleFor: 'Employee', employeeAmount: '', companyAmount: '',
                 payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                awardedDate: new Date().toISOString().split('T')[0],
                 description: '', attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '',
                 companyDescription: '', serviceCharge: '', depreciationAmount: '', sourceOfIncome: 'Salary',
                 assetPurchaseDate: '', fineSource: '',
@@ -1016,6 +1022,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                       ? parseInt(formData.payableDuration, 10)
                       : null,
             monthStart: formData.sourceOfIncome === 'Salary' ? formData.monthStart : '',
+            awardedDate: formData.awardedDate || new Date().toISOString().split('T')[0],
             serviceCharge: serviceChargeAmount,
             sourceOfIncome: formData.sourceOfIncome,
             assetDepreciationAmount: depreciationAmount,
@@ -1342,6 +1349,16 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                         readOnly
                                         value={formatPurchaseDate(formData.assetPurchaseDate)}
                                         className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-700 outline-none"
+                                    />
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-medium text-gray-700">Fine Issued Date</label>
+                                    <DatePicker
+                                        value={formData.awardedDate}
+                                        onChange={(date) => setFormData((prev) => ({ ...prev, awardedDate: date }))}
+                                        className="w-full bg-gray-50 border-gray-200"
+                                        disabled={submitting}
                                     />
                                 </div>
 

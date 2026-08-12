@@ -217,7 +217,7 @@ export default function FineFormCard1({
         >
             <DetailGrid>
                 <DetailField label="Fine No." value={f.fineId} />
-                <DetailField label="Date" value={f.reportDate} />
+                <DetailField label="Fine Issued Date" value={f.reportDate} />
             </DetailGrid>
 
             <div className="mt-4">

@@ -551,7 +551,7 @@ export default function FineFormCardGroupParties({
                             <span className="text-xs font-semibold text-gray-800">{localVendor || '—'}</span>
                         </td>
                         <td className="py-2 pl-4 align-top">
-                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Issue Date</span>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Fine Issued Date</span>
                             <span className="text-xs font-semibold text-gray-800">{issueDate}</span>
                         </td>
                     </tr>
@@ -597,7 +597,7 @@ export default function FineFormCardGroupParties({
                         <tr>
                             <th className={thClass}>Vendor</th>
                             <th className={thClass}>Amount</th>
-                            <th className={thClass}>Issue</th>
+                            <th className={thClass}>Issued Date</th>
                             <th className={thClass}>
                                 Payable{dropdownsEnabled ? <span className="text-red-500"> *</span> : null}
                             </th>

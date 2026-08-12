@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Upload, Users, Minus, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { DatePicker } from "@/components/ui/date-picker";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import Select from 'react-select';
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
@@ -64,6 +65,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [zohoVendorId, setZohoVendorId] = useState('');
     const [zohoVendorName, setZohoVendorName] = useState('');
     const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
+    const [awardedDate, setAwardedDate] = useState(new Date().toISOString().split('T')[0]);
     const [payableDuration, setPayableDuration] = useState('1');
     const [selectedEmployees, setSelectedEmployees] = useState([]); // Array of employee objects { employeeId, employeeName, fineAmount, duration }
     const [serviceCharge, setServiceCharge] = useState('');
@@ -164,6 +166,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setZohoVendorId(initialData.zohoVendorId || '');
             setZohoVendorName(initialData.zohoVendorName || initialData.fineSource || '');
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
+            setAwardedDate(
+                initialData.awardedDate
+                    ? new Date(initialData.awardedDate).toISOString().split('T')[0]
+                    : new Date().toISOString().split('T')[0],
+            );
             setPayableDuration(String(initialData.payableDuration || '1'));
 
             // Handle attachment
@@ -228,6 +235,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setZohoVendorId('');
             setZohoVendorName('');
             setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
+            setAwardedDate(new Date().toISOString().split('T')[0]);
             setPayableDuration('1');
             setServiceCharge('');
             setFormData({
@@ -610,6 +618,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
+                awardedDate: awardedDate || new Date().toISOString().split('T')[0],
                 fineAmount: grandTotalFine, // Total = base + service charge
                 employeeAmount: totalEmpAmount,
                 companyAmount: totalCompAmount,
@@ -958,6 +967,17 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             {errors.payableDuration ? (
                                 <p className="text-xs text-red-500">{errors.payableDuration}</p>
                             ) : null}
+                        </div>
+
+                        {/* Fine Issued Date */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Fine Issued Date</label>
+                            <DatePicker
+                                value={awardedDate}
+                                onChange={(date) => setAwardedDate(date)}
+                                className="w-full bg-gray-50 border-gray-200"
+                                disabled={submitting}
+                            />
                         </div>
 
                         {/* Month Start */}
