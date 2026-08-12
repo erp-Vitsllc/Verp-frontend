@@ -18,7 +18,8 @@ import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const PRESENT_KEYS = new Set(['on_office', 'work_from_home', 'late_arrived']);
-const LEAVE_KEYS = new Set(['on_leave', 'sick_leave', 'authorized_leave', 'unauthorized_leave']);
+const LEAVE_KEYS = new Set(['on_leave', 'sick_leave', 'authorized_leave']);
+const UNAUTHORIZED_KEYS = new Set(['unauthorized_leave']);
 
 function getDubaiDateKey(date = new Date()) {
     return new Intl.DateTimeFormat('en-CA', {
@@ -45,11 +46,27 @@ function toTitleName(name) {
         .join(' ');
 }
 
-function dayTone({ record, isSunday, isFuture }) {
+function dayTone({ record, isSunday, isFuture, isHoliday, holidayName }) {
+    if (isHoliday || record?.statusKey === 'holiday') {
+        const why =
+            holidayName ||
+            record?.reason ||
+            (record?.statusLabel && record.statusLabel !== 'Holiday' ? record.statusLabel : '');
+        return {
+            cell: 'bg-[#9B59B6] text-white',
+            label: why ? `Holiday — ${why}` : 'Holiday',
+        };
+    }
     if (isFuture) {
         return {
             cell: 'bg-slate-300 text-slate-600',
             label: 'Upcoming',
+        };
+    }
+    if (record && UNAUTHORIZED_KEYS.has(record.statusKey)) {
+        return {
+            cell: 'bg-[#E74C3C] text-white',
+            label: record.statusLabel || 'Unauthorized',
         };
     }
     if (record && LEAVE_KEYS.has(record.statusKey)) {
@@ -58,10 +75,21 @@ function dayTone({ record, isSunday, isFuture }) {
             label: record.statusLabel || 'On Leave',
         };
     }
-    if (record && (PRESENT_KEYS.has(record.statusKey) || record.timeIn)) {
+    // Present only when checked out (or explicitly present status with out time)
+    if (
+        record &&
+        PRESENT_KEYS.has(record.statusKey) &&
+        (record.timeOut || record.statusKey === 'work_from_home' || record.statusKey === 'late_arrived')
+    ) {
         return {
             cell: 'bg-[#2ECC71] text-white',
             label: record.statusLabel || 'Present',
+        };
+    }
+    if (record?.timeIn && !record?.timeOut) {
+        return {
+            cell: 'bg-[#F5A623] text-white',
+            label: 'Checked in',
         };
     }
     if (isSunday) {
@@ -96,8 +124,33 @@ export default function DashboardAttendanceCalendar() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [teamOpen, setTeamOpen] = useState(false);
+    const [holidayDates, setHolidayDates] = useState(() => new Set());
+    const [holidayNamesByDate, setHolidayNamesByDate] = useState({});
 
     const activeEmployeeId = viewEmployeeId || selfEmployeeId;
+
+    const loadHolidays = useCallback(async () => {
+        try {
+            const year = Number(monthKey.slice(0, 4));
+            const res = await axiosInstance.get('/Holiday', {
+                params: { year },
+                skipToast: true,
+            });
+            const list = Array.isArray(res.data?.holidays) ? res.data.holidays : [];
+            const nameMap = {};
+            list.forEach((h) => {
+                if (h?.date) nameMap[h.date] = h.name || h.note || 'Holiday';
+            });
+            setHolidayNamesByDate(nameMap);
+            const dates = Array.isArray(res.data?.dates)
+                ? res.data.dates
+                : list.map((h) => h.date);
+            setHolidayDates(new Set(dates.filter(Boolean)));
+        } catch {
+            setHolidayDates(new Set());
+            setHolidayNamesByDate({});
+        }
+    }, [monthKey]);
 
     const loadMonth = useCallback(async () => {
         setLoading(true);
@@ -131,15 +184,21 @@ export default function DashboardAttendanceCalendar() {
 
     useEffect(() => {
         loadMonth();
-    }, [loadMonth]);
+        loadHolidays();
+    }, [loadMonth, loadHolidays]);
 
     useEffect(() => {
         const onChanged = () => {
             if (!viewEmployeeId) loadMonth();
         };
+        const onHolidays = () => loadHolidays();
         window.addEventListener(ATTENDANCE_CHECK_CHANGED, onChanged);
-        return () => window.removeEventListener(ATTENDANCE_CHECK_CHANGED, onChanged);
-    }, [loadMonth, viewEmployeeId]);
+        window.addEventListener('verp:holidays-changed', onHolidays);
+        return () => {
+            window.removeEventListener(ATTENDANCE_CHECK_CHANGED, onChanged);
+            window.removeEventListener('verp:holidays-changed', onHolidays);
+        };
+    }, [loadMonth, loadHolidays, viewEmployeeId]);
 
     const days = useMemo(() => {
         const start = startOfMonth(monthAnchor);
@@ -216,7 +275,18 @@ export default function DashboardAttendanceCalendar() {
                     </div>
                 </div>
 
-                {error ? <p className="text-[11px] text-red-500 mt-1 shrink-0">{error}</p> : null}
+                {error ? (
+                    <div className="mt-1 shrink-0 flex items-center gap-2">
+                        <p className="text-[11px] text-red-500">{error}</p>
+                        <button
+                            type="button"
+                            onClick={() => loadMonth()}
+                            className="text-[11px] font-semibold text-sky-600 hover:text-sky-700 underline"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                ) : null}
 
                 {loading ? (
                     <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-slate-400">
@@ -246,7 +316,19 @@ export default function DashboardAttendanceCalendar() {
                                 const isSunday = getDay(day) === 0;
                                 const isFuture = dateKey > todayKey;
                                 const record = recordsByDate[dateKey];
-                                const tone = dayTone({ record, isSunday, isFuture });
+                                const holidayName =
+                                    holidayNamesByDate[dateKey] ||
+                                    record?.reason ||
+                                    '';
+                                const isHoliday =
+                                    holidayDates.has(dateKey) || record?.statusKey === 'holiday';
+                                const tone = dayTone({
+                                    record,
+                                    isSunday,
+                                    isFuture,
+                                    isHoliday,
+                                    holidayName,
+                                });
                                 const isToday = dateKey === todayKey;
 
                                 return (
@@ -272,10 +354,13 @@ export default function DashboardAttendanceCalendar() {
                                 <span className="h-2 w-2 rounded-full bg-[#2ECC71]" /> Present
                             </span>
                             <span className="inline-flex items-center gap-1.5">
-                                <span className="h-2 w-2 rounded-full bg-[#E74C3C]" /> Absent
+                                <span className="h-2 w-2 rounded-full bg-[#E74C3C]" /> Absent / Unauthorized
                             </span>
                             <span className="inline-flex items-center gap-1.5">
                                 <span className="h-2 w-2 rounded-full bg-[#4A90E2]" /> On Leave
+                            </span>
+                            <span className="inline-flex items-center gap-1.5">
+                                <span className="h-2 w-2 rounded-full bg-[#9B59B6]" /> Holiday
                             </span>
                         </div>
                     </div>

@@ -92,53 +92,53 @@ function toTitleCase(value) {
         .join(' ');
 }
 
+/** User has `name`; EmployeeBasic has firstName/lastName. */
+function resolvePersonName(person) {
+    if (!person || typeof person !== 'object') return '';
+    const named = String(person.name || '').trim();
+    if (named) return named;
+    return `${person.firstName || ''} ${person.lastName || ''}`.trim();
+}
+
 export function getLoanStepActor(step, loan, workflow = []) {
     if (step.id === 1) return 'System';
     if (step.id === 2) {
-        const creator = loan.createdBy;
-        if (!creator) return loan.applicantName || 'Requester';
-        return (
-            creator.name ||
-            (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester')
-        );
+        const fromCreator = resolvePersonName(loan.createdBy);
+        return fromCreator || loan.applicantName || 'Requester';
     }
     if (step.id === 3) {
         const hrStep = workflow.find((w) => w.role === 'HR');
-        if (hrStep?.assignedTo?.firstName) {
-            return `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim();
-        }
+        const fromWf = resolvePersonName(hrStep?.assignedTo);
+        if (fromWf) return fromWf;
+        const fromApprover = resolvePersonName(loan.hrApprovedBy);
+        if (fromApprover) return fromApprover;
         if (loan.hrHODName && loan.hrHODName !== 'Unknown') return loan.hrHODName;
         return 'HR Manager';
     }
     if (step.id === 4) {
         const accStep = workflow.find((w) => w.role === 'Accounts');
-        if (accStep?.assignedTo?.firstName) {
-            return `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim();
-        }
+        const fromWf = resolvePersonName(accStep?.assignedTo);
+        if (fromWf) return fromWf;
+        const fromApprover = resolvePersonName(loan.accountsApprovedBy);
+        if (fromApprover) return fromApprover;
         if (loan.accountsHODName && loan.accountsHODName !== 'Unknown') return loan.accountsHODName;
         return 'Accounts Officer';
     }
     if (step.id === 5) {
         const mgtStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
-        if (mgtStep?.assignedTo?.firstName) {
-            return `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim();
-        }
-        if (loan.approvedBy) {
-            return (
-                loan.approvedBy.name ||
-                (loan.approvedBy.firstName
-                    ? `${loan.approvedBy.firstName} ${loan.approvedBy.lastName || ''}`.trim()
-                    : '')
-            );
-        }
+        const fromWf = resolvePersonName(mgtStep?.assignedTo);
+        if (fromWf) return fromWf;
+        const fromApprover = resolvePersonName(loan.approvedBy);
+        if (fromApprover) return fromApprover;
+        const fromSubmitted = resolvePersonName(loan.submittedTo);
+        if (fromSubmitted) return fromSubmitted;
         if (loan.ceoName && loan.ceoName !== 'Unknown') return loan.ceoName;
         return 'CEO / Management';
     }
     if (step.id === 6) {
         const payStep = workflow.find((w) => w.role === 'Paid to Employee');
-        if (payStep?.assignedTo?.firstName) {
-            return `${payStep.assignedTo.firstName} ${payStep.assignedTo.lastName || ''}`.trim();
-        }
+        const fromWf = resolvePersonName(payStep?.assignedTo);
+        if (fromWf) return fromWf;
         if (loan.accountsHODName && loan.accountsHODName !== 'Unknown') return loan.accountsHODName;
         return 'Accounts Officer';
     }

@@ -486,7 +486,8 @@ function FineDetailsPageContent() {
                 });
             }
 
-            refreshData();
+            // Reload so workflow timeline gets User `name` + HOD display names (not role titles).
+            await refreshData();
             notifyFinePendingInboxChanged();
         } catch (err) {
             console.error("Action error:", err);
@@ -692,8 +693,15 @@ function FineDetailsPageContent() {
         });
     };
 
-    const refreshData = () => {
-        window.location.reload();
+    const refreshData = async () => {
+        try {
+            if (!id) return;
+            const fineRes = await axiosInstance.get(`/Fine/${id}`);
+            setFine(fineRes.data);
+        } catch (e) {
+            console.error('Fine soft refresh failed, reloading page', e);
+            window.location.reload();
+        }
     };
 
     // Fetch Current User

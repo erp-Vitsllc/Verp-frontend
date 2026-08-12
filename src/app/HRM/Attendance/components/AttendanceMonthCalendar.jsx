@@ -468,7 +468,7 @@ function MonthGrid({
     );
 }
 
-export default function AttendanceMonthCalendar({ staffType = 'office' }) {
+export default function AttendanceMonthCalendar({ staffType = null }) {
     const [view, setView] = useState('Month');
     const [cursorDate, setCursorDate] = useState(() => new Date());
     const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -505,13 +505,16 @@ export default function AttendanceMonthCalendar({ staffType = 'office' }) {
         let cancelled = false;
         (async () => {
             try {
+                const params = {
+                    from: fetchRange.from,
+                    to: fetchRange.to,
+                    month: format(cursorDate, 'yyyy-MM'),
+                };
+                if (staffType === 'site' || staffType === 'office') {
+                    params.staffType = staffType;
+                }
                 const res = await axiosInstance.get('/Attendance/calendar', {
-                    params: {
-                        from: fetchRange.from,
-                        to: fetchRange.to,
-                        month: format(cursorDate, 'yyyy-MM'),
-                        staffType: staffType === 'site' ? 'site' : 'office',
-                    },
+                    params,
                     skipToast: true,
                 });
                 const total = Number(res.data?.totalStaff) || 0;
@@ -613,9 +616,7 @@ export default function AttendanceMonthCalendar({ staffType = 'office' }) {
                         Attendance Calendar
                     </h2>
                     <p className="text-sm text-gray-500 mt-1">
-                        {staffType === 'site'
-                            ? 'Site staffs — track presence, leave, and attendance on site.'
-                            : 'Office staff — track presence, leave, sick days, and remote work.'}
+                        Track presence, leave, sick days, and remote work across your team.
                     </p>
                 </div>
 

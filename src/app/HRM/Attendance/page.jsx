@@ -7,11 +7,6 @@ import PermissionGuard from '@/components/PermissionGuard';
 import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import AttendanceMonthCalendar from './components/AttendanceMonthCalendar';
 
-const STAFF_TABS = [
-    { key: 'office', label: 'Office Staff' },
-    { key: 'site', label: 'Site Staffs' },
-];
-
 const AnimatedCounter = ({ value, duration = 600 }) => {
     const [count, setCount] = useState(0);
 
@@ -49,8 +44,6 @@ const OVERVIEW_STATS = [
 ];
 
 export default function AttendancePage() {
-    const [staffTab, setStaffTab] = useState('office');
-
     return (
         <PermissionGuard moduleId="hrm_attendance" permissionType="view">
             <div
@@ -64,29 +57,6 @@ export default function AttendancePage() {
                         className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden"
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
-                        <div className="flex flex-wrap border-b border-gray-200 mb-4 sm:mb-6 bg-white rounded-t-xl px-2 sm:px-3">
-                            {STAFF_TABS.map((tab) => {
-                                const active = staffTab === tab.key;
-                                return (
-                                    <button
-                                        key={tab.key}
-                                        type="button"
-                                        onClick={() => setStaffTab(tab.key)}
-                                        className={`px-3 sm:px-4 lg:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${
-                                            active
-                                                ? 'text-[#EA3D2F]'
-                                                : 'text-gray-500 hover:text-gray-700'
-                                        }`}
-                                    >
-                                        {tab.label}
-                                        {active ? (
-                                            <div className="absolute bottom-0 left-0 w-full h-0.5 bg-[#EA3D2F] rounded-t-full" />
-                                        ) : null}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
                         {/* Header pair: overview + summary. Calendar below stays full width. */}
                         <div className={HEADER_PAIR_GRID}>
                             <div
@@ -94,9 +64,6 @@ export default function AttendancePage() {
                             >
                                 <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">
                                     Attendance Overview
-                                    <span className="ml-2 font-semibold text-gray-500 normal-case tracking-normal">
-                                        · {staffTab === 'site' ? 'Site Staffs' : 'Office Staff'}
-                                    </span>
                                 </h3>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 flex-1">
                                     {OVERVIEW_STATS.map((item) => (
@@ -129,7 +96,7 @@ export default function AttendancePage() {
                             </div>
                         </div>
 
-                        <AttendanceMonthCalendar staffType={staffTab} />
+                        <AttendanceMonthCalendar />
                     </div>
                 </div>
             </div>

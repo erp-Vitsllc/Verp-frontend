@@ -10,7 +10,7 @@ import MarkAttendanceDetailsModal, {
 
 const MARK_OPTIONS = [
     { key: 'work_from_home', label: 'Work from home' },
-    { key: 'on_office', label: 'On office' },
+    { key: 'on_office', label: 'On work' },
     {
         key: 'on_leave',
         label: 'On leave',

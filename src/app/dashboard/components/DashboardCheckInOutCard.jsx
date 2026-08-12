@@ -22,10 +22,13 @@ function formatClock(value) {
     return s;
 }
 
-/** Parse HH:mm or HH:mm:ss as ms since midnight in local interpretation for elapsed calc. */
+/** Parse HH:mm or HH:mm:ss as seconds since midnight. */
 function clockToSeconds(clock) {
     if (!clock) return null;
-    const parts = String(clock).split(':').map((n) => Number(n));
+    const parts = String(clock)
+        .trim()
+        .split(':')
+        .map((n) => Number(n));
     if (parts.length < 2 || parts.some((n) => Number.isNaN(n))) return null;
     const [h, m, s = 0] = parts;
     return h * 3600 + m * 60 + s;
@@ -45,6 +48,15 @@ function getDubaiNowSeconds() {
 
 function formatElapsed(totalSeconds) {
     const sec = Math.max(0, Math.floor(totalSeconds));
+    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+}
+
+/** Current Dubai clock HH:mm:ss — used for optimistic check-in when API omits time. */
+function getDubaiClockNow() {
+    const sec = getDubaiNowSeconds();
     const h = String(Math.floor(sec / 3600)).padStart(2, '0');
     const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
     const s = String(sec % 60).padStart(2, '0');
@@ -71,9 +83,8 @@ export default function DashboardCheckInOutCard() {
     const checkedOut = Boolean(timeOut);
     const running = checkedIn && !checkedOut;
 
-    const loadToday = useCallback(async () => {
-        setLoading(true);
-        setError('');
+    const loadToday = useCallback(async ({ soft = false } = {}) => {
+        if (!soft) setLoading(true);
         try {
             const today = getDubaiDateKey();
             setDateKey(today);
@@ -85,12 +96,15 @@ export default function DashboardCheckInOutCard() {
             const record = res.data?.todayRecord || null;
             setTimeIn(record?.timeIn || '');
             setTimeOut(record?.timeOut || '');
+            setError('');
         } catch (err) {
-            setTimeIn('');
-            setTimeOut('');
+            if (!soft) {
+                setTimeIn('');
+                setTimeOut('');
+            }
             setError(err?.response?.data?.message || 'Could not load check-in status.');
         } finally {
-            setLoading(false);
+            if (!soft) setLoading(false);
         }
     }, []);
 
@@ -99,12 +113,12 @@ export default function DashboardCheckInOutCard() {
     }, [loadToday]);
 
     useEffect(() => {
-        const onChanged = () => loadToday();
+        const onChanged = () => loadToday({ soft: true });
         window.addEventListener(ATTENDANCE_CHECK_CHANGED, onChanged);
         return () => window.removeEventListener(ATTENDANCE_CHECK_CHANGED, onChanged);
     }, [loadToday]);
 
-    // Midnight rollover (Asia/Dubai) — new day, empty UI; yesterday stays in DB
+    // Midnight rollover (Asia/Dubai) — timer resets; incomplete day becomes Unauthorized on server
     useEffect(() => {
         const checkDay = () => {
             const next = getDubaiDateKey();
@@ -114,6 +128,7 @@ export default function DashboardCheckInOutCard() {
                 setTimeOut('');
                 setElapsed(0);
                 loadToday();
+                notifyAttendanceChanged();
             }
         };
         const id = setInterval(checkDay, 15 * 1000);
@@ -129,7 +144,7 @@ export default function DashboardCheckInOutCard() {
         };
     }, [dateKey, loadToday]);
 
-    // Live timer while checked in
+    // Live timer: starts on check-in, stops on check-out, resets after midnight
     useEffect(() => {
         if (tickRef.current) {
             clearInterval(tickRef.current);
@@ -160,31 +175,55 @@ export default function DashboardCheckInOutCard() {
     }, [timeIn, timeOut]);
 
     const handleCheckIn = async () => {
+        if (checkedIn || saving || loading) return;
         setSaving(true);
         setError('');
         try {
             const res = await axiosInstance.post('/Attendance/me/check-in', {}, { skipToast: true });
-            setTimeIn(res.data?.timeIn || res.data?.record?.timeIn || '');
+            const nextIn =
+                res.data?.timeIn ||
+                res.data?.record?.timeIn ||
+                getDubaiClockNow();
+            setTimeIn(nextIn);
             setTimeOut('');
+            // Notify calendar only — avoid hard reload wiping timer state
             notifyAttendanceChanged();
         } catch (err) {
-            setError(err?.response?.data?.message || 'Check-in failed.');
-            await loadToday();
+            const msg = err?.response?.data?.message || 'Check-in failed.';
+            setError(msg);
+            // If already checked in, sync times from record so timer can run
+            const record = err?.response?.data?.record;
+            if (record?.timeIn) {
+                setTimeIn(record.timeIn);
+                setTimeOut(record.timeOut || '');
+            }
         } finally {
             setSaving(false);
         }
     };
 
     const handleCheckOut = async () => {
+        if (!checkedIn || checkedOut || saving || loading) return;
         setSaving(true);
         setError('');
         try {
             const res = await axiosInstance.post('/Attendance/me/check-out', {}, { skipToast: true });
-            setTimeOut(res.data?.timeOut || res.data?.record?.timeOut || '');
+            const nextOut =
+                res.data?.timeOut ||
+                res.data?.record?.timeOut ||
+                getDubaiClockNow();
+            setTimeOut(nextOut);
             notifyAttendanceChanged();
         } catch (err) {
-            setError(err?.response?.data?.message || 'Check-out failed.');
-            await loadToday();
+            const msg = err?.response?.data?.message || 'Check-out failed.';
+            setError(msg);
+            const record = err?.response?.data?.record;
+            if (record?.timeOut) {
+                setTimeOut(record.timeOut);
+            }
+            if (record?.timeIn) {
+                setTimeIn(record.timeIn);
+            }
         } finally {
             setSaving(false);
         }
@@ -192,10 +231,22 @@ export default function DashboardCheckInOutCard() {
 
     const statusLabel = useMemo(() => {
         if (loading) return 'Loading…';
-        if (checkedOut) return 'Checked out';
-        if (checkedIn) return 'On the clock';
+        if (checkedOut) return 'Present';
+        if (checkedIn) return 'Checked in';
         return 'Not checked in';
     }, [loading, checkedIn, checkedOut]);
+
+    const checkInButtonLabel = useMemo(() => {
+        if (saving && !checkedIn) return 'Saving…';
+        if (checkedIn) return `In ${formatClock(timeIn) || '—'}`;
+        return 'Check In';
+    }, [saving, checkedIn, timeIn]);
+
+    const checkOutButtonLabel = useMemo(() => {
+        if (saving && checkedIn && !checkedOut) return 'Saving…';
+        if (checkedOut) return `Out ${formatClock(timeOut) || '—'}`;
+        return 'Check Out';
+    }, [saving, checkedIn, checkedOut, timeOut]);
 
     return (
         <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] overflow-hidden">
@@ -204,13 +255,14 @@ export default function DashboardCheckInOutCard() {
                     Check In / Out
                 </h3>
                 <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">
-                    Record today&apos;s time. Resets after midnight; history stays saved.
+                    If you forget to check out, the day is auto-marked as unauthorized. Check out to
+                    mark the day Present. After midnight it resets to 00:00:00.
                 </p>
                 <p className="text-[11px] text-slate-400 tabular-nums mt-2">{dateKey}</p>
             </div>
 
-            <div className="flex-1 flex flex-col items-center justify-center py-3 sm:py-4 gap-3 min-h-0">
-                <div className="relative w-28 h-28 sm:w-36 sm:h-36 lg:w-40 lg:h-40 rounded-full border-[10px] border-slate-100 flex flex-col items-center justify-center">
+            <div className="flex-1 flex flex-col items-center justify-center py-2 sm:py-3 gap-2 min-h-0">
+                <div className="flex flex-col items-center justify-center">
                     <Clock
                         className={`w-5 h-5 mb-1 ${running ? 'text-[#EA3D2F]' : 'text-slate-300'}`}
                         strokeWidth={2}
@@ -238,12 +290,27 @@ export default function DashboardCheckInOutCard() {
                                     <span className="text-slate-400 font-medium">Out</span>{' '}
                                     <span className="font-semibold">{formatClock(timeOut)}</span>
                                 </>
-                            ) : null}
+                            ) : (
+                                <span className="text-amber-600 text-[11px] ml-1.5 font-medium">
+                                    · Check out required
+                                </span>
+                            )}
                         </p>
                     ) : (
                         <p className="text-xs text-slate-300">No check-in yet today</p>
                     )}
-                    {error ? <p className="text-[11px] text-red-500">{error}</p> : null}
+                    {error ? (
+                        <div className="space-y-1">
+                            <p className="text-[11px] text-red-500 px-1">{error}</p>
+                            <button
+                                type="button"
+                                onClick={() => loadToday()}
+                                className="text-[11px] font-semibold text-sky-600 hover:text-sky-700 underline"
+                            >
+                                Retry
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
             </div>
 
@@ -252,23 +319,35 @@ export default function DashboardCheckInOutCard() {
                     type="button"
                     disabled={saving || loading || checkedIn}
                     onClick={handleCheckIn}
-                    className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#EA3D2F] hover:bg-[#d43528] text-white text-xs sm:text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-colors disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:!text-white"
+                    title={checkedIn ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
                 >
-                    {checkedIn && checkedOut ? (
-                        <Check className="w-4 h-4" strokeWidth={2.5} />
+                    {checkedIn ? (
+                        <Check className="w-4 h-4 shrink-0 !text-white" strokeWidth={2.5} />
                     ) : (
-                        <LogIn className="w-4 h-4" />
+                        <LogIn className="w-4 h-4 shrink-0 !text-white" />
                     )}
-                    {saving && !checkedIn ? 'Saving…' : 'Check In'}
+                    <span className="truncate !text-white">{checkInButtonLabel}</span>
                 </button>
                 <button
                     type="button"
                     disabled={saving || loading || !checkedIn || checkedOut}
                     onClick={handleCheckOut}
-                    className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs sm:text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-colors disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:!text-white"
+                    title={
+                        checkedOut
+                            ? `Checked out at ${formatClock(timeOut)}`
+                            : checkedIn
+                              ? 'Check out'
+                              : 'Check in first'
+                    }
                 >
-                    <LogOut className="w-4 h-4" />
-                    {saving && checkedIn && !checkedOut ? 'Saving…' : 'Check Out'}
+                    {checkedOut ? (
+                        <Check className="w-4 h-4 shrink-0 !text-white" strokeWidth={2.5} />
+                    ) : (
+                        <LogOut className="w-4 h-4 shrink-0 !text-white" />
+                    )}
+                    <span className="truncate !text-white">{checkOutButtonLabel}</span>
                 </button>
             </div>
         </div>

@@ -66,42 +66,46 @@ function toTitleCase(str) {
         .join(' ');
 }
 
+/** User has `name`; EmployeeBasic has firstName/lastName. */
+function resolvePersonName(person) {
+    if (!person || typeof person !== 'object') return '';
+    const named = String(person.name || '').trim();
+    if (named) return named;
+    return `${person.firstName || ''} ${person.lastName || ''}`.trim();
+}
+
 function getFineStepActor(step, fine, workflow) {
     if (step.id === 1) return 'System';
     if (step.id === 2) {
-        const creator = fine.createdBy;
-        if (!creator) return 'Requester';
-        return creator.name || (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester');
+        const fromCreator = resolvePersonName(fine.createdBy);
+        return fromCreator || 'Requester';
     }
     if (step.id === 3) {
         const hrStep = workflow.find((w) => w.role === 'HR');
-        if (hrStep?.assignedTo?.firstName) {
-            return `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim();
-        }
+        const fromWf = resolvePersonName(hrStep?.assignedTo);
+        if (fromWf) return fromWf;
+        const fromApprover = resolvePersonName(fine.hrApprovedBy);
+        if (fromApprover) return fromApprover;
         if (fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
         return 'HR Manager';
     }
     if (step.id === 4) {
         const accStep = workflow.find((w) => w.role === 'Accounts');
-        if (accStep?.assignedTo?.firstName) {
-            return `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim();
-        }
+        const fromWf = resolvePersonName(accStep?.assignedTo);
+        if (fromWf) return fromWf;
+        const fromApprover = resolvePersonName(fine.accountsApprovedBy);
+        if (fromApprover) return fromApprover;
         if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
         return 'Accounts Officer';
     }
     if (step.id === 5) {
         const mgtStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
-        if (mgtStep?.assignedTo?.firstName) {
-            return `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim();
-        }
-        if (fine.approvedBy) {
-            return (
-                fine.approvedBy.name ||
-                (fine.approvedBy.firstName
-                    ? `${fine.approvedBy.firstName} ${fine.approvedBy.lastName || ''}`.trim()
-                    : '')
-            );
-        }
+        const fromWf = resolvePersonName(mgtStep?.assignedTo);
+        if (fromWf) return fromWf;
+        const fromApprover = resolvePersonName(fine.approvedBy);
+        if (fromApprover) return fromApprover;
+        const fromSubmitted = resolvePersonName(fine.submittedTo);
+        if (fromSubmitted) return fromSubmitted;
         if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
         return 'CEO / Management';
     }

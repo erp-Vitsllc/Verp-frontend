@@ -24,6 +24,7 @@ import {
 import { isAdmin } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import { navHrefProps } from '@/utils/linkContextMenu';
+import HrHolidaysPanel from './components/HrHolidaysPanel';
 
 const RESPONSIBILITY_CATEGORIES = [
     { id: 'assigneduser', label: 'Assigned User' },
@@ -698,6 +699,15 @@ export default function GlobalFlowChartPage() {
                             >
                                 Flow Chart
                             </button>
+                            <button
+                                onClick={() => setActiveTab('hr')}
+                                className={`px-4 sm:px-6 lg:px-8 py-2 sm:py-2.5 lg:py-3 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-black transition-all duration-300 whitespace-nowrap ${activeTab === 'hr'
+                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 translate-y-[-2px]'
+                                    : 'text-slate-500 hover:text-blue-600 hover:bg-slate-50'
+                                    }`}
+                            >
+                                HR
+                            </button>
                         </div>
 
                         {/* Content Area */}
@@ -990,7 +1000,7 @@ export default function GlobalFlowChartPage() {
                                         </table>
                                     </div>
                                 </div>
-                            ) : (
+                            ) : activeTab === 'flowchart' ? (
                                 <div className="bg-white rounded-2xl sm:rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 p-4 sm:p-6 lg:p-10 min-h-[480px] sm:min-h-[700px] flex flex-col items-center">
                                     <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-6 sm:mb-8 lg:mb-12 pb-4 sm:pb-6 border-b border-slate-50">
                                         <div>
@@ -1107,6 +1117,8 @@ export default function GlobalFlowChartPage() {
                                         )}
                                     </div>
                                 </div>
+                            ) : (
+                                <HrHolidaysPanel />
                             )}
                         </div>
                     </div>

@@ -10,7 +10,7 @@ import MarkAttendanceDetailsModal, {
 
 const MARK_OPTIONS = [
     { key: 'work_from_home', label: 'Work from home' },
-    { key: 'on_office', label: 'On office' },
+    { key: 'on_office', label: 'On work' },
     {
         key: 'on_leave',
         label: 'On leave',
@@ -28,6 +28,14 @@ function formatDisplayTime(value) {
     if (!value) return '—';
     // HTML time input is HH:mm — show as-is
     return value;
+}
+
+function formatStatusLabel(mark) {
+    if (!mark?.label && !mark?.key) return '';
+    if (mark.key === 'on_office' || String(mark.label).trim().toLowerCase() === 'on office') {
+        return 'On work';
+    }
+    return mark.label || '';
 }
 
 function applyDayRecordsToState(employees, records) {
@@ -63,10 +71,12 @@ function mapActiveEmployee(emp) {
         emp?.employeeName ||
         '—';
     const empNo = emp?.employeeId || emp?.empNo || emp?.employeeNo || emp?.employeeCode || '—';
+    const staffType = String(emp?.staffType || '').trim().toLowerCase() === 'site' ? 'site' : 'office';
     return {
         id,
         empNo: String(empNo),
         name,
+        staffType,
         timeIn: '—',
         timeOut: '—',
     };
@@ -83,6 +93,12 @@ function isActiveEmployee(emp) {
     const profile = String(emp?.profileStatus || '').trim().toLowerCase();
     const status = String(emp?.status || '').trim().toLowerCase();
     return profile === 'active' || status === 'active' || (!profile && !status);
+}
+
+function matchesStaffType(emp, staffType) {
+    const wanted = staffType === 'site' ? 'site' : 'office';
+    const actual = emp?.staffType === 'site' ? 'site' : 'office';
+    return actual === wanted;
 }
 
 function MarkAttendanceMenu({ anchorRect, onSelect, onClose }) {
@@ -220,13 +236,13 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeIn}</td>
             <td className="px-3 py-3 text-sm text-gray-700 tabular-nums align-middle">{timeOut}</td>
             <td className="px-3 py-3 align-middle min-w-[140px]">
-                {mark?.label ? (
+                {mark?.label || mark?.key ? (
                     <div className="flex flex-col gap-0.5 min-w-0">
                         <span
                             className="inline-flex w-fit text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded max-w-full truncate"
-                            title={[mark.label, mark.reason].filter(Boolean).join(' — ')}
+                            title={[formatStatusLabel(mark), mark.reason].filter(Boolean).join(' — ')}
                         >
-                            {mark.label}
+                            {formatStatusLabel(mark)}
                         </span>
                         {mark?.reason ? (
                             <span className="text-[10px] text-gray-500 max-w-[180px] truncate" title={mark.reason}>
@@ -264,7 +280,8 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
     );
 }
 
-export default function MarkAttendanceTable({ dateKey }) {
+export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
+    const [allEmployees, setAllEmployees] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
     const [dayLoading, setDayLoading] = useState(false);
@@ -277,6 +294,7 @@ export default function MarkAttendanceTable({ dateKey }) {
     const [bulkAnchorRect, setBulkAnchorRect] = useState(null);
     const bulkButtonRef = useRef(null);
     const employeesRef = useRef([]);
+    const dayRecordsRef = useRef([]);
 
     useEffect(() => {
         employeesRef.current = employees;
@@ -297,10 +315,10 @@ export default function MarkAttendanceTable({ dateKey }) {
                     .map(mapActiveEmployee)
                     .filter((e) => e.id);
                 rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-                if (!cancelled) setEmployees(rows);
+                if (!cancelled) setAllEmployees(rows);
             } catch (err) {
                 if (!cancelled) {
-                    setEmployees([]);
+                    setAllEmployees([]);
                     setLoadError(err?.response?.data?.message || 'Could not load active employees.');
                 }
             } finally {
@@ -312,7 +330,7 @@ export default function MarkAttendanceTable({ dateKey }) {
         };
     }, []);
 
-    // Load stored attendance for the selected day
+    // Load stored attendance for the selected day (and re-filter when staff tab changes)
     useEffect(() => {
         if (loading) return;
         let cancelled = false;
@@ -331,24 +349,18 @@ export default function MarkAttendanceTable({ dateKey }) {
                 });
                 if (cancelled) return;
                 const records = Array.isArray(res.data?.records) ? res.data.records : [];
-                const { nextEmployees, nextMarks } = applyDayRecordsToState(
-                    employeesRef.current,
-                    records,
-                );
+                dayRecordsRef.current = records;
+                const filtered = allEmployees.filter((e) => matchesStaffType(e, staffType));
+                const { nextEmployees, nextMarks } = applyDayRecordsToState(filtered, records);
                 setEmployees(nextEmployees);
                 setMarks(nextMarks);
-            } catch (err) {
-                if (cancelled) return;
-                // Keep employees list; clear day marks if day fetch fails
-                setMarks({});
-                setEmployees((prev) =>
-                    prev.map((e) => ({
-                        ...e,
-                        timeIn: '—',
-                        timeOut: '—',
-                    })),
-                );
-                console.error('Failed to load day attendance', err);
+            } catch {
+                if (!cancelled) {
+                    dayRecordsRef.current = [];
+                    const filtered = allEmployees.filter((e) => matchesStaffType(e, staffType));
+                    setEmployees(filtered.map((e) => ({ ...e, timeIn: '—', timeOut: '—' })));
+                    setMarks({});
+                }
             } finally {
                 if (!cancelled) setDayLoading(false);
             }
@@ -357,7 +369,7 @@ export default function MarkAttendanceTable({ dateKey }) {
         return () => {
             cancelled = true;
         };
-    }, [dateKey, loading]);
+    }, [dateKey, loading, allEmployees, staffType]);
 
     useEffect(() => {
         if (selectedIds.size <= 1) {
@@ -541,7 +553,11 @@ export default function MarkAttendanceTable({ dateKey }) {
     }
 
     if (employees.length === 0) {
-        return <div className="py-12 text-center text-sm text-gray-400">No active employees found.</div>;
+        return (
+            <div className="py-12 text-center text-sm text-gray-400">
+                No active {staffType === 'site' ? 'site' : 'office'} staff found.
+            </div>
+        );
     }
 
     return (

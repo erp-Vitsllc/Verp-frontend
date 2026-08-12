@@ -711,20 +711,24 @@ export default function LoanRequestDetails() {
             title: `${actionLabel}…`,
             description:
                 action === 'approve'
-                    ? 'Please wait — updating status, notifications, and attachments can take a moment.'
+                    ? 'Updating status…'
                     : 'Please wait while the request is updated.',
             className: 'bg-amber-50 border-amber-200 text-amber-900',
-            duration: 120000,
+            duration: 30000,
         });
         try {
-            await axiosInstance.put(`/Employee/loans/${id}/status`, {
+            const { data } = await axiosInstance.put(`/Employee/loans/${id}/status`, {
                 status: targetStatus,
             });
+
+            if (data?.loan) {
+                setLoan(data.loan);
+            }
 
             loadingToast.update({
                 id: loadingToast.id,
                 title: 'Success',
-                description: `Loan request ${targetStatus === 'Pending' ? 'submitted' : action === 'approve' ? 'approved' : 'rejected'} successfully.`,
+                description: `Loan request ${targetStatus === 'Pending' ? 'submitted' : action === 'approve' ? 'approved' : 'rejected'} successfully. Notifications continue in the background.`,
                 className: 'bg-green-50 border-green-200 text-green-800',
                 duration: 5000,
             });

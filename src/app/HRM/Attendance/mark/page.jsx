@@ -34,6 +34,11 @@ function parseDateParam(value) {
     return isValid(fallback) ? startOfDay(fallback) : startOfDay(new Date());
 }
 
+const STAFF_TABS = [
+    { key: 'office', label: 'Office Staff' },
+    { key: 'site', label: 'Site Staffs' },
+];
+
 function MarkAttendanceContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -50,6 +55,7 @@ function MarkAttendanceContent() {
     });
     const [dayRolledOver, setDayRolledOver] = useState(false);
     const [calendarOpen, setCalendarOpen] = useState(false);
+    const [staffTab, setStaffTab] = useState('office');
     const lastDubaiDayRef = useRef(getDubaiDateKey());
 
     const goToDate = useCallback(
@@ -110,13 +116,37 @@ function MarkAttendanceContent() {
 
     return (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-visible">
+            <div className="flex flex-wrap border-b border-gray-100 px-2 sm:px-4">
+                {STAFF_TABS.map((tab) => {
+                    const active = staffTab === tab.key;
+                    return (
+                        <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setStaffTab(tab.key)}
+                            className={`px-3 sm:px-4 lg:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${
+                                active
+                                    ? 'text-[#EA3D2F]'
+                                    : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            {tab.label}
+                            {active ? (
+                                <div className="absolute bottom-0 left-0 w-full h-0.5 bg-[#EA3D2F] rounded-t-full" />
+                            ) : null}
+                        </button>
+                    );
+                })}
+            </div>
+
             <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="min-w-0">
                     <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">
                         Mark Attendance
                     </h1>
                     <p className="text-sm text-gray-500 mt-1">
-                        Mark and review attendance for the selected date.
+                        Mark and review attendance for{' '}
+                        {staffTab === 'site' ? 'site staffs' : 'office staff'} on the selected date.
                     </p>
                     {dayRolledOver ? (
                         <p className="text-xs text-emerald-700 mt-1">
@@ -173,7 +203,7 @@ function MarkAttendanceContent() {
             </div>
 
             <div className="px-2 sm:px-4 py-3">
-                <MarkAttendanceTable dateKey={dateKey} />
+                <MarkAttendanceTable dateKey={dateKey} staffType={staffTab} />
             </div>
         </div>
     );

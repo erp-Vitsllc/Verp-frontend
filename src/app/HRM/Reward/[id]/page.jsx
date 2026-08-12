@@ -582,9 +582,6 @@ export default function RewardDetailsPage({ params }) {
                 });
             }
             fetchData();
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
         } catch (error) {
             console.error(error);
             toast({
