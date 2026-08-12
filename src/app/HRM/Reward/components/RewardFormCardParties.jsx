@@ -538,10 +538,10 @@ export default function RewardFormCardParties({
             return { label: 'Posted to Zoho (not paid)', className: 'text-emerald-700' };
         }
         if ((status === 'Approved (Paid)' || status === 'Paid' || (total > 0 && paid >= total - 0.01)) && syncErr) {
-            return { label: 'Zoho failed — not Paid', className: 'text-red-700' };
+            return { label: 'Paid — Zoho retry needed', className: 'text-amber-700' };
         }
         if (status === 'Approved (Paid)' || status === 'Paid' || (total > 0 && paid >= total - 0.01)) {
-            return { label: 'Paid / Posted', className: 'text-emerald-700' };
+            return { label: 'Paid (Zoho posting…)', className: 'text-blue-700' };
         }
 
         const atOrAfterAccounts = [
@@ -774,10 +774,9 @@ export default function RewardFormCardParties({
             ) : null}
 
             {needsZohoRetry ? (
-                <div className="mb-3 text-[10px] text-red-800 bg-red-50 rounded-lg px-3 py-2">
-                    <strong>Zoho expense not created — status is not Paid.</strong> {zohoSyncError}{' '}
-                    Fix Expense Account / Paid Through, save, then Approve again. The payment schedule
-                    turns green only after Zoho succeeds.
+                <div className="mb-3 text-[10px] text-amber-900 bg-amber-50 rounded-lg px-3 py-2">
+                    <strong>Reward is Paid — Zoho expense not created yet.</strong> {zohoSyncError}{' '}
+                    Fix Expense Account / Paid Through and save to retry Zoho. Status stays Paid.
                 </div>
             ) : null}
 

@@ -488,6 +488,33 @@ export default function RewardDetailsPage({ params }) {
 
             console.log(`DEBUG: executing status update: ${currentStatus} -> ${finalStatus}`);
 
+            // Status + lock first for every stage; PDF / Zoho always background.
+            setReward((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          rewardStatus: finalStatus,
+                          approvalStatus: finalStatus,
+                          ...(finalStatus === 'Approved (Paid)'
+                              ? {
+                                    paymentStatus: 'Billed',
+                                    paidAmount:
+                                        parseFloat(prev.amount || 0) > 0
+                                            ? parseFloat(prev.amount || 0)
+                                            : prev.paidAmount,
+                                    zohoSyncError: '',
+                                }
+                              : {}),
+                      }
+                    : prev,
+            );
+            setIsAlertOpen(false);
+
+            const isAccountsToPaid =
+                currentStatus === 'Pending Accounts' && finalStatus === 'Approved (Paid)';
+            const isFinalApproval =
+                finalStatus === 'Approved' || finalStatus === 'Approved (Paid)';
+
             // Determine if we should generate PDF
             // Legacy Logic Removed for Backend Puppeteer Generation
             const isSuperUser = isAdmin();
@@ -495,38 +522,29 @@ export default function RewardDetailsPage({ params }) {
             const desig = (currentUser?.designation || '').toLowerCase();
             const isCEO = dept === 'management' && ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(desig);
 
-            const shouldGeneratePDF =
-                finalStatus === 'Approved' ||
-                finalStatus === 'Approved (Paid)' ||
+            const wantsCertificatePdf =
+                isFinalApproval ||
                 ((status === 'Approved' || status === 'Approved (Paid)') && (isSuperUser || isCEO));
 
             console.log(`DEBUG: Status Update. Action: ${status}, Current: ${currentStatus}, Target: ${finalStatus}`);
 
             let certificatePdf = null;
 
-            if (shouldGeneratePDF) {
-                console.log("DEBUG: Generating PDF for approval...");
-                try {
-                    // Introduce a small delay to ensure rendering
-                    await new Promise(resolve => setTimeout(resolve, 500));
-
-                    const pdf = await generateCertificatePDF();
-                    if (pdf) {
-                        certificatePdf = pdf.output('datauristring').split(',')[1];
-                        console.log("DEBUG: PDF Generated successfully. Length:", certificatePdf.length);
-                    } else {
-                        throw new Error("PDF object is null");
+            // Never block status API on PDF — fire-and-forget only.
+            if (wantsCertificatePdf) {
+                void (async () => {
+                    try {
+                        await new Promise((resolve) => setTimeout(resolve, 300));
+                        const pdf = await generateCertificatePDF();
+                        if (!pdf) return;
+                        console.log(
+                            'DEBUG: Background certificate PDF ready',
+                            pdf.output('datauristring').split(',')[1]?.length,
+                        );
+                    } catch (e) {
+                        console.warn('Background certificate PDF skipped:', e?.message || e);
                     }
-                } catch (genErr) {
-                    console.error("DEBUG: Critical PDF Generation Error:", genErr);
-                    toast({
-                        variant: 'destructive',
-                        title: "Error",
-                        description: "Failed to generate certificate PDF. Status update aborted. Please check console."
-                    });
-                    setActionLoading(false);
-                    return; // STOP EXECUTION - Do not update status without PDF
-                }
+                })();
             }
 
             if (status === 'Rejected' && (!rejectionReason || rejectionReason.trim().length === 0)) {
@@ -536,6 +554,12 @@ export default function RewardDetailsPage({ params }) {
                     description: "Please provide a reason for rejection."
                 });
                 setActionLoading(false);
+                // roll back optimistic
+                setReward((prev) =>
+                    prev
+                        ? { ...prev, rewardStatus: currentStatus, approvalStatus: currentStatus }
+                        : prev,
+                );
                 return;
             }
 
@@ -547,6 +571,11 @@ export default function RewardDetailsPage({ params }) {
                 remarks: finalStatus === 'Rejected' ? rejectionReason : reward.remarks,
                 certificatePdf // Send Base64 PDF to backend
             };
+            if (isAccountsToPaid) {
+                updatePayload.rewardStatus = 'Approved (Paid)';
+                updatePayload.approvalStatus = 'Approved (Paid)';
+                updatePayload.paymentStatus = 'Billed';
+            }
 
             const approverId = currentUser.id || currentUser._id;
             if (approverId) {
@@ -567,23 +596,28 @@ export default function RewardDetailsPage({ params }) {
             }
 
             const updateRes = await axiosInstance.put(`/Reward/${reward._id}/status`, updatePayload);
-            if (updateRes.data?.zohoSyncFailed) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Zoho Expense failed',
-                    description:
-                        updateRes.data?.message ||
-                        'Reward stays Pending Accounts until Zoho Expense succeeds. Fix Expense Account / Paid Through and approve again.',
-                });
-            } else {
-                toast({
-                    title: "Success",
-                    description: `Reward ${finalStatus === 'Pending Authorization' ? 'authorized' : finalStatus.toLowerCase()} successfully`,
-                });
+            if (updateRes.data?.reward) {
+                setReward(updateRes.data.reward);
             }
+            toast({
+                title: "Success",
+                description: isAccountsToPaid
+                    ? 'Reward marked Approved (Paid). Zoho Expense is posting in the background.'
+                    : isFinalApproval
+                      ? `Reward ${finalStatus.toLowerCase()} successfully. PDF / notifications continue in the background.`
+                      : `Reward ${finalStatus === 'Pending Authorization' ? 'authorized' : finalStatus.toLowerCase()} successfully`,
+            });
+            // Soft refresh so Zoho ids appear when ready
             fetchData();
+            if (isAccountsToPaid) {
+                setTimeout(() => fetchData(), 4000);
+            }
         } catch (error) {
             console.error(error);
+            // Roll back optimistic status
+            if (reward?.rewardStatus) {
+                fetchData();
+            }
             toast({
                 variant: 'destructive',
                 title: "Error",
@@ -1195,7 +1229,7 @@ export default function RewardDetailsPage({ params }) {
                                     : pendingStatus === 'Pending Accounts' && reward?.rewardStatus === 'Pending Authorization'
                                         ? "This will send the reward to Accounts. The employee and primary reportee will be emailed; Accounts will get a notification to set Expense Account and Paid Through, then approve."
                                         : (pendingStatus === 'Approved' || pendingStatus === 'Approved (Paid)') && reward?.rewardStatus === 'Pending Accounts'
-                                            ? "Accounts approval will post to Zoho Expenses and mark the reward Approved (Paid). No separate Pay step."
+                                            ? "Accounts approval marks the reward Approved (Paid) and locks the form. Zoho Expense posts right after in the background."
                                             : pendingStatus === 'Approved' && reward?.rewardStatus === 'Pending Authorization'
                                                 ? "This will finalize and approve the reward. A certificate will be generated."
                                                 : pendingStatus === 'Rejected'

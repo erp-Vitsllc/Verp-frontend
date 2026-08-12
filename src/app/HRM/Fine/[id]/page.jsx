@@ -33,7 +33,6 @@ import {
     canAccountsPayFineVendorBill,
     canAccountsPayFineEmployeeShare,
 } from '../utils/fineVendorPaymentPrefill';
-import { mapZohoVendors, matchZohoVendorByName } from '@/utils/zohoVendors';
 import {
     isLossDamageFineType,
     buildLossDamageFormFields,
@@ -243,22 +242,52 @@ function FineDetailsPageContent() {
         try {
             const targetId = fine?._id || id;
             let res;
+            const currentFineStatus = String(fine?.fineStatus || '');
 
-            let finePdf = null;
-            if ((action === 'approve' && (fine.fineStatus === 'Pending Authorization')) || (action === 'updateStatus' && status === 'Approved')) {
-                toast({ title: "Generating PDF...", description: "Capturing form for email attachment." });
-                const pdfResult = await generateFinePDF();
-                if (pdfResult?.type === 'jspdf' && pdfResult.pdf) {
-                    finePdf = pdfResult.pdf.output('datauristring').split(',')[1];
-                } else if (pdfResult?.type === 'buffer' && pdfResult.base64) {
-                    finePdf = pdfResult.base64;
+            // Next status for optimistic UI (status first — PDF / Zoho / vendor in background)
+            let optimisticStatus = null;
+            if (action === 'approve') {
+                if (
+                    currentFineStatus === 'Pending HR' ||
+                    currentFineStatus === 'Pending Review' ||
+                    currentFineStatus === 'Pending'
+                ) {
+                    optimisticStatus = 'Pending Accounts';
+                } else if (
+                    currentFineStatus === 'Pending Accounts' ||
+                    currentFineStatus === 'Pending Finance'
+                ) {
+                    optimisticStatus = 'Pending Authorization';
+                } else if (
+                    currentFineStatus === 'Pending Authorization' ||
+                    currentFineStatus === 'Pending Management'
+                ) {
+                    optimisticStatus = 'Approved';
                 }
+            } else if (action === 'reject') {
+                optimisticStatus = 'Rejected';
+            } else if (action === 'updateStatus' && status) {
+                optimisticStatus = status;
             }
+
+            const rollBackFineStatus = () => {
+                if (!currentFineStatus) return;
+                setFine((prev) =>
+                    prev ? { ...prev, fineStatus: currentFineStatus } : prev,
+                );
+            };
+
+            if (optimisticStatus) {
+                setFine((prev) => (prev ? { ...prev, fineStatus: optimisticStatus } : prev));
+            }
+
+            // PDF is generated on the server after Approved — do not block UI.
+            const finePdf = null;
 
             if (action === 'approve') {
                 const isAccountsStage =
-                    fine.fineStatus === 'Pending Accounts' || fine.fineStatus === 'Pending Finance';
-                const isManagementStage = fine.fineStatus === 'Pending Authorization';
+                    currentFineStatus === 'Pending Accounts' || currentFineStatus === 'Pending Finance';
+                const isManagementStage = currentFineStatus === 'Pending Authorization';
 
                 const groupParties = Array.isArray(partyPayables) && partyPayables.length > 0
                     ? partyPayables
@@ -270,8 +299,6 @@ function FineDetailsPageContent() {
                         expenseAccountName: p.expenseAccountName || '',
                         payableConfirmed: Boolean(p.payableConfirmed),
                     }));
-                const isGroupFine = Boolean(fine?.isGroupView) || groupParties.length > 1;
-                // Individual + group: Vendor/Payable filled on Fine Parties card
                 const usePartyPayableFlow = groupParties.length >= 1;
                 let resolvedVendorId =
                     String(managementZoho.zohoVendorId || fine?.zohoVendorId || '').trim();
@@ -282,71 +309,13 @@ function FineDetailsPageContent() {
                     '',
                 ).trim();
 
-                // Accounts already set Vendor name (Fine Source) — resolve Zoho vendor id if missing.
-                // IMPORTANT: do NOT use sync=true here — that returns only one Zoho page chunk.
-                // Match against the full local vendor cache (optionally filtered by name).
-                if (isManagementStage && !resolvedVendorId && resolvedVendorName) {
-                    try {
-                        const orgId =
-                            managementZoho.zohoOrganizationId ||
-                            fine?.zohoOrganizationId ||
-                            '';
-                        const orgParams = orgId ? { organizationId: orgId } : {};
-
-                        const loadAndMatch = async (extraParams = {}) => {
-                            const vendorRes = await axiosInstance.get('/zoho/vendors', {
-                                params: {
-                                    ...orgParams,
-                                    limit: 2000,
-                                    ...extraParams,
-                                },
-                                skipToast: true,
-                                timeout: 60000,
-                            });
-                            const vendors = mapZohoVendors(vendorRes?.data?.data);
-                            return matchZohoVendorByName(vendors, resolvedVendorName);
-                        };
-
-                        let match =
-                            (await loadAndMatch({ search: resolvedVendorName })) ||
-                            (await loadAndMatch());
-
-                        // Cache miss — pull a Zoho chunk then re-read full DB list
-                        if (!match?.id) {
-                            try {
-                                await axiosInstance.get('/zoho/vendors', {
-                                    params: { ...orgParams, sync: 'true' },
-                                    skipToast: true,
-                                    timeout: 120000,
-                                });
-                            } catch {
-                                // sync optional
-                            }
-                            match =
-                                (await loadAndMatch({ search: resolvedVendorName })) ||
-                                (await loadAndMatch());
-                        }
-
-                        if (match?.id) resolvedVendorId = String(match.id).trim();
-                    } catch (lookupErr) {
-                        console.warn('Could not resolve Zoho vendor from Fine Source:', lookupErr);
-                    }
-                }
-
+                // Prefer already-saved vendor id/name — heavy Zoho vendor sync runs in background on server.
                 if (isManagementStage && !resolvedVendorId && !resolvedVendorName) {
+                    rollBackFineStatus();
                     toast({
                         title: 'Zoho vendor required',
                         description:
                             'Set Vendor on the Fine Parties card (Accounts), or pick a Zoho vendor in this dialog.',
-                        variant: 'destructive',
-                    });
-                    return;
-                }
-
-                if (isManagementStage && !resolvedVendorId && resolvedVendorName) {
-                    toast({
-                        title: 'Zoho vendor not found',
-                        description: `Vendor "${resolvedVendorName}" is set as Fine Source, but no matching Zoho Books vendor id was found. Select the Zoho vendor in this dialog, then Approve again.`,
                         variant: 'destructive',
                     });
                     return;
@@ -363,6 +332,7 @@ function FineDetailsPageContent() {
                     !allPartiesHavePayable &&
                     !String(fine?.expenseAccountId || '').trim()
                 ) {
+                    rollBackFineStatus();
                     toast({
                         title: 'Expense account required',
                         description:
@@ -378,6 +348,7 @@ function FineDetailsPageContent() {
                             (p) => !String(p.expenseAccountId || '').trim(),
                         );
                         if (incomplete.length > 0 || !allPartiesCompleted) {
+                            rollBackFineStatus();
                             toast({
                                 title: 'Payable required',
                                 description:
@@ -392,6 +363,7 @@ function FineDetailsPageContent() {
                         !String(fine?.expenseAccountId || '').trim() &&
                         !String(accountsApprovePayable.expenseAccountId || '').trim()
                     ) {
+                        rollBackFineStatus();
                         toast({
                             title: 'Payable required',
                             description:
@@ -434,12 +406,19 @@ function FineDetailsPageContent() {
                     }
                 }
                 res = await axiosInstance.put(`/Fine/${targetId}/approve`, approveBody);
+                if (res?.data?.fine) {
+                    setFine((prev) => ({
+                        ...(prev || {}),
+                        ...res.data.fine,
+                        fineStatus: res.data.fine.fineStatus || optimisticStatus || prev?.fineStatus,
+                    }));
+                }
                 toast({
                     title: "Success",
                     description:
                         isManagementStage
                             ? (res.data.message ||
-                                'Fine approved. One Zoho Bill created with all parties as Item Table lines.')
+                                'Fine approved. Zoho Bill and PDF continue in the background.')
                             : isAccountsStage
                                 ? (res.data.message ||
                                     'Sent to Management. Zoho Bill will be created after Management approves.')
@@ -449,6 +428,7 @@ function FineDetailsPageContent() {
                 });
             } else if (action === 'reject') {
                 if (!rejectionReason || rejectionReason.trim().length === 0) {
+                    rollBackFineStatus();
                     toast({ title: "Error", description: "Rejection reason is mandatory.", variant: "destructive" });
                     return;
                 }
@@ -486,11 +466,12 @@ function FineDetailsPageContent() {
                 });
             }
 
-            // Reload so workflow timeline gets User `name` + HOD display names (not role titles).
-            await refreshData();
+            // Soft refresh for names / Zoho ids (status already updated in UI)
+            void refreshData();
             notifyFinePendingInboxChanged();
         } catch (err) {
             console.error("Action error:", err);
+            void refreshData();
             const isDedupe = err?.code === 'ACTION_DEDUPED' || /duplicate request blocked/i.test(String(err?.message || ''));
             if (!isDedupe && !err?.silent) {
                 toast({

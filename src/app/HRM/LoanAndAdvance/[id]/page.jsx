@@ -707,6 +707,37 @@ export default function LoanRequestDetails() {
         setIsProcessing(true);
         const actionLabel =
             action === 'approve' ? 'Approving' : action === 'reject' ? 'Rejecting' : 'Updating';
+
+        // Immediate status + lock (same as Reward Paid): don't wait for emails / refetch.
+        const currentStage = String(loan?.approvalStatus || loan?.status || '');
+        let optimisticStatus = null;
+        if (action === 'reject' || targetStatus === 'Rejected') {
+            optimisticStatus = 'Rejected';
+        } else if (targetStatus === 'Cancelled') {
+            optimisticStatus = 'Cancelled';
+        } else if (targetStatus === 'Pending') {
+            optimisticStatus = 'Pending HR';
+        } else if (action === 'approve' || targetStatus === 'Approved') {
+            if (currentStage === 'Pending' || currentStage === 'Pending HR') {
+                optimisticStatus = 'Pending Accounts';
+            } else if (currentStage === 'Pending Accounts') {
+                optimisticStatus = 'Pending Authorization';
+            } else if (currentStage === 'Pending Authorization') {
+                optimisticStatus = 'Pending Payment to Employee';
+            }
+        }
+        if (optimisticStatus) {
+            setLoan((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          approvalStatus: optimisticStatus,
+                          status: optimisticStatus,
+                      }
+                    : prev,
+            );
+        }
+
         const loadingToast = toast({
             title: `${actionLabel}…`,
             description:
@@ -722,7 +753,14 @@ export default function LoanRequestDetails() {
             });
 
             if (data?.loan) {
-                setLoan(data.loan);
+                const serverLoan = data.loan;
+                const nextApproval =
+                    serverLoan.approvalStatus || serverLoan.status || optimisticStatus;
+                setLoan({
+                    ...serverLoan,
+                    approvalStatus: nextApproval,
+                    status: serverLoan.status || nextApproval,
+                });
             }
 
             loadingToast.update({
@@ -737,6 +775,18 @@ export default function LoanRequestDetails() {
             await fetchLoanDetails();
         } catch (err) {
             console.error("Error updating status:", err);
+            // Roll back optimistic status on failure
+            if (optimisticStatus && currentStage) {
+                setLoan((prev) =>
+                    prev
+                        ? {
+                              ...prev,
+                              approvalStatus: currentStage,
+                              status: currentStage,
+                          }
+                        : prev,
+                );
+            }
             loadingToast.update({
                 id: loadingToast.id,
                 title: 'Error',
