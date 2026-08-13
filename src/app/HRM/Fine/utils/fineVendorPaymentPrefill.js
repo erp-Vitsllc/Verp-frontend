@@ -157,3 +157,26 @@ export function formatFineProfilePaymentLabel(fine, balance = null) {
     if (['Approved', 'Active', 'Paid', 'Completed'].includes(status)) return 'Not Paid';
     return '—';
 }
+
+/**
+ * Vendor Zoho bill payment label for Fine list / detail.
+ * - Paid: Zoho bill settled (vendorBillStatus = Paid)
+ * - Not Paid: bill exists unpaid, OR fine is already Approved (vendor pay still open)
+ * - —: still in workflow (Draft / Pending …) with no Zoho bill yet
+ */
+export function formatFineVendorBillPaymentLabel(fine) {
+    if (!fine) return '—';
+    if (String(fine.vendorBillStatus || '').toLowerCase() === 'paid') return 'Paid';
+
+    const hasZohoBill = Boolean(String(fine.zohoBillId || '').trim());
+    if (hasZohoBill) return 'Not Paid';
+
+    const status = String(fine.fineStatus || '').trim();
+    if (['Approved', 'Active', 'Paid', 'Completed'].includes(status)) return 'Not Paid';
+
+    return '—';
+}
+
+export function isFineVendorBillPaid(fine) {
+    return String(fine?.vendorBillStatus || '').toLowerCase() === 'paid';
+}

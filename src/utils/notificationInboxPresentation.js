@@ -286,6 +286,34 @@ export function buildExpiryReminderTitle(item = {}) {
     return type;
 }
 
+/**
+ * Clear task title for utility (and other) inbox rows so the action is obvious.
+ */
+export function buildUnderstandableNotificationTitle(item = {}) {
+    const type = String(item.type || item.requestType || '').trim();
+    const expiryTitle = buildExpiryReminderTitle(item);
+    if (
+        type === 'Employee Document Expiry Reminder' ||
+        type === 'Document Expiry Reminder' ||
+        type === 'Vehicle Document Expiry Reminder'
+    ) {
+        return expiryTitle;
+    }
+
+    switch (type) {
+        case 'Utility Contract Expiry':
+            return 'Utility Contract Expiry — Renew or Deactivate';
+        case 'Utility Bill Payment Reminder':
+            return 'Utility Payment Day — Clear This Month’s Bill';
+        case 'Utility Bill Payment':
+            return 'Utility Bill Payment — Review / Pay';
+        case 'Utility Entry Status Change':
+            return 'Utility Activate / Deactivate Request';
+        default:
+            return expiryTitle || type || 'Request';
+    }
+}
+
 function baseRow(item = {}, index = 0) {
     const type = String(item.requestType || item.type || '').trim();
     const meta = parseExtra3(item.extra3);
@@ -308,7 +336,7 @@ function baseRow(item = {}, index = 0) {
 
     return {
         key,
-        title: buildExpiryReminderTitle(item) || type || 'Request',
+        title: buildUnderstandableNotificationTitle(item) || type || 'Request',
         source: String(item.requestedByName || item.requestedBy || item.source || '').trim(),
         category: String(item.extra2 || item.extra1 || '').trim() || 'Pending task',
         highlight: '',
@@ -344,18 +372,35 @@ function sanitizeNotificationText(value = '') {
         .trim();
 }
 
+/**
+ * Secondary line: what account / bill, plus the action hint from extra2.
+ */
+function buildUtilityCategoryLine(item = {}) {
+    const type = String(item.type || item.requestType || '').trim();
+    const e1 = sanitizeNotificationText(item.extra1 || '');
+    const e2 = sanitizeNotificationText(item.extra2 || '');
+    const isUtility =
+        type === 'Utility Contract Expiry' ||
+        type === 'Utility Bill Payment Reminder' ||
+        type === 'Utility Bill Payment' ||
+        type === 'Utility Entry Status Change';
+    if (!isUtility) return e1 || e2 || 'Pending task';
+
+    if (e1 && e2 && e2 !== e1) return `${e1} — ${e2}`;
+    return e1 || e2 || 'Pending utility task';
+}
+
 /** Dashboard / page-bell notification item → inbox row. */
 export function mapDashboardNotificationToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.type || item.requestType || '').trim();
-    row.title = sanitizeNotificationText(buildExpiryReminderTitle(item) || type || row.title);
-    if (item.extra1) {
-        row.category = sanitizeNotificationText(item.extra1) || row.category;
-    }
-    if (item.extra2 && !row.highlight) {
+    row.title = sanitizeNotificationText(
+        buildUnderstandableNotificationTitle(item) || type || row.title,
+    );
+    row.category = buildUtilityCategoryLine(item) || row.category;
+    if (item.extra2 && !/Utility/.test(type)) {
         const e2 = sanitizeNotificationText(item.extra2);
         if (/exp|expiry|due/i.test(e2)) row.highlight = e2;
-        else if (!row.category || row.category === 'Pending task') row.category = e2;
     }
     return row;
 }
@@ -364,8 +409,10 @@ export function mapDashboardNotificationToRow(item = {}, index = 0) {
 export function mapPendingInboxToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.requestType || item.type || '').trim();
-    row.title = sanitizeNotificationText(buildExpiryReminderTitle(item) || type || row.title);
-    if (item.extra1) row.category = sanitizeNotificationText(item.extra1) || row.category;
+    row.title = sanitizeNotificationText(
+        buildUnderstandableNotificationTitle(item) || type || row.title,
+    );
+    row.category = buildUtilityCategoryLine(item) || row.category;
     return row;
 }
 
@@ -373,8 +420,10 @@ export function mapPendingInboxToRow(item = {}, index = 0) {
 export function mapAssetPendingInboxToRow(item = {}, index = 0) {
     const row = baseRow(item, index);
     const type = String(item.requestType || item.type || '').trim();
-    row.title = sanitizeNotificationText(buildExpiryReminderTitle(item) || type || row.title);
-    if (item.extra1) row.category = sanitizeNotificationText(item.extra1) || row.category;
+    row.title = sanitizeNotificationText(
+        buildUnderstandableNotificationTitle(item) || type || row.title,
+    );
+    row.category = buildUtilityCategoryLine(item) || row.category;
     if (item.asset?.name) row.entityName = String(item.asset.name).trim();
     if (item.asset?.assetId) row.entityId = String(item.asset.assetId).trim();
     return row;

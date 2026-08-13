@@ -330,7 +330,6 @@ export default function PendingAssetRequestsModal({
                     items={notificationRows}
                     loading={loading && visibleRows.length === 0}
                     refreshing={refreshing}
-                    hideItemTitle
                     emptyMessage={
                         inboxScope === 'vehicle'
                             ? 'No pending vehicle tasks in your inbox.'

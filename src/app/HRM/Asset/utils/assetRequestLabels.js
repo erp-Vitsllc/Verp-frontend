@@ -1,10 +1,10 @@
 /** User-facing labels for DashboardAction.requestType (tools & equipment inbox). */
 export function formatAssetDashboardRequestType(requestType, row = null) {
     const t = String(requestType || '').trim();
+    if (t === 'Utility Bill Payment Reminder') return 'Utility Payment Day — Clear Bill';
+    if (t === 'Utility Contract Expiry') return 'Utility Contract Expiry — Renew / Deactivate';
+    if (t === 'Utility Bill Payment') return 'Utility Bill Payment — Review / Pay';
     if (t === 'Utility Entry Status Change') return 'Utility Activate / Deactivate';
-    if (t === 'Utility Bill Payment Reminder') return 'Utility Payment Day Reminder';
-    if (t === 'Utility Contract Expiry') return 'Utility Contract Expiry';
-    if (t === 'Utility Bill Payment') return 'Utility Bill Payment';
     if (t === 'Asset Overdue') return 'Asset Service overdue';
     if (t === 'Asset Leave') {
         try {

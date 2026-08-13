@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react'; // Import useRouter
@@ -9,6 +9,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { Trash2, Bell } from 'lucide-react';
+import SortableTh, { compareSortValues, toggleSortState } from '@/components/SortableTh';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import {
@@ -77,12 +78,14 @@ function LoanPageContent() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'Loan');
-    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'Pending');
+    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'All');
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [recordToDelete, setRecordToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
+    const [sortKey, setSortKey] = useState('slNo');
+    const [sortDirection, setSortDirection] = useState('asc');
 
     const showLoanTab = mounted && canViewLoanList();
     const showAdvanceTab = mounted && canViewAdvanceList();
@@ -202,43 +205,85 @@ function LoanPageContent() {
         }
     };
 
+    const filteredData = useMemo(
+        () =>
+            loans.filter((item) => {
+                if (item.type !== activeTab) return false;
+                if (selectedStatus === 'All') return true;
+
+                const status = (item.applicationStatus || item.status || '').toLowerCase();
+                const selected = String(selectedStatus || '').toLowerCase();
+
+                if (selectedStatus === 'Outstanding') {
+                    return (
+                        (status === 'approved' || status === 'pending payment to employee') &&
+                        item.activeStatus !== 'Closed'
+                    );
+                }
+                if (selectedStatus === 'Recovered') {
+                    return status === 'paid' || (status === 'approved' && item.activeStatus === 'Closed');
+                }
+                if (selectedStatus === 'Pending') {
+                    if (status === 'pending payment to employee') return false;
+                    return status.includes('pending') || status === 'draft';
+                }
+                if (selectedStatus === 'Approved') {
+                    return status === 'approved' || status === 'pending payment to employee';
+                }
+
+                return status === selected;
+            }),
+        [loans, activeTab, selectedStatus],
+    );
+
+    const sortedData = useMemo(() => {
+        const list = [...filteredData];
+        const dir = sortDirection;
+        const getVal = (item) => {
+            switch (sortKey) {
+                case 'id':
+                    return item.loanId || item.id || '';
+                case 'employeeId':
+                    return item.employeeId || '';
+                case 'employeeName':
+                    return item.employeeName || '';
+                case 'amount':
+                    return Number(item.amount) || 0;
+                case 'activeStatus':
+                    return item.activeStatus || '';
+                case 'applicationStatus':
+                    return item.applicationStatus || item.status || '';
+                default:
+                    return null;
+            }
+        };
+        if (sortKey === 'slNo') {
+            list.sort((a, b) =>
+                compareSortValues(
+                    new Date(a.createdAt || a.updatedAt || 0),
+                    new Date(b.createdAt || b.updatedAt || 0),
+                    'asc',
+                ),
+            );
+            if (dir === 'desc') list.reverse();
+            return list;
+        }
+        list.sort((a, b) => compareSortValues(getVal(a), getVal(b), dir));
+        return list;
+    }, [filteredData, sortKey, sortDirection]);
+
+    const handleSort = useCallback(
+        (key) => {
+            const next = toggleSortState(sortKey, sortDirection, key);
+            setSortKey(next.sortKey);
+            setSortDirection(next.sortDirection);
+        },
+        [sortKey, sortDirection],
+    );
+
     if (!mounted) {
         return null;
     }
-
-    const filteredData = loans.filter(item => {
-        // First filter by Tab (Loan vs Advance)
-        if (item.type !== activeTab) return false;
-
-        // Then filter by status dropdown / dashboard selection
-        if (selectedStatus === 'All') return true;
-
-        const status = (item.applicationStatus || item.status || '').toLowerCase();
-        const selected = String(selectedStatus || '').toLowerCase();
-
-        // Dashboard buckets
-        if (selectedStatus === 'Outstanding') {
-            return (
-                (status === 'approved' || status === 'pending payment to employee') &&
-                item.activeStatus !== 'Closed'
-            );
-        }
-        if (selectedStatus === 'Recovered') {
-            return status === 'paid' || (status === 'approved' && item.activeStatus === 'Closed');
-        }
-        // Approval-stage pending (exclude Pending Payment to Employee)
-        if (selectedStatus === 'Pending') {
-            if (status === 'pending payment to employee') return false;
-            return status.includes('pending') || status === 'draft';
-        }
-        // "Approved" card includes awaiting payment after Management
-        if (selectedStatus === 'Approved') {
-            return status === 'approved' || status === 'pending payment to employee';
-        }
-
-        // Exact application status (Draft, Pending HR, Pending Payment to Employee, …)
-        return status === selected;
-    });
 
     // Calculate Statistics
     const stats = {
@@ -530,24 +575,56 @@ function LoanPageContent() {
                                 <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                {activeTab === 'Advance' ? 'Salary Advance' : activeTab} ID
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                Emp ID
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                User Name
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                {activeTab === 'Advance' ? 'Salary Advance' : activeTab} Amount
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                {activeTab === 'Advance' ? 'Salary Advance' : activeTab} Status
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                Application Status
-                                            </th>
+                                            <SortableTh
+                                                label="SL No"
+                                                sortKey="slNo"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                                className="w-14 sm:w-16"
+                                            />
+                                            <SortableTh
+                                                label={activeTab === 'Advance' ? 'Salary Advance ID' : `${activeTab} ID`}
+                                                sortKey="id"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Emp ID"
+                                                sortKey="employeeId"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="User Name"
+                                                sortKey="employeeName"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label={activeTab === 'Advance' ? 'Salary Advance Amount' : `${activeTab} Amount`}
+                                                sortKey="amount"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label={activeTab === 'Advance' ? 'Salary Advance Status' : `${activeTab} Status`}
+                                                sortKey="activeStatus"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Application Status"
+                                                sortKey="applicationStatus"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
                                             <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Actions
                                             </th>
@@ -556,18 +633,18 @@ function LoanPageContent() {
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="7" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     Loading...
                                                 </td>
                                             </tr>
-                                        ) : filteredData.length === 0 ? (
+                                        ) : sortedData.length === 0 ? (
                                             <tr>
-                                                <td colSpan="7" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     No {activeTab === 'Advance' ? 'salary advance' : activeTab.toLowerCase()}s found.
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredData.map((item) => {
+                                            sortedData.map((item, index) => {
                                                 const loanHref = `/HRM/LoanAndAdvance/${(item.type ? item.type.replace(/\s+/g, '-') : 'Loan')}-${item.id}`;
                                                 return (
                                                 <ListTableRowLink
@@ -578,6 +655,9 @@ function LoanPageContent() {
                                                 <tr
                                                     className="relative hover:bg-gray-50 transition-colors group cursor-pointer"
                                                 >
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-500 tabular-nums">
+                                                        <div className="relative z-10 pointer-events-none">{index + 1}</div>
+                                                    </td>
                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900">
                                                         <div className="relative z-10 pointer-events-none">
                                                             {item.loanId ? item.loanId.toUpperCase() : item.id.substring(item.id.length - 6).toUpperCase()}

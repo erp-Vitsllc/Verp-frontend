@@ -19,6 +19,7 @@ import {
 import { fetchFinePendingInbox } from '@/utils/pendingInboxFetch';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { Trash2, X, Pencil, ChevronDown, ChevronRight, Bell } from 'lucide-react';
+import SortableTh, { compareSortValues, toggleSortState } from '@/components/SortableTh';
 import { buildFineFocusElementId, runFineListFocusScroll } from '@/utils/fineNotificationRouting';
 import {
     buildGroupMembersForFine,
@@ -38,6 +39,7 @@ import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import { canAccessAddFine } from '@/app/HRM/Fine/utils/finePermissionAccess';
+import { formatFineVendorBillPaymentLabel } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import PermissionGuard from '@/components/PermissionGuard';
 import {
     AlertDialog,
@@ -111,10 +113,12 @@ function FinePageContent() {
     const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
     const [selectedFineType, setSelectedFineType] = useState(() => searchParams.get('fineType') || '');
     const [expandedGroups, setExpandedGroups] = useState({});
-    const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'group');
-    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'Pending');
+    const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'individual');
+    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'All');
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
+    const [sortKey, setSortKey] = useState('slNo');
+    const [sortDirection, setSortDirection] = useState('asc');
     const fetchingRef = useRef(false);
 
     const listReturnParams = useMemo(() => ({
@@ -180,6 +184,23 @@ function FinePageContent() {
             const processed = Object.entries(groups).map(([groupKey, members]) => {
                 const first = members[0];
                 const isSplitGroup = members.length > 1;
+                // Zoho bill / Paid to Vendor may live on any sibling in a split group.
+                const vendorSource =
+                    members.find((m) => String(m?.zohoBillId || '').trim()) || first;
+                const vendorPaid = members.some(
+                    (m) => String(m?.vendorBillStatus || '').toLowerCase() === 'paid',
+                );
+                const vendorFields = {
+                    zohoBillId: vendorSource?.zohoBillId || first?.zohoBillId || '',
+                    vendorBillStatus: vendorPaid
+                        ? 'Paid'
+                        : vendorSource?.vendorBillStatus || first?.vendorBillStatus || 'Pending',
+                    zohoVendorPaymentId:
+                        vendorSource?.zohoVendorPaymentId || first?.zohoVendorPaymentId || '',
+                    zohoOrganizationId:
+                        vendorSource?.zohoOrganizationId || first?.zohoOrganizationId || '',
+                };
+                const rowBase = { ...first, ...vendorFields };
 
                 const allAssigned = [];
                 let totalGroupAmount = 0;
@@ -202,6 +223,10 @@ function FinePageContent() {
                             recordFineId: m.fineId,
                             fineStatus: m.fineStatus || 'Pending',
                             companyId: memberCompanyId,
+                            zohoBillId: m.zohoBillId || vendorFields.zohoBillId,
+                            vendorBillStatus: vendorPaid
+                                ? 'Paid'
+                                : m.vendorBillStatus || vendorFields.vendorBillStatus,
                         });
                     });
                     const empAmt = parseFloat(m.employeeAmount || 0) || 0;
@@ -213,7 +238,7 @@ function FinePageContent() {
                 });
 
                 if (isSplitGroup) {
-                    return buildGroupRowFromMembers(first, groupKey, members, allAssigned, totalGroupAmount);
+                    return buildGroupRowFromMembers(rowBase, groupKey, members, allAssigned, totalGroupAmount);
                 }
 
                 if (isMultiPartyFine(first)) {
@@ -228,13 +253,15 @@ function FinePageContent() {
                             recordFineId: member.fineId,
                             fineStatus: member.fineStatus,
                             companyId: member.companyId,
+                            zohoBillId: vendorFields.zohoBillId,
+                            vendorBillStatus: vendorFields.vendorBillStatus,
                         }));
                         const totalAmount = groupMembers.reduce(
                             (sum, m) => sum + (parseFloat(m.fineAmount) || 0),
                             0,
                         );
                         return buildGroupRowFromMembers(
-                            first,
+                            rowBase,
                             groupKey,
                             members,
                             syntheticAssigned,
@@ -251,7 +278,7 @@ function FinePageContent() {
                     : resolveEmployeeFinePayableAmount(first, emp.employeeId || first.employeeId);
 
                 return {
-                    ...first,
+                    ...rowBase,
                     fineId: first.fineId,
                     isGroup: false,
                     employeeId: isCompanyRec ? null : (emp.employeeId || first.employeeId || 'N/A'),
@@ -342,9 +369,13 @@ function FinePageContent() {
 
         let result = fines;
 
-        // Filter by Status (default: Pending)
+        // Filter by Status (default: All)
         if (selectedStatus !== 'All') {
-            if (selectedStatus === 'Pending') {
+            if (selectedStatus === 'Paid to Vendor') {
+                result = result.filter(
+                    (fine) => String(fine.vendorBillStatus || '').toLowerCase() === 'paid',
+                );
+            } else if (selectedStatus === 'Pending') {
                 // Show all pending statuses and draft: Pending, Pending HR, Pending Accounts, Pending Authorization, Draft, etc.
                 result = result.filter(fine => {
                     const status = (fine.fineStatus || '').toLowerCase();
@@ -395,6 +426,56 @@ function FinePageContent() {
 
         return result;
     }, [fines, searchQuery, selectedFineType, activeTab, selectedStatus]);
+
+    const sortedFines = useMemo(() => {
+        const list = [...filteredFines];
+        const dir = sortDirection;
+        const getVal = (fine) => {
+            switch (sortKey) {
+                case 'fineId':
+                    return fine.fineId || '';
+                case 'employeeId':
+                    return fine.isGroup
+                        ? `group-${fine.empCount || 0}`
+                        : fine.employeeId || '';
+                case 'employeeName':
+                    return fine.isGroup
+                        ? `Group Request (${fine.empCount || 0})`
+                        : fine.employeeName || '';
+                case 'companyName':
+                    return fine.companyName || '';
+                case 'fineType':
+                    return fine.fineType || '';
+                case 'amount':
+                    return Number(fine.displayAmount || fine.amount || 0);
+                case 'fineStatus':
+                    return fine.fineStatus || '';
+                case 'vendorBillStatus':
+                    return formatFineVendorBillPaymentLabel(fine) || '';
+                default:
+                    return null;
+            }
+        };
+        if (sortKey === 'slNo') {
+            list.sort((a, b) =>
+                compareSortValues(
+                    new Date(a.createdAt || a.updatedAt || 0),
+                    new Date(b.createdAt || b.updatedAt || 0),
+                    'asc',
+                ),
+            );
+            if (dir === 'desc') list.reverse();
+            return list;
+        }
+        list.sort((a, b) => compareSortValues(getVal(a), getVal(b), dir));
+        return list;
+    }, [filteredFines, sortKey, sortDirection]);
+
+    const handleSort = useCallback((key) => {
+        const next = toggleSortState(sortKey, sortDirection, key);
+        setSortKey(next.sortKey);
+        setSortDirection(next.sortDirection);
+    }, [sortKey, sortDirection]);
 
     const focusFineParam = searchParams.get('focusFine');
 
@@ -547,12 +628,12 @@ function FinePageContent() {
                         <div className={HEADER_PAIR_GRID}>
                             {/* Left Panel: Statistics Grid */}
                             <div className={`bg-white p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}>
-                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 sm:mb-3 shrink-0">Fine Overview</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 flex-1">
+                                <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-1.5 sm:mb-2 shrink-0">Fine Overview</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 grid-rows-3 gap-1.5 sm:gap-2 flex-1 min-h-0 auto-rows-fr">
                                     {[
                                         { label: 'Total Fines', value: dashboardStats.count, color: 'text-red-600', filter: '' },
-                                        { label: 'Fine Value', value: dashboardStats.value, color: 'text-red-600', isCurrency: true },
-                                        { label: 'Outstanding', value: dashboardStats.outstanding, color: 'text-red-600', isCurrency: true },
+                                        { label: 'Fine Value', value: dashboardStats.value, color: 'text-red-600' },
+                                        { label: 'Outstanding', value: dashboardStats.outstanding, color: 'text-red-600' },
                                         { label: 'Other', value: dashboardStats.other, color: 'text-red-600', filter: 'Other' },
                                         { label: 'Vehicle', value: dashboardStats.vehicle, color: 'text-red-600', filter: 'Vehicle Fine' },
                                         { label: 'Veh Damage', value: dashboardStats.vehicleDamage, color: 'text-red-600', filter: 'Vehicle Damage' },
@@ -563,21 +644,14 @@ function FinePageContent() {
                                         <div
                                             key={idx}
                                             onClick={() => item.filter !== undefined && setSelectedFineType(item.filter)}
-                                            className="bg-gray-50 p-2 sm:p-3 lg:p-4 rounded-xl flex flex-col items-center justify-center text-center group hover:bg-white hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-gray-200"
+                                            className="bg-gray-50 px-1 py-1 sm:px-1.5 sm:py-1.5 rounded-lg flex flex-col items-center justify-center text-center group hover:bg-white hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-gray-200 min-h-0"
                                         >
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2 break-words text-center leading-tight">{item.label}</span>
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.12em] mb-0.5 break-words text-center leading-tight">{item.label}</span>
                                             <div
-                                                className="flex items-baseline justify-center gap-1 font-black group-hover:scale-105 transition-transform"
+                                                className="flex items-baseline justify-center font-black group-hover:scale-105 transition-transform text-sm sm:text-base lg:text-lg leading-none"
                                                 style={{ color: '#dc2626' }}
                                             >
-                                                {item.isCurrency ? (
-                                                    <>
-                                                        <span className="text-sm font-bold">AED</span>
-                                                        <span className="text-lg sm:text-xl lg:text-2xl"><AnimatedCounter value={item.value} /></span>
-                                                    </>
-                                                ) : (
-                                                    <span className="text-xl sm:text-2xl lg:text-3xl"><AnimatedCounter value={item.value} /></span>
-                                                )}
+                                                <AnimatedCounter value={item.value} />
                                             </div>
                                         </div>
                                     ))}
@@ -768,6 +842,7 @@ function FinePageContent() {
                                         <option value="Active">Active</option>
                                         <option value="Completed">Completed</option>
                                         <option value="Paid">Paid</option>
+                                        <option value="Paid to Vendor">Paid to Vendor</option>
                                         <option value="Rejected">Rejected</option>
                                         <option value="Cancelled">Cancelled</option>
                                         <option value="Draft">Draft</option>
@@ -808,47 +883,90 @@ function FinePageContent() {
                                 <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                FINE ID
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                EMP. ID
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                NAME
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                COMPANY
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                FINE TYPE
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                AMOUNT
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                STATUS
-                                            </th>
+                                            <SortableTh
+                                                label="SL No"
+                                                sortKey="slNo"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                                className="w-14 sm:w-16"
+                                            />
+                                            <SortableTh
+                                                label="Fine ID"
+                                                sortKey="fineId"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Emp. ID"
+                                                sortKey="employeeId"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Name"
+                                                sortKey="employeeName"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Company"
+                                                sortKey="companyName"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Fine Type"
+                                                sortKey="fineType"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Amount"
+                                                sortKey="amount"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Status"
+                                                sortKey="fineStatus"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Paid to Vendor"
+                                                sortKey="vendorBillStatus"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
                                             <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                ACTIONS
+                                                Actions
                                             </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="10" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     Loading fines...
                                                 </td>
                                             </tr>
-                                        ) : filteredFines.length === 0 ? (
+                                        ) : sortedFines.length === 0 ? (
                                             <tr>
-                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="10" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     No fines found. Click "Add Fine" to create one.
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredFines.map((fine) => {
+                                            sortedFines.map((fine, index) => {
                                                 const isCompanyRow = fine.isCompany || fine.employeeName === 'Vega Digital IT Solutions';
                                                 const isGroupRow = fine.isGroup === true;
                                                 const isExpanded = expandedGroups[fine._uiKey];
@@ -897,6 +1015,9 @@ function FinePageContent() {
                                                                     : 'hover:bg-gray-50 cursor-pointer'
                                                                 }`}
                                                         >
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-500 tabular-nums">
+                                                                {index + 1}
+                                                            </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900">
                                                                 <div className="flex items-center gap-2">
                                                                     {canExpandGroup && (
@@ -969,6 +1090,27 @@ function FinePageContent() {
                                                                     </span>
                                                                 </div>
                                                             </td>
+                                                            <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    {(() => {
+                                                                        const vendorLabel = formatFineVendorBillPaymentLabel(fine);
+                                                                        const vendorPaid = vendorLabel === 'Paid';
+                                                                        return (
+                                                                            <span
+                                                                                className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
+                                                                                    vendorPaid
+                                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                                        : vendorLabel === 'Not Paid'
+                                                                                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                                          : 'bg-gray-50 text-gray-400 border-gray-200'
+                                                                                }`}
+                                                                            >
+                                                                                {vendorLabel}
+                                                                            </span>
+                                                                        );
+                                                                    })()}
+                                                                </div>
+                                                            </td>
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-right">
                                                                 <div className="relative z-20 flex items-center justify-end gap-2">
                                                                     {(!isGroupRow || !isGroupSeparated) && (
@@ -1029,6 +1171,9 @@ function FinePageContent() {
                                                             <tr
                                                                 className={`bg-gray-50/50 hover:bg-blue-50/30 border-l-4 border-blue-400 transition-colors ${canOpenMember ? 'cursor-pointer' : 'cursor-default'}`}
                                                             >
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs text-gray-300 tabular-nums">
+                                                                    —
+                                                                </td>
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-xs font-mono text-gray-400 pl-8 sm:pl-12 italic">
                                                                     ↳ {member.fineId}
                                                                 </td>
@@ -1058,6 +1203,31 @@ function FinePageContent() {
                                                                         }`}>
                                                                         {member.fineStatus}
                                                                     </span>
+                                                                </td>
+                                                                <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap">
+                                                                    {(() => {
+                                                                        const vendorLabel = formatFineVendorBillPaymentLabel({
+                                                                            ...fine,
+                                                                            ...member,
+                                                                            zohoBillId: member.zohoBillId || fine.zohoBillId,
+                                                                            vendorBillStatus:
+                                                                                member.vendorBillStatus || fine.vendorBillStatus,
+                                                                        });
+                                                                        const vendorPaid = vendorLabel === 'Paid';
+                                                                        return (
+                                                                            <span
+                                                                                className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${
+                                                                                    vendorPaid
+                                                                                        ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                                                                        : vendorLabel === 'Not Paid'
+                                                                                          ? 'bg-amber-50 text-amber-600 border-amber-100'
+                                                                                          : 'bg-gray-50 text-gray-400 border-gray-200'
+                                                                                }`}
+                                                                            >
+                                                                                {vendorLabel}
+                                                                            </span>
+                                                                        );
+                                                                    })()}
                                                                 </td>
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right">
                                                                     {canOpenMember && (

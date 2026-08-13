@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { ClipboardList, ChevronDown, Loader2, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { isSystemSuperUser } from '@/utils/permissions';
+import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { DatePicker } from '@/components/ui/date-picker';
 import {
@@ -669,6 +671,16 @@ export default function VehicleOilServiceDetailForm({
                 iconBg="bg-blue-50"
                 iconColor="text-blue-600"
                 className="w-full"
+                headerAction={
+                    vehicleId ? (
+                        <Link
+                            href={buildVehicleDetailPath(vehicleId, { tab: 'service' })}
+                            className="shrink-0 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100 transition-colors"
+                        >
+                            Service List
+                        </Link>
+                    ) : null
+                }
             >
                 <VehicleGarageZohoBillRetry
                     vehicleId={vehicleId}

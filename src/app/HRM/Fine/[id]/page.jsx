@@ -32,6 +32,8 @@ import {
     buildFineVendorPaymentPrefill,
     canAccountsPayFineVendorBill,
     canAccountsPayFineEmployeeShare,
+    formatFineVendorBillPaymentLabel,
+    isFineVendorBillPaid,
 } from '../utils/fineVendorPaymentPrefill';
 import {
     isLossDamageFineType,
@@ -2112,6 +2114,8 @@ function FineDetailsPageContent() {
 
                                         // 2–6 — payment summary, actions, or completed
                                         if (isApprovedState) {
+                                            const vendorLabel = formatFineVendorBillPaymentLabel(fine);
+                                            const vendorPaid = isFineVendorBillPaid(fine);
                                             cells.push(
                                                 <div key="total" className={`${compactBox} bg-red-50 border-red-100`}>
                                                     <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">Total Fine</span>
@@ -2124,6 +2128,21 @@ function FineDetailsPageContent() {
                                                 <div key="remaining" className={`${compactBox} bg-amber-50 border-amber-100`}>
                                                     <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide truncate">Remaining</span>
                                                     <span className="text-lg font-bold text-amber-800 tabular-nums ml-2">{remainingAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                </div>,
+                                                <div
+                                                    key="vendor-paid"
+                                                    className={`${compactBox} ${
+                                                        vendorPaid
+                                                            ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                                                            : vendorLabel === 'Not Paid'
+                                                              ? 'bg-amber-50 border-amber-100 text-amber-700'
+                                                              : 'bg-gray-50 border-gray-100 text-gray-400'
+                                                    }`}
+                                                >
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">
+                                                        Paid to Vendor
+                                                    </span>
+                                                    <span className="text-lg font-bold truncate ml-2">{vendorLabel}</span>
                                                 </div>,
                                                 <div key="done" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
                                                     <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>

@@ -689,15 +689,24 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
 
         const parsedDuration = String(workflowServiceRecord?.serviceDuration || '').match(/\d+/)?.[0] || '';
         const durationDays = String(accidentMeta?.accidentRepairDurationDays || '').trim() || parsedDuration;
-        const serviceDateIso = workflowServiceRecord?.date
-            ? new Date(workflowServiceRecord.date).toISOString().slice(0, 10)
-            : '';
+        // Only show a start date after Admin schedules — never default to service created date.
+        const serviceDateIso = String(
+            accidentMeta?.scheduledServiceDate ||
+                accidentMeta?.serviceStartDate ||
+                wf?.scheduledServiceDate ||
+                '',
+        ).trim();
+        const normalizedStart = /^\d{4}-\d{2}-\d{2}/.test(serviceDateIso)
+            ? serviceDateIso.slice(0, 10)
+            : serviceDateIso && !Number.isNaN(new Date(serviceDateIso).getTime())
+              ? new Date(serviceDateIso).toISOString().slice(0, 10)
+              : '';
         const defaultReturnDate = String(
             accidentMeta?.accidentReturnDate || accidentMeta?.serviceReturnDate || ''
         ).trim();
 
         setAccidentActionForm({
-            serviceDate: serviceDateIso,
+            serviceDate: normalizedStart,
             garageName: String(accidentMeta?.vendorName || accidentMeta?.approvedQuotationChoice || '').trim(),
             serviceDuration: String(durationDays || '').trim(),
             garageLocation: String(accidentMeta?.garageLocation || '').trim(),
@@ -729,7 +738,10 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         accidentMeta?.returnMode,
         accidentMeta?.accidentExtendDays,
         accidentMeta?.accidentReturnStatus,
+        accidentMeta?.scheduledServiceDate,
+        accidentMeta?.serviceStartDate,
         wf?.serviceRecordId,
+        wf?.scheduledServiceDate,
         stage,
     ]);
 

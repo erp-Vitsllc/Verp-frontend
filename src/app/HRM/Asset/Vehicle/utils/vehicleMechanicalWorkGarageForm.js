@@ -28,7 +28,7 @@ export function buildMechanicalWorkGarageFormState(service, asset) {
                 remark.scheduledServiceDate ||
                 wf.scheduledServiceDate ||
                 base.serviceStartDate ||
-                (service?.date ? new Date(service.date).toISOString().slice(0, 10) : ''),
+                '',
         ),
         serviceEndDate: normalizeShopServiceDateValue(
             remark.serviceEndDate ||

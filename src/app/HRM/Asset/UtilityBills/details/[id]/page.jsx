@@ -48,7 +48,7 @@ import AddBillModal from '../../components/AddBillModal';
 import UtilityBillReviewModal from '../../components/UtilityBillReviewModal';
 import ActivateDeactivateUtilityModal from '../../components/ActivateDeactivateUtilityModal';
 import UtilityBillStatsCards from '../../components/UtilityBillStatsCards';
-import { billDisplayStatus, formatBillMoney } from '../../utils/utilityBillStats';
+import { billDisplayStatus, formatBillMoney, entryAvailableFromMonth } from '../../utils/utilityBillStats';
 import {
     getBillAllocationParties,
     getBillTotalAmount,
@@ -180,6 +180,13 @@ function getRecentMonthKeys(count = 6) {
         keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     }
     return keys;
+}
+
+/** Drop months before the account was created / contract started (YYYY-MM). */
+function filterMonthKeysFromAccountStart(keys = [], availableFromYm = '') {
+    const from = String(availableFromYm || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(from)) return Array.isArray(keys) ? [...keys] : [];
+    return (keys || []).filter((ym) => String(ym) >= from);
 }
 
 function entryStatusBadgeClass(status) {
@@ -402,11 +409,16 @@ function UtilityBillDetailsPageContent() {
         return ['Pending Accounts', 'Pending HR', 'Approved'].includes(status);
     }, [viewBill, isFlowchartAccounts, canAdminDelete]);
 
-    const recentMonthKeys = useMemo(() => getRecentMonthKeys(6), []);
+    const accountFromMonth = useMemo(() => entryAvailableFromMonth(entry), [entry]);
 
-    /** Last 12 months ending this month (e.g. Jul → Aug prior year … Jul). */
+    const recentMonthKeys = useMemo(
+        () => filterMonthKeysFromAccountStart(getRecentMonthKeys(6), accountFromMonth),
+        [accountFromMonth],
+    );
+
+    /** Last 12 months ending this month — only from account create / contract start month. */
     const twelveMonthBillSeries = useMemo(() => {
-        const keys = getRecentMonthKeys(12);
+        const keys = filterMonthKeysFromAccountStart(getRecentMonthKeys(12), accountFromMonth);
         const byMonth = new Map();
         (bills || []).forEach((b) => {
             const ym = billMonthKey(b);
@@ -425,7 +437,7 @@ function UtilityBillDetailsPageContent() {
                 billCount: list.length,
             };
         });
-    }, [bills]);
+    }, [bills, accountFromMonth]);
 
     /** Months where any bill has contract − actual !== 0 (deduction months). */
     const deductionMonths = useMemo(() => {
@@ -433,6 +445,7 @@ function UtilityBillDetailsPageContent() {
         (bills || []).forEach((bill) => {
             const ym = billMonthKey(bill);
             if (!ym) return;
+            if (accountFromMonth && ym < accountFromMonth) return;
             const contract = Number(bill?.monthlyRental) || 0;
             const actual = getBillTotalAmount(bill);
             const difference = contract - actual;
@@ -448,9 +461,9 @@ function UtilityBillDetailsPageContent() {
                 ...row,
                 label: monthLabelFromKey(row.ym),
             }));
-    }, [bills]);
+    }, [bills, accountFromMonth]);
 
-    /** Bills grouped for current month + 5 previous months (always 6 slots). */
+    /** Bills grouped for months from account start through current (up to 6 slots). */
     const recentMonthBillGroups = useMemo(() => {
         const byMonth = new Map();
         (bills || []).forEach((b) => {
@@ -510,6 +523,13 @@ function UtilityBillDetailsPageContent() {
             setBillsBrowseMonth(null);
         }
     }, [activeTab]);
+
+    useEffect(() => {
+        if (!billsBrowseMonth) return;
+        if (!recentMonthKeys.includes(billsBrowseMonth)) {
+            setBillsBrowseMonth(null);
+        }
+    }, [billsBrowseMonth, recentMonthKeys]);
 
     useEffect(() => {
         if (!entryId) return;
@@ -1285,7 +1305,7 @@ function UtilityBillDetailsPageContent() {
         return (
             <div className="space-y-2.5">
                 <p className="text-xs sm:text-sm font-medium text-slate-500 px-0.5">
-                    This month and 5 previous · click a month to open bills
+                    From account start · click a month to open bills
                 </p>
                 {recentMonthBillGroups.map(({ ym, bills: monthBills, summary }) => {
                     const monthOpen = billsBrowseMonth === ym;
@@ -1470,7 +1490,9 @@ function UtilityBillDetailsPageContent() {
                                         Bill Amounts
                                     </p>
                                     <p className="text-[10px] text-gray-400 font-medium">
-                                        Last 12 months
+                                        {accountFromMonth
+                                            ? `From ${monthLabelFromKey(accountFromMonth, { shortOnly: true })}`
+                                            : 'Last 12 months'}
                                     </p>
                                 </div>
                                 <div className="flex-1 min-h-0 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-2.5 auto-rows-fr content-stretch overflow-hidden">

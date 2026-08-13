@@ -11,11 +11,12 @@ import axiosInstance from '@/utils/axios';
 import AddRewardModal from './components/AddRewardModal';
 import PendingRewardRequestsModal from './components/PendingRewardRequestsModal';
 import { Trash2, X, Bell } from 'lucide-react';
+import SortableTh, { compareSortValues, toggleSortState } from '@/components/SortableTh';
 import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import { canAccessCreateReward } from '@/app/HRM/Reward/utils/rewardPermissionAccess';
-import { formatRewardStatusLabel, formatRewardPaymentStatusLabel } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
+import { formatRewardStatusLabel, formatRewardPaymentStatusLabel, buildRewardHeaderStats, rewardMatchesStatusFilter, isRewardApprovedStatus } from '@/app/HRM/Reward/utils/rewardStatusDisplay';
 import { fetchRewardPendingInbox } from '@/utils/pendingInboxFetch';
 import {
     countVisibleRewardPendingInbox,
@@ -87,13 +88,15 @@ function RewardContent() {
     const [error, setError] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'Pending');
+    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'All');
     const [rewardToDelete, setRewardToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedEmployeeRewards, setSelectedEmployeeRewards] = useState(null);
     const [isEmpModalOpen, setIsEmpModalOpen] = useState(false);
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
+    const [sortKey, setSortKey] = useState('slNo');
+    const [sortDirection, setSortDirection] = useState('asc');
     const fetchingRef = useRef(false);
 
     const listReturnParams = useMemo(() => ({
@@ -227,39 +230,93 @@ function RewardContent() {
         }
     };
 
-    if (!mounted) {
-        return null;
-    }
+    const currentViewer = useMemo(() => {
+        if (typeof window === 'undefined') return null;
+        try {
+            const raw =
+                localStorage.getItem('employeeUser') || localStorage.getItem('user') || '';
+            if (!raw) return isAdmin() ? { isAdmin: true } : null;
+            const user = JSON.parse(raw);
+            return { ...user, isAdmin: isAdmin() };
+        } catch {
+            return isAdmin() ? { isAdmin: true } : null;
+        }
+    }, [mounted]);
 
-    // Calculate Statistics
-    const stats = {
-        total: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active').length,
-        pending: rewards.filter(r => r.rewardStatus === 'Pending' || r.rewardStatus === 'Pending Accounts' || r.rewardStatus === 'Pending Authorization').length,
-        approved: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active').length,
-        rejected: rewards.filter(r => r.rewardStatus === 'Rejected').length,
-        draft: rewards.filter(r => r.rewardStatus === 'Draft').length,
-        cash: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'cash').length,
-        gift: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'gift').length,
-        certificate: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Approved (Paid)' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'certificate').length
-    };
+    // Header cards: Total = all except Draft; each card name matches its filter exactly.
+    const stats = useMemo(() => buildRewardHeaderStats(rewards), [rewards]);
+
+    const filteredRewards = useMemo(
+        () =>
+            rewards.filter((r) =>
+                rewardMatchesStatusFilter(r, selectedStatus, currentViewer),
+            ),
+        [rewards, selectedStatus, currentViewer],
+    );
+
+    const sortedRewards = useMemo(() => {
+        const list = [...filteredRewards];
+        const dir = sortDirection;
+        const getVal = (r) => {
+            switch (sortKey) {
+                case 'slNo':
+                    return null;
+                case 'rewardId':
+                    return r.rewardId || r._id || '';
+                case 'employeeId':
+                    return r.employeeId || '';
+                case 'employeeName':
+                    return r.employeeName || '';
+                case 'rewardType':
+                    return r.rewardType || '';
+                case 'rewardStatus':
+                    return formatRewardStatusLabel(r.rewardStatus, r) || r.rewardStatus || '';
+                case 'paymentStatus':
+                    return formatRewardPaymentStatusLabel(r) || '';
+                default:
+                    return r.rewardId || '';
+            }
+        };
+        if (sortKey === 'slNo') {
+            // Stable base order by createdAt, then reverse for desc so SL flips.
+            list.sort((a, b) =>
+                compareSortValues(
+                    new Date(a.createdAt || a.updatedAt || 0),
+                    new Date(b.createdAt || b.updatedAt || 0),
+                    'asc',
+                ),
+            );
+            if (dir === 'desc') list.reverse();
+            return list;
+        }
+        list.sort((a, b) => compareSortValues(getVal(a), getVal(b), dir));
+        return list;
+    }, [filteredRewards, sortKey, sortDirection]);
+
+    const handleSort = useCallback((key) => {
+        const next = toggleSortState(sortKey, sortDirection, key);
+        setSortKey(next.sortKey);
+        setSortDirection(next.sortDirection);
+    }, [sortKey, sortDirection]);
 
     // Calculate Bar Chart Data (Rewards per employee)
-    const empDataMap = Object.create(null);
-    rewards
-        .filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Active')
-        .forEach(r => {
-            const name = r.employeeName || 'N/A';
-            const displayName = name.split(' ')[0]; // Use first name for chart space
-            if (!empDataMap[name]) {
-                empDataMap[name] = { name: displayName, fullName: name, value: 0, rewards: [] };
-            }
-            empDataMap[name].value += 1;
-            empDataMap[name].rewards.push(r);
-        });
-
-    const chartData = Object.values(empDataMap)
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 8); // Top 8 employees
+    const chartData = useMemo(() => {
+        const empDataMap = Object.create(null);
+        rewards
+            .filter((r) => isRewardApprovedStatus(r))
+            .forEach((r) => {
+                const name = r.employeeName || 'N/A';
+                const displayName = name.split(' ')[0];
+                if (!empDataMap[name]) {
+                    empDataMap[name] = { name: displayName, fullName: name, value: 0, rewards: [] };
+                }
+                empDataMap[name].value += 1;
+                empDataMap[name].rewards.push(r);
+            });
+        return Object.values(empDataMap)
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 8);
+    }, [rewards]);
 
     const handleBarClick = (data) => {
         if (data && data.rewards) {
@@ -268,36 +325,9 @@ function RewardContent() {
         }
     };
 
-    const filteredRewards = rewards.filter(r => {
-        if (selectedStatus === 'All') return true;
-
-        const status = (r.rewardStatus || '').toLowerCase();
-        const type = (r.rewardType || '').toLowerCase();
-
-        if (selectedStatus === 'Pending') {
-            // After management, cash/gift is Completed + Payment Pending — keep under Approved, not Pending
-            return (
-                (status.includes('pending') || status === 'draft') &&
-                status !== 'pending accounts'
-            );
-        }
-        if (selectedStatus === 'Approved') {
-            return (
-                status === 'approved' ||
-                status === 'approved (paid)' ||
-                status === 'active' ||
-                status === 'completed' ||
-                status === 'pending accounts'
-            );
-        }
-        if (selectedStatus === 'Rejected') return status === 'rejected';
-        if (selectedStatus === 'Draft') return status === 'draft';
-        if (selectedStatus === 'Cash') return type === 'cash';
-        if (selectedStatus === 'Gift') return type === 'gift';
-        if (selectedStatus === 'Certificate') return type === 'certificate';
-
-        return true;
-    });
+    if (!mounted) {
+        return null;
+    }
 
     return (
         <PermissionGuard moduleId="hrm_reward" permissionType="view">
@@ -352,7 +382,14 @@ function RewardContent() {
                                 <h3 className="text-sm sm:text-base lg:text-lg font-bold text-gray-800 mb-2 sm:mb-4 flex justify-between items-center gap-2">
                                     Reward Statistics
                                     {selectedStatus !== 'All' && (
-                                        <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
+                                        <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                            Filtered: {selectedStatus}
+                                        </span>
+                                    )}
+                                    {selectedStatus === 'All' && (
+                                        <span className="text-[10px] sm:text-xs font-medium text-slate-500">
+                                            My drafts + all other statuses
+                                        </span>
                                     )}
                                 </h3>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4 flex-1">
@@ -514,7 +551,7 @@ function RewardContent() {
                                     className="w-full h-[34px] sm:h-[38px] px-3 sm:px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all font-medium"
                                     aria-label="Filter by status"
                                 >
-                                    <option value="All">All Statuses</option>
+                                    <option value="All">Default (my Draft + others)</option>
                                     <option value="Pending">Pending</option>
                                     <option value="Approved">Approved</option>
                                     <option value="Rejected">Rejected</option>
@@ -532,44 +569,76 @@ function RewardContent() {
                                 <table className="w-full min-w-[640px] sm:min-w-[780px] lg:min-w-0 table-auto text-xs sm:text-sm">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                REWARD ID
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                EMP. ID
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                NAME
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                REWARD TYPE
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                REWARD STATUS
-                                            </th>
-                                            <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                PAYMENT STATUS
-                                            </th>
+                                            <SortableTh
+                                                label="SL No"
+                                                sortKey="slNo"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                                className="w-14 sm:w-16"
+                                            />
+                                            <SortableTh
+                                                label="Reward ID"
+                                                sortKey="rewardId"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Emp. ID"
+                                                sortKey="employeeId"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Name"
+                                                sortKey="employeeName"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Reward Type"
+                                                sortKey="rewardType"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Reward Status"
+                                                sortKey="rewardStatus"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
+                                            <SortableTh
+                                                label="Payment Status"
+                                                sortKey="paymentStatus"
+                                                activeKey={sortKey}
+                                                direction={sortDirection}
+                                                onSort={handleSort}
+                                            />
                                             <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                ACTIONS
+                                                Actions
                                             </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="7" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     Loading rewards...
                                                 </td>
                                             </tr>
-                                        ) : filteredRewards.length === 0 ? (
+                                        ) : sortedRewards.length === 0 ? (
                                             <tr>
-                                                <td colSpan="7" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
+                                                <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500">
                                                     No rewards found matching "{selectedStatus}".
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredRewards.map((reward) => {
+                                            sortedRewards.map((reward, index) => {
                                                 const rewardHref = `/HRM/Reward/rewrd.${reward.rewardId || reward._id}`;
                                                 return (
                                                 <ListTableRowLink
@@ -580,6 +649,9 @@ function RewardContent() {
                                                 <tr
                                                     className="relative hover:bg-gray-50 transition-colors group cursor-pointer"
                                                 >
+                                                    <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-500 tabular-nums">
+                                                        <div className="relative z-10 pointer-events-none">{index + 1}</div>
+                                                    </td>
                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm font-medium text-gray-900">
                                                         <div className="relative z-10 pointer-events-none">
                                                             {reward.rewardId || 'N/A'}

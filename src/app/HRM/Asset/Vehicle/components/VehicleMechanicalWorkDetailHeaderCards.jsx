@@ -1,7 +1,9 @@
 ﻿'use client';
 
+import Link from 'next/link';
 import { Car, Settings } from 'lucide-react';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
+import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { parseVehicleServiceRemark } from './vehicleServiceUtils';
 import { formatVehicleServiceReqNo } from '../utils/vehicleServiceReqNo';
@@ -59,12 +61,15 @@ export default function VehicleMechanicalWorkDetailHeaderCards({
         });
     }
 
+    const vehicleId = vehicle?._id || vehicle?.id || '';
+    const vehicleDetailHref = vehicleId ? buildVehicleDetailPath(vehicleId) : '';
+
     return (
         <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
             <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
                 <div className="bg-white rounded-lg shadow-sm p-4 w-full h-full flex flex-col overflow-hidden">
                     <div className="flex items-center gap-2 mb-3 shrink-0 min-h-[26px]">
-                        <Car size={18} className="text-slate-500" />
+                        <Car size={18} className="text-slate-500 shrink-0" />
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                             Vehicle Summary
                         </p>
@@ -78,7 +83,16 @@ export default function VehicleMechanicalWorkDetailHeaderCards({
                                 <span className="text-[10px] font-medium uppercase tracking-wide opacity-80">
                                     {field.label}
                                 </span>
-                                <span className="text-sm font-bold leading-snug">{field.value}</span>
+                                {field.label === 'Asset No' && vehicleDetailHref && field.value !== '—' ? (
+                                    <Link
+                                        href={vehicleDetailHref}
+                                        className="text-sm font-bold leading-snug text-teal-700 hover:underline"
+                                    >
+                                        {field.value}
+                                    </Link>
+                                ) : (
+                                    <span className="text-sm font-bold leading-snug">{field.value}</span>
+                                )}
                             </div>
                         ))}
                     </div>

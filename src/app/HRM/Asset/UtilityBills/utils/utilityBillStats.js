@@ -91,8 +91,8 @@ export function filterEntriesWithoutOccupiedBill(entries = [], bills = [], billM
 }
 
 /**
- * YYYY-MM when the utility account row became available for billing.
- * Prefer createdAt; fall back to contract start.
+ * YYYY-MM when the utility account became available for billing lists.
+ * Use created month; fall back to contract start.
  */
 export function entryAvailableFromMonth(entry) {
     const created = entry?.createdAt || entry?.created_at || null;

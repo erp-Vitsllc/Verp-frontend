@@ -25,7 +25,7 @@ export function buildTireChangeGarageFormState(service, asset) {
             remark.serviceStartDate ||
             remark.scheduledServiceDate ||
             base.serviceStartDate ||
-            (service?.date ? new Date(service.date).toISOString().slice(0, 10) : ''),
+            '',
         serviceEndDate: remark.serviceEndDate || remark.serviceWindowEndDate || base.serviceEndDate || '',
         serviceIssue: String(remark.serviceIssue || remark.scheduleDescription || base.serviceIssue || '').trim(),
         amountFromInitiate: amount > 0 ? String(amount) : '',

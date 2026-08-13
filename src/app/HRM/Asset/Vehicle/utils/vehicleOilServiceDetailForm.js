@@ -154,7 +154,8 @@ export function buildOilServiceDetailFormState(service, asset, scheduleRow, { fl
         serviceStartDate:
             base.serviceStartDate ||
             remark.serviceStartDate ||
-            (service?.date ? new Date(service.date).toISOString().slice(0, 10) : base.date),
+            remark.scheduledServiceDate ||
+            '',
         quotation1Amount:
             base.quotation1Amount ||
             (base.value != null && base.value !== '' ? String(base.value) : ''),

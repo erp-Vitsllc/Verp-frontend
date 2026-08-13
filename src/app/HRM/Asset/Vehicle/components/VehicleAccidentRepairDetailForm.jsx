@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ClipboardList, Loader2, Plus, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -10,6 +11,7 @@ import {
     loadStorageFileBlob,
     openAttachmentInNewTab,
 } from '@/utils/attachmentPreview';
+import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import { DatePicker } from '@/components/ui/date-picker';
 import VehicleAccidentRepairFormFieldCell from './VehicleAccidentRepairFormFieldCell';
@@ -1128,6 +1130,16 @@ export default function VehicleAccidentRepairDetailForm({
                     iconBg="bg-blue-50"
                     iconColor="text-blue-600"
                     className={`w-full ${canEditInitiateFields ? '' : 'opacity-[0.97]'}`}
+                    headerAction={
+                        vehicleId ? (
+                            <Link
+                                href={buildVehicleDetailPath(vehicleId, { tab: 'service' })}
+                                className="shrink-0 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100 transition-colors"
+                            >
+                                Service List
+                            </Link>
+                        ) : null
+                    }
                 >
                     <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleAccidentRepairFormFieldCell

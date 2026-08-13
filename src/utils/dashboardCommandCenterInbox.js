@@ -216,9 +216,9 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Fine') return 'Fine Request';
     if (type === 'Reward') return 'Reward Request';
     if (type === 'Payment Approval') return 'Payment Approval';
-    if (type === 'Utility Bill Payment') return 'Utility Bill Payment';
-    if (type === 'Utility Bill Payment Reminder') return 'Utility Payment Day Reminder';
-    if (type === 'Utility Contract Expiry') return 'Utility Contract Expiry';
+    if (type === 'Utility Bill Payment') return 'Utility Bill Payment — Review / Pay';
+    if (type === 'Utility Bill Payment Reminder') return 'Utility Payment Day — Clear Bill';
+    if (type === 'Utility Contract Expiry') return 'Utility Contract Expiry — Renew / Deactivate';
     if (type === 'Utility Entry Status Change') return 'Utility Activate / Deactivate';
     if (type === 'Loan' || type === 'Loan/Advance') return 'Loan';
     if (type === 'Advance') return 'Advance';
