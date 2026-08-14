@@ -44,8 +44,9 @@ function formatPlate(vehicle) {
     return plate || '—';
 }
 
-function buildVehicleSummaryFields(vehicle, historyEntry, statusKey) {
-    const handoverTo = getHandoverToLabel(historyEntry, vehicle);
+function buildVehicleSummaryFields(vehicle, historyEntry, statusKey, assetHistory = []) {
+    const labelOpts = { allRows: assetHistory };
+    const handoverTo = getHandoverToLabel(historyEntry, vehicle, labelOpts);
 
     return [
         { label: 'Vehicle', value: vehicle?.name || '—', tone: 'bg-blue-50 border-blue-100 text-blue-800' },
@@ -58,7 +59,7 @@ function buildVehicleSummaryFields(vehicle, historyEntry, statusKey) {
         },
         {
             label: 'Handover By',
-            value: getHandoverByLabel(historyEntry, vehicle),
+            value: getHandoverByLabel(historyEntry, vehicle, labelOpts),
             tone: 'bg-violet-50 border-violet-100 text-violet-800',
         },
         {
@@ -143,7 +144,12 @@ export default function VehicleHandoverAssignHeaderCards({
                 ? 'bg-slate-50 border-slate-100 text-slate-600'
                 : 'bg-emerald-50 border-emerald-100 text-emerald-700';
 
-    const vehicleSummaryFields = buildVehicleSummaryFields(vehicle, historyEntry, baseStatus.key);
+    const vehicleSummaryFields = buildVehicleSummaryFields(
+        vehicle,
+        historyEntry,
+        baseStatus.key,
+        assetHistory,
+    );
 
     return (
         <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">

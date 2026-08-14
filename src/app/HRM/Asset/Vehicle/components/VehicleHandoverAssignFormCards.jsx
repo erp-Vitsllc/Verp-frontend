@@ -57,8 +57,8 @@ export default function VehicleHandoverAssignFormCards({ historyEntry, vehicle, 
                     <DetailGrid>
                         <DetailField label="Sl No." value={slNo} />
                         <DetailField label="Handover Date" value={formatDate(historyEntry?.date || historyEntry?.createdAt)} />
-                        <DetailField label="Handover By" value={getHandoverByLabel(historyEntry)} />
-                        <DetailField label="Handover To" value={getHandoverToLabel(historyEntry)} />
+                        <DetailField label="Handover By" value={getHandoverByLabel(historyEntry, vehicle)} />
+                        <DetailField label="Handover To" value={getHandoverToLabel(historyEntry, vehicle)} />
                         <DetailField label="Action" value={historyEntry?.action || '—'} />
                         <DetailField
                             label="Status"

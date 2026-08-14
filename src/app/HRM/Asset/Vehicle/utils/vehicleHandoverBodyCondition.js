@@ -258,7 +258,37 @@ export function buildBodyConditionEditableFormState(historyEntry, options = {}) 
         };
     });
 
-    return form;
+    return applyPendingServicePhotoReviewToForm(form, historyEntry);
+}
+
+function applyPendingServicePhotoReviewToForm(form, historyEntry) {
+    const pending = historyEntry?.details?.pendingServicePhotoReview;
+    if (!pending || typeof pending !== 'object') return form;
+    if (String(pending.status || '').toLowerCase() !== 'pending') return form;
+    const images = Array.isArray(pending.images) ? pending.images : [];
+    if (!images.length) return form;
+
+    const next = { ...form };
+    for (const img of images) {
+        const key = String(img?.bodyPartKey || '').trim();
+        if (!FIELD_BY_KEY[key]) continue;
+        const photo = img.photo || img.url || null;
+        if (!hasAssessmentPhoto(photo)) continue;
+        const current = next[key] || { comment: '', photo: null };
+        next[key] = {
+            ...current,
+            photo,
+            photoSource: BODY_CONDITION_PHOTO_SOURCE.NEW,
+            userSelected: true,
+            replacedByService: true,
+            pendingServicePhotoReview: true,
+            serviceBaselinePhoto: current.photo || current.serviceBaselinePhoto || null,
+            comment:
+                String(current.comment || '').trim() ||
+                `Updated from ${pending.serviceTypeLabel || 'service'} (awaiting HR review)`,
+        };
+    }
+    return next;
 }
 
 export function buildBodyConditionFormState(historyEntry, options = {}) {

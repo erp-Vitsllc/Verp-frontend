@@ -64,10 +64,19 @@ function hasHandoverAssignee(entry) {
     return Boolean(details.assignedTo);
 }
 
+export function handoverPersonId(person) {
+    if (!person) return '';
+    if (typeof person === 'object') return String(person._id || person.id || '').trim();
+    return String(person).trim();
+}
+
 export function fmtHandoverPerson(person) {
     if (!person) return '';
+    if (typeof person !== 'object') return '';
     const name = `${person.firstName || ''} ${person.lastName || ''}`.trim();
-    return name || person.employeeId || '';
+    const empId = String(person.employeeId || '').trim();
+    if (name && empId) return `${name} (${empId})`;
+    return name || empId || '';
 }
 
 export function fmtHandoverCompany(company) {
@@ -77,10 +86,46 @@ export function fmtHandoverCompany(company) {
 }
 
 function formatHandoverActorLabel(stage, person) {
-    const name = String(stage?.actorName || '').trim() || fmtHandoverPerson(person);
+    const rawName = String(stage?.actorName || '').trim();
+    const personLabel = fmtHandoverPerson(person);
+    const name = rawName || personLabel;
     const empId = String(stage?.actorEmployeeId || person?.employeeId || '').trim();
-    if (name && empId) return `${name} (${empId})`;
+    if (name && empId && !name.includes(empId)) return `${name} (${empId})`;
     return name || empId || '—';
+}
+
+function entryTimestamp(entry) {
+    const value = entry?.date || entry?.createdAt;
+    const parsed = value ? new Date(Date.parse(value)) : 0;
+    return Number.isNaN(parsed) ? 0 : parsed.getTime();
+}
+
+/** Assignee stored on this history row — never a later live vehicle snapshot. */
+function resolveEntryAssigneePerson(entry) {
+    const historyAssignee = entry?.assignedTo;
+    if (historyAssignee && typeof historyAssignee === 'object' && (historyAssignee.firstName || historyAssignee.employeeId)) {
+        return historyAssignee;
+    }
+    const detailsAssignee = entry?.details?.assignedTo;
+    if (detailsAssignee && typeof detailsAssignee === 'object') {
+        const historyId = handoverPersonId(entry?.assignedTo);
+        const detailsId = handoverPersonId(detailsAssignee);
+        if (!historyId || historyId === detailsId) return detailsAssignee;
+    }
+    return historyAssignee && typeof historyAssignee === 'object' ? historyAssignee : null;
+}
+
+function isRejectedHandoverAction(entry) {
+    const action = String(entry?.action || '').trim();
+    if (action === 'Rejected') return true;
+    return String(entry?.details?.acceptanceStatus || '').trim() === 'Rejected';
+}
+
+function isSameHandoverCycleRow(left, right) {
+    if (!left || !right) return false;
+    if (String(left._id || '') && String(left._id) === String(right._id)) return true;
+    if ((left.isLive || right.isLive) && assigneeKey(left) === assigneeKey(right)) return true;
+    return false;
 }
 
 export function isVehicleReinspectionHandoverEntry(entry) {
@@ -140,6 +185,8 @@ export function isHandoverHistoryEntry(entry) {
 function isFleetHandoverHrApproved(entry) {
     const lifecycle = String(entry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
     if (lifecycle === 'approved') return true;
+    // Explicit pending/accepted must not inherit inspection or previous-cycle HR dates.
+    if (lifecycle === 'pending' || lifecycle === 'accepted') return false;
     if (entry?.details?.handoverHrApprovedAt) return true;
     const hrStage = entry?.details?.vehicleHandoverWorkflow?.stages?.hr;
     return Boolean(hrStage?.date);
@@ -149,14 +196,23 @@ function resolveFleetHandoverLifecycle(entry, vehicle) {
     const action = String(entry?.action || '').trim();
     const lifecycle = String(entry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
 
-    if (lifecycle !== 'rejected' && isFleetHandoverHrApproved(entry)) {
-        return 'approved';
-    }
-
     const flow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
     const isLinked =
         flow?.historyId && entry?._id && String(flow.historyId) === String(entry._id);
     const vehicleStatus = String(vehicle?.acceptanceStatus || '').trim();
+
+    // Current in-flight handover: trust the live flow, not leftover HR dates.
+    if (isLinked && lifecycle !== 'rejected') {
+        const stage = String(flow.stage || '').toLowerCase();
+        if (stage === 'hr' || stage === 'management' || stage === 'hod') return 'accepted';
+        if (stage === 'target' || !stage) return 'pending';
+        if (lifecycle === 'approved') return 'approved';
+        return 'pending';
+    }
+
+    if (lifecycle !== 'rejected' && isFleetHandoverHrApproved(entry)) {
+        return 'approved';
+    }
 
     // Returns/unassigns: resolve before generic lifecycle so a newer pending cycle
     // cannot rewrite an already-completed return row to Pending.
@@ -303,22 +359,78 @@ export function getHandoverHistoryStatus(entry, vehicle = null, options = {}) {
     };
 }
 
-export function getHandoverByLabel(entry, vehicle = null) {
-    const action = String(entry?.action || '').trim();
-    const workflow = entry?.details?.vehicleHandoverWorkflow;
+function resolveHandoverLabelOptions(entry, vehicle, options = {}) {
+    const allRows = Array.isArray(options.allRows) ? options.allRows : [];
+    const previousEntry =
+        options.previousEntry ||
+        (allRows.length ? findPreviousFleetHandoverEntry(entry, allRows, vehicle) : null);
+    return { ...options, previousEntry, allRows };
+}
 
-    if (
-        (action === 'Assigned' || action === 'Accepted') &&
-        !isVehicleInspectionHandoverEntry(entry, vehicle)
-    ) {
-        const frozenAssigner = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
-        if (frozenAssigner) return frozenAssigner;
+/** Last fleet holder before this row. Skip inspection, rejected, and same-cycle rows. */
+export function findPreviousFleetHandoverEntry(entry, rows = [], vehicle = null) {
+    if (!entry || !Array.isArray(rows) || !rows.length) return null;
+
+    const before = sortHandoverHistoryEntries(rows).filter((row) => {
+        if (!row || isSameHandoverCycleRow(row, entry)) return false;
+        if (isVehicleInspectionHandoverEntry(row, vehicle)) return false;
+        if (isRejectedHandoverAction(row)) return false;
+        const rowTs = entryTimestamp(row);
+        const entryTs = entryTimestamp(entry);
+        if (rowTs < entryTs) return true;
+        if (rowTs > entryTs) return false;
+        return String(row?._id || '') < String(entry?._id || '');
+    });
+
+    for (let i = before.length - 1; i >= 0; i -= 1) {
+        const row = before[i];
+        const action = String(row?.action || '').trim();
+        if (action === 'Returned' || action === 'Unassigned') return null;
+        if (
+            action === 'Assigned' ||
+            action === 'Accepted' ||
+            action === 'Transfer' ||
+            action === 'ControllerHandover'
+        ) {
+            return row;
+        }
     }
+    return null;
+}
+
+function previousHolderLabel(previousEntry, vehicle = null) {
+    if (!previousEntry) return '';
+    const frozenTo = readFrozenHandoverLabel(previousEntry, 'handoverToDisplay', null);
+    if (frozenTo) return frozenTo;
+    const assignee = fmtHandoverPerson(resolveEntryAssigneePerson(previousEntry));
+    if (assignee) return assignee;
+    const stage = previousEntry?.details?.vehicleHandoverWorkflow?.stages?.target;
+    const fromStage = formatHandoverActorLabel(stage, previousEntry?.assignedTo);
+    return fromStage !== '—' ? fromStage : '';
+}
+
+function adminOfficerLabel(entry) {
+    const workflow = entry?.details?.vehicleHandoverWorkflow;
+    const stage = workflow?.stages?.assigner;
+    const fromStage = formatHandoverActorLabel(stage, entry?.performedBy);
+    if (fromStage && fromStage !== '—') return fromStage;
+    const performer = fmtHandoverPerson(entry?.performedBy);
+    if (performer) return performer;
+    const workflowName = String(stage?.actorName || '').trim();
+    if (workflowName) return workflowName;
+    return String(entry?.details?.byName || entry?.details?.performedByName || '').trim();
+}
+
+export function getHandoverByLabel(entry, vehicle = null, options = {}) {
+    const action = String(entry?.action || '').trim();
+    const { previousEntry } = resolveHandoverLabelOptions(entry, vehicle, options);
+    const workflow = entry?.details?.vehicleHandoverWorkflow;
+    const fromPool = workflow?.wasAssignedFromPool === true && !previousEntry;
 
     if (action === 'Returned') {
         const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
         if (frozen) return frozen;
-        const returningEmp = fmtHandoverPerson(entry?.assignedTo) || fmtHandoverPerson(entry?.details?.assignedTo);
+        const returningEmp = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
         return returningEmp || '—';
     }
 
@@ -327,58 +439,55 @@ export function getHandoverByLabel(entry, vehicle = null) {
     }
 
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
-        // Reinspection: By = To = assigned owner, else Admin Officer.
         if (isVehicleReinspectionHandoverEntry(entry)) {
             const frozenBy = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
             if (frozenBy) return frozenBy;
             const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
             if (frozenTo) return frozenTo;
-            const liveAssignee = fmtHandoverPerson(vehicle?.assignedTo);
-            if (liveAssignee) return liveAssignee;
-            const assignee = fmtHandoverPerson(entry?.assignedTo);
+            const assignee = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
             if (assignee) return assignee;
             const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
             const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
             if (fromStage !== '—') return fromStage;
             return '—';
         }
-        // First inspection: Handover By stays empty.
         return '—';
     }
 
-    if (workflow?.wasAssignedFromPool) {
+    if (action === 'Assigned' || action === 'Accepted' || action === 'Transfer' || action === 'ControllerHandover') {
+        const holder = previousHolderLabel(previousEntry, vehicle);
+        if (holder) return holder;
+
+        const workflowPrev = String(workflow?.previousAssigneeName || '').trim();
+        const workflowPrevId = String(workflow?.previousAssigneeEmployeeId || '').trim();
+        if (workflowPrev) {
+            return workflowPrevId && !workflowPrev.includes(workflowPrevId)
+                ? `${workflowPrev} (${workflowPrevId})`
+                : workflowPrev;
+        }
+        if (workflow?.previousAssigneeId && !fromPool) {
+            const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
+            if (frozen) return frozen;
+        }
+
+        if (fromPool || workflow?.wasAssignedFromPool === true) {
+            const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
+            if (frozen) return frozen;
+            return adminOfficerLabel(entry) || '—';
+        }
+
         const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
         if (frozen) return frozen;
-        const adminName = workflow?.stages?.assigner?.actorName;
-        if (adminName) return adminName;
+        return adminOfficerLabel(entry) || '—';
     }
-
-    const fromDetails = fmtHandoverPerson(entry?.details?.assignedBy);
-    if (fromDetails) return fromDetails;
-
-    const performer = fmtHandoverPerson(entry?.performedBy);
-    if (performer) return performer;
 
     const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
     if (frozen) return frozen;
-
-    const workflowName = workflow?.stages?.assigner?.actorName;
-    if (workflowName) return workflowName;
-
-    const detailsName = String(entry?.details?.byName || entry?.details?.performedByName || '').trim();
-    return detailsName || '—';
+    return adminOfficerLabel(entry) || '—';
 }
 
-export function getHandoverToLabel(entry, vehicle = null) {
+export function getHandoverToLabel(entry, vehicle = null, options = {}) {
     const action = String(entry?.action || '').trim();
-
-    if (
-        (action === 'Assigned' || action === 'Accepted') &&
-        !isVehicleInspectionHandoverEntry(entry, vehicle)
-    ) {
-        const frozenAssignee = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
-        if (frozenAssignee) return frozenAssignee;
-    }
 
     if (action === 'Returned') {
         const frozen = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
@@ -395,28 +504,14 @@ export function getHandoverToLabel(entry, vehicle = null) {
     }
 
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
-        // Inspection / reinspection: To = assigned owner, else Admin Officer.
-        // Reinspection By uses the same person (see getHandoverByLabel).
         const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
         if (frozenTo) return frozenTo;
-        if (isVehicleReinspectionHandoverEntry(entry)) {
-            const liveAssignee = fmtHandoverPerson(vehicle?.assignedTo);
-            if (liveAssignee) return liveAssignee;
-        }
-        const assignee = fmtHandoverPerson(entry?.assignedTo);
+        const assignee = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
         if (assignee) return assignee;
         const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
         const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
         if (fromStage !== '—') return fromStage;
         return '—';
-    }
-
-    if (action === 'Assigned' || action === 'Accepted') {
-        const assignee = fmtHandoverPerson(entry?.assignedTo);
-        if (assignee) return assignee;
-        const details = entry?.details || {};
-        const fromDetails = fmtHandoverPerson(details.assignedTo);
-        if (fromDetails) return fromDetails;
     }
 
     const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
@@ -426,15 +521,20 @@ export function getHandoverToLabel(entry, vehicle = null) {
         const company = fmtHandoverCompany(entry?.assignedCompany);
         if (company) return company;
     }
-    const assignee = fmtHandoverPerson(entry?.assignedTo);
+
+    const assignee = fmtHandoverPerson(resolveEntryAssigneePerson(entry));
     if (assignee) return assignee;
+
     const details = entry?.details || {};
     if (String(details.assignedToType || '').toLowerCase() === 'company') {
         const company = fmtHandoverCompany(details.assignedCompany);
         if (company) return company;
     }
-    const detailsAssignee = fmtHandoverPerson(details.assignedTo);
-    return detailsAssignee || '—';
+
+    const stage = details.vehicleHandoverWorkflow?.stages?.target;
+    const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
+    if (fromStage !== '—') return fromStage;
+    return '—';
 }
 
 /** Workflow target actor — admin officer when assignee cannot self-acknowledge. */
@@ -486,7 +586,7 @@ export function getHandoverReason(entry, vehicle = null) {
 }
 
 /** Table Type: Assign | Reassign | Return | Inspection | Reinspection */
-export function getHandoverTypeLabel(entry, vehicle = null) {
+export function getHandoverTypeLabel(entry, vehicle = null, options = {}) {
     if (isVehicleReinspectionHandoverEntry(entry)) return 'Reinspection';
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) return 'Inspection';
 
@@ -499,10 +599,12 @@ export function getHandoverTypeLabel(entry, vehicle = null) {
         return 'Return';
     }
 
+    const { previousEntry } = resolveHandoverLabelOptions(entry, vehicle, options);
     const workflow = entry?.details?.vehicleHandoverWorkflow;
-    if (workflow?.wasAssignedFromPool === true) return 'Assign';
-    if (workflow?.previousAssigneeId) return 'Reassign';
+    if (previousEntry) return 'Reassign';
+    if (workflow?.previousAssigneeId || workflow?.previousAssigneeName) return 'Reassign';
     if (workflow?.wasAssignedFromPool === false) return 'Reassign';
+    if (workflow?.wasAssignedFromPool === true) return 'Assign';
 
     return 'Assign';
 }
@@ -520,24 +622,29 @@ export function getHandoverEndDate(entry, vehicle = null) {
     const status = getHandoverDisplayStatus(entry, vehicle);
     if (status.key !== 'approved') return null;
 
+    const start = getHandoverStartDate(entry);
+    const startMs = start ? new Date(start).getTime() : NaN;
     const details = entry?.details || {};
+    const isInspection = isVehicleInspectionHandoverEntry(entry, vehicle);
     const candidates = [
         details.handoverHrApprovedAt,
         details.vehicleHandoverWorkflow?.stages?.hr?.date,
         details.vehicleHandoverWorkflow?.stages?.management?.date,
-        details.inspectionApprovedAt,
+        isInspection ? details.inspectionApprovedAt : null,
         details.approvedAt,
-        entry?.date,
         entry?.updatedAt,
+        entry?.date,
         entry?.createdAt,
     ];
 
     for (const value of candidates) {
         if (!value) continue;
         const date = new Date(value);
-        if (!Number.isNaN(date.getTime())) return value;
+        if (Number.isNaN(date.getTime())) continue;
+        if (!Number.isNaN(startMs) && date.getTime() < startMs) continue;
+        return value;
     }
-    return null;
+    return Number.isNaN(startMs) ? null : start;
 }
 
 /** Oldest handover first, latest last (by start date / createdAt). */
@@ -630,7 +737,7 @@ export function isLiveHandoverEntry(entry) {
     return Boolean(entry?.isLive);
 }
 
-export function buildLiveHandoverEntry(asset) {
+export function buildLiveHandoverEntry(asset, historyRows = []) {
     if (!asset) return null;
 
     const isCompany =
@@ -640,6 +747,25 @@ export function buildLiveHandoverEntry(asset) {
 
     const acceptance = String(asset.acceptanceStatus || '').trim();
     const action = acceptance === 'Accepted' ? 'Accepted' : 'Assigned';
+    const flow = asset.pendingActionDetails?.vehicleHandoverFlow;
+    const previousEntry = findPreviousFleetHandoverEntry(
+        {
+            _id: flow?.historyId || `live-${asset._id}`,
+            isLive: true,
+            action: 'Assigned',
+            date: asset.assignedDate || asset.updatedAt || asset.createdAt,
+            assignedTo: asset.assignedTo,
+            assignedCompany: asset.assignedCompany,
+            assignedToType: asset.assignedToType,
+        },
+        historyRows,
+        asset,
+    );
+    const fromPool = !previousEntry;
+    const toLabel = fmtHandoverPerson(asset.assignedTo) || fmtHandoverCompany(asset.assignedCompany);
+    const byLabel = fromPool
+        ? fmtHandoverPerson(asset.assignedBy) || '—'
+        : previousHolderLabel(previousEntry, asset);
 
     return {
         _id: `live-${asset._id}`,
@@ -662,6 +788,14 @@ export function buildLiveHandoverEntry(asset) {
             acceptanceStatus: asset.acceptanceStatus || '',
             assignmentType: asset.assignmentType || '',
             assignedDays: asset.assignedDays ?? null,
+            handoverLifecycleStatus: acceptance === 'Accepted' ? 'accepted' : 'pending',
+            handoverByDisplay: byLabel || undefined,
+            handoverToDisplay: toLabel || undefined,
+            vehicleHandoverWorkflow: {
+                wasAssignedFromPool: fromPool,
+                previousAssigneeId: handoverPersonId(previousEntry?.assignedTo) || undefined,
+                previousAssigneeName: previousHolderLabel(previousEntry, asset) || undefined,
+            },
         },
     };
 }
@@ -669,17 +803,31 @@ export function buildLiveHandoverEntry(asset) {
 function isDuplicateLiveEntry(historyRows, liveRow, asset) {
     if (!liveRow) return true;
 
+    const flowId = asset?.pendingActionDetails?.vehicleHandoverFlow?.historyId;
+    if (flowId && historyRows.some((row) => String(row?._id) === String(flowId))) return true;
+
+    const inspId = asset?.vehicleInspectionHandoverHistoryId;
+    const inspStatus = String(asset?.vehicleInspectionStatus || '').toLowerCase();
+    if (
+        inspId &&
+        (inspStatus === 'draft' || inspStatus === 'pending_hr') &&
+        historyRows.some((row) => String(row?._id) === String(inspId))
+    ) {
+        return true;
+    }
+
     const liveKey = assigneeKey(liveRow);
     const acceptance = String(asset?.acceptanceStatus || '').trim();
-    const matching = historyRows.filter((row) => assigneeKey(row) === liveKey);
+    const matching = historyRows.filter(
+        (row) => !isVehicleInspectionHandoverEntry(row, asset) && assigneeKey(row) === liveKey,
+    );
     if (!matching.length) return false;
 
-    const latest = [...matching].sort(
-        (a, b) => new Date(b?.date || b?.createdAt || 0) - new Date(a?.date || a?.createdAt || 0),
-    )[0];
+    const latest = [...matching].sort((a, b) => entryTimestamp(b) - entryTimestamp(a))[0];
+    const latestAction = String(latest?.action || '').trim();
 
-    if (acceptance === 'Pending' && latest?.action === 'Assigned') return true;
-    if (acceptance === 'Accepted' && latest?.action === 'Accepted') return true;
+    if (acceptance === 'Pending' && latestAction === 'Assigned') return true;
+    if (acceptance === 'Accepted' && latestAction === 'Accepted') return true;
     return false;
 }
 
@@ -696,8 +844,12 @@ function shouldIncludeLiveHandoverRow(asset, historyRows) {
     const inspId = asset.vehicleInspectionHandoverHistoryId;
     const inspStatus = String(asset.vehicleInspectionStatus || '').toLowerCase();
 
+    if (flowHistoryId && historyRows.some((row) => String(row?._id) === String(flowHistoryId))) {
+        return false;
+    }
+
     if (acceptance === 'Pending') {
-        const liveRow = buildLiveHandoverEntry(asset);
+        const liveRow = buildLiveHandoverEntry(asset, historyRows);
         return Boolean(liveRow && !isDuplicateLiveEntry(historyRows, liveRow, asset));
     }
 
@@ -719,187 +871,70 @@ export function buildHandoverHistoryRows(assetHistory = [], asset = null) {
     const filtered = (assetHistory || [])
         .filter(isHandoverHistoryEntry)
         .filter((entry) => !isStaleInactiveHandoverRow(entry, asset));
-    const deduped = dedupeSameHandoverAssignments(dedupeHandoverAssignedAcceptedPairs(filtered));
+    const deduped = dedupeHandoverAssignedAcceptedPairs(filtered);
 
     if (shouldIncludeLiveHandoverRow(asset, deduped)) {
-        const liveRow = buildLiveHandoverEntry(asset);
-        if (liveRow) deduped.push(liveRow);
+        const liveRow = buildLiveHandoverEntry(asset, deduped);
+        if (liveRow && !deduped.some((row) => String(row?._id) === String(liveRow._id))) {
+            deduped.push(liveRow);
+        }
     }
 
     return sortHandoverHistoryEntries(deduped);
 }
 
-/** One handover assignment = one row; hide legacy Assigned+Accepted pairs for the same assignee. */
+function hasInterveningFleetHandover(entries, startEntry, endEntry) {
+    const startTs = entryTimestamp(startEntry);
+    const endTs = entryTimestamp(endEntry);
+    const startId = String(startEntry?._id || '');
+    const endId = String(endEntry?._id || '');
+    return entries.some((row) => {
+        if (isVehicleInspectionHandoverEntry(row)) return false;
+        const id = String(row?._id || '');
+        if (id === startId || id === endId) return false;
+        const action = String(row?.action || '').trim();
+        if (!['Assigned', 'Accepted', 'Returned', 'Unassigned', 'Rejected'].includes(action)) {
+            return false;
+        }
+        const ts = entryTimestamp(row);
+        return ts > startTs && ts < endTs;
+    });
+}
+
+/** Legacy Assigned + Accepted pair for the same cycle only — never hide a later re-assignment. */
 function dedupeHandoverAssignedAcceptedPairs(entries) {
-    const acceptedMap = new Map();
-    const assignedMap = new Map();
+    const skipAssignedIds = new Set();
+    const assignedDateByAcceptedId = new Map();
 
-    for (const entry of entries) {
-        if (isVehicleInspectionHandoverEntry(entry)) continue;
-        const key = assigneeKey(entry);
-        const action = String(entry?.action || '').trim();
-        if (action === 'Accepted') acceptedMap.set(key, entry);
-        if (action === 'Assigned') assignedMap.set(key, entry);
-    }
+    for (const assigned of entries) {
+        if (isVehicleInspectionHandoverEntry(assigned)) continue;
+        if (String(assigned?.action || '').trim() !== 'Assigned') continue;
+        const key = assigneeKey(assigned);
+        const assignedTs = entryTimestamp(assigned);
 
-    const handledAccepted = new Set();
-    const result = [];
-
-    for (const entry of entries) {
-        if (isVehicleInspectionHandoverEntry(entry)) {
-            result.push(entry);
-            continue;
-        }
-
-        const key = assigneeKey(entry);
-        const action = String(entry?.action || '').trim();
-
-        if (action === 'Assigned' && acceptedMap.has(key)) {
-            continue;
-        }
-
-        if (action === 'Accepted' && assignedMap.has(key)) {
-            if (handledAccepted.has(key)) continue;
-            handledAccepted.add(key);
-            const assigned = assignedMap.get(key);
-            result.push({
-                ...entry,
-                date: assigned?.date || assigned?.createdAt || entry.date,
-                createdAt: assigned?.createdAt || entry.createdAt,
-            });
-            continue;
-        }
-
-        if (action === 'Accepted' && !assignedMap.has(key)) {
-            if (handledAccepted.has(key)) continue;
-            handledAccepted.add(key);
-        }
-
-        result.push(entry);
-    }
-
-    return result;
-}
-
-function handoverAssignmentKey(entry) {
-    const reason = String(entry?.details?.assignmentReason || entry?.comments || '')
-        .trim()
-        .toLowerCase();
-    const day = new Date(entry?.date || entry?.createdAt || 0);
-    const dayKey = Number.isNaN(day.getTime())
-        ? ''
-        : `${day.getUTCFullYear()}-${day.getUTCMonth()}-${day.getUTCDate()}`;
-    return `${assigneeKey(entry)}|${reason}|${dayKey}`;
-}
-
-function handoverLifecycleRank(entry) {
-    const lifecycle = String(entry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
-    if (lifecycle === 'approved') return 4;
-    if (lifecycle === 'accepted') return 3;
-    const action = String(entry?.action || '').trim();
-    if (action === 'Accepted') return 3;
-    if (action === 'Assigned' && lifecycle === 'accepted') return 3;
-    if (action === 'Assigned') return 2;
-    // Completed returns without an explicit lifecycle are still finished rows.
-    if (
-        (action === 'Returned' || action === 'Unassigned') &&
-        (lifecycle === 'approved' ||
-            String(entry?.details?.status || '').trim() === 'ApprovedAndFinalized' ||
-            !lifecycle)
-    ) {
-        return 4;
-    }
-    return 1;
-}
-
-/** Prefer finished states — never let a later pending row downgrade an approved duplicate. */
-function pickBestHandoverLifecycle(entries) {
-    // Higher index wins. Rejected is kept lowest so a successful twin stays approved.
-    const order = ['rejected', 'pending', 'accepted', 'approved'];
-    let best = '';
-    let bestRank = -1;
-    for (const entry of entries) {
-        const lifecycle = String(entry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
-        const action = String(entry?.action || '').trim();
-        let normalized = lifecycle;
-        if (!normalized) {
-            if (action === 'Accepted') normalized = 'accepted';
-            else if (
-                action === 'Returned' ||
-                action === 'Unassigned' ||
-                String(entry?.details?.status || '').trim() === 'ApprovedAndFinalized'
-            ) {
-                normalized = 'approved';
-            } else {
-                normalized = 'pending';
-            }
-        }
-        const rank = order.indexOf(normalized);
-        if (rank >= 0 && rank > bestRank) {
-            bestRank = rank;
-            best = normalized;
-        }
-    }
-    return best;
-}
-
-function isReturnOrUnassignHandoverAction(entry) {
-    const action = String(entry?.action || '').trim();
-    return action === 'Returned' || action === 'Unassigned';
-}
-
-/** Collapse duplicate rows for the same assignment (e.g. extra Accepted row after HR). */
-function dedupeSameHandoverAssignments(entries) {
-    const groups = new Map();
-
-    for (const entry of entries) {
-        if (isVehicleInspectionHandoverEntry(entry)) {
-            groups.set(`insp:${entry?._id || Math.random()}`, [entry]);
-            continue;
-        }
-        // Each return/unassign cycle is its own row — never merge with another return or assign.
-        if (isReturnOrUnassignHandoverAction(entry)) {
-            groups.set(`return:${entry?._id || Math.random()}`, [entry]);
-            continue;
-        }
-        const key = handoverAssignmentKey(entry);
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(entry);
-    }
-
-    const result = [];
-    for (const group of groups.values()) {
-        if (group.length === 1) {
-            result.push(group[0]);
-            continue;
-        }
-
-        const sorted = [...group].sort((a, b) => {
-            const rankDiff = handoverLifecycleRank(b) - handoverLifecycleRank(a);
-            if (rankDiff) return rankDiff;
-            const wfA = Boolean(a?.details?.vehicleHandoverWorkflow);
-            const wfB = Boolean(b?.details?.vehicleHandoverWorkflow);
-            if (wfA !== wfB) return Number(wfB) - Number(wfA);
-            const assignedA = String(a?.action || '').trim() === 'Assigned' ? 1 : 0;
-            const assignedB = String(b?.action || '').trim() === 'Assigned' ? 1 : 0;
-            if (assignedA !== assignedB) return assignedB - assignedA;
-            return new Date(a?.createdAt || 0) - new Date(b?.createdAt || 0);
+        const accepted = entries.find((row) => {
+            if (isVehicleInspectionHandoverEntry(row)) return false;
+            if (String(row?.action || '').trim() !== 'Accepted') return false;
+            if (assigneeKey(row) !== key) return false;
+            if (String(row?._id) === String(assigned?._id)) return false;
+            const acceptedTs = entryTimestamp(row);
+            if (acceptedTs < assignedTs) return false;
+            return !hasInterveningFleetHandover(entries, assigned, row);
         });
 
-        const canonical = sorted[0];
-        const bestLifecycle = pickBestHandoverLifecycle(group);
-        if (bestLifecycle && bestLifecycle !== canonical?.details?.handoverLifecycleStatus) {
-            result.push({
-                ...canonical,
-                details: {
-                    ...(canonical.details || {}),
-                    handoverLifecycleStatus: bestLifecycle,
-                },
-            });
-        } else {
-            result.push(canonical);
-        }
+        if (!accepted) continue;
+        skipAssignedIds.add(String(assigned._id));
+        assignedDateByAcceptedId.set(
+            String(accepted._id),
+            assigned?.date || assigned?.createdAt || accepted.date,
+        );
     }
 
-    return result;
+    return entries
+        .filter((entry) => !skipAssignedIds.has(String(entry?._id || '')))
+        .map((entry) => {
+            const start = assignedDateByAcceptedId.get(String(entry?._id || ''));
+            if (!start) return entry;
+            return { ...entry, date: start };
+        });
 }

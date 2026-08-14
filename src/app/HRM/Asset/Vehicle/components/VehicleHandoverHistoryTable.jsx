@@ -94,7 +94,7 @@ export default function VehicleHandoverHistoryTable({
 
         const typeLabel = getHandoverTypeLabel(entry, asset);
         const startDate = formatHandoverDate(getHandoverStartDate(entry));
-        const handoverTo = getHandoverToLabel(entry, asset);
+        const handoverTo = getHandoverToLabel(entry, asset, { allRows: rows });
         const confirmed = window.confirm(
             `Delete this handover record?\n\nType: ${typeLabel}\nStart: ${startDate}\nTo: ${handoverTo}\n\nThis cannot be undone.`,
         );
@@ -167,11 +167,11 @@ export default function VehicleHandoverHistoryTable({
                     ) : (
                         rows.map((entry, index) => {
                             const status = getHandoverHistoryStatus(entry, asset, { assetHistory });
-                            const typeLabel = getHandoverTypeLabel(entry, asset);
+                            const typeLabel = getHandoverTypeLabel(entry, asset, { allRows: rows });
                             const startDate = formatHandoverDate(getHandoverStartDate(entry));
                             const endDate = formatHandoverDate(getHandoverEndDate(entry, asset));
-                            const fromLabel = getHandoverByLabel(entry, asset);
-                            const toLabel = getHandoverToLabel(entry, asset);
+                            const fromLabel = getHandoverByLabel(entry, asset, { allRows: rows });
+                            const toLabel = getHandoverToLabel(entry, asset, { allRows: rows });
                             const deleteHistoryId = resolveHandoverDeleteHistoryId(
                                 entry,
                                 asset,

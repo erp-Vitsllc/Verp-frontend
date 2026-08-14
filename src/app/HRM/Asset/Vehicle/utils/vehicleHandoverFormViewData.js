@@ -164,8 +164,12 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
     const targetFromWorkflow = resolveWorkflowStage(historyEntry, 'target');
     const targetStageRaw = historyEntry?.details?.vehicleHandoverWorkflow?.stages?.target || null;
 
-    const handoverByLabel = getHandoverByLabel(historyEntry, vehicle);
-    const handoverToLabel = getHandoverToLabel(historyEntry, vehicle);
+    const handoverByLabel = getHandoverByLabel(historyEntry, vehicle, {
+        allRows: Array.isArray(vehicle?.assetHistory) ? vehicle.assetHistory : [],
+    });
+    const handoverToLabel = getHandoverToLabel(historyEntry, vehicle, {
+        allRows: Array.isArray(vehicle?.assetHistory) ? vehicle.assetHistory : [],
+    });
     const isReturn =
         isVehicleReturnHandoverEntry(historyEntry, vehicle) ||
         String(historyEntry?.action || '').trim() === 'Returned';

@@ -229,6 +229,10 @@ function ViewCellEditor({
                 <p className="mt-1 min-h-[24px] text-[9px] font-medium leading-snug">
                     {photoMissing && !readOnly ? (
                         <span className="text-amber-600">Photo required</span>
+                    ) : row?.pendingServicePhotoReview && hasPhoto ? (
+                        <span className="text-orange-700">
+                            New photo from service — waiting for HR review.
+                        </span>
                     ) : visualStatus === 'serviceReplaced' && hasPhoto ? (
                         <span className="text-orange-700">Updated from service completion.</span>
                     ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS && hasPhoto ? (
@@ -393,6 +397,7 @@ export default function VehicleHandoverBodyConditionCard({
         historyEntry?.details?.bodyConditionReport,
         historyEntry?.details?.bodyCondition,
         historyEntry?.details?.bodyConditionCompleted,
+        historyEntry?.details?.pendingServicePhotoReview,
     ]);
 
     const galleryItems = useMemo(
@@ -444,6 +449,23 @@ export default function VehicleHandoverBodyConditionCard({
                     row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS ||
                     row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW
                         ? { userSelected: true }
+                        : {}),
+                    ...(row?.replacedByService === true
+                        ? {
+                              replacedByService: true,
+                              ...(row?.replacedByServiceType
+                                  ? { replacedByServiceType: row.replacedByServiceType }
+                                  : {}),
+                              ...(row?.replacedByServiceId
+                                  ? { replacedByServiceId: row.replacedByServiceId }
+                                  : {}),
+                              ...(row?.replacedByServiceAt
+                                  ? { replacedByServiceAt: row.replacedByServiceAt }
+                                  : {}),
+                              ...(row?.serviceBaselinePhoto
+                                  ? { serviceBaselinePhoto: row.serviceBaselinePhoto }
+                                  : {}),
+                          }
                         : {}),
                 },
             };
