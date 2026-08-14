@@ -27,6 +27,7 @@ export function isAssetServiceOverdueRequestType(requestType) {
 /** Pending inbox rows without a resolved AssetItem (e.g. owner on-duty review). */
 const VEHICLE_INBOX_TYPES_WITHOUT_ASSET = new Set([
     'Vehicle Inspection',
+    'Vehicle Assignment Photo Review',
     'Vehicle Profile Activation',
     'Vehicle Profile Edit',
     'Vehicle Mortgage Close',

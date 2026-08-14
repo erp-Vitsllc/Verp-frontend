@@ -579,8 +579,13 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
 
     const initiateDone = isInitiateDone(remark, service);
     const scheduleDone = isGarageDone(remark, wf);
-    // Accident: HR approves after garage (pending_hr on-service)
+    const skipHrAccounts =
+        remark.hrApprovalNotRequired === true ||
+        remark.accountsApprovalNotRequired === true ||
+        String(remark.accidentOwnerType || '').trim().toLowerCase() === 'thirdparty';
+    // Accident: HR approves after garage (pending_hr on-service). Other party skips HR/Accounts.
     const hrDone =
+        skipHrAccounts ||
         Boolean(String(remark.hrOnServiceApprovedAt || remark.hrApprovedAt || '').trim()) ||
         history.some(
             (h) =>
@@ -594,7 +599,7 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
             'billed',
             'complete',
         ].includes(stage);
-    const accountsDone = isAccountsApproveDone(remark, stage, history);
+    const accountsDone = skipHrAccounts || isAccountsApproveDone(remark, stage, history);
     const onServiceDone =
         live ||
         ready ||
@@ -609,18 +614,22 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
         stage === 'pending_billing' ||
         stage === 'billed' ||
         stage === 'complete';
+    const skipZohoPayment = String(remark.billingStatus || '').toLowerCase() === 'not_required';
     const paymentDone =
         stage === 'billed' ||
         String(remark.billingStatus || '').toLowerCase() === 'billed' ||
-        Boolean(String(remark.zohoBillId || '').trim());
+        Boolean(String(remark.zohoBillId || '').trim()) ||
+        skipZohoPayment;
 
     // Accident: Schedule + HR open together after Initiate (oil style).
+    // Other party: Schedule only — skip HR and Accounts.
     let currentActiveStepId = 1;
     if (paymentDone || stage === 'billed') currentActiveStepId = 8;
     else if (stage === 'pending_billing' || (completeDone && !paymentDone)) currentActiveStepId = 7;
+    else if (skipHrAccounts && initiateDone && !scheduleDone) currentActiveStepId = 2;
     else if (stage === 'pending_admin_return' || (onServiceDone && !completeDone && scheduleDone && hrDone))
         currentActiveStepId = 6;
-    else if (stage === 'scheduled_service' || (hrDone && accountsDone && !completeDone))
+    else if (stage === 'scheduled_service' || (hrDone && accountsDone && scheduleDone && !completeDone))
         currentActiveStepId = 5;
     else if (stage === 'pending_accounts' || (hrDone && scheduleDone && !accountsDone))
         currentActiveStepId = 4;
@@ -694,16 +703,18 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
                 : 'Admin must complete garage details and dates';
         }
         if (step.id === 3) {
-            detail =
-                currentActiveStepId === 3 || (currentActiveStepId === 2 && !hrDone)
-                    ? 'Flowchart HR must approve (opens with Schedule)'
-                    : 'HR approved';
+            detail = skipHrAccounts
+                ? 'Not required — other party damage'
+                : currentActiveStepId === 3 || (currentActiveStepId === 2 && !hrDone)
+                  ? 'Flowchart HR must approve (opens with Schedule)'
+                  : 'HR approved';
         }
         if (step.id === 4) {
-            detail =
-                currentActiveStepId === 4
-                    ? 'Flowchart Accounts must approve quotation'
-                    : 'Accounts approved quotation';
+            detail = skipHrAccounts
+                ? 'Not required — other party damage'
+                : currentActiveStepId === 4
+                  ? 'Flowchart Accounts must approve quotation'
+                  : 'Accounts approved quotation';
         }
         if (step.id === 5 && serviceStartDate) {
             detail = live
@@ -716,10 +727,11 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
             detail = `Service end: ${formatShopDate(serviceEndDate)}`;
         }
         if (step.id === 7) {
-            detail =
-                currentActiveStepId === 7
-                    ? 'Flowchart Accounts — Make Payment (Zoho)'
-                    : 'Accounts submitted Make Payment (Zoho)';
+            detail = skipZohoPayment
+                ? 'Not required — other party damage (no Zoho bill)'
+                : currentActiveStepId === 7
+                  ? 'Flowchart Accounts — Make Payment (Zoho)'
+                  : 'Accounts submitted Make Payment (Zoho)';
         }
 
         return buildStepEvent(step, {

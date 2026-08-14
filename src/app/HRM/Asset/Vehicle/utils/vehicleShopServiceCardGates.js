@@ -66,6 +66,10 @@ export function resolveShopServiceCardGate({
     const garageDone = Boolean(
         String(remark.garageSubmittedByName || '').trim() || remark.garageSubmittedAt,
     );
+    const skipHrAccounts =
+        remark.hrApprovalNotRequired === true ||
+        remark.accountsApprovalNotRequired === true ||
+        String(remark.accidentOwnerType || '').trim().toLowerCase() === 'thirdparty';
     const returnDone =
         stage === 'pending_billing' ||
         stage === 'billed' ||
@@ -76,7 +80,9 @@ export function resolveShopServiceCardGate({
         if (cardKey === SHOP_SERVICE_CARD.HR || cardKey === SHOP_SERVICE_CARD.ACCOUNTS) {
             return {
                 locked: true,
-                message: 'Complete Initiate Service and click Send first',
+                message: skipHrAccounts
+                    ? 'Not required — other party damage'
+                    : 'Complete Initiate Service and click Send first',
             };
         }
         if (cardKey === SHOP_SERVICE_CARD.SCHEDULE) {
@@ -125,6 +131,13 @@ export function resolveShopServiceCardGate({
             };
         }
         case SHOP_SERVICE_CARD.HR: {
+            if (skipHrAccounts) {
+                return {
+                    locked: true,
+                    message: 'Not required — other party damage',
+                    done: !assignmentPending,
+                };
+            }
             if (stage === 'pending_hr') {
                 return { locked: false, message: '', active: true, done: false };
             }
@@ -134,6 +147,13 @@ export function resolveShopServiceCardGate({
             return { locked: true, message: 'Complete Initiate Service and click Send first' };
         }
         case SHOP_SERVICE_CARD.ACCOUNTS: {
+            if (skipHrAccounts) {
+                return {
+                    locked: true,
+                    message: 'Not required — other party damage',
+                    done: !assignmentPending,
+                };
+            }
             const accountsApproved = Boolean(
                 String(remark.accountsQuoteApprovedAt || '').trim() ||
                     String(remark.accountsGarageApprovedAt || '').trim() ||
@@ -173,10 +193,12 @@ export function resolveShopServiceCardGate({
             if (returnDone || stage === 'pending_billing' || stage === 'billed' || stage === 'complete') {
                 return { locked: false, message: '', active: false, done: true };
             }
-            if (!garageDone || !accountsApproved) {
+            if (!garageDone || (!skipHrAccounts && !accountsApproved)) {
                 return {
                     locked: true,
-                    message: 'Complete Schedule/Reschedule and Accounts Approve first',
+                    message: skipHrAccounts
+                        ? 'Complete Schedule/Reschedule first'
+                        : 'Complete Schedule/Reschedule and Accounts Approve first',
                 };
             }
             if (stage === 'pending_admin_return' || stage === 'scheduled_service') {
@@ -184,10 +206,28 @@ export function resolveShopServiceCardGate({
             }
             return {
                 locked: true,
-                message: 'Complete Schedule/Reschedule and Accounts Approve first',
+                message: skipHrAccounts
+                    ? 'Complete Schedule/Reschedule first'
+                    : 'Complete Schedule/Reschedule and Accounts Approve first',
             };
         }
         case SHOP_SERVICE_CARD.PAYMENT: {
+            const billingStatus = String(remark.billingStatus || '').toLowerCase();
+            const otherParty =
+                String(remark.accidentOwnerType || '').trim().toLowerCase() === 'thirdparty';
+            if (billingStatus === 'not_required' || (otherParty && returnDone)) {
+                return {
+                    locked: true,
+                    message: 'Zoho bill not required — other party damage',
+                    done: true,
+                };
+            }
+            if (otherParty) {
+                return {
+                    locked: true,
+                    message: 'Zoho bill not required — other party damage',
+                };
+            }
             if (stage === 'billed') {
                 return { locked: true, message: 'Zoho bill already created — payment done' };
             }

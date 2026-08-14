@@ -224,6 +224,7 @@ export function resolveNotificationIconVariant(typeOrItem) {
         case 'Vehicle Profile Edit':
         case 'Vehicle Profile Incomplete':
         case 'Vehicle Inspection':
+        case 'Vehicle Assignment Photo Review':
         case 'Vehicle Mortgage Close':
             return 'asset-badge-vehicle';
         case 'Asset Bulk Action':

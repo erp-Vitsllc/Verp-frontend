@@ -17,6 +17,15 @@ export const ACCIDENT_REPAIR_WORKFLOW_STAGES = {
     REJECTED: 'rejected',
 };
 
+export function isAccidentOtherPartyService(service) {
+    const remark = parseVehicleServiceRemark(service) || {};
+    return (
+        remark.hrApprovalNotRequired === true ||
+        remark.accountsApprovalNotRequired === true ||
+        String(remark.accidentOwnerType || '').trim().toLowerCase() === 'thirdparty'
+    );
+}
+
 export function resolveAccidentRepairWorkflowStage(asset, serviceId, service = null) {
     return resolveShopServiceWorkflowStage(asset, serviceId, service, ACCIDENT_REPAIR_WORKFLOW_STAGES);
 }

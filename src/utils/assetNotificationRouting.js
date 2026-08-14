@@ -562,6 +562,16 @@ export function buildAssetNotificationPath(rawItem) {
             : '';
     }
 
+    if (type.includes('vehicle assignment photo review')) {
+        if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
+        const vehicleId = meta?.vehicleMongoId || meta?.vehicleId || assetId;
+        const historyId = meta?.historyId;
+        if (vehicleId && historyId) {
+            return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/assign/${encodeURIComponent(String(historyId))}`;
+        }
+        return vehicleId ? buildVehicleDetailPath(vehicleId, { tab: 'handover' }) : '';
+    }
+
     if (type.includes('vehicle inspection')) {
         const vehicleId = meta?.vehicleMongoId || assetId;
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);

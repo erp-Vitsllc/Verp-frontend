@@ -25,6 +25,7 @@ import VehicleHandoverAssignHeaderCards from '../../../../components/VehicleHand
 import VehicleHandoverAttachmentPanel from '../../../../components/VehicleHandoverAttachmentPanel';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../../../../utils/vehicleHandoverAssignWorkflowTrackerConfig';
 import { useHandoverAssignPermissions } from '../../../../hooks/useHandoverAssignPermissions';
+import { BODY_CONDITION_VIEW_FIELDS } from '../../../../utils/vehicleHandoverBodyCondition';
 import {
     buildHandoverItemFineInitialData,
     buildHandoverVehicleDamageFineTypeFields,
@@ -49,6 +50,19 @@ function mergeHistoryEntryIntoList(list, entry) {
     const next = [...list];
     next[index] = { ...next[index], ...entry };
     return next;
+}
+
+function readPendingServicePhotoReview(historyEntry) {
+    const pending = historyEntry?.details?.pendingServicePhotoReview;
+    if (!pending || typeof pending !== 'object') return null;
+    if (String(pending.status || '').toLowerCase() !== 'pending') return null;
+    if (!Array.isArray(pending.images) || !pending.images.length) return null;
+    return pending;
+}
+
+function bodyPartLabel(key) {
+    const field = BODY_CONDITION_VIEW_FIELDS.find((row) => row.key === key);
+    return field?.label || key;
 }
 
 const { page: assignPageLayout } = VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
@@ -100,6 +114,7 @@ function VehicleHandoverAssignPageContent() {
     const [handoverFineSubmitting, setHandoverFineSubmitting] = useState(false);
     const [handoverFines, setHandoverFines] = useState([]);
     const [itemFineInitialData, setItemFineInitialData] = useState(null);
+    const [photoReviewBusy, setPhotoReviewBusy] = useState(false);
     const approvalHeaderRef = useRef(null);
     const assessmentSectionRef = useRef(null);
 
@@ -221,6 +236,12 @@ function VehicleHandoverAssignPageContent() {
             canManageHandoverItemFines({ isFlowchartHr, vehicle, historyEntry }),
         [isInspectionHandover, isFlowchartHr, vehicle, historyEntry],
     );
+
+    const pendingPhotoReview = useMemo(
+        () => readPendingServicePhotoReview(historyEntry),
+        [historyEntry],
+    );
+    const canReviewServicePhotos = Boolean(pendingPhotoReview && isFlowchartHr);
 
     const fetchHandoverFines = useCallback(async (vehicleData) => {
         if (!vehicleData?._id) return;
@@ -425,6 +446,44 @@ function VehicleHandoverAssignPageContent() {
             /* keep current */
         }
     }, [assignId, fetchHandoverFines, vehicleId]);
+
+    const handleServicePhotoReview = useCallback(
+        async (action) => {
+            if (!vehicle?._id || !historyEntry?._id || photoReviewBusy) return;
+            setPhotoReviewBusy(true);
+            try {
+                const res = await axiosInstance.post(
+                    `/AssetItem/${vehicle._id}/handover/${historyEntry._id}/service-photo-review`,
+                    { action },
+                );
+                if (res.data?.history) {
+                    setHistoryEntry(res.data.history);
+                    setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, res.data.history));
+                }
+                if (res.data?.asset) {
+                    setVehicle((prev) => ({ ...(prev || {}), ...res.data.asset }));
+                }
+                toast({
+                    title: action === 'approve' ? 'Photos replaced' : 'Previous photos kept',
+                    description:
+                        action === 'approve'
+                            ? 'Assignment body-condition photos were updated.'
+                            : 'The previous assignment photos were kept.',
+                });
+                invalidateAssetPendingInbox('vehicle');
+                await refreshAll();
+            } catch (error) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Could not complete photo review',
+                    description: error.response?.data?.message || error.message || 'Please try again.',
+                });
+            } finally {
+                setPhotoReviewBusy(false);
+            }
+        },
+        [historyEntry?._id, photoReviewBusy, refreshAll, toast, vehicle?._id],
+    );
 
     const completeHandoverAcceptance = useCallback(
         async (handoverFineId = null, handoverFineIds = null) => {
@@ -814,6 +873,70 @@ function VehicleHandoverAssignPageContent() {
                             canSubmitInspectionForHr={canSubmitInspectionForHr}
                         />
                     </div>
+
+                    {pendingPhotoReview ? (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 print:hidden">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+                                Assignment photo review
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-amber-950">
+                                Current vehicle assignment photos changed after{' '}
+                                {pendingPhotoReview.serviceTypeLabel || 'service'} complete. Please review.
+                            </p>
+                            <p className="mt-1 text-xs text-amber-800">
+                                Vehicle:{' '}
+                                <span className="font-bold">
+                                    {vehicle.assetId || '—'}
+                                    {vehicle.plateNumber
+                                        ? ` (${[vehicle.plateEmirate, vehicle.plateNumber].filter(Boolean).join(' ')})`
+                                        : ''}
+                                </span>
+                                {' · '}
+                                Assigned user:{' '}
+                                <span className="font-bold">
+                                    {(() => {
+                                        const assigned = historyEntry?.assignedTo || vehicle?.assignedTo;
+                                        const name = `${assigned?.firstName || ''} ${assigned?.lastName || ''}`.trim();
+                                        return (
+                                            name ||
+                                            assigned?.employeeId ||
+                                            'Unassigned'
+                                        );
+                                    })()}
+                                </span>
+                            </p>
+                            <p className="mt-2 text-xs text-amber-900">
+                                Changed views:{' '}
+                                {(pendingPhotoReview.images || [])
+                                    .map((img) => bodyPartLabel(img.bodyPartKey))
+                                    .join(', ') || '—'}
+                            </p>
+                            {canReviewServicePhotos ? (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={photoReviewBusy}
+                                        onClick={() => handleServicePhotoReview('approve')}
+                                        className="min-h-[40px] rounded-lg bg-emerald-600 px-4 py-2 text-xs font-black uppercase tracking-wide text-white hover:bg-emerald-700 disabled:opacity-50"
+                                    >
+                                        {photoReviewBusy ? 'Saving…' : 'Approve'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={photoReviewBusy}
+                                        onClick={() => handleServicePhotoReview('reject')}
+                                        className="min-h-[40px] rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs font-black uppercase tracking-wide text-red-700 hover:bg-red-100 disabled:opacity-50"
+                                    >
+                                        Reject
+                                    </button>
+                                </div>
+                            ) : (
+                                <p className="mt-2 text-xs text-amber-700">
+                                    Waiting for flowchart HR to approve (replace photos) or reject (keep previous photos).
+                                </p>
+                            )}
+                        </div>
+                    ) : null}
 
                     <AssignPageTabs activeTab={activeTab} onChange={setActiveTab} />
 

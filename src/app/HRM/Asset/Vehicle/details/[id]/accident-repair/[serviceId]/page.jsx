@@ -37,6 +37,7 @@ import {
     showAccidentRepairGarageCard,
     showAccidentRepairQuoteCard,
     showAccidentRepairReturnCard,
+    isAccidentOtherPartyService,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccidentRepairWorkflow';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverAssignWorkflowTrackerConfig';
 import { parseStoredSessionUser } from '@/utils/permissions';
@@ -236,6 +237,19 @@ function VehicleAccidentRepairDetailPageContent() {
         [asset, serviceId, service],
     );
 
+    const hideAccidentZohoBill = useMemo(() => {
+        const remark = parseVehicleServiceRemark(service) || {};
+        return (
+            String(remark.accidentOwnerType || '').trim().toLowerCase() === 'thirdparty' ||
+            String(remark.billingStatus || '').trim().toLowerCase() === 'not_required'
+        );
+    }, [service]);
+
+    const skipAccidentHrAccounts = useMemo(
+        () => isAccidentOtherPartyService(service),
+        [service],
+    );
+
     const canRespondToAccidentWorkflow = useMemo(() => {
         if (!asset || accidentRepairflowStage !== 'pending_hr') return false;
         return asset.canRespondToServiceWorkflow === true;
@@ -377,6 +391,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                     className="w-full shrink-0"
                                 />
                             ) : null}
+                            {skipAccidentHrAccounts ? null : (
                             <div className="grid w-full shrink-0 grid-cols-1 gap-4 lg:grid-cols-2">
                                 {showAccidentRepairQuoteCard(assignmentPending) ? (
                                     <VehicleAccidentRepairQuoteApprovalCard
@@ -412,6 +427,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                     className="w-full min-w-0"
                                 />
                             </div>
+                            )}
                             {showAccidentRepairReturnCard(assignmentPending, accidentRepairflowStage) ? (
                                 <VehicleAccidentRepairReturnCard
                                     asset={asset}
@@ -427,6 +443,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                     className="w-full shrink-0"
                                 />
                             ) : null}
+                            {hideAccidentZohoBill ? null : (
                             <VehicleServiceAccountsZohoBillingCard
                                 asset={asset}
                                 service={service}
@@ -441,6 +458,7 @@ function VehicleAccidentRepairDetailPageContent() {
                                 }}
                                 className="w-full shrink-0"
                             />
+                            )}
                         </div>
 
                         <div className={accidentRepairPageLayout.sideColumnClassName}>

@@ -410,6 +410,8 @@ export function validateAccidentRepairDetailForm(formData, asset = null) {
     }
 
     const finesTotal = computeAccidentFinesTotal(formData);
+    const isOtherParty =
+        String(formData.accidentOwnerType || '').trim().toLowerCase() === 'thirdparty';
     Object.assign(
         e,
         validateInitiateServicePaySplit(formData, {
@@ -419,6 +421,19 @@ export function validateAccidentRepairDetailForm(formData, asset = null) {
             finesTotal,
         }),
     );
+
+    if (isOtherParty) {
+        delete e.paymentByMode;
+        if (!String(formData.paymentByMode || '').trim()) {
+            delete e.paySplit;
+            delete e.finesTotalMatch;
+            delete e.companyPayPercent;
+            delete e.employeePayPercent;
+            delete e.employeeLiabilityRows;
+            delete e.companyPayPartyId;
+            delete e.estimatedCost;
+        }
+    }
 
     if (!payable) {
         delete e.estimatedCost;
