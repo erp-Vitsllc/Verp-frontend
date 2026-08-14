@@ -54,6 +54,7 @@ export function isVehicleOnlyRequestType(type) {
 /** True when this inbox/stats row belongs in Vehicle Asset (never Tools). */
 export function isVehicleAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
+    if (type === 'Employee Vehicle Request') return true;
     if (isVehicleOnlyRequestType(type)) return true;
     if (FLEET_SHARED_TYPES.has(type)) return isFleetSharedAssetInboxRow(row);
     return false;
@@ -63,12 +64,14 @@ export function isVehicleAssetInboxRow(row = {}) {
 export function isToolsAssetInboxRow(row = {}) {
     const type = requestTypeOf(row);
     if (!type) return false;
+    if (type === 'Employee Asset Request') return true;
     // Utility bill tasks belong under Utility Bills only — not Tools Asset.
     if (
         type === 'Utility Bill Payment' ||
         type === 'Utility Bill Payment Reminder' ||
         type === 'Utility Contract Expiry' ||
-        type === 'Utility Entry Status Change'
+        type === 'Utility Entry Status Change' ||
+        type === 'Employee Utility Request'
     ) {
         return false;
     }
@@ -85,7 +88,8 @@ export function isUtilityBillInboxRow(row = {}) {
         type === 'Utility Bill Payment' ||
         type === 'Utility Bill Payment Reminder' ||
         type === 'Utility Contract Expiry' ||
-        type === 'Utility Entry Status Change'
+        type === 'Utility Entry Status Change' ||
+        type === 'Employee Utility Request'
     );
 }
 

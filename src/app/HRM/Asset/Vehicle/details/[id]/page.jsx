@@ -153,6 +153,7 @@ import {
     VEHICLE_SERVICE_TYPES,
     buildOilServiceDraftRequestBody,
     buildOilServiceRequestRowsFromAsset,
+    latestOilServiceBannerNextDate,
     buildCarWashRequestRowsFromAsset,
     buildVehicleServiceTabPendingRequestBody,
     buildVehicleServiceTabRequestRowsFromAsset,
@@ -1685,6 +1686,10 @@ function VehicleDetailsPageContent() {
     );
     const oilServiceRequestRows = useMemo(
         () => buildOilServiceRequestRowsFromAsset(asset),
+        [asset],
+    );
+    const oilServiceBannerNextDate = useMemo(
+        () => latestOilServiceBannerNextDate(asset),
         [asset],
     );
     const canManageOilService = useMemo(
@@ -4959,14 +4964,14 @@ function VehicleDetailsPageContent() {
                                                     — next oil service date is set when this visit is completed.
                                                 </span>
                                             </div>
-                                        ) : asset?.nextServiceDate ? (
+                                        ) : oilServiceBannerNextDate ? (
                                             <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-950 w-full">
                                                 <span className="font-bold">Next service:</span>{' '}
                                                 {(() => {
                                                     try {
-                                                        return new Date(asset.nextServiceDate).toLocaleDateString();
+                                                        return new Date(oilServiceBannerNextDate).toLocaleDateString();
                                                     } catch {
-                                                        return String(asset.nextServiceDate);
+                                                        return String(oilServiceBannerNextDate);
                                                     }
                                                 })()}
                                             </div>

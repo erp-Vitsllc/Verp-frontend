@@ -19,8 +19,17 @@ export function validateEmployeeDocumentType(value) {
     const normalized = stripDangerousText(value);
     if (!normalized) return ok('Document Type is required');
     if (normalized.length < 2) return ok('Document Type must be at least 2 characters');
-    if (normalized.length > 50) return ok('Document Type must be no more than 50 characters');
+    if (normalized.length > 120) return ok('Document Type must be no more than 120 characters');
     if (!TYPE_REGEX.test(normalized)) return ok('Document Type contains invalid characters');
+    return ok();
+}
+
+export function validateEmployeeDocumentName(value, { required = true } = {}) {
+    const normalized = stripDangerousText(value);
+    if (!normalized) return required ? ok('Document Name is required') : ok();
+    if (normalized.length < 2) return ok('Document Name must be at least 2 characters');
+    if (normalized.length > 150) return ok('Document Name must be no more than 150 characters');
+    if (!TYPE_REGEX.test(normalized)) return ok('Document Name contains invalid characters');
     return ok();
 }
 
@@ -90,6 +99,7 @@ export function validateEmployeeDocumentForm(form = {}, options = {}) {
         isLabourModal = false,
         requireFile = true,
         hasExistingFile = false,
+        requireDocumentName = true,
     } = options;
 
     const errors = {};
@@ -99,6 +109,7 @@ export function validateEmployeeDocumentForm(form = {}, options = {}) {
 
     if (!isLabourModal) {
         set('type', validateEmployeeDocumentType(form.type));
+        set('documentName', validateEmployeeDocumentName(form.documentName, { required: requireDocumentName }));
         set('description', validateEmployeeDocumentDescription(form.description));
         set('issueDate', validateEmployeeDocumentIssueDate(form.issueDate));
         const hasExpiry = form.hasExpiry !== false;

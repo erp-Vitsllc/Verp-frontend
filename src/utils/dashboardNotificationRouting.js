@@ -22,6 +22,7 @@ import { buildAssetNotificationPath, buildVehicleDetailPath, parseAssetNotificat
 import { buildFineNotificationPath } from '@/utils/fineNotificationRouting';
 import { buildRewardNotificationPath } from '@/utils/rewardNotificationRouting';
 import { buildLoanNotificationPath } from '@/utils/loanNotificationRouting';
+import { buildEmployeeHubDashboardPath, isEmployeeHubRequestItem } from '@/utils/employeeHubRequest';
 
 /** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
 export function myRequestNotificationSecondaryText(item) {
@@ -322,6 +323,9 @@ const buildCompanyNotRenewPath = (item, meta) => {
  */
 export const buildDashboardNotificationPath = (item) => {
     if (!item || typeof item !== 'object') return '';
+    if (isEmployeeHubRequestItem(item)) {
+        return buildEmployeeHubDashboardPath(item);
+    }
     const typeRaw = String(item.type || item.requestType || '').trim();
     const type = typeRaw.toLowerCase();
 
@@ -428,6 +432,37 @@ export const buildDashboardNotificationPath = (item) => {
 
     if (type.includes('loan') || type === 'advance' || type.includes('loan/advance') || type.includes('loan and advance')) {
         return buildLoanNotificationPath(item) || '';
+    }
+    if (type.includes('attendance leave') || type.includes('attendance')) {
+        let meta = {};
+        try {
+            meta =
+                typeof item.extra3 === 'string' && item.extra3
+                    ? JSON.parse(item.extra3)
+                    : item.extra3 && typeof item.extra3 === 'object'
+                      ? item.extra3
+                      : {};
+        } catch {
+            meta = {};
+        }
+        const empId =
+            meta.employeeMongoId ||
+            item.subjectMongoId ||
+            item.employeeMongoId ||
+            item.targetEmployeeId ||
+            '';
+        const date =
+            meta.date ||
+            item.extra1 ||
+            item.date ||
+            '';
+        if (!empId) return '/dashboard?focusAttendance=1';
+        const qs = new URLSearchParams({
+            focusAttendance: '1',
+            attendanceEmployeeId: String(empId),
+        });
+        if (date) qs.set('attendanceDate', String(date));
+        return `/dashboard?${qs.toString()}`;
     }
     if (type.includes('reward')) {
         const path = buildRewardNotificationPath(item);

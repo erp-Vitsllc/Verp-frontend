@@ -209,6 +209,18 @@ export function assignAndSortByVehicleServiceSl(rows) {
     return withSl;
 }
 
+/**
+ * Service-tab "Next service" banner: only the latest oil request, and only after
+ * that request is completed. Open / initiated visits must not show an older due date.
+ */
+export function latestOilServiceBannerNextDate(asset) {
+    const rows = buildOilServiceRequestRowsFromAsset(asset);
+    if (!rows.length) return null;
+    const latest = rows[0];
+    if (String(latest?.statusTone || '').toLowerCase() !== 'complete') return null;
+    return latest.nextOilServiceDate || null;
+}
+
 export function vehicleServiceTypeKey(service) {
     if (!service) return '';
     const st = String(service.serviceType || '').trim();

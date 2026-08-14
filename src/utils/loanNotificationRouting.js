@@ -1,3 +1,5 @@
+import { buildEmployeeHubDashboardPath, isEmployeeHubRequestItem } from '@/utils/employeeHubRequest';
+
 /**
  * Loan / Advance pending-inbox → detail route helpers
  * (same pattern as rewardNotificationRouting / fineNotificationRouting).
@@ -33,6 +35,9 @@ export function resolveLoanDetailRouteId(rawItem) {
 /** Loan/Advance notifications open the loan detail page for the current stage. */
 export function buildLoanNotificationPath(rawItem) {
     const item = normalizeLoanNotificationItem(rawItem);
+    if (isEmployeeHubRequestItem(item) || isEmployeeHubRequestItem(rawItem)) {
+        return buildEmployeeHubDashboardPath(rawItem);
+    }
     const type = item.type.toLowerCase();
     if (
         !type.includes('loan') &&

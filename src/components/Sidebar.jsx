@@ -12,6 +12,8 @@ import {
     Building2,
     CalendarClock,
     CalendarX2,
+    Banknote,
+    Coins,
     ClipboardList,
     FileWarning,
     HandCoins,
@@ -57,6 +59,9 @@ import {
 import {
     LOAN_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
+import {
+    ATTENDANCE_PENDING_INBOX_CHANGED,
+} from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 
 const logoPath = '/assets/employee/sidebar-logo.png';
 
@@ -113,6 +118,8 @@ const menuItems = [
                 children: [
                     { label: 'Attendance', icon: CalendarClock, permissionModule: 'hrm_attendance' },
                     { label: 'Leave', icon: CalendarX2, permissionModule: 'hrm_leave' },
+                    { label: 'Salary', icon: Banknote, permissionModule: 'hrm_salary' },
+                    { label: 'Leave Salary', icon: Coins, permissionModule: 'hrm_leave_salary' },
                 ],
             },
             { label: 'NCR', icon: ClipboardList, permissionModule: 'hrm_ncr' },
@@ -206,6 +213,8 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Employees') return '/emp';
         if (label === 'Attendance') return '/HRM/Attendance';
         if (label === 'Leave') return '/HRM/Leave';
+        if (label === 'Salary') return '/HRM/Salary';
+        if (label === 'Leave Salary') return '/HRM/LeaveSalary';
         if (label === 'Reward') return '/HRM/Reward';
         if (label === 'Fine') return '/HRM/Fine';
         if (label === 'Loan and Advance' || label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
@@ -248,6 +257,7 @@ export default function Sidebar() {
     const [sidebarCounts, setSidebarCounts] = useState({
         company: 0,
         employee: 0,
+        attendance: 0,
         fine: 0,
         reward: 0,
         loan: 0,
@@ -323,6 +333,7 @@ export default function Sidebar() {
             setSidebarCounts({
                 company: counts.company || 0,
                 employee: counts.employee || 0,
+                attendance: counts.attendance || 0,
                 fine: counts.fine || 0,
                 reward: counts.reward || 0,
                 loan: counts.loan || 0,
@@ -415,6 +426,9 @@ export default function Sidebar() {
         const handleLoanInboxChanged = () => {
             scheduleInboxRefresh();
         };
+        const handleAttendanceInboxChanged = () => {
+            scheduleInboxRefresh();
+        };
         const handleModuleNotificationsUpdated = (event) => {
             const counts = event?.detail?.counts;
             if (counts) {
@@ -430,6 +444,7 @@ export default function Sidebar() {
             document.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
             document.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
             document.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
+            document.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
         }
         if (typeof window !== 'undefined') {
             window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
@@ -439,6 +454,7 @@ export default function Sidebar() {
             window.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
             window.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
             window.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
+            window.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
         }
         return () => {
             if (cancelInitialIdle) cancelInitialIdle();
@@ -453,6 +469,7 @@ export default function Sidebar() {
                 window.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
                 window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
                 window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
+                window.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
             }
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', handleVisibility);
@@ -461,6 +478,7 @@ export default function Sidebar() {
                 document.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
                 document.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
                 document.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
+                document.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
             }
         };
     }, [mounted]);
@@ -469,6 +487,8 @@ export default function Sidebar() {
         if (parentId === 'HRM') {
             if (label === 'Company') return sidebarCounts.company;
             if (label === 'Employees') return sidebarCounts.employee;
+            if (label === 'Attendance') return sidebarCounts.attendance || 0;
+            if (label === 'Payroll') return sidebarCounts.attendance || 0;
             if (label === 'Fine') return sidebarCounts.fine;
             if (label === 'Reward') return sidebarCounts.reward;
             if (label === 'Loan and Advance' || label === 'Loan/Advance') return sidebarCounts.loan || 0;
@@ -494,6 +514,7 @@ export default function Sidebar() {
     const hrmTotalBadgeCount =
         (sidebarCounts.company || 0) +
         (sidebarCounts.employee || 0) +
+        (sidebarCounts.attendance || 0) +
         (sidebarCounts.fine || 0) +
         (sidebarCounts.reward || 0) +
         (sidebarCounts.loan || 0) +
@@ -551,9 +572,17 @@ export default function Sidebar() {
                 setOpenSubmenu('HRM-Asset');
             } else if (
                 pathname.startsWith('/HRM/Attendance') ||
-                pathname.startsWith('/HRM/Leave')
+                pathname === '/HRM/Leave' ||
+                pathname.startsWith('/HRM/Leave/') ||
+                pathname.startsWith('/HRM/LeaveSalary') ||
+                pathname.startsWith('/HRM/Salary')
             ) {
-                setOpenSubmenu('HRM-Payroll');
+                // Keep Payroll open; open Salary nest when on Leave Salary.
+                setOpenSubmenu(
+                    pathname.startsWith('/HRM/LeaveSalary')
+                        ? 'HRM-Payroll-Salary'
+                        : 'HRM-Payroll',
+                );
             }
         }
         // CRM Detection
@@ -630,10 +659,16 @@ export default function Sidebar() {
 
     const toggleSidebar = () => setIsOpen((prev) => !prev);
 
-    const handleSubmenuClick = (parentId, subItem) => {
+    const handleSubmenuClick = (parentId, subItem, nestKey = null) => {
         if (subItem.children) {
-            const key = `${parentId}-${subItem.label}`;
-            setOpenSubmenu(openSubmenu === key ? '' : key);
+            const visibleChildren = (subItem.children || []).filter((child) =>
+                isSubmenuItemVisible(child),
+            );
+            if (visibleChildren.length === 0) {
+                return;
+            }
+            const key = nestKey || `${parentId}-${subItem.label}`;
+            setOpenSubmenu(openSubmenu === key ? (nestKey ? `${parentId}-Payroll` : '') : key);
             return;
         }
 
@@ -643,6 +678,10 @@ export default function Sidebar() {
             router.push('/HRM/Attendance');
         } else if (parentId === 'HRM' && subItem.label === 'Leave') {
             router.push('/HRM/Leave');
+        } else if (parentId === 'HRM' && subItem.label === 'Salary') {
+            router.push('/HRM/Salary');
+        } else if (parentId === 'HRM' && subItem.label === 'Leave Salary') {
+            router.push('/HRM/LeaveSalary');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             router.push('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -694,7 +733,11 @@ export default function Sidebar() {
         } else if (parentId === 'HRM' && subItem.label === 'Attendance') {
             return pathname?.startsWith('/HRM/Attendance');
         } else if (parentId === 'HRM' && subItem.label === 'Leave') {
-            return pathname?.startsWith('/HRM/Leave');
+            return pathname === '/HRM/Leave' || pathname?.startsWith('/HRM/Leave/');
+        } else if (parentId === 'HRM' && subItem.label === 'Salary') {
+            return pathname?.startsWith('/HRM/Salary');
+        } else if (parentId === 'HRM' && subItem.label === 'Leave Salary') {
+            return pathname?.startsWith('/HRM/LeaveSalary');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             return pathname?.startsWith('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -822,7 +865,10 @@ export default function Sidebar() {
 
         // Nested parents (Asset, Payroll): show only when at least one child is allowed.
         // Parent View alone must not reveal unchecked children.
-        if (subItem.children && (subItem.permissionModule === 'hrm_asset' || subItem.label === 'Payroll')) {
+        if (
+            subItem.children &&
+            (subItem.permissionModule === 'hrm_asset' || subItem.label === 'Payroll')
+        ) {
             return subItem.children.some((child) => isSubmenuItemVisible(child));
         }
 
@@ -833,6 +879,15 @@ export default function Sidebar() {
         // Admin sees everything
         if (isAdmin()) {
             return true;
+        }
+
+        // Salary sits under Payroll after Leave; show it with the rest of Payroll.
+        if (subItem.label === 'Salary') {
+            return (
+                hasAnyPermission('hrm_salary') ||
+                hasAnyPermission('hrm_leave') ||
+                hasAnyPermission('hrm_attendance')
+            );
         }
 
         // Match PermissionGuard / route access: any view on this module OR on descendants (e.g. hrm_company_list).
@@ -991,8 +1046,12 @@ export default function Sidebar() {
 
                                                     const hasChildren = Array.isArray(subItem.children) && subItem.children.length > 0;
                                                     const subKey = `${item.id}-${subItem.label}`;
-                                                    // Only check openSubmenu state, not active state - allow closing even if active
-                                                    const isSubOpen = openSubmenu === subKey;
+                                                    // Payroll stays open while a nested Salary group is expanded
+                                                    const isSubOpen =
+                                                        openSubmenu === subKey ||
+                                                        (hasChildren &&
+                                                            typeof openSubmenu === 'string' &&
+                                                            openSubmenu.startsWith(`${subKey}-`));
                                                     const isSubActive = isSubmenuActive(item.id, subItem);
                                                     const isLogout = subItem.label === 'Logout';
 
@@ -1071,6 +1130,15 @@ export default function Sidebar() {
                                                                         if (!isSubmenuItemVisible(child)) {
                                                                             return null;
                                                                         }
+                                                                        const childHasChildren =
+                                                                            Array.isArray(child.children) &&
+                                                                            child.children.length > 0;
+                                                                        const childNestKey = `${subKey}-${child.label}`;
+                                                                        const isChildNestOpen =
+                                                                            openSubmenu === childNestKey ||
+                                                                            (childHasChildren &&
+                                                                                typeof openSubmenu === 'string' &&
+                                                                                openSubmenu.startsWith(`${childNestKey}-`));
                                                                         const isChildActive = isSubmenuActive(item.id, child);
                                                                         const childIsLogout = child.label === 'Logout';
                                                                         const childNavClass = `flex items-center w-full px-3 py-2.5 text-sm transition-colors group rounded-lg ${childIsLogout
@@ -1079,7 +1147,9 @@ export default function Sidebar() {
                                                                                 ? 'bg-[#5e6c93] !text-white font-medium shadow-sm'
                                                                                 : 'text-slate-100 hover:text-white hover:bg-[#252943]/80'
                                                                             }`;
-                                                                        const childHref = getSidebarSubmenuHref(item.id, child);
+                                                                        const childHref = !childHasChildren
+                                                                            ? getSidebarSubmenuHref(item.id, child)
+                                                                            : null;
                                                                         return (
                                                                             <div key={`${item.id}-${idx}-${childIdx}`}>
                                                                                 {childHref ? (
@@ -1098,7 +1168,13 @@ export default function Sidebar() {
                                                                                 ) : (
                                                                                     <button
                                                                                         type="button"
-                                                                                        onClick={() => handleSubmenuClick(item.id, child)}
+                                                                                        onClick={() =>
+                                                                                            handleSubmenuClick(
+                                                                                                item.id,
+                                                                                                child,
+                                                                                                childHasChildren ? childNestKey : null,
+                                                                                            )
+                                                                                        }
                                                                                         className={childNavClass}
                                                                                     >
                                                                                         <SidebarNavIcon icon={child.icon} active={isChildActive && !childIsLogout} size={16} className="mr-2.5" />
@@ -1108,8 +1184,55 @@ export default function Sidebar() {
                                                                                                 {getSidebarBadgeCount(item.id, child.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, child.label)}
                                                                                             </span>
                                                                                         )}
+                                                                                        {childHasChildren ? (
+                                                                                            <ChevronRight
+                                                                                                size={14}
+                                                                                                className={`ml-auto transition-transform ${isChildNestOpen ? 'rotate-90' : ''} ${isChildActive ? '!text-white' : ''}`}
+                                                                                            />
+                                                                                        ) : null}
                                                                                     </button>
                                                                                 )}
+
+                                                                                {childHasChildren && isChildNestOpen ? (
+                                                                                    <div className="ml-4 mt-0.5 space-y-0.5">
+                                                                                        {child.children.map((grand, grandIdx) => {
+                                                                                            if (!isSubmenuItemVisible(grand)) {
+                                                                                                return null;
+                                                                                            }
+                                                                                            const isGrandActive = isSubmenuActive(item.id, grand);
+                                                                                            const grandIsLogout = grand.label === 'Logout';
+                                                                                            const grandNavClass = `flex items-center w-full px-3 py-2.5 text-sm transition-colors group rounded-lg ${grandIsLogout
+                                                                                                ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
+                                                                                                : isGrandActive
+                                                                                                    ? 'bg-[#5e6c93] !text-white font-medium shadow-sm'
+                                                                                                    : 'text-slate-100 hover:text-white hover:bg-[#252943]/80'
+                                                                                                }`;
+                                                                                            const grandHref = getSidebarSubmenuHref(item.id, grand);
+                                                                                            return (
+                                                                                                <div key={`${item.id}-${idx}-${childIdx}-${grandIdx}`}>
+                                                                                                    {grandHref ? (
+                                                                                                        <Link
+                                                                                                            href={grandHref}
+                                                                                                            className={grandNavClass}
+                                                                                                        >
+                                                                                                            <SidebarNavIcon icon={grand.icon} active={isGrandActive && !grandIsLogout} size={15} className="mr-2.5" />
+                                                                                                            <span className={`flex-1 text-left ${isGrandActive && !grandIsLogout ? '!text-white' : ''}`}>{grand.label}</span>
+                                                                                                        </Link>
+                                                                                                    ) : (
+                                                                                                        <button
+                                                                                                            type="button"
+                                                                                                            onClick={() => handleSubmenuClick(item.id, grand)}
+                                                                                                            className={grandNavClass}
+                                                                                                        >
+                                                                                                            <SidebarNavIcon icon={grand.icon} active={isGrandActive && !grandIsLogout} size={15} className="mr-2.5" />
+                                                                                                            <span className={`flex-1 text-left ${isGrandActive && !grandIsLogout ? '!text-white' : ''}`}>{grand.label}</span>
+                                                                                                        </button>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            );
+                                                                                        })}
+                                                                                    </div>
+                                                                                ) : null}
                                                                             </div>
                                                                         );
                                                                     })}

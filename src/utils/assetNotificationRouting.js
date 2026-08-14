@@ -1,3 +1,5 @@
+import { buildEmployeeHubDashboardPath, isEmployeeHubRequestItem } from '@/utils/employeeHubRequest';
+
 /** DOM id prefix for asset list rows and detail banners/cards. */
 export const ASSET_FOCUS_PREFIX = 'asset-focus-';
 
@@ -418,6 +420,9 @@ export function resolveVehicleExpiryTabFromLabel(label = '') {
  * Returns '' when the item is not an asset workflow notification.
  */
 export function buildAssetNotificationPath(rawItem) {
+    if (isEmployeeHubRequestItem(rawItem)) {
+        return buildEmployeeHubDashboardPath(rawItem);
+    }
     const item = normalizeAssetNotificationItem(rawItem);
     const typeRaw = item.type;
     const type = typeRaw.toLowerCase();

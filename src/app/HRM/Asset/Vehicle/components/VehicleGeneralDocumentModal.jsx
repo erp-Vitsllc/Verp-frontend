@@ -30,6 +30,7 @@ const normType = (t) => String(t || '').toLowerCase().trim();
 
 const EMPTY_FORM = {
     type: '',
+    documentName: '',
     description: '',
     issueDate: '',
     expiryDate: '',
@@ -216,6 +217,7 @@ export default function VehicleGeneralDocumentModal({
             isLabourModal: false,
             requireFile,
             hasExistingFile: hasExistingFile && !documentForm.fileBase64,
+            requireDocumentName: false,
         });
 
         const typeTrimmed = String(documentForm.type || '').trim();
@@ -323,6 +325,7 @@ export default function VehicleGeneralDocumentModal({
             onDocumentFileChange={handleDocumentFileChange}
             onSaveDocument={handleSaveDocument}
             modalMode="standard"
+            showDocumentName={false}
         />
     );
 }

@@ -34,6 +34,10 @@ import UtilityBillLineItemsModal, {
     createDefaultLineItems,
     lineItemsMatchActual,
 } from './UtilityBillLineItemsModal';
+import {
+    DUPLICATE_BILL_MESSAGES,
+    findLocalVendorBillDuplicate,
+} from '../utils/utilityBillDuplicateValidation';
 
 const MONTH_SHORT = [
     'Jan',
@@ -89,7 +93,7 @@ function pickPartyAccountFromList(accounts = [], row = {}) {
     };
 }
 
-/** Bill month YYYY-MM + payment day (1–31) → bill date. Clamps to last day of month. */
+/** Bill month YYYY-MM + payment day (1–31) → default bill date. Clamps to last day of month. */
 function billDateFromMonth(billMonth, paymentDay = 16) {
     const month = String(billMonth || '').trim();
     if (!/^\d{4}-\d{2}$/.test(month)) return '';
@@ -107,18 +111,8 @@ function billDateFromMonth(billMonth, paymentDay = 16) {
     return `${month}-${String(day).padStart(2, '0')}`;
 }
 
-/** Min/max YYYY-MM-DD bounds for a bill month — manual bill dates must stay inside it. */
-function billMonthDateBounds(billMonth) {
-    const month = String(billMonth || '').trim();
-    if (!/^\d{4}-\d{2}$/.test(month)) return { min: '', max: '' };
-    const [year, m] = month.split('-').map(Number);
-    const lastDay = new Date(year, m, 0).getDate();
-    return { min: `${month}-01`, max: `${month}-${String(lastDay).padStart(2, '0')}` };
-}
-
-function isDateWithinBillMonth(dateStr, billMonth) {
-    const value = String(dateStr || '').trim();
-    return /^\d{4}-\d{2}-\d{2}$/.test(value) && value.slice(0, 7) === String(billMonth || '');
+function isValidBillDate(dateStr) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || '').trim());
 }
 
 function resolvePayShares(payBy, difference) {
@@ -604,11 +598,20 @@ function collectPayloadRows(
                 payloadRows: null,
             };
         }
+        const modalDuplicate = findLocalVendorBillDuplicate({
+            vendor: row.provider,
+            billNumber,
+            rowIndex: i,
+            modalRows: rows,
+        });
+        if (modalDuplicate.source === 'modal') {
+            return { error: modalDuplicate.message, payloadRows: null };
+        }
         const paymentDay = row.paymentDay;
         const manualBillDate = String(row.billDate || '').trim();
-        if (manualBillDate && !isDateWithinBillMonth(manualBillDate, billMonth)) {
+        if (manualBillDate && !isValidBillDate(manualBillDate)) {
             return {
-                error: `Bill date for account ${row.accountNo} must be within ${titleFromBillMonth(billMonth)}.`,
+                error: `Bill date for account ${row.accountNo} is invalid.`,
                 payloadRows: null,
             };
         }
@@ -1008,6 +1011,8 @@ export default function AddBillModal({
     const [expenseAccountId, setExpenseAccountId] = useState('');
     const fileInputRefs = useRef({});
     const monthPickerRef = useRef(null);
+    const duplicateCheckTimers = useRef({});
+    const duplicateCheckSeq = useRef(0);
     const { toast } = useToast();
     const { employeeOptions, companyOptions } = usePayByPartyOptions(isOpen);
 
@@ -1115,9 +1120,21 @@ export default function AddBillModal({
         [existingBills, sessionBilled],
     );
 
-    const monthTitle = useMemo(() => titleFromBillMonth(billMonth), [billMonth]);
+    const pendingBills = useMemo(
+        () =>
+            (existingBills || []).filter((bill) => {
+                const status = String(bill?.status || '').trim();
+                return status === 'Pending Accounts' || status === 'Pending HR';
+            }),
+        [existingBills],
+    );
 
-    const billMonthBounds = useMemo(() => billMonthDateBounds(billMonth), [billMonth]);
+    const hasDuplicateError = useMemo(
+        () => rows.some((row) => row.selected && String(row.duplicateError || '').trim()),
+        [rows],
+    );
+
+    const monthTitle = useMemo(() => titleFromBillMonth(billMonth), [billMonth]);
 
     const currentYm = useMemo(() => currentBillMonthValue(), []);
 
@@ -1396,6 +1413,133 @@ export default function AddBillModal({
         setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
     };
 
+    const excludeBillIdsForRow = (row) =>
+        [row?.billId, row?._id].map((id) => String(id || '').trim()).filter(Boolean);
+
+    const applyDuplicateResult = (index, result) => {
+        const message = String(result?.message || '').trim();
+        setRows((prev) =>
+            prev.map((row, i) =>
+                i === index ? { ...row, duplicateError: message, duplicateSource: result?.source || '' } : row,
+            ),
+        );
+        if (message) setError(message);
+        else {
+            setError((prev) =>
+                Object.values(DUPLICATE_BILL_MESSAGES).includes(String(prev || '').trim()) ? '' : prev,
+            );
+        }
+    };
+
+    const checkRowDuplicate = (index, nextRows = null, { remote = true } = {}) => {
+        const list = nextRows || rows;
+        const row = list[index];
+        if (!row?.selected) {
+            applyDuplicateResult(index, { source: null, message: '' });
+            return;
+        }
+        const vendor = String(row.provider || '').trim();
+        const billNumber = String(row.billNumber || '').trim();
+        if (!vendor || !billNumber) {
+            applyDuplicateResult(index, { source: null, message: '' });
+            return;
+        }
+
+        const local = findLocalVendorBillDuplicate({
+            vendor,
+            billNumber,
+            rowIndex: index,
+            modalRows: list,
+            pendingBills,
+            excludeBillIds: excludeBillIdsForRow(row),
+        });
+        applyDuplicateResult(index, local);
+        if (local.source || !remote) return;
+
+        if (duplicateCheckTimers.current[index]) {
+            clearTimeout(duplicateCheckTimers.current[index]);
+        }
+        duplicateCheckTimers.current[index] = setTimeout(async () => {
+            const seq = (duplicateCheckSeq.current += 1);
+            try {
+                const res = await axiosInstance.post(
+                    '/UtilityBill/check-duplicates',
+                    {
+                        items: [
+                            {
+                                provider: vendor,
+                                billNumber,
+                                billId: row.billId || row._id || '',
+                            },
+                        ],
+                    },
+                    { skipToast: true },
+                );
+                if (seq !== duplicateCheckSeq.current) return;
+                const remoteHit = Array.isArray(res.data?.results)
+                    ? res.data.results.find((item) => item?.source)
+                    : null;
+                if (remoteHit?.source) {
+                    applyDuplicateResult(index, remoteHit);
+                }
+            } catch {
+                /* submit still re-checks */
+            }
+        }, 350);
+    };
+
+    const checkAllSelectedDuplicatesRemote = async (list) => {
+        const selected = (list || [])
+            .map((row, index) => ({ row, index }))
+            .filter(({ row }) => row.selected && String(row.billNumber || '').trim());
+        if (!selected.length) return { ok: true, message: '' };
+
+        for (const { row, index } of selected) {
+            const local = findLocalVendorBillDuplicate({
+                vendor: row.provider,
+                billNumber: row.billNumber,
+                rowIndex: index,
+                modalRows: list,
+                pendingBills,
+                excludeBillIds: excludeBillIdsForRow(row),
+            });
+            if (local.source) {
+                applyDuplicateResult(index, local);
+                return { ok: false, message: local.message };
+            }
+        }
+
+        try {
+            const res = await axiosInstance.post(
+                '/UtilityBill/check-duplicates',
+                {
+                    items: selected.map(({ row }) => ({
+                        provider: row.provider,
+                        billNumber: row.billNumber,
+                        billId: row.billId || row._id || '',
+                    })),
+                },
+                { skipToast: true },
+            );
+            const results = Array.isArray(res.data?.results) ? res.data.results : [];
+            const hit = results.find((item) => item?.source);
+            if (hit) {
+                const target = selected[hit.index] || selected[0];
+                applyDuplicateResult(target.index, hit);
+                return { ok: false, message: hit.message };
+            }
+        } catch {
+            /* backend submit still validates */
+        }
+        return { ok: true, message: '' };
+    };
+
+    useEffect(() => {
+        return () => {
+            Object.values(duplicateCheckTimers.current || {}).forEach((timer) => clearTimeout(timer));
+        };
+    }, []);
+
     const handleAttachmentFile = async (index, fileList) => {
         const file = fileList?.[0];
         if (!file) return;
@@ -1514,6 +1658,12 @@ export default function AddBillModal({
         });
         if (rowError) {
             setError(rowError);
+            return;
+        }
+
+        const duplicateCheck = await checkAllSelectedDuplicatesRemote(rows);
+        if (!duplicateCheck.ok) {
+            setError(duplicateCheck.message || DUPLICATE_BILL_MESSAGES.pending);
             return;
         }
 
@@ -1822,25 +1972,47 @@ export default function AddBillModal({
                                                         type="text"
                                                         value={row.billNumber || ''}
                                                         disabled={!row.selected || isViewMode}
-                                                        onChange={(e) =>
-                                                            setRows((prev) =>
-                                                                prev.map((r, i) =>
+                                                        onChange={(e) => {
+                                                            const value = e.target.value;
+                                                            setRows((prev) => {
+                                                                const next = prev.map((r, i) =>
                                                                     i === index
                                                                         ? {
                                                                               ...r,
-                                                                              billNumber: e.target.value,
+                                                                              billNumber: value,
+                                                                              duplicateError: '',
+                                                                              duplicateSource: '',
                                                                           }
                                                                         : r,
-                                                                ),
-                                                            )
-                                                        }
+                                                                );
+                                                                queueMicrotask(() => {
+                                                                    next.forEach((item, i) => {
+                                                                        if (item.selected) {
+                                                                            checkRowDuplicate(i, next, {
+                                                                                remote: i === index,
+                                                                            });
+                                                                        }
+                                                                    });
+                                                                });
+                                                                return next;
+                                                            });
+                                                        }}
                                                         placeholder="Bill #"
-                                                        className="w-full min-w-[5.5rem] h-9 rounded-lg border border-gray-200 bg-white px-2 text-center text-sm text-gray-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 disabled:bg-gray-50 disabled:opacity-60"
+                                                        className={`w-full min-w-[5.5rem] h-9 rounded-lg border bg-white px-2 text-center text-sm text-gray-800 outline-none focus:ring-2 disabled:bg-gray-50 disabled:opacity-60 ${
+                                                            row.duplicateError
+                                                                ? 'border-red-400 focus:border-red-500 focus:ring-red-500/15'
+                                                                : 'border-gray-200 focus:border-teal-500 focus:ring-teal-500/15'
+                                                        }`}
                                                     />
+                                                    {row.selected && row.duplicateError ? (
+                                                        <p className="mt-1 text-[10px] leading-tight text-red-600">
+                                                            {row.duplicateError}
+                                                        </p>
+                                                    ) : null}
                                                 </td>
                                                 <td
                                                     className="px-2 py-3.5 text-center align-middle"
-                                                    title={`Pick a date within ${monthTitle}`}
+                                                    title="Date on the bill. Can be another month than the payment month (e.g. June payment billed in July)."
                                                 >
                                                     <input
                                                         type="date"
@@ -1853,17 +2025,12 @@ export default function AddBillModal({
                                                                   )
                                                                 : '')
                                                         }
-                                                        min={billMonthBounds.min}
-                                                        max={billMonthBounds.max}
                                                         disabled={!row.selected || isViewMode}
                                                         onChange={(e) => {
                                                             const next = e.target.value;
-                                                            if (
-                                                                next &&
-                                                                !isDateWithinBillMonth(next, billMonth)
-                                                            ) {
+                                                            if (next && !isValidBillDate(next)) {
                                                                 setError(
-                                                                    `Bill date must be within ${monthTitle}.`,
+                                                                    `Bill date for account ${row.accountNo} is invalid.`,
                                                                 );
                                                                 return;
                                                             }
@@ -2080,8 +2247,14 @@ export default function AddBillModal({
                             <div className="pt-3">
                                 <button
                                     type="button"
-                                    disabled={saving || !rows.some((r) => r.selected)}
+                                    disabled={saving || !rows.some((r) => r.selected) || hasDuplicateError}
                                     onClick={() => {
+                                        if (hasDuplicateError) {
+                                            setError(
+                                                'Fix duplicate Vendor + Bill # before adding more.',
+                                            );
+                                            return;
+                                        }
                                         const withActual = rows.findIndex(
                                             (r) =>
                                                 r.selected &&
@@ -2159,7 +2332,7 @@ export default function AddBillModal({
                                 ) : null}
                                 <button
                                     type="submit"
-                                    disabled={saving || !rows.length}
+                                    disabled={saving || !rows.length || hasDuplicateError}
                                     className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"
                                 >
                                     {saving

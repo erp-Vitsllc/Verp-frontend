@@ -76,6 +76,7 @@ export default function DocumentModal({
     onDocumentFileChange,
     onSaveDocument,
     modalMode = 'with_expiry',
+    showDocumentName = true,
 }) {
     if (!isOpen) return null;
 
@@ -163,10 +164,32 @@ export default function DocumentModal({
                                         setDocumentForm((prev) => ({ ...prev, type: e.target.value }))
                                     }
                                     className={inputClass(!!documentErrors.type)}
-                                    placeholder="e.g. VAT Certificate, Rental Agreement..."
+                                    placeholder="e.g. Insurance, VAT Certificate..."
                                     disabled={savingDocument}
                                 />
                             </FieldRow>
+
+                            {showDocumentName && (
+                                <FieldRow
+                                    label={
+                                        <>
+                                            Document Name <span className="text-red-500">*</span>
+                                        </>
+                                    }
+                                    error={documentErrors.documentName}
+                                >
+                                    <input
+                                        type="text"
+                                        value={documentForm.documentName || ''}
+                                        onChange={(e) =>
+                                            setDocumentForm((prev) => ({ ...prev, documentName: e.target.value }))
+                                        }
+                                        className={inputClass(!!documentErrors.documentName)}
+                                        placeholder="e.g. Insurance Certificate for Establishment Worker..."
+                                        disabled={savingDocument}
+                                    />
+                                </FieldRow>
+                            )}
 
                             <FieldRow
                                 label={

@@ -282,7 +282,56 @@
   }
 }
 
-/* Global ERP action-button guard — subtle busy state only during API mutations */
+/* Home dashboard — GPU card lift + staggered pops */
+.dash-card-lift {
+  transition: box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dash-card-lift:hover {
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
+}
+
+@keyframes dash-cal-day-in {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.dash-cal-day {
+  animation: dash-cal-day-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes dash-leave-box-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dash-leave-box {
+  animation: dash-leave-box-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-card-lift {
+    transition: none;
+  }
+
+  .dash-cal-day,
+  .dash-leave-box {
+    animation: none;
+  }
+}
 button[data-action-guard-processing="true"],
 [data-slot="button"][data-action-guard-processing="true"] {
   cursor: wait;

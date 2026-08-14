@@ -3,6 +3,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Paperclip, X } from 'lucide-react';
+import axiosInstance from '@/utils/axios';
+
+const WEEKDAY_KEYS = [
+    'sunday',
+    'monday',
+    'tuesday',
+    'wednesday',
+    'thursday',
+    'friday',
+    'saturday',
+];
 
 /** Field rules per mark type. */
 export function getMarkFormConfig(markKey) {
@@ -13,6 +24,7 @@ export function getMarkFormConfig(markKey) {
             showAttachment: false,
             timesRequired: true,
             reasonOptional: true,
+            useWorkingTimeDefaults: true,
         };
     }
     if (markKey === 'late_arrived') {
@@ -22,6 +34,7 @@ export function getMarkFormConfig(markKey) {
             showAttachment: false,
             timesRequired: true,
             reasonOptional: true,
+            useWorkingTimeDefaults: false,
         };
     }
     if (
@@ -36,9 +49,54 @@ export function getMarkFormConfig(markKey) {
             showAttachment: true,
             timesRequired: false,
             reasonOptional: true,
+            useWorkingTimeDefaults: false,
         };
     }
     return null;
+}
+
+/** Convert Flowchart HR 12h schedule fields → HTML time input `HH:mm`. */
+function scheduleToHHmm(hour, minute, meridiem) {
+    let h = Number.parseInt(String(hour || '9'), 10);
+    if (!Number.isFinite(h) || h < 1 || h > 12) h = 9;
+    const m = String(minute || '00').padStart(2, '0').slice(0, 2);
+    const mer = String(meridiem || 'AM').toUpperCase() === 'PM' ? 'PM' : 'AM';
+    if (mer === 'AM') {
+        if (h === 12) h = 0;
+    } else if (h !== 12) {
+        h += 12;
+    }
+    return `${String(h).padStart(2, '0')}:${m}`;
+}
+
+function weekdayKeyFromDateKey(dateKey) {
+    const date = String(dateKey || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    // Noon UTC keeps calendar day stable for Asia/Dubai (matches backend).
+    const dayIndex = new Date(`${date}T12:00:00.000Z`).getUTCDay();
+    return WEEKDAY_KEYS[dayIndex] || null;
+}
+
+async function loadDefaultPunchTimes({ dateKey, staffType }) {
+    const dayKey = weekdayKeyFromDateKey(dateKey);
+    if (!dayKey) return { timeIn: '', timeOut: '' };
+
+    try {
+        const res = await axiosInstance.get('/WorkingTime', { skipToast: true });
+        const workingTime = res.data?.workingTime || {};
+        const category = staffType === 'site' ? 'site' : 'office';
+        const week = workingTime[category] || {};
+        const day = week[dayKey] || {};
+        return {
+            timeIn: scheduleToHHmm(day.startHour, day.startMinute, day.startMeridiem),
+            timeOut: scheduleToHHmm(day.endHour, day.endMinute, day.endMeridiem),
+        };
+    } catch {
+        return {
+            timeIn: scheduleToHHmm('09', '00', 'AM'),
+            timeOut: scheduleToHHmm('06', '00', 'PM'),
+        };
+    }
 }
 
 export default function MarkAttendanceDetailsModal({
@@ -47,6 +105,8 @@ export default function MarkAttendanceDetailsModal({
     employeeIds = null,
     markKey,
     markLabel,
+    dateKey = '',
+    staffType = 'office',
     onClose,
     onSave,
 }) {
@@ -59,16 +119,56 @@ export default function MarkAttendanceDetailsModal({
     const fileRef = useRef(null);
     const bulkCount = Array.isArray(employeeIds) ? employeeIds.length : 0;
     const isBulk = bulkCount > 1;
+    const resolvedStaffType =
+        employee?.staffType === 'site' || employee?.staffType === 'office'
+            ? employee.staffType
+            : staffType === 'site'
+              ? 'site'
+              : 'office';
 
     useEffect(() => {
         if (!open) return;
-        setTimeIn('');
-        setTimeOut('');
+        let cancelled = false;
+
         setReason('');
         setAttachment(null);
         setError('');
         if (fileRef.current) fileRef.current.value = '';
-    }, [open, markKey, employee?.id, bulkCount]);
+
+        const needsDefaults = Boolean(config?.useWorkingTimeDefaults);
+
+        if (!needsDefaults) {
+            setTimeIn('');
+            setTimeOut('');
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        setTimeIn('');
+        setTimeOut('');
+        (async () => {
+            const defaults = await loadDefaultPunchTimes({
+                dateKey,
+                staffType: resolvedStaffType,
+            });
+            if (cancelled) return;
+            setTimeIn(defaults.timeIn || '');
+            setTimeOut(defaults.timeOut || '');
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        open,
+        markKey,
+        employee?.id,
+        bulkCount,
+        dateKey,
+        resolvedStaffType,
+        config?.useWorkingTimeDefaults,
+    ]);
 
     useEffect(() => {
         if (!open) return;
@@ -159,6 +259,12 @@ export default function MarkAttendanceDetailsModal({
                                     required={config.timesRequired}
                                 />
                             </label>
+                            {config.useWorkingTimeDefaults ? (
+                                <p className="col-span-2 text-[11px] text-gray-400">
+                                    Defaults from Flowchart HR Working Time (
+                                    {resolvedStaffType === 'site' ? 'Site' : 'Office'}) — editable.
+                                </p>
+                            ) : null}
                         </div>
                     ) : null}
 

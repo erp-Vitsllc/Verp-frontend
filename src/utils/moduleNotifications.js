@@ -18,6 +18,7 @@ import { countVisibleFinePendingInbox } from '@/app/HRM/Fine/utils/finePendingIn
 import { countVisiblePaymentPendingInbox } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
 import { countVisibleRewardPendingInbox } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 import { countVisibleLoanPendingInbox } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
+import { countVisibleAttendancePendingInbox } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import {
     buildCompanyPageNotifications,
@@ -31,6 +32,7 @@ import {
     fetchPaymentPendingInbox,
     fetchRewardPendingInbox,
     fetchLoanPendingInbox,
+    fetchAttendancePendingInbox,
 } from '@/utils/pendingInboxFetch';
 import {
     filterToolsAssetInboxRows,
@@ -49,6 +51,7 @@ import { COMPANY_ACTIVATION_INCOMPLETE_TYPE } from '@/utils/companyActivationInc
 export const MODULE_ORDER = [
     'Company',
     'Employees',
+    'Attendance',
     'Fine',
     'Loan and Advance',
     'Reward',
@@ -58,7 +61,7 @@ export const MODULE_ORDER = [
     'Payments',
 ];
 
-const LOAN_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance']);
+const LOAN_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance', 'Employee Advance Request']);
 
 function valueOr(settled, idx, fallback) {
     return settled[idx]?.status === 'fulfilled' ? settled[idx].value : fallback;
@@ -104,8 +107,15 @@ function pendingInboxToItem(row, moduleCategory) {
             requestedDate: row?.requestedDate,
             actionedDate: null,
             status: 'Pending',
-            extra1: row?.extra1 || '',
-            extra2: row?.extra2 || '',
+            extra1: row?.extra1 || row?.date || '',
+            extra2:
+                row?.extra2 ||
+                row?.message ||
+                (moduleCategory === 'Attendance'
+                    ? String(row?.leaveRequestKind || '') === 'yellow'
+                        ? `Clarification: mark as Present`
+                        : `Leave change: ${row?.requestedStatusLabel || 'status update'}`
+                    : ''),
             extra3: row?.extra3 || '',
             subjectName: row?.subjectName || '',
             requestType,
@@ -311,6 +321,7 @@ export async function loadModuleNotificationFeeds(
             fetchPaymentPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchRewardPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchLoanPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
+            fetchAttendancePendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             loadCompanyNotificationBundle(axiosInstance, {
                 hrLive: hrLiveGuess,
                 cachedCompanies: [],
@@ -334,11 +345,12 @@ export async function loadModuleNotificationFeeds(
         const paymentItems = valueOr(settled, 3, []);
         const rewardItems = valueOr(settled, 4, []);
         const loanItems = valueOr(settled, 5, []);
-        const notificationBundle = valueOr(settled, 6, {
+        const attendanceItems = valueOr(settled, 6, []);
+        const notificationBundle = valueOr(settled, 7, {
             statsRes: { data: { items: [] } },
             companiesList: [],
         });
-        const empRes = skipEmployees ? { data: {} } : valueOr(settled, 7, { data: {} });
+        const empRes = skipEmployees ? { data: {} } : valueOr(settled, 8, { data: {} });
         const empPayload = empRes?.data?.employees ?? empRes?.data;
 
         const statsData = providedStats || notificationBundle?.statsRes?.data || { items: [] };
@@ -362,6 +374,7 @@ export async function loadModuleNotificationFeeds(
             paymentItems: Array.isArray(paymentItems) ? paymentItems : [],
             rewardItems: Array.isArray(rewardItems) ? rewardItems : [],
             loanItems: Array.isArray(loanItems) ? loanItems : [],
+            attendanceItems: Array.isArray(attendanceItems) ? attendanceItems : [],
             ...hrFlags,
         };
 
@@ -395,6 +408,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         paymentItems = [],
         rewardItems = [],
         loanItems = [],
+        attendanceItems = [],
         liveExpiryHrView: liveFlag,
         mandatoryCardsHrLive: mandatoryFlag,
     } = feeds;
@@ -448,6 +462,9 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const loan = (Array.isArray(loanItems) ? loanItems : []).map((row) =>
         pendingInboxToItem(row, 'Loan and Advance'),
     );
+    const attendance = (Array.isArray(attendanceItems) ? attendanceItems : []).map((row) =>
+        pendingInboxToItem(row, 'Attendance'),
+    );
 
     const toolsRawVisible = dedupeAssetPendingInboxItems(toolsItems).filter(isPendingInboxRowVisible);
     const toolsVisible = filterToolsAssetInboxRows(toolsRawVisible);
@@ -478,6 +495,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const byModule = {
         Company: company,
         Employees: employees,
+        Attendance: attendance,
         Fine: fine,
         'Loan and Advance': loan,
         Reward: reward,
@@ -490,6 +508,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const counts = {
         company: company.length,
         employee: employees.length,
+        attendance: countVisibleAttendancePendingInbox(attendanceItems),
         fine: countVisibleFinePendingInbox(fineItems),
         reward: countVisibleRewardPendingInbox(rewardItems),
         payment: countVisiblePaymentPendingInbox(paymentItems),
@@ -504,6 +523,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
     counts.hrm =
         (counts.company || 0) +
         (counts.employee || 0) +
+        (counts.attendance || 0) +
         (counts.fine || 0) +
         (counts.reward || 0) +
         (counts.loan || 0) +
@@ -514,6 +534,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const all = dedupe([
         ...company,
         ...employees,
+        ...attendance,
         ...fine,
         ...loan,
         ...reward,
@@ -689,7 +710,7 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
 
     const finePending = pending.filter((i) => {
         const t = String(i?.type || '').trim();
-        return t === 'Fine' || t === 'Group Fine Request';
+        return t === 'Fine' || t === 'Group Fine Request' || t === 'Employee Fine Request';
     });
     const paymentPending = pending.filter((i) => String(i?.type || '').trim() === 'Payment Approval');
     const rewardPending = pending.filter((i) => String(i?.type || '').trim() === 'Reward');

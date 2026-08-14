@@ -14,16 +14,20 @@ function formatMoney(n) {
 }
 
 function statusBadge(status) {
-    const paid = String(status || '').toLowerCase() === 'paid';
+    const label = String(status || 'Not Paid').trim() || 'Not Paid';
+    const paid = label.toLowerCase() === 'paid';
+    const zohoBilled = label.toLowerCase() === 'zoho billed';
     return (
         <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
                 paid
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                    : 'bg-amber-50 text-amber-800 border border-amber-100'
+                    : zohoBilled
+                      ? 'bg-sky-50 text-sky-800 border border-sky-100'
+                      : 'bg-amber-50 text-amber-800 border border-amber-100'
             }`}
         >
-            {paid ? 'Paid' : 'Not Paid'}
+            {label}
         </span>
     );
 }
@@ -326,13 +330,13 @@ export default function EmployeeExpensesPanel({ employee }) {
                                                     <span className="text-xs font-semibold text-slate-500">
                                                         View bill
                                                     </span>
-                                                ) : row.canPay || row.status === 'Not Paid' ? (
+                                                ) : row.canPay ? (
                                                     <button
                                                         type="button"
                                                         onClick={() => handlePay(row)}
                                                         className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
                                                     >
-                                                    Pay difference
+                                                    Pay deduction
                                                 </button>
                                                 ) : (
                                                     <span className="text-xs font-semibold text-emerald-600">

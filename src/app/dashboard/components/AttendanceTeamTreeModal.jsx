@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Users, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from '@/app/HRM/Attendance/mark/components/MarkAttendanceDetailsModal';
@@ -202,6 +203,7 @@ export default function AttendanceTeamTreeModal({
             onMarked?.(ids);
             setMarkMenuOpen(false);
             setFormState(null);
+            notifyAttendancePendingInboxChanged();
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not mark attendance.');
         } finally {

@@ -284,17 +284,28 @@ const buildOldSalaryRowsFromClosedHistory = (employee) => {
         });
 };
 
+/** Manual Add Document rows: only With Expiry / Without Expiry. Salary/labour stay in their own tables. */
+const resolveManualDocumentSection = (doc) => {
+    if (isLabourCardSalaryType(doc?.type)) return SECTIONS.LABOUR;
+    if (isArchivedPreviousSalaryType(doc?.type) || isLiveSalaryDocumentType(doc?.type)) {
+        return SECTIONS.SALARY;
+    }
+    if (doc?.expiryDate) return SECTIONS.DOC_EXPIRY;
+    return SECTIONS.DOC_NO_EXPIRY;
+};
+
+const documentDisplayName = (doc) => {
+    const name = String(doc?.documentName || '').trim();
+    return name || '—';
+};
+
 /** Old Documents tab: group archived rows into Basic / Salary / Bank / Documents with expiry. */
 const resolveArchivedOldDocumentSection = (doc, lowerType) => {
     if (isArchivedPreviousSalaryType(lowerType)) return SECTIONS.SALARY;
     if (lowerType.includes('bank')) return SECTIONS.BANK;
     if (isBasicDetailsCardDocType(lowerType)) return SECTIONS.BASIC;
     if (lowerType.includes('signature')) return SECTIONS.OTHER;
-    if (lowerType.includes('without expiry')) return SECTIONS.DOC_NO_EXPIRY;
-    if (lowerType.includes('with expiry')) return SECTIONS.DOC_EXPIRY;
-    if (lowerType.includes('education')) return SECTIONS.PERSONAL;
-    if (lowerType.includes('experience')) return SECTIONS.EXPERIENCE;
-    if (doc?.expiryDate) return SECTIONS.DOC_EXPIRY;
+    if (doc?.expiryDate || lowerType.includes('with expiry')) return SECTIONS.DOC_EXPIRY;
     return SECTIONS.DOC_NO_EXPIRY;
 };
 
@@ -713,6 +724,7 @@ export default function DocumentsTab({
                         ...doc,
                         index,
                         type: doc.type || 'Salary Document',
+                        documentName: doc.documentName || '',
                         description: doc.description || doc.discription || '',
                         issueDate: doc.issueDate || doc.createdAt,
                         expiryDate: doc.expiryDate,
@@ -725,25 +737,13 @@ export default function DocumentsTab({
                     });
                     return;
                 }
-                const t = (doc.type || '').toLowerCase();
-                const section = t.includes('bank')
-                    ? SECTIONS.BANK
-                    : t.includes('labour')
-                        ? SECTIONS.BASIC
-                        : isBasicDetailsCardDocType(t)
-                            ? SECTIONS.BASIC
-                            : t.includes('personal') || t.includes('legal') || t.includes('education')
-                                ? SECTIONS.PERSONAL
-                                : t.includes('experience') || t.includes('work') || t.includes('previous')
-                                    ? SECTIONS.EXPERIENCE
-                                    : doc.expiryDate || t.includes('with expiry')
-                                        ? SECTIONS.DOC_EXPIRY
-                                        : SECTIONS.DOC_NO_EXPIRY;
+                const section = resolveManualDocumentSection(doc);
                 const expired = isExpired(doc.expiryDate);
                 docs.push({
                     ...doc,
                     index,
                     type: doc.type || 'Document',
+                    documentName: doc.documentName || '',
                     description: doc.description || doc.discription || '',
                     issueDate: doc.issueDate || doc.createdAt,
                     expiryDate: doc.expiryDate,
@@ -770,28 +770,12 @@ export default function DocumentsTab({
 
         queuedDocAdds.forEach((change) => {
             const doc = change.proposedData || {};
-            const t = String(doc.type || '').toLowerCase();
-            const section = t.includes('bank')
-                ? SECTIONS.BANK
-                : t.includes('labour')
-                    ? SECTIONS.BASIC
-                    : t.includes('without expiry')
-                        ? SECTIONS.DOC_NO_EXPIRY
-                        : t.includes('with expiry')
-                            ? SECTIONS.DOC_EXPIRY
-                            : doc.expiryDate
-                                ? SECTIONS.DOC_EXPIRY
-                                : t.includes('education')
-                                    ? SECTIONS.PERSONAL
-                                    : t.includes('experience')
-                                        ? SECTIONS.EXPERIENCE
-                                        : isBasicDetailsCardDocType(t)
-                                            ? SECTIONS.BASIC
-                                            : SECTIONS.DOC_NO_EXPIRY;
+            const section = resolveManualDocumentSection(doc);
             const expired = isExpired(doc.expiryDate);
             docs.push({
                 ...doc,
                 type: doc.type || 'Document',
+                documentName: doc.documentName || '',
                 description: doc.description || '',
                 issueDate: doc.issueDate || doc.createdAt,
                 expiryDate: doc.expiryDate,
@@ -1386,6 +1370,7 @@ export default function DocumentsTab({
                             <thead className="bg-gray-50/50 border-b border-gray-100">
                                 <tr>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Document Type</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Document Name</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Issue Date</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Expiry</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Cost</th>
@@ -1427,6 +1412,7 @@ export default function DocumentsTab({
                                                     ) : null}
                                                 </div>
                                             </td>
+                                            <td className="px-6 py-4 text-sm text-gray-700">{documentDisplayName(doc)}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.issueDate)}</td>
                                             <td
                                                 className={`px-6 py-4 text-sm ${
@@ -1442,7 +1428,7 @@ export default function DocumentsTab({
                                                         {hasAttachment && (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                                onClick={() => onViewDocument(getDocObj(docForView, doc.documentName || doc.type, doc.type))}
                                                                 className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'}`}
                                                                 title="Download / view attachment"
                                                             >
@@ -1548,6 +1534,7 @@ export default function DocumentsTab({
                             <thead className="bg-gray-50/50 border-b border-gray-100">
                                 <tr>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Document Type</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Document Name</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Issue Date</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Cost</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
@@ -1579,6 +1566,7 @@ export default function DocumentsTab({
                                                     ) : null}
                                                 </div>
                                             </td>
+                                            <td className="px-6 py-4 text-sm text-gray-700">{documentDisplayName(doc)}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.issueDate)}</td>
                                             <td className="px-6 py-4 text-sm font-semibold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
                                             <td className="px-6 py-4 text-right">
@@ -1586,7 +1574,7 @@ export default function DocumentsTab({
                                                     {hasAttachment && (
                                                         <button
                                                             type="button"
-                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.documentName || doc.type, doc.type))}
                                                             className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                             title="Download / view attachment"
                                                         >

@@ -337,7 +337,13 @@ function baseRow(item = {}, index = 0) {
     return {
         key,
         title: buildUnderstandableNotificationTitle(item) || type || 'Request',
-        source: String(item.requestedByName || item.requestedBy || item.source || '').trim(),
+        source: String(
+            item.subjectName ||
+                item.requestedByName ||
+                item.requestedBy ||
+                item.source ||
+                '',
+        ).trim(),
         category: String(item.extra2 || item.extra1 || '').trim() || 'Pending task',
         highlight: '',
         entityName: String(
@@ -355,7 +361,13 @@ function baseRow(item = {}, index = 0) {
                 meta?.batchId ||
                 '',
         ).trim(),
-        status: String(item.status || 'Pending').trim() || 'Pending',
+        status: String(
+            item.status ||
+                item.approvalStatus ||
+                item.loan?.approvalStatus ||
+                item.loan?.status ||
+                'Pending',
+        ).trim() || 'Pending',
         requestedDate,
         href: '',
         iconVariant: resolveNotificationIconVariant(type),

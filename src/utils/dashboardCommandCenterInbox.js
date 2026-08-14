@@ -14,11 +14,12 @@ import { EMPLOYEE_NOTIFICATION_TYPES } from '@/utils/employeePageNotifications';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { isVehicleAssetInboxRow } from '@/utils/assetInboxScope';
+import { isDashboardPendingItem } from '@/utils/activationNotificationFilters';
 
-export const FINE_MODULE_TYPES = new Set(['Fine', 'Group Fine Request']);
+export const FINE_MODULE_TYPES = new Set(['Fine', 'Group Fine Request', 'Employee Fine Request']);
 export const PAYMENT_MODULE_TYPES = new Set(['Payment Approval']);
 export const REWARD_MODULE_TYPES = new Set(['Reward']);
-export const LOAN_MODULE_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance']);
+export const LOAN_MODULE_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance', 'Employee Advance Request']);
 
 export const VEHICLE_MODULE_TYPES = new Set([
     'Vehicle Service Request',
@@ -29,6 +30,7 @@ export const VEHICLE_MODULE_TYPES = new Set([
     'Vehicle Mortgage Close',
     'Vehicle Disposition Request',
     'Vehicle Document Expiry Reminder',
+    'Employee Vehicle Request',
 ]);
 
 export const UTILITY_BILL_MODULE_TYPES = new Set([
@@ -36,6 +38,7 @@ export const UTILITY_BILL_MODULE_TYPES = new Set([
     'Utility Bill Payment Reminder',
     'Utility Contract Expiry',
     'Utility Entry Status Change',
+    'Employee Utility Request',
 ]);
 
 export const ASSET_MODULE_TYPES = new Set([
@@ -54,6 +57,7 @@ export const ASSET_MODULE_TYPES = new Set([
     'Asset On Duty Request',
     'Asset Bulk Action',
     'Asset Overdue',
+    'Employee Asset Request',
 ]);
 
 export const COMPANY_MODULE_TYPES = new Set([
@@ -84,6 +88,8 @@ export function resolveDashboardModuleCategory(item = {}) {
     const low = type.toLowerCase();
 
     if (isCardDeletedNotificationHiddenType(type)) return 'Other';
+
+    if (type === 'Employee Leave Request' || type === 'Attendance Leave Request') return 'Attendance';
 
     // Exact types first so Document Expiry never fuzzy-matches into Loan / other modules.
     if (FINE_MODULE_TYPES.has(type)) return 'Fine';
@@ -204,10 +210,94 @@ export function groupCommandCenterByModule(items = []) {
     );
 }
 
+const PENDING_ACTIVITY_TYPE_ORDER = [
+    'Fine',
+    'Loan',
+    'Advance',
+    'Reward',
+    'Attendance',
+    'Employees',
+    'Company',
+    'Vehicle Asset',
+    'Tools Asset',
+    'Utility Bills',
+    'Payments',
+    'Other',
+];
+
+const PENDING_ACTIVITY_TYPE_COLORS = {
+    Fine: '#ef4444',
+    Loan: '#3b82f6',
+    Advance: '#8b5cf6',
+    Reward: '#f97316',
+    Attendance: '#eab308',
+    Employees: '#6366f1',
+    Company: '#0ea5e9',
+    'Vehicle Asset': '#14b8a6',
+    'Tools Asset': '#64748b',
+    'Utility Bills': '#06b6d4',
+    Payments: '#10b981',
+    Other: '#94a3b8',
+};
+
+const PENDING_ACTIVITY_FALLBACK_COLORS = ['#f59e0b', '#ec4899', '#84cc16', '#a855f7'];
+
+/** Split Loan vs Advance for the home Request Activity chart; other types follow module category. */
+export function resolvePendingActivityType(item = {}) {
+    const raw = String(item?.type || item?.requestType || '').trim();
+    const low = raw.toLowerCase();
+    if (low === 'advance' || (low.includes('advance') && !low.includes('loan'))) return 'Advance';
+    if (LOAN_MODULE_TYPES.has(raw) || low.includes('loan')) return 'Loan';
+    return resolveDashboardModuleCategory(item) || 'Other';
+}
+
+export function pendingActivityTypeLegendLabel(label) {
+    const map = {
+        'Vehicle Asset': 'Vehicle',
+        'Tools Asset': 'Tools',
+        'Utility Bills': 'Utility',
+        Employees: 'Employee',
+        Payments: 'Payment',
+    };
+    return map[label] || label;
+}
+
+/** Pending inbox items only, grouped by request type (Fine, Loan, Advance, …). */
+export function computePendingActivityByType(items = []) {
+    const pending = (Array.isArray(items) ? items : []).filter(
+        (item) => isDashboardPendingItem(item) && !isCommandCenterHiddenType(item),
+    );
+    const counts = new Map();
+    for (const item of pending) {
+        const label = resolvePendingActivityType(item);
+        counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    const labels = [...counts.keys()].sort((a, b) => {
+        const ia = PENDING_ACTIVITY_TYPE_ORDER.indexOf(a);
+        const ib = PENDING_ACTIVITY_TYPE_ORDER.indexOf(b);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+    let fallbackIdx = 0;
+    const segments = labels.map((label) => ({
+        label,
+        count: counts.get(label) || 0,
+        color:
+            PENDING_ACTIVITY_TYPE_COLORS[label] ||
+            PENDING_ACTIVITY_FALLBACK_COLORS[fallbackIdx++ % PENDING_ACTIVITY_FALLBACK_COLORS.length],
+    }));
+    return { total: pending.length, segments };
+}
+
 export function formatCommandCenterSubtype(item = {}) {
     const type = String(item?.type || '').trim();
     if (!type) return '';
     // Distinct labels so Company / Employees / Vehicle expiry does not look "cloned".
+    if (type === 'Employee Leave Request') return 'Leave request';
+    if (type === 'Employee Fine Request') return 'Fine request';
+    if (type === 'Employee Advance Request') return 'Advance request';
+    if (type === 'Employee Asset Request') return 'Asset request';
+    if (type === 'Employee Vehicle Request') return 'Vehicle request';
+    if (type === 'Employee Utility Request') return 'Utility bill request';
     if (type === 'Employee Document Expiry Reminder') return 'Employee Document Expiry';
     if (type === 'Document Expiry Reminder') return 'Company Document Expiry';
     if (type === 'Vehicle Document Expiry Reminder') return 'Vehicle Document Expiry';

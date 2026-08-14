@@ -53,14 +53,8 @@ export default function AttendanceDayDetailPanel({ day, stats = null, totalStaff
 
     const resolved = stats || emptyDayDetailStats(totalStaff);
     const dateLabel = format(day, 'EEEE, d MMMM yyyy');
-    const dateParam = format(day, 'yyyy-MM-dd');
-    const markUrl = `/HRM/Attendance/mark?date=${encodeURIComponent(dateParam)}`;
     // Unauthorized and not marked are the same count.
     const notMarkedOrUnauthorized = Number(resolved.notMarked) || 0;
-
-    const openMarkAttendance = () => {
-        window.open(markUrl, '_blank', 'noopener,noreferrer');
-    };
 
     return (
         <div className="h-full min-h-[320px] bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
@@ -113,16 +107,6 @@ export default function AttendanceDayDetailPanel({ day, stats = null, totalStaff
                 <StatRow label="Work from home" value={resolved.workFromHome} />
                 <StatRow label="Late arrived" value={resolved.lateArrived} />
                 <StatRow label="Not marked attendance" value={notMarkedOrUnauthorized} />
-            </div>
-
-            <div className="px-4 py-3 border-t border-gray-100 shrink-0">
-                <button
-                    type="button"
-                    onClick={openMarkAttendance}
-                    className="w-full h-10 rounded-lg bg-[#EA3D2F] hover:bg-[#d43528] text-white text-sm font-semibold transition-colors"
-                >
-                    Mark Attendance
-                </button>
             </div>
         </div>
     );

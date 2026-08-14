@@ -40,6 +40,13 @@ export function isPendingInboxRowVisible(row) {
     if (requestType === 'Asset Owner On Duty') return true;
     if (requestType === 'Asset On Duty Request') return true;
     if (
+        requestType === 'Employee Asset Request' ||
+        requestType === 'Employee Vehicle Request' ||
+        requestType === 'Employee Utility Request'
+    ) {
+        return true;
+    }
+    if (
         requestType === 'Utility Bill Payment' ||
         requestType === 'Utility Bill Payment Reminder' ||
         requestType === 'Utility Contract Expiry' ||

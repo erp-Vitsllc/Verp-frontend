@@ -12,6 +12,7 @@ export const PAYMENT_PENDING_INBOX_ENDPOINT = '/Payment/dashboard/pending-inbox'
 export const ASSET_PENDING_INBOX_ENDPOINT = '/AssetItem/dashboard/pending-inbox';
 export const REWARD_PENDING_INBOX_ENDPOINT = '/Reward/dashboard/pending-inbox';
 export const LOAN_PENDING_INBOX_ENDPOINT = '/Employee/loans/dashboard/pending-inbox';
+export const ATTENDANCE_PENDING_INBOX_ENDPOINT = '/Attendance/dashboard/pending-inbox';
 
 function buildCacheKey(endpoint, params = {}) {
     // skipSync must NOT fragment the cache — badge (skipSync) and modal must share rows.
@@ -116,6 +117,12 @@ export function fetchLoanPendingInbox(axiosInstance, options = {}) {
     const { targetUserId, ...rest } = options;
     const params = targetUserId ? { targetUserId } : undefined;
     return fetchPendingInbox(axiosInstance, LOAN_PENDING_INBOX_ENDPOINT, { ...rest, params });
+}
+
+export function fetchAttendancePendingInbox(axiosInstance, options = {}) {
+    const { targetUserId, ...rest } = options;
+    const params = targetUserId ? { targetUserId } : undefined;
+    return fetchPendingInbox(axiosInstance, ATTENDANCE_PENDING_INBOX_ENDPOINT, { ...rest, params });
 }
 
 /**

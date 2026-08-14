@@ -1,8 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import { Check, Clock, LogIn, LogOut } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { dashboardHover, dashboardItem } from './dashboardMotion';
 
 export const ATTENDANCE_CHECK_CHANGED = 'verp:attendance-check-changed';
 
@@ -67,6 +70,7 @@ function notifyAttendanceChanged() {
     if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent(ATTENDANCE_CHECK_CHANGED));
     }
+    notifyAttendancePendingInboxChanged();
 }
 
 export default function DashboardCheckInOutCard() {
@@ -249,13 +253,17 @@ export default function DashboardCheckInOutCard() {
     }, [saving, checkedIn, checkedOut, timeOut]);
 
     return (
-        <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] overflow-hidden">
+        <motion.div
+            variants={dashboardItem}
+            whileHover={dashboardHover}
+            className="dash-card-lift col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] overflow-hidden"
+        >
             <div>
                 <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">
                     Check In / Out
                 </h3>
                 <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">
-                    If you forget to check out, the day is auto-marked as unauthorized. Check out to
+                    If you forget to check out, the day is auto-marked as mispunched. Check out to
                     mark the day Present. After midnight it resets to 00:00:00.
                 </p>
                 <p className="text-[11px] text-slate-400 tabular-nums mt-2">{dateKey}</p>
@@ -319,7 +327,7 @@ export default function DashboardCheckInOutCard() {
                     type="button"
                     disabled={saving || loading || checkedIn}
                     onClick={handleCheckIn}
-                    className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-colors disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:!text-white"
+                    className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:hover:translate-y-0 disabled:!text-white"
                     title={checkedIn ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
                 >
                     {checkedIn ? (
@@ -333,7 +341,7 @@ export default function DashboardCheckInOutCard() {
                     type="button"
                     disabled={saving || loading || !checkedIn || checkedOut}
                     onClick={handleCheckOut}
-                    className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-colors disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:!text-white"
+                    className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:hover:translate-y-0 disabled:!text-white"
                     title={
                         checkedOut
                             ? `Checked out at ${formatClock(timeOut)}`
@@ -350,6 +358,6 @@ export default function DashboardCheckInOutCard() {
                     <span className="truncate !text-white">{checkOutButtonLabel}</span>
                 </button>
             </div>
-        </div>
+        </motion.div>
     );
 }

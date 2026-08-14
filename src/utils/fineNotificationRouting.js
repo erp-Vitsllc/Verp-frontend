@@ -3,6 +3,7 @@ import {
     NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES,
     runNotificationFocusScroll,
 } from '@/utils/notificationFocusNavigation';
+import { buildEmployeeHubDashboardPath, isEmployeeHubRequestItem } from '@/utils/employeeHubRequest';
 
 export const FINE_FOCUS_PREFIX = 'fine-focus-';
 
@@ -49,6 +50,9 @@ export function buildFineDetailPath(rawItem, extraParams = {}) {
 /** Fine notifications open the fine detail page (approve / review actions). */
 export function buildFineNotificationPath(rawItem) {
     const item = normalizeFineNotificationItem(rawItem);
+    if (isEmployeeHubRequestItem(item) || isEmployeeHubRequestItem(rawItem)) {
+        return buildEmployeeHubDashboardPath(rawItem);
+    }
     const type = item.type.toLowerCase();
     if (!type.includes('fine')) return '';
     return buildFineDetailPath(item);

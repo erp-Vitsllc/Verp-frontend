@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, Suspense, useMemo, memo } from 'react';
+import { useEffect, useState, Suspense, useMemo } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -30,18 +31,24 @@ import { fetchEmployeeDashboardStats } from '@/utils/employeeDashboardStatsFetch
 import {
     groupCommandCenterByModule,
     formatCommandCenterNotificationMessage,
+    computePendingActivityByType,
 } from '@/utils/dashboardCommandCenterInbox';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { FINE_PENDING_INBOX_CHANGED } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { PAYMENT_PENDING_INBOX_CHANGED } from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
 import { REWARD_PENDING_INBOX_CHANGED } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 import { LOAN_PENDING_INBOX_CHANGED } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
+import { ATTENDANCE_PENDING_INBOX_CHANGED } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import DashboardAttendanceCalendar from '@/app/dashboard/components/DashboardAttendanceCalendar';
 import DashboardCheckInOutCard from '@/app/dashboard/components/DashboardCheckInOutCard';
+import DashboardEmployeeHrCards from '@/app/dashboard/components/DashboardEmployeeHrCards';
+import DashboardMyLeaveCard from '@/app/dashboard/components/DashboardMyLeaveCard';
+import DashboardRequestHub from '@/app/dashboard/components/DashboardRequestHub';
+import ActivityPieChart from '@/app/dashboard/components/ActivityPieChart';
+import { dashboardGrid, dashboardHover, dashboardItem, dashboardStagger } from '@/app/dashboard/components/dashboardMotion';
 
 import {
     isDashboardPendingItem,
-    filterActionableDashboardItems,
 } from '@/utils/activationNotificationFilters';
 import {
     isCommandCenterOverdue,
@@ -58,8 +65,6 @@ import {
 import { navHrefProps } from '@/utils/linkContextMenu';
 
 import {
-
-    Clock,
 
     X,
 
@@ -87,94 +92,11 @@ import { useToast } from '@/hooks/use-toast';
 
 import HierarchySelector from '@/components/HierarchySelector';
 
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
-
-import { Doughnut } from 'react-chartjs-2';
-
-
-
-ChartJS.register(ArcElement, Tooltip, Legend);
-
 const isOverdue = isCommandCenterOverdue;
-
-// Wrapper component to handle useSearchParams with Suspense
-
-const ActivityPieChart = memo(function ActivityPieChart({ data, currentFilter = 'Total' }) {
-    const displayValue = currentFilter === 'Total' ? (data.total || 0) : (data[currentFilter.toLowerCase()] || 0);
-    const displayLabel = currentFilter;
-    const isEmpty = (data.total || 0) === 0;
-
-    const chartData = useMemo(() => ({
-        labels: ['Pending', 'Approved', 'Rejected'],
-        datasets: [{
-            data: [data.pending || 0, data.approved || 0, data.rejected || 0],
-            backgroundColor: ['#fbbf24', '#10b981', '#ef4444'],
-            borderWidth: 0,
-            hoverOffset: 8,
-            cutout: '75%',
-        }],
-    }), [data.pending, data.approved, data.rejected]);
-
-    const emptyData = useMemo(() => ({
-        labels: ['No Data'],
-        datasets: [{ data: [1], backgroundColor: ['#f1f5f9'], borderWidth: 0, cutout: '75%' }],
-    }), []);
-
-    const options = useMemo(() => ({
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-            datalabels: false,
-            legend: { display: false },
-            tooltip: {
-                enabled: true,
-                backgroundColor: '#0f172a',
-                padding: 12,
-                cornerRadius: 8,
-                titleFont: { family: 'inherit', size: 13 },
-                bodyFont: { family: 'inherit', size: 13, weight: 'bold' },
-                callbacks: {
-                    label(context) {
-                        const label = context.label || '';
-                        const value = context.raw || 0;
-                        return ' ' + label + ': ' + value;
-                    },
-                },
-            },
-        },
-        layout: { padding: 10 },
-    }), []);
-
-    return (
-        <div className="flex flex-col items-center justify-center w-full">
-            <div className="relative w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 lg:w-48 lg:h-48 shrink-0">
-                <Doughnut data={isEmpty ? emptyData : chartData} options={options} />
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-xl sm:text-2xl md:text-3xl font-black text-slate-800 leading-none tracking-tight">{displayValue}</span>
-                    <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 sm:mt-1">{displayLabel}</span>
-                </div>
-            </div>
-            <div className="flex flex-wrap justify-center gap-2 sm:gap-4 mt-3 sm:mt-6">
-                <div className="flex items-center gap-1 sm:gap-1.5">
-                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-200"></div>
-                    <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending</span>
-                </div>
-                <div className="flex items-center gap-1 sm:gap-1.5">
-                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></div>
-                    <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Approved</span>
-                </div>
-                <div className="flex items-center gap-1 sm:gap-1.5">
-                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-200"></div>
-                    <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rejected</span>
-                </div>
-            </div>
-        </div>
-    );
-});
 
 function DashboardContent() {
     const router = useRouter();
+    const reduceMotion = useReducedMotion();
 
     const [loading, setLoading] = useState(true);
 
@@ -195,6 +117,7 @@ function DashboardContent() {
 
 
     const [filter, setFilter] = useState('Pending');
+    const [activityPieMode, setActivityPieMode] = useState('Pending');
 
 
 
@@ -475,6 +398,7 @@ function DashboardContent() {
             window.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             window.addEventListener(REWARD_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             window.addEventListener(LOAN_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+            window.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
         }
 
         return () => {
@@ -486,6 +410,7 @@ function DashboardContent() {
                 window.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
                 window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
                 window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
+                window.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, refreshFromModuleInbox);
             }
         };
 
@@ -551,17 +476,32 @@ function DashboardContent() {
         });
     }, [userStats.items, viewMode, requestScope, inboxViewerIds]);
 
-
-
-    const homeAttentionItems = useMemo(
-        () => filterActionableDashboardItems(userStats.items || []),
-        [userStats.items],
-    );
-
     const scopedStats = useMemo(
         () => computeIncomingCommandCenterStats(scopedItems),
         [scopedItems],
     );
+
+    const pendingTypeStats = useMemo(
+        () => computePendingActivityByType(scopedItems),
+        [scopedItems],
+    );
+
+    const overduePendingItems = useMemo(
+        () =>
+            scopedItems.filter(
+                (item) =>
+                    isDashboardPendingItem(item) &&
+                    isOverdue(item.requestedDate, item.status, item.type),
+            ),
+        [scopedItems],
+    );
+
+    const overdueTypeStats = useMemo(
+        () => computePendingActivityByType(overduePendingItems),
+        [overduePendingItems],
+    );
+
+    const activityPieModeData = activityPieMode === 'Overdue' ? overdueTypeStats : pendingTypeStats;
 
 
 
@@ -583,7 +523,11 @@ function DashboardContent() {
 
             case 'Overdue':
 
-                return source.filter(item => isOverdue(item.requestedDate, item.status, item.type));
+                return source.filter(
+                    (item) =>
+                        isDashboardPendingItem(item) &&
+                        isOverdue(item.requestedDate, item.status, item.type),
+                );
 
             case 'Pending':
 
@@ -987,39 +931,27 @@ function DashboardContent() {
 
 
 
-                <div className="flex-1 overflow-y-auto w-full p-3 sm:p-5 lg:p-10 scrollbar-hide">
+                <div className="flex-1 overflow-y-auto w-full p-3 sm:p-4 lg:px-5 lg:py-4 scrollbar-hide">
 
-                    <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 lg:space-y-10">
+                    <motion.div
+                        className="w-full space-y-3"
+                        variants={dashboardStagger}
+                        initial={reduceMotion ? false : 'hidden'}
+                        animate="show"
+                    >
 
 
 
-                        {/* New Header Section */}
-
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
-
-                            <div className="min-w-0">
-
-                                <h1 className="text-lg sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight leading-tight">Hi, welcome back!</h1>
-
-                                <p className="text-slate-500 font-medium mt-0.5 sm:mt-1 text-xs sm:text-sm leading-snug">Your HR performance and monitoring dashboard template.</p>
-
-                            </div>
-
-                            <div className="hidden md:block">
-
-                                {/* Date or other actions can go here */}
-
-                                <span className="text-slate-400 font-bold text-sm">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-
-                            </div>
-
-                        </div>
+                        <DashboardRequestHub />
 
 
 
                         {/* Dashboard Content Grid - Interactive Mode */}
 
-                        <div className="grid grid-cols-12 gap-3 sm:gap-4 lg:gap-6">
+                        <motion.div
+                            className="grid grid-cols-12 gap-3 sm:gap-4 lg:gap-6"
+                            variants={isExpanded ? dashboardItem : dashboardGrid}
+                        >
 
 
 
@@ -1149,13 +1081,16 @@ function DashboardContent() {
 
                                     {/* Action Filters - Always Visible */}
 
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-10">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-10">
 
                                         {(() => {
 
                                             const activeStats = viewMode === 'teams' ? aggregatedStats : scopedStats;
 
-
+                                            const overdueCount =
+                                                viewMode === 'teams'
+                                                    ? activeStats.overdue || 0
+                                                    : overdueTypeStats.total || 0;
 
                                             return [
 
@@ -1171,7 +1106,27 @@ function DashboardContent() {
 
                                                 {
 
-                                                    label: 'Total', count: activeStats.total || 0,
+                                                    label: 'Approved', count: activeStats.approved || 0,
+
+                                                    activeClass: 'bg-emerald-500 text-white border-emerald-500 shadow-emerald-200',
+
+                                                    inactiveClass: 'bg-white text-emerald-600 border-slate-100 hover:border-emerald-200 hover:bg-emerald-50'
+
+                                                },
+
+                                                {
+
+                                                    label: 'Rejected', count: activeStats.rejected || 0,
+
+                                                    activeClass: 'bg-rose-500 text-white border-rose-500 shadow-rose-200',
+
+                                                    inactiveClass: 'bg-white text-rose-600 border-slate-100 hover:border-rose-200 hover:bg-rose-50'
+
+                                                },
+
+                                                {
+
+                                                    label: 'Completed', count: activeStats.completed || 0,
 
                                                     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-blue-200',
 
@@ -1181,34 +1136,23 @@ function DashboardContent() {
 
                                                 {
 
-                                                    label: 'Completed', count: activeStats.completed || 0,
+                                                    label: 'Overdue', count: overdueCount,
 
-                                                    activeClass: 'bg-cyan-400 text-white border-cyan-400 shadow-cyan-200',
+                                                    activeClass: 'bg-orange-600 text-white border-orange-600 shadow-orange-200',
 
-                                                    inactiveClass: 'bg-white text-cyan-600 border-slate-100 hover:border-cyan-200 hover:bg-cyan-50'
+                                                    inactiveClass: 'bg-white text-orange-600 border-slate-100 hover:border-orange-200 hover:bg-orange-50'
 
                                                 },
 
                                                 {
 
-                                                    label: 'Approved', count: activeStats.approved || 0,
+                                                    label: 'Total', count: activeStats.total || 0,
 
-                                                    activeClass: 'bg-emerald-500 text-white border-emerald-500 shadow-emerald-200',
+                                                    activeClass: 'bg-slate-800 text-white border-slate-800 shadow-slate-200',
 
-                                                    inactiveClass: 'bg-white text-emerald-600 border-slate-100 hover:border-emerald-200 hover:bg-emerald-50'
+                                                    inactiveClass: 'bg-white text-slate-600 border-slate-100 hover:border-slate-300 hover:bg-slate-50'
 
-                                                },
-
-                                                 {
-                                                     label: 'Rejected', count: activeStats.rejected || 0,
-                                                     activeClass: 'bg-red-600 text-white border-red-600 shadow-red-200',
-                                                     inactiveClass: 'bg-white text-red-600 border-slate-100 hover:border-red-200 hover:bg-red-50'
-                                                 },
-                                                 {
-                                                     label: 'Overdue', count: activeStats.overdue || 0,
-                                                     activeClass: 'bg-orange-600 text-white border-orange-600 shadow-orange-200',
-                                                     inactiveClass: 'bg-white text-orange-600 border-slate-100 hover:border-orange-200 hover:bg-orange-50'
-                                                 }
+                                                }
 
                                             ].map((f) => (
 
@@ -1556,11 +1500,15 @@ function DashboardContent() {
 
                                     {/* Card 1: Request Activity (Pie Chart) - Clickable to Expand */}
 
-                                    <div
+                                    <motion.div
+
+                                        variants={dashboardItem}
+
+                                        whileHover={dashboardHover}
 
                                         onClick={() => setIsExpanded(true)}
 
-                                        className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] cursor-pointer hover:shadow-md hover:border-blue-100 transition-all group relative overflow-hidden"
+                                        className="dash-card-lift col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] cursor-pointer hover:border-blue-100 group relative overflow-hidden"
 
                                     >
 
@@ -1576,23 +1524,31 @@ function DashboardContent() {
 
                                             <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider group-hover:text-blue-600 transition-colors">Request Activity</h3>
 
-                                            <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">Status Overview</p>
+                                            <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">
+                                                {activityPieMode === 'Overdue' ? 'Overdue by type' : 'Pending by type'}
+                                            </p>
 
                                         </div>
 
-                                        <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0">
+                                        <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0 overflow-y-auto">
 
-                                            <ActivityPieChart data={scopedStats} currentFilter={filter} size={52} />
+                                            <ActivityPieChart
+                                                data={activityPieModeData}
+                                                mode={activityPieMode}
+                                                pendingTotal={pendingTypeStats.total || 0}
+                                                overdueTotal={overdueTypeStats.total || 0}
+                                                onModeChange={setActivityPieMode}
+                                            />
 
                                         </div>
 
                                         <div className="mt-2 sm:mt-4 text-[9px] sm:text-xs font-bold text-center text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all">
 
-                                            Click to view details
+                                            Click to view requests
 
                                         </div>
 
-                                    </div>
+                                    </motion.div>
 
 
 
@@ -1604,362 +1560,20 @@ function DashboardContent() {
                                     {/* Card 3: My Attendance calendar (logged-in user) */}
                                     <DashboardAttendanceCalendar />
 
-
-
-                                    {/* NEW: Pending Approvals Quick List (Always visible in Default View) */}
-
-                                    <div className="col-span-12 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-5 lg:p-8 shadow-sm border border-slate-100 min-h-0 sm:min-h-[280px] lg:min-h-[400px]">
-
-                                        <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6 lg:mb-8">
-
-                                            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-
-                                                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-orange-50 flex items-center justify-center shrink-0">
-
-                                                    <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
-
-                                                </div>
-
-                                                <div className="min-w-0">
-
-                                                    <h3 className="text-sm sm:text-base lg:text-lg font-black text-slate-900 tracking-tight">Pending Approvals</h3>
-
-                                                    <p className="text-slate-400 text-[9px] sm:text-xs font-bold uppercase tracking-widest mt-0.5">Needs Your Attention</p>
-
-                                                </div>
-
-                                            </div>
-
-                                            <button
-
-                                                onClick={() => { setFilter('Pending'); setIsExpanded(true); }}
-
-                                                className="text-blue-600 text-[9px] sm:text-xs font-black uppercase tracking-widest hover:text-blue-700 transition-colors bg-blue-50 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full shrink-0"
-
-                                            >
-
-                                                View All
-
-                                            </button>
-
-                                        </div>
-
-
-
-                                        <div className="space-y-2 sm:space-y-4">
-
-                                            {homeAttentionItems.length > 0 ? (
-
-                                                homeAttentionItems.slice(0, 5).map((item, idx) => {
-                                                    const notice = formatCommandCenterNotificationMessage(item);
-
-                                                    return (
-
-                                                    <div
-
-                                                        key={`${item.id}-${item.actionId || ''}-${idx}`}
-
-                                                        {...navHrefProps(buildDashboardNotificationPath(item) || '')}
-
-                                                        onMouseEnter={() => prefetchNotificationDestination(item)}
-                                                        onClick={() => handleRowClick(item)}
-
-                                                        className="group flex items-center justify-between gap-2 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-50 hover:border-blue-100 hover:bg-blue-50/30 transition-all cursor-pointer"
-
-                                                    >
-
-                                                        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-
-                                                            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-slate-100 flex items-center justify-center group-hover:bg-blue-100 transition-colors shrink-0">
-
-                                                                <span className="text-slate-900 font-black text-[10px] sm:text-xs">{(item.requestedBy || 'E').charAt(0)}</span>
-
-                                                            </div>
-
-                                                            <div className="min-w-0">
-
-                                                                <p className="text-xs sm:text-sm font-black text-slate-800 tracking-tight truncate">
-                                                                    {notice.title}
-                                                                </p>
-                                                                {notice.detail ? (
-                                                                    <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold tracking-tight line-clamp-1 mt-0.5">
-                                                                        {notice.detail}
-                                                                    </p>
-                                                                ) : null}
-
-                                                            </div>
-
-                                                        </div>
-
-                                                        <div className="text-right shrink-0">
-
-                                                            <p className="text-[10px] sm:text-xs font-bold text-slate-900">{new Date(item.requestedDate).toLocaleDateString()}</p>
-
-                                                        </div>
-
-                                                    </div>
-
-                                                    );
-                                                })
-                                            ) : (
-
-                                                <div className="flex flex-col items-center justify-center py-12 text-center bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
-
-                                                    <div className="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center mb-4">
-
-                                                        <Clock className="w-6 h-6 text-slate-200" />
-
-                                                    </div>
-
-                                                    <p className="text-slate-400 font-bold text-sm tracking-tight italic">No pending requests at the moment.</p>
-
-                                                </div>
-
-                                            )}
-
-                                        </div>
-
-                                    </div>
-
                                 </>
 
                             )}
 
-                        </div>
-
-
-
-                        {/* Row 2: Financial Ratios & Details (Dummy) - Only show if NOT expanded */}
-
-                        {!isExpanded && (
-
-                            <div className="grid grid-cols-12 gap-3 sm:gap-4 lg:gap-6 mt-3 sm:mt-4 lg:mt-6">
-
-
-
-                                {/* Col 1: Ratios Card - Span 6 */}
-
-                                <div className="col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-0 sm:min-h-[240px] lg:min-h-[300px]">
-
-                                    <div className="space-y-4 sm:space-y-6 lg:space-y-8">
-
-                                        {/* Quick Ratio */}
-
-                                        <div>
-
-                                            <div className="flex justify-between items-baseline gap-2 mb-1.5 sm:mb-2">
-
-                                                <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">Quick Ratio</h3>
-
-                                                <span className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900">0.9:8</span>
-
-                                            </div>
-
-                                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-
-                                                <div className="h-full w-[45%] bg-amber-400 rounded-full"></div>
-
-                                            </div>
-
-                                            <p className="text-[10px] text-slate-400 mt-2">Quick Ratio Goal: 1.0 or higher</p>
-
-                                            <p className="text-xs text-slate-500 mt-3 leading-relaxed">
-
-                                                Measures your Current Assets + Accounts Receivable / Current Liabilities <span className="text-blue-500 cursor-pointer hover:underline">Learn more</span>
-
-                                            </p>
-
-                                        </div>
-
-
-
-                                        {/* Current Ratio */}
-
-                                        <div>
-
-                                            <div className="flex justify-between items-baseline gap-2 mb-1.5 sm:mb-2">
-
-                                                <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">Current Ratio</h3>
-
-                                                <span className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900">2.8</span>
-
-                                            </div>
-
-                                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-
-                                                <div className="h-full w-[70%] bg-emerald-500 rounded-full"></div>
-
-                                            </div>
-
-                                            <p className="text-[10px] text-slate-400 mt-2">Quick Ratio Goal: 2.0 or higher</p>
-
-                                            <p className="text-xs text-slate-500 mt-3 leading-relaxed">
-
-                                                Measures your Current Assets / Current Liabilities. <span className="text-blue-500 cursor-pointer hover:underline">Learn more</span>
-
-                                            </p>
-
-                                        </div>
-
-                                    </div>
-
-
-
-                                </div>
-
-
-
-                                {/* Col 2 & 3: 4-Card Grid Stats - Span 6 */}
-
-                                <div className="col-span-12 lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-6">
-
-                                    {/* Total Income */}
-
-                                    <div className="bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
-
-                                        <div>
-
-                                            <h3 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sm:mb-4">Total Income</h3>
-
-                                            {/* Dummy Mini Bar Chart */}
-
-                                            <div className="flex items-end gap-1 h-6 sm:h-8 mb-2 sm:mb-4">
-
-                                                <div className="w-1.5 sm:w-2 bg-blue-600 rounded-t-sm h-[40%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-blue-600 rounded-t-sm h-[70%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-blue-600 rounded-t-sm h-[50%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-purple-600 rounded-t-sm h-[100%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-purple-600 rounded-t-sm h-[60%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-purple-600 rounded-t-sm h-[80%]"></div>
-
-                                            </div>
-
-                                            <h4 className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900 mb-1">$ 83,320<span className="text-sm sm:text-base lg:text-lg text-slate-400">.50</span></h4>
-
-                                            <p className="text-[10px] sm:text-xs font-bold text-emerald-500">18.2% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
-
-                                        </div>
-
-                                    </div>
-
-
-
-                                    {/* Total Expenses */}
-
-                                    <div className="bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
-
-                                        <div>
-
-                                            <h3 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sm:mb-4">Total Expenses</h3>
-
-                                            {/* Dummy Mini Bar Chart */}
-
-                                            <div className="flex items-end gap-1 h-6 sm:h-8 mb-2 sm:mb-4">
-
-                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[60%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[30%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[50%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[40%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-blue-400 rounded-t-sm h-[80%]"></div>
-
-                                            </div>
-
-                                            <h4 className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900 mb-1">$ 32,370<span className="text-sm sm:text-base lg:text-lg text-slate-400">.00</span></h4>
-
-                                            <p className="text-[10px] sm:text-xs font-bold text-red-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
-
-                                        </div>
-
-                                    </div>
-
-
-
-                                    {/* Accounts Receivable */}
-
-                                    <div className="bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
-
-                                        <div>
-
-                                            <h3 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sm:mb-4">Accounts Receivable</h3>
-
-                                            {/* Dummy Mini Bar Chart */}
-
-                                            <div className="flex items-end gap-1 h-6 sm:h-8 mb-2 sm:mb-4">
-
-                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[50%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[70%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[40%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[80%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-emerald-400 rounded-t-sm h-[60%]"></div>
-
-                                            </div>
-
-                                            <h4 className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900 mb-1">$ 9,112<span className="text-sm sm:text-base lg:text-lg text-slate-400">.00</span></h4>
-
-                                            <p className="text-[10px] sm:text-xs font-bold text-emerald-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
-
-                                        </div>
-
-                                    </div>
-
-
-
-                                    {/* Accounts Payable */}
-
-                                    <div className="bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
-
-                                        <div>
-
-                                            <h3 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sm:mb-4">Accounts Payable</h3>
-
-                                            {/* Dummy Mini Bar Chart */}
-
-                                            <div className="flex items-end gap-1 h-6 sm:h-8 mb-2 sm:mb-4">
-
-                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[40%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[60%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[30%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[90%]"></div>
-
-                                                <div className="w-1.5 sm:w-2 bg-pink-500 rounded-t-sm h-[50%]"></div>
-
-                                            </div>
-
-                                            <h4 className="text-lg sm:text-xl lg:text-2xl font-black text-slate-900 mb-1">$ 8,216<span className="text-sm sm:text-base lg:text-lg text-slate-400">.00</span></h4>
-
-                                            <p className="text-[10px] sm:text-xs font-bold text-emerald-500">0.7% <span className="text-slate-400 font-medium">higher vs previous month</span></p>
-
-                                        </div>
-
-                                    </div>
-
-                                </div>
-
-                            </div>
-
-                        )}
-
-
-
-
-
-                    </div>
+                        </motion.div>
+
+                        {!isExpanded ? (
+                            <>
+                                <DashboardMyLeaveCard />
+                                <DashboardEmployeeHrCards />
+                            </>
+                        ) : null}
+
+                    </motion.div>
 
                 </div>
 

@@ -1976,7 +1976,7 @@ export default function UtilityBillReviewModal({
                                                 blockedSelectedCount
                                                     ? 'Uncheck accounts that already have Approved / Paid for this month'
                                                     : canHrDraft
-                                                      ? 'Approve and mark Zoho bill Open so Accounts can pay'
+                                                      ? 'Approve and send to Accounts to create the Zoho bill'
                                                       : undefined
                                             }
                                             className="px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold disabled:opacity-50 shadow-sm"

@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import MarkAttendanceDetailsModal, {
     getMarkFormConfig,
 } from './MarkAttendanceDetailsModal';
@@ -20,7 +21,6 @@ const MARK_OPTIONS = [
             { key: 'unauthorized_leave', label: 'Unauthorized leave' },
         ],
     },
-    { key: 'late_arrived', label: 'Late arrived' },
     { key: 'clear_attendance', label: 'Clear attendance' },
 ];
 
@@ -35,6 +35,10 @@ function formatStatusLabel(mark) {
     if (mark.key === 'on_office' || String(mark.label).trim().toLowerCase() === 'on office') {
         return 'On work';
     }
+    if (mark.key === 'late_arrived') return mark.label || 'Late Arrival';
+    if (mark.key === 'early_go') return mark.label || 'Early Go';
+    if (mark.key === 'mispunch') return mark.label || 'Mispunched';
+    if (mark.key === 'unauthorized_leave') return mark.label || 'Unauthorized Leave';
     if (mark.key === 'weekly_off') return 'Off Day';
     if (mark.key === 'holiday') return mark.label || 'Holiday';
     return mark.label || '';
@@ -55,6 +59,7 @@ function applyDayRecordsToState(employees, records) {
             label: rec.statusLabel,
             reason: rec.reason || '',
             attachmentName: rec.attachmentName || '',
+            approvalStatus: rec.approvalStatus || '',
         };
         return {
             ...e,
@@ -244,7 +249,19 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
                             className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded max-w-full truncate ${
                                 mark.key === 'weekly_off' || mark.key === 'holiday'
                                     ? 'text-[#9B59B6] bg-purple-50'
-                                    : 'text-emerald-700 bg-emerald-50'
+                                    : mark.key === 'on_leave'
+                                      ? 'text-rose-700 bg-rose-50'
+                                    : mark.key === 'unauthorized_leave'
+                                      ? 'text-rose-700 bg-rose-50'
+                                      : mark.key === 'authorized_leave'
+                                        ? 'text-orange-700 bg-orange-50'
+                                      : mark.key === 'sick_leave'
+                                        ? 'text-emerald-700 bg-emerald-50'
+                                      : mark.key === 'late_arrived' ||
+                                          mark.key === 'early_go' ||
+                                          mark.key === 'mispunch'
+                                        ? 'text-amber-800 bg-amber-50'
+                                        : 'text-emerald-700 bg-emerald-50'
                             }`}
                             title={[formatStatusLabel(mark), mark.reason].filter(Boolean).join(' — ')}
                         >
@@ -256,6 +273,23 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
                             </span>
                         ) : null}
                     </div>
+                ) : (
+                    <span className="text-sm text-gray-400">—</span>
+                )}
+            </td>
+            <td className="px-3 py-3 align-middle min-w-[130px]">
+                {mark?.approvalStatus ? (
+                    <span
+                        className={`inline-flex w-fit text-[11px] font-medium px-2 py-1 rounded ${
+                            String(mark.approvalStatus).toLowerCase() === 'approved'
+                                ? 'text-emerald-700 bg-emerald-50'
+                                : String(mark.approvalStatus).toLowerCase() === 'rejected'
+                                  ? 'text-rose-700 bg-rose-50'
+                                  : 'text-amber-700 bg-amber-50'
+                        }`}
+                    >
+                        {mark.approvalStatus}
+                    </span>
                 ) : (
                     <span className="text-sm text-gray-400">—</span>
                 )}
@@ -312,12 +346,15 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
             setLoading(true);
             setLoadError('');
             try {
-                const res = await axiosInstance.get('/Employee', {
-                    params: { profileStatus: 'active', limit: 5000 },
+                // Lean roster — avoids heavy /Employee aggregation that timed out / lagged.
+                const res = await axiosInstance.get('/Attendance/mark-roster', {
+                    params: { staffType },
                     skipToast: true,
                 });
                 const rows = extractEmployeeRows(res.data)
-                    .filter(isActiveEmployee)
+                    .filter((e) => !/\(company\)\s*$/i.test(
+                        `${e?.firstName || ''} ${e?.lastName || ''} ${e?.name || ''}`.trim(),
+                    ))
                     .map(mapActiveEmployee)
                     .filter((e) => e.id);
                 rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
@@ -334,9 +371,9 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [staffType]);
 
-    // Load stored attendance for the selected day (and re-filter when staff tab changes)
+    // Load stored attendance for the selected day
     useEffect(() => {
         if (loading) return;
         let cancelled = false;
@@ -356,15 +393,14 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                 if (cancelled) return;
                 const records = Array.isArray(res.data?.records) ? res.data.records : [];
                 dayRecordsRef.current = records;
-                const filtered = allEmployees.filter((e) => matchesStaffType(e, staffType));
-                const { nextEmployees, nextMarks } = applyDayRecordsToState(filtered, records);
+                // Roster is already filtered by staffType from API
+                const { nextEmployees, nextMarks } = applyDayRecordsToState(allEmployees, records);
                 setEmployees(nextEmployees);
                 setMarks(nextMarks);
             } catch {
                 if (!cancelled) {
                     dayRecordsRef.current = [];
-                    const filtered = allEmployees.filter((e) => matchesStaffType(e, staffType));
-                    setEmployees(filtered.map((e) => ({ ...e, timeIn: '—', timeOut: '—' })));
+                    setEmployees(allEmployees.map((e) => ({ ...e, timeIn: '—', timeOut: '—' })));
                     setMarks({});
                 }
             } finally {
@@ -375,7 +411,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
         return () => {
             cancelled = true;
         };
-    }, [dateKey, loading, allEmployees, staffType]);
+    }, [dateKey, loading, allEmployees]);
 
     useEffect(() => {
         if (selectedIds.size <= 1) {
@@ -464,10 +500,29 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
 
         setSaving(true);
         try {
-            await axiosInstance.post('/Attendance/mark', {
+            const res = await axiosInstance.post('/Attendance/mark', {
                 date: dateKey,
                 marks: marksPayload,
             });
+            const records = Array.isArray(res.data?.records) ? res.data.records : [];
+            if (records.length) {
+                const { nextEmployees, nextMarks } = applyDayRecordsToState(
+                    employeesRef.current,
+                    [
+                        ...dayRecordsRef.current.filter(
+                            (r) => !idSet.has(String(r.employeeMongoId)),
+                        ),
+                        ...records.filter((r) => !r.cleared),
+                    ],
+                );
+                dayRecordsRef.current = [
+                    ...dayRecordsRef.current.filter((r) => !idSet.has(String(r.employeeMongoId))),
+                    ...records.filter((r) => !r.cleared),
+                ];
+                setEmployees(nextEmployees);
+                setMarks(nextMarks);
+            }
+            notifyAttendancePendingInboxChanged();
         } catch (err) {
             console.error('Failed to save attendance', err);
             // Reload day from server to stay consistent
@@ -477,6 +532,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                     skipToast: true,
                 });
                 const records = Array.isArray(res.data?.records) ? res.data.records : [];
+                dayRecordsRef.current = records;
                 const { nextEmployees, nextMarks } = applyDayRecordsToState(
                     employeesRef.current,
                     records,
@@ -640,6 +696,9 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                             <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
                                 Status
                             </th>
+                            <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                                Approval Status
+                            </th>
                             <th className="px-3 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500">
                                 Action
                             </th>
@@ -667,6 +726,8 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                 employeeIds={formState?.employeeIds}
                 markKey={formState?.markKey}
                 markLabel={formState?.markLabel}
+                dateKey={dateKey}
+                staffType={staffType}
                 onClose={() => setFormState(null)}
                 onSave={(payload) => {
                     const ids = formState?.employeeIds?.length

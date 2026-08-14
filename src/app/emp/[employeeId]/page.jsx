@@ -954,6 +954,7 @@ function EmployeeProfilePageContent() {
     const [documentModalMode, setDocumentModalMode] = useState('standard');
     const [documentForm, setDocumentForm] = useState({
         type: '',
+        documentName: '',
         description: '',
         issueDate: '',
         expiryDate: '',
@@ -1460,6 +1461,7 @@ function EmployeeProfilePageContent() {
 
             const payload = {
                 type: effectiveType,
+                documentName: isLabourModal ? '' : String(documentForm.documentName || '').trim(),
                 description: documentForm.description || '',
                 issueDate: documentForm.issueDate || null,
                 expiryDate: hasExpiry ? (documentForm.expiryDate || null) : null,
@@ -1509,6 +1511,7 @@ function EmployeeProfilePageContent() {
             setShowDocumentModal(false);
             setDocumentForm({
                 type: '',
+                documentName: '',
                 description: '',
                 issueDate: '',
                 expiryDate: '',
@@ -2415,6 +2418,7 @@ function EmployeeProfilePageContent() {
             }
             setDocumentForm({
                 type: doc.type || '',
+                documentName: doc.documentName || doc.type || '',
                 description: doc.description || doc.discription || '',
                 issueDate: doc.issueDate ? String(doc.issueDate).substring(0, 10) : '',
                 expiryDate: doc.expiryDate ? String(doc.expiryDate).substring(0, 10) : '',
@@ -2442,7 +2446,8 @@ function EmployeeProfilePageContent() {
     const handleRenewDocument = (doc) => {
         setDocumentModalMode('standard');
         setDocumentForm({
-            type: '',
+            type: doc?.type || '',
+            documentName: doc?.documentName || '',
             description: '',
             issueDate: '',
             expiryDate: '',
@@ -3000,14 +3005,23 @@ function EmployeeProfilePageContent() {
             setShowWorkDetailsModal(false);
             setWorkDetailsInitialForm(null);
 
+            const isQueued = String(response.data?.message || '').toLowerCase().includes('queued');
+
             toast({
                 variant: "default",
-                title: response.data?.message?.includes('queued') ? 'Changes queued' : 'Work details updated',
+                title: isQueued ? 'Changes queued' : 'Work details updated',
                 description: response.data?.message || 'Changes were saved successfully.',
             });
 
-            const patch = response.data?.employeePatch || updatePayload;
-            setWorkDetailsLocalPatch((prev) => ({ ...(prev || {}), ...patch }));
+            // Queued Office/Site (etc.) must not patch live UI — refresh so pendingReactivationChanges
+            // includes staffType. Otherwise reopen shows the old toggle and a later save can wipe Site→Office.
+            if (isQueued) {
+                setWorkDetailsLocalPatch(null);
+                await fetchEmployee(true, true, true);
+            } else {
+                const patch = response.data?.employeePatch || updatePayload;
+                setWorkDetailsLocalPatch((prev) => ({ ...(prev || {}), ...patch }));
+            }
         } catch (err) {
             const errMsg =
                 err?.response?.data?.message ||
@@ -9439,6 +9453,7 @@ function EmployeeProfilePageContent() {
                                         setDocumentModalMode('standard');
                                         setDocumentForm({
                                             type: '',
+                                            documentName: '',
                                             description: '',
                                             issueDate: '',
                                             expiryDate: '',
@@ -9665,6 +9680,7 @@ function EmployeeProfilePageContent() {
                                                     setDocumentModalMode('standard');
                                                     setDocumentForm({
                                                         type: '',
+                                                        documentName: '',
                                                         description: '',
                                                         issueDate: '',
                                                         expiryDate: '',
@@ -9691,6 +9707,7 @@ function EmployeeProfilePageContent() {
                                                     const pre = getSalaryPrefillForLabourModal();
                                                     setDocumentForm({
                                                         type: 'Labour Card Salary',
+                                                        documentName: '',
                                                         description: '',
                                                         issueDate: '',
                                                         expiryDate: '',
@@ -9730,6 +9747,7 @@ function EmployeeProfilePageContent() {
                                                     const hasData = att && typeof att === 'object' && att.data;
                                                     setDocumentForm({
                                                         type: 'Labour Card Salary',
+                                                        documentName: '',
                                                         description: '',
                                                         issueDate: '',
                                                         expiryDate: '',

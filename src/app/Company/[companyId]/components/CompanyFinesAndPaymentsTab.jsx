@@ -957,14 +957,19 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                                 className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${
                                                     row.status === 'Paid'
                                                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                        : String(row.status || '').toLowerCase() ===
+                                                            'zoho billed'
+                                                          ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                                          : 'bg-amber-50 text-amber-700 border-amber-200'
                                                 }`}
                                             >
                                                 {row.status || 'Not Paid'}
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            {row.kind === 'utility_share' ? (
+                                            {row.kind === 'utility_share' ||
+                                            row.partyType === 'company' ||
+                                            !row.canPay ? (
                                                 row.billLink ? (
                                                     <button
                                                         type="button"
@@ -974,7 +979,9 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                                         Open bill
                                                     </button>
                                                 ) : (
-                                                    <span className="text-xs font-semibold text-slate-400">—</span>
+                                                    <span className="text-xs font-semibold text-slate-400">
+                                                        —
+                                                    </span>
                                                 )
                                             ) : row.status === 'Paid' ? (
                                                 <span className="text-xs font-semibold text-emerald-700">Paid</span>

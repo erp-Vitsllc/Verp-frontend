@@ -150,7 +150,9 @@ export const resolveCompanyCertificateExpiryNavigationMeta = (company = {}, targ
 export const buildEmployeeManualDocumentExpiryLabel = (row = {}) => {
     if (isCertificateDocumentRow(row)) return buildDocumentsArrayExpiryLabel(row);
     const typeLabel = String(row?.type || '').trim();
-    return typeLabel || 'Employee Document';
+    const nameLabel = String(row?.documentName || '').trim();
+    if (nameLabel && typeLabel) return `${typeLabel} — ${nameLabel}`;
+    return nameLabel || typeLabel || 'Employee Document';
 };
 
 export const buildDocumentsArrayExpiryLabel = (row = {}) => {
