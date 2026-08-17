@@ -8,6 +8,7 @@ import {
     formatMoney,
 } from '../../Fine/components/FineFormCardShared';
 import { formatRewardStatusLabel, formatRewardPaymentStatusLabel } from '../utils/rewardStatusDisplay';
+import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 
 export default function RewardFormCard1({ reward, employee, formatDate }) {
     if (!reward) return null;
@@ -37,6 +38,7 @@ export default function RewardFormCard1({ reward, employee, formatDate }) {
         >
             <DetailGrid>
                 <DetailField label="Reward No." value={reward.rewardId || '—'} />
+                <DetailField label="Zoho No." value={formatZohoDocumentNumber(reward)} />
                 <DetailField
                     label="Awarded Date"
                     value={formatDate(reward.awardedDate || reward.createdAt)}

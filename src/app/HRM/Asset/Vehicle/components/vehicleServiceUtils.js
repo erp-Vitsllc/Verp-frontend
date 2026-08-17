@@ -229,6 +229,16 @@ export function vehicleServiceTypeKey(service) {
     return String(r?.serviceType || '').trim();
 }
 
+/** Compact Vehicle Summary box used on all service detail header cards. */
+export function buildVehicleServiceTypeSummaryField(service, fallbackLabel = '') {
+    const value = vehicleServiceTypeKey(service) || String(fallbackLabel || '').trim() || '—';
+    return {
+        label: 'Service Type',
+        value,
+        tone: 'bg-slate-50 border-slate-100 text-slate-800',
+    };
+}
+
 export function vehicleServiceDetailPath(assetId, serviceId, serviceType) {
     const vehicle = normalizeMongoId(assetId);
     const service = normalizeMongoId(serviceId);
@@ -315,15 +325,26 @@ export function serviceCountByType(services, asset = null) {
     return counts;
 }
 
-/** True when the service row is finished — excluded from subtab incomplete counts. */
+/** True when the Status column is already finished — do not badge that tab. */
 function isVehicleServiceCompletedForTabCount(service, asset) {
     const key = vehicleServiceTypeKey(service);
-    if (key === 'Car Wash') {
-        const remark = parseVehicleServiceRemark(service) || {};
-        return String(remark.carWashPaymentStatus || '').toLowerCase() === 'paid';
-    }
-    const { label } = resolveOilServiceTableStatusLabel(service, asset);
-    return String(label || '').trim().toLowerCase() === 'complete';
+    const info =
+        key === 'Car Wash'
+            ? (() => {
+                  const row = buildCarWashRequestRowFromAsset(asset, { service });
+                  return { label: row.status, tone: row.statusTone };
+              })()
+            : resolveOilServiceTableStatusLabel(service, asset);
+    const label = String(info?.label || '').trim().toLowerCase();
+    const tone = String(info?.tone || '').trim().toLowerCase();
+    if (label === 'not paid') return false;
+    return (
+        tone === 'complete' ||
+        tone === 'rejected' ||
+        label === 'complete' ||
+        label === 'completed' ||
+        label === 'billed'
+    );
 }
 
 /** Latest services for a type, newest first (vehicle detail Service tab helpers). */
@@ -747,6 +768,45 @@ export function buildVehicleServiceTabRequestRowsFromAsset(asset, serviceType) {
             .filter((s) => isVehicleServiceTabRequestTableRow(s, asset))
             .map((s) => buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { service: s })),
     );
+}
+
+/** Every record of a service type for a vehicle — same row shape as the details Service tab. */
+export function buildVehicleAccessServiceRowsFromAsset(asset, serviceType) {
+    if (!asset) return [];
+    const type = String(serviceType || '').trim();
+    const matched = (Array.isArray(asset.services) ? asset.services : []).filter(
+        (s) => vehicleServiceTypeKey(s) === type,
+    );
+    const vehicleId = normalizeMongoId(asset._id);
+    const withIds = (rows) =>
+        (rows || []).map((row) => ({
+            ...row,
+            vehicleId,
+            serviceType: type,
+        }));
+
+    if (type === 'Oil Service') {
+        return withIds(
+            assignAndSortByVehicleServiceSl(
+                matched.map((s) => buildOilServiceScheduleRowFromAsset(asset, { service: s })),
+            ),
+        );
+    }
+    if (type === 'Car Wash') {
+        return withIds(
+            assignAndSortByVehicleServiceSl(
+                matched.map((s) => buildCarWashRequestRowFromAsset(asset, { service: s })),
+            ),
+        );
+    }
+    if (isVehicleServiceTabRequestType(type)) {
+        return withIds(
+            assignAndSortByVehicleServiceSl(
+                matched.map((s) => buildVehicleServiceTabRequestRowFromAsset(asset, type, { service: s })),
+            ),
+        );
+    }
+    return [];
 }
 
 export function findOpenVehicleServiceTabDraft(asset, serviceType) {

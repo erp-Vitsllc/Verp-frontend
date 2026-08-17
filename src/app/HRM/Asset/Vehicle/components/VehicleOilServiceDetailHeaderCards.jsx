@@ -5,7 +5,7 @@ import { Car, Settings } from 'lucide-react';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
-import { parseVehicleServiceRemark } from './vehicleServiceUtils';
+import { buildVehicleServiceTypeSummaryField, parseVehicleServiceRemark } from './vehicleServiceUtils';
 import { formatVehicleServiceReqNo } from '../utils/vehicleServiceReqNo';
 import {
     resolveOilServiceApprovalStageLabel,
@@ -75,6 +75,8 @@ function buildVehicleSummaryFields(vehicle, service) {
             tone: 'bg-slate-50 border-slate-100 text-slate-800',
         });
     }
+
+    fields.push(buildVehicleServiceTypeSummaryField(service, 'Oil Service'));
 
     return fields;
 }

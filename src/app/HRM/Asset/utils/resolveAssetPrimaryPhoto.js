@@ -1,5 +1,15 @@
+function pickCategoryPhoto(asset) {
+    const category = asset?.categoryId;
+    if (category && typeof category === 'object') {
+        return category.imagePreview || category.photo || null;
+    }
+    return null;
+}
+
 export function resolveAssetPrimaryPhoto(asset) {
     if (!asset) return null;
+    const categoryPhoto = pickCategoryPhoto(asset);
+    if (categoryPhoto) return categoryPhoto;
     const galleryFirst =
         Array.isArray(asset.images) && asset.images.length
             ? asset.images[0]?.url || asset.images[0]
@@ -8,11 +18,6 @@ export function resolveAssetPrimaryPhoto(asset) {
 }
 
 export function buildAssetGalleryImages(asset) {
-    const mainUrl = resolveAssetPrimaryPhoto(asset);
     const galleryImages = Array.isArray(asset?.images) ? asset.images : [];
-    const mainEntry = mainUrl
-        ? [{ _id: '__main__', url: mainUrl, caption: 'Main photo', date: asset.createdAt }]
-        : [];
-    const extraImages = galleryImages.filter((img) => !mainUrl || img?.url !== mainUrl);
-    return [...mainEntry, ...extraImages];
+    return galleryImages.filter((img) => img && (img.url || typeof img === 'string'));
 }

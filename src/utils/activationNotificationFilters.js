@@ -74,8 +74,11 @@ function isAssetApprovalActionable(item) {
 export function filterActionableDashboardItems(items) {
     const list = Array.isArray(items) ? items : [];
     return list.filter((item) => {
+        const type = String(item?.type || item?.requestType || '').trim();
         // Flowchart responsibility accepts live on Settings → FlowChart, not dashboard home.
-        if (String(item?.type || '').trim() === 'Responsibility Approval') return false;
+        if (type === 'Responsibility Approval') return false;
+        // Utility contract expiry bells are disabled — other expiry types stay.
+        if (type === 'Utility Contract Expiry') return false;
         if (ACTIVATION_NOTIFICATION_TYPES.has(item.type)) {
             return isActivationNotificationActionable(item);
         }

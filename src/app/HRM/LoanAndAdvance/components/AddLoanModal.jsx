@@ -31,11 +31,18 @@ export default function AddLoanModal({
     isResubmitting = false,
     scheduleOnlyEdit = false,
     employeeDetails = null,
+    forcedType = '',
+    lockApplicant = false,
+    selfService = false,
 }) {
     const { toast } = useToast();
-    const allowLoanType = canCreateLoan() || (Boolean(initialData) && initialData?.type === 'Loan');
-    const allowAdvanceType = canCreateAdvance() || (Boolean(initialData) && initialData?.type === 'Advance');
-    const defaultType = getDefaultLoanAdvanceType();
+    const allowLoanType = selfService
+        ? forcedType !== 'Advance'
+        : canCreateLoan() || (Boolean(initialData) && initialData?.type === 'Loan');
+    const allowAdvanceType = selfService
+        ? forcedType !== 'Loan'
+        : canCreateAdvance() || (Boolean(initialData) && initialData?.type === 'Advance');
+    const defaultType = forcedType || getDefaultLoanAdvanceType();
     const [formData, setFormData] = useState({
         employeeId: '',
         type: defaultType,
@@ -122,16 +129,17 @@ export default function AddLoanModal({
                     }
                 }
             } else {
-                // New Mode
+                const lockedEmp = lockApplicant && employees.length === 1 ? employees[0] : null;
+                const nextType = forcedType || getDefaultLoanAdvanceType();
                 setFormData({
-                    employeeId: '',
-                    type: getDefaultLoanAdvanceType(),
+                    employeeId: lockedEmp?.employeeId || '',
+                    type: nextType,
                     amount: '',
-                    duration: '',
+                    duration: nextType === 'Advance' ? 1 : '',
                     reason: '',
                     monthStart: new Date().toISOString().split('T')[0].slice(0, 7)
                 });
-                setSelectedEmployee(null);
+                setSelectedEmployee(lockedEmp);
                 setErrors({});
                 setEligibilityWarning('');
                 setVisaEligibilityWarning('');
@@ -139,9 +147,12 @@ export default function AddLoanModal({
                 setVisaConfirmOpen(false);
                 setVisaConfirmMessages([]);
                 setPendingForcedStatus(null);
+                if (lockedEmp) {
+                    checkEligibility(lockedEmp, nextType);
+                }
             }
         }
-    }, [isOpen, initialData, employees, scheduleOnlyEdit, employeeDetails]);
+    }, [isOpen, initialData, employees, scheduleOnlyEdit, employeeDetails, lockApplicant, forcedType]);
 
     // Resolve whether the current user is Flowchart HR (visa override privilege).
     useEffect(() => {
@@ -190,13 +201,13 @@ export default function AddLoanModal({
 
     // If Create Loan / Create Advance permission changes, drop unavailable type from the toggle.
     useEffect(() => {
-        if (!isOpen || initialData) return;
+        if (!isOpen || initialData || forcedType || selfService) return;
         if (formData.type === 'Loan' && !allowLoanType && allowAdvanceType) {
             setFormData((prev) => ({ ...prev, type: 'Advance' }));
         } else if (formData.type === 'Advance' && !allowAdvanceType && allowLoanType) {
             setFormData((prev) => ({ ...prev, type: 'Loan' }));
         }
-    }, [isOpen, initialData, formData.type, allowLoanType, allowAdvanceType]);
+    }, [isOpen, initialData, formData.type, allowLoanType, allowAdvanceType, forcedType, selfService]);
 
     // Handle Employee Selection & Eligibility Logic
     const employeeSelectOptions = useMemo(
@@ -278,7 +289,7 @@ export default function AddLoanModal({
     );
 
     const handleEmployeeChange = (empId) => {
-        if (scheduleOnlyEdit) return;
+        if (scheduleOnlyEdit || lockApplicant) return;
         const employee = employees.find(e => e.employeeId === empId);
 
         // Reset employee-specific fields but keep type
@@ -299,7 +310,7 @@ export default function AddLoanModal({
 
     // Re-check when type changes
     useEffect(() => {
-        if (scheduleOnlyEdit) return;
+        if (scheduleOnlyEdit || forcedType) return;
         const defaultDuration = formData.type === 'Advance' ? 1 : '';
         if (selectedEmployee) {
             setFormData(prev => ({ ...prev, amount: '', duration: defaultDuration }));
@@ -546,7 +557,9 @@ export default function AddLoanModal({
                 return;
             }
 
-            const targetStatus = forcedStatus || (initialData?.status || 'Draft');
+            const targetStatus = selfService
+                ? 'Draft'
+                : forcedStatus || (initialData?.status || 'Draft');
 
             // Prepare Payload
             const payload = {
@@ -569,6 +582,12 @@ export default function AddLoanModal({
                 toast({
                     title: "Success",
                     description: isResubmitting ? `${formData.type} request resubmitted successfully.` : `${formData.type} request updated successfully.`
+                });
+            } else if (selfService) {
+                await axiosInstance.post('/Employee/dashboard/self-loan-request', payload);
+                toast({
+                    title: 'Draft saved',
+                    description: `${formData.type} saved as a draft under your name.`,
                 });
             } else {
                 // New Mode - Create
@@ -627,6 +646,8 @@ export default function AddLoanModal({
         ? `Edit ${formData.type === 'Advance' ? 'Advance' : 'Loan'} Schedule`
         : isResubmitting
           ? 'Resubmit Loan / Advance'
+          : selfService
+            ? `Add ${forcedType === 'Advance' ? 'Advance' : 'Loan'}`
           : initialData
             ? `Edit ${formData.type === 'Advance' ? 'Advance' : 'Loan'}`
             : 'Add Loan / Advance';
@@ -634,9 +655,10 @@ export default function AddLoanModal({
     // Schedule-only edit locks identity fields; eligibility warnings must NOT lock the form
     // so users can switch Type / Employee when a check fails.
     const identityLocked = scheduleOnlyEdit;
+    const applicantLocked = scheduleOnlyEdit || lockApplicant;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className={`fixed inset-0 ${selfService ? 'z-[90]' : 'z-50'} flex items-center justify-center p-4`}>
             <div className="absolute inset-0 bg-black/40" />
             <div className="relative bg-white rounded-[22px] shadow-xl w-full max-w-[600px] p-6 flex flex-col max-h-[90vh]">
 
@@ -662,7 +684,7 @@ export default function AddLoanModal({
                         <select
                             value={formData.type}
                             onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                            disabled={identityLocked || (!allowLoanType && !allowAdvanceType)}
+                            disabled={applicantLocked || Boolean(forcedType) || (!allowLoanType && !allowAdvanceType)}
                             className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-gray-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
                             {allowLoanType ? <option value="Loan">Loan</option> : null}
@@ -681,8 +703,8 @@ export default function AddLoanModal({
                             options={employeeSelectOptions}
                             value={selectedEmployeeOption}
                             onChange={(opt) => handleEmployeeChange(opt?.value || '')}
-                            isDisabled={identityLocked}
-                            isClearable={!identityLocked}
+                            isDisabled={applicantLocked}
+                            isClearable={!applicantLocked}
                             isSearchable
                             placeholder="Search employee ID or name…"
                             noOptionsMessage={({ inputValue }) =>
@@ -870,11 +892,13 @@ export default function AddLoanModal({
                                 }
                                 handleSubmit(
                                     e,
-                                    isResubmitting
-                                        ? 'Pending'
-                                        : initialData?.status === 'Draft' || !initialData
-                                          ? 'Draft'
-                                          : initialData.status,
+                                    selfService
+                                        ? 'Draft'
+                                        : isResubmitting
+                                          ? 'Pending'
+                                          : initialData?.status === 'Draft' || !initialData
+                                            ? 'Draft'
+                                            : initialData.status,
                                 );
                             }}
                             disabled={submitting}

@@ -48,6 +48,7 @@ export default function AddAssetTypeModal({
     const [warrantyFile, setWarrantyFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
     const [selectedImage, setSelectedImage] = useState(null);
+    const [photoCleared, setPhotoCleared] = useState(false);
     const [showCropper, setShowCropper] = useState(false);
     const [imageScale, setImageScale] = useState(1);
     const [rotation, setRotation] = useState(0);
@@ -112,6 +113,7 @@ export default function AddAssetTypeModal({
                 setWarrantyFile(null);
                 setImagePreview(initialData.photo || initialData.imagePreview || initialData.assetPhoto || null);
                 setSelectedImage(null);
+                setPhotoCleared(false);
                 setShowCropper(false);
                 setRotation(0);
                 if (initialData.accessories && initialData.accessories.length > 0) {
@@ -152,6 +154,7 @@ export default function AddAssetTypeModal({
                 setInvoiceFile(null);
                 setImagePreview(null);
                 setSelectedImage(null);
+                setPhotoCleared(false);
                 setShowCropper(false);
                 setRotation(0);
                 setAccessories([{ name: '', description: '', price: '' }]);
@@ -184,15 +187,26 @@ export default function AddAssetTypeModal({
         }
     }, [isOpen, mode, preSelectedType, preSelectedCategory]);
 
-    // Auto-update image preview based on selected type (only if user hasn't uploaded one)
+    // Auto-fill photo from type when creating a category, or from category when creating an asset.
+    // Skip while editing, after the user removed the photo, or if they already picked one.
     useEffect(() => {
-        if ((mode === 'category' || mode === 'asset' || mode === 'default') && formData.type && !selectedImage) {
-            const selectedTypeObj = existingTypes.find(t => t.type === formData.type);
-            if (selectedTypeObj && selectedTypeObj.imagePreview) {
+        if (selectedImage || photoCleared || initialData) return;
+        if (mode === 'category' && formData.type) {
+            const selectedTypeObj = existingTypes.find((t) => t.type === formData.type);
+            if (selectedTypeObj?.imagePreview) {
                 setImagePreview(selectedTypeObj.imagePreview);
             }
+            return;
         }
-    }, [formData.type, mode, existingTypes, selectedImage]);
+        if ((mode === 'asset' || mode === 'default') && formData.category) {
+            const selectedCat = existingCategories.find(
+                (c) => (c.category || c.name) === formData.category
+            );
+            if (selectedCat?.imagePreview) {
+                setImagePreview(selectedCat.imagePreview);
+            }
+        }
+    }, [formData.type, formData.category, mode, existingTypes, existingCategories, selectedImage, photoCleared, initialData]);
 
     // Auto-calculate unassigned when total or assigned changes (only for non-asset modes)
     useEffect(() => {
@@ -243,6 +257,7 @@ export default function AddAssetTypeModal({
         }
         const reader = new FileReader();
         reader.onloadend = () => {
+            setPhotoCleared(false);
             setSelectedImage(reader.result);
             setShowCropper(true);
             setImageScale(1);
@@ -483,6 +498,9 @@ export default function AddAssetTypeModal({
                     payload.imagePreview = trimmed;
                     payload.photo = trimmed;
                 }
+            } else if (photoCleared) {
+                payload.imagePreview = '';
+                payload.photo = '';
             }
 
             if (initialData && initialData._id) {
@@ -535,6 +553,7 @@ export default function AddAssetTypeModal({
             setWarrantyFile(null);
             setImagePreview(null);
             setSelectedImage(null);
+            setPhotoCleared(false);
             setShowCropper(false);
             setAccessories([{ name: '', description: '', price: '' }]);
 
@@ -986,6 +1005,7 @@ export default function AddAssetTypeModal({
                                                     onClick={() => {
                                                         setImagePreview(null);
                                                         setSelectedImage(null);
+                                                        setPhotoCleared(true);
                                                     }}
                                                     className="p-1.5 bg-white/90 shadow-md rounded-full text-red-500 hover:bg-red-50 backdrop-blur-sm"
                                                 >

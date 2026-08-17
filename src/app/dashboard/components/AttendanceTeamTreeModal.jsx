@@ -199,6 +199,7 @@ export default function AttendanceTeamTreeModal({
                 timeOut: payload.timeOut ?? '',
                 reason: payload.reason || '',
                 attachmentName: payload.attachmentName || '',
+                leavePayType: payload.leavePayType || '',
             });
             onMarked?.(ids);
             setMarkMenuOpen(false);

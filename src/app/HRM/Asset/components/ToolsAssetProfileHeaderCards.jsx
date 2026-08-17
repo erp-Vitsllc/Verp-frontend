@@ -73,12 +73,12 @@ export default function ToolsAssetProfileHeaderCards({
                             <div className="flex flex-wrap gap-2 mb-3">
                                 <span
                                     className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${isTerminalAssetStatus(asset)
-                                            ? 'bg-rose-100 text-rose-800'
-                                            : asset?.pendingAction
-                                                ? 'bg-amber-100 text-amber-800'
-                                                : isAssetActivelyAssigned(asset)
-                                                    ? 'bg-[#5CD1FF] text-white'
-                                                    : 'bg-emerald-100 text-emerald-700'
+                                        ? 'bg-rose-100 text-rose-800'
+                                        : asset?.pendingAction
+                                            ? 'bg-amber-100 text-amber-800'
+                                            : isAssetActivelyAssigned(asset)
+                                                ? 'bg-[#5CD1FF] text-white'
+                                                : 'bg-emerald-100 text-emerald-700'
                                         }`}
                                 >
                                     {getAssetDetailsPrimaryStatusLabel(asset)}
@@ -163,9 +163,9 @@ export default function ToolsAssetProfileHeaderCards({
                                     <>
                                         <p className="text-[14px] font-black text-slate-900 uppercase tracking-tight truncate">
                                             {!isActiveCompanyAllocationUi &&
-                                            asset?.assignedTo &&
-                                            (isAssetActivelyAssigned(asset) || isAckPending) &&
-                                            title === holderName ? (
+                                                asset?.assignedTo &&
+                                                (isAssetActivelyAssigned(asset) || isAckPending) &&
+                                                title === holderName ? (
                                                 <EmployeeNameLink
                                                     employee={asset.assignedTo}
                                                     name={holderName}
@@ -243,8 +243,8 @@ export default function ToolsAssetProfileHeaderCards({
                                         if (!action.disabled) action.onClick?.();
                                     }}
                                     className={`${ACTION_BTN_BASE} ${action.disabled
-                                            ? 'opacity-50 cursor-not-allowed bg-slate-200/90 text-slate-500'
-                                            : 'hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700'
+                                        ? 'opacity-50 cursor-not-allowed bg-slate-200/90 text-slate-500'
+                                        : 'hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700'
                                         }`}
                                     style={{
                                         backgroundColor: action.disabled ? undefined : action.bgColor || '#dde5c8',
@@ -261,11 +261,10 @@ export default function ToolsAssetProfileHeaderCards({
                                         e.stopPropagation();
                                         if (!returnActionsDisabled) onOpenReturnActions();
                                     }}
-                                    className={`${ACTION_BTN_BASE} ${
-                                        returnActionsDisabled
+                                    className={`${ACTION_BTN_BASE} ${returnActionsDisabled
                                             ? 'opacity-50 cursor-not-allowed bg-slate-200/90 text-slate-500'
                                             : 'hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8]'
-                                    }`}
+                                        }`}
                                 >
                                     RETURN
                                 </button>

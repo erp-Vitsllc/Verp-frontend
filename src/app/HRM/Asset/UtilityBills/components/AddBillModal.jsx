@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Eye, Plus, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -992,6 +992,8 @@ export default function AddBillModal({
     /** Accounts may edit Account + Payable to on Item Table while viewing unpaid bills. */
     accountsCanEditLines = false,
     onAccountsSaveLines = null,
+    /** YYYY-MM from a payment-day notification — open Add Bills on that month. */
+    initialBillMonth = '',
 }) {
     const isViewMode = Boolean(viewBill) && !editBills;
     const isEditMode = Array.isArray(editBills) && editBills.length > 0;
@@ -1013,6 +1015,11 @@ export default function AddBillModal({
     const monthPickerRef = useRef(null);
     const duplicateCheckTimers = useRef({});
     const duplicateCheckSeq = useRef(0);
+    const listEntriesRef = useRef([]);
+    const mergedBillsRef = useRef([]);
+    const billMonthRef = useRef(billMonth);
+    const rowsRef = useRef([]);
+    const didInitMonthRef = useRef(false);
     const { toast } = useToast();
     const { employeeOptions, companyOptions } = usePayByPartyOptions(isOpen);
 
@@ -1120,6 +1127,11 @@ export default function AddBillModal({
         [existingBills, sessionBilled],
     );
 
+    listEntriesRef.current = listEntries;
+    mergedBillsRef.current = mergedBills;
+    billMonthRef.current = billMonth;
+    rowsRef.current = rows;
+
     const pendingBills = useMemo(
         () =>
             (existingBills || []).filter((bill) => {
@@ -1167,29 +1179,32 @@ export default function AddBillModal({
         return map;
     }, [pickerYear, listEntries, mergedBills, currentYm]);
 
-    const applyBillMonth = (ym, { preserveDraft = false, draftRows = [] } = {}) => {
+    const applyBillMonth = useCallback((ym, { preserveDraft = false, draftRows = [], closePicker = true } = {}) => {
         if (!/^\d{4}-\d{2}$/.test(String(ym || ''))) return;
-        const available = filterEntriesAvailableForBillMonth(listEntries, ym);
+        const entries = listEntriesRef.current;
+        const bills = mergedBillsRef.current;
+        const available = filterEntriesAvailableForBillMonth(entries, ym);
         if (!available.length) {
             setError(
                 `${titleFromBillMonth(ym)} has no accounts — none were created on or before this month.`,
             );
             return;
         }
-        if (isMonthFullyOccupied(available, mergedBills, ym)) {
+        if (isMonthFullyOccupied(available, bills, ym)) {
             setError(
                 `${titleFromBillMonth(ym)} is complete — every eligible account already has an Approved / Paid bill.`,
             );
             return;
         }
         // Only accounts created on/before this month, and not already billed.
-        const unbilled = filterUnbilledEntries(listEntries, mergedBills, ym);
+        const unbilled = filterUnbilledEntries(entries, bills, ym);
+        billMonthRef.current = ym;
         setBillMonth(ym);
         setPickerYear(yearFromBillMonth(ym));
-        setMonthPickerOpen(false);
+        if (closePicker) setMonthPickerOpen(false);
         setError('');
 
-        if (!listEntries.length) {
+        if (!entries.length) {
             setInfo('');
             return;
         }
@@ -1201,7 +1216,7 @@ export default function AddBillModal({
         setRows(buildRowsFromEntries(unbilled, scopedDraft));
 
         const occupiedCount = available.length - unbilled.length;
-        const skippedNew = listEntries.length - available.length;
+        const skippedNew = entries.length - available.length;
         if (unbilled.length === 0) {
             setInfo(
                 `No billable accounts for ${titleFromBillMonth(ym)} (none left unbilled, or none created yet for this month).`,
@@ -1222,14 +1237,16 @@ export default function AddBillModal({
         } else {
             setInfo('');
         }
-    };
+    }, []);
 
     useEffect(() => {
         if (!monthPickerOpen) return;
         const onDoc = (e) => {
-            if (monthPickerRef.current && !monthPickerRef.current.contains(e.target)) {
-                setMonthPickerOpen(false);
-            }
+            const node = monthPickerRef.current;
+            if (!node) return;
+            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+            if (node.contains(e.target) || path.includes(node)) return;
+            setMonthPickerOpen(false);
         };
         document.addEventListener('mousedown', onDoc);
         return () => document.removeEventListener('mousedown', onDoc);
@@ -1237,9 +1254,22 @@ export default function AddBillModal({
 
     useEffect(() => {
         if (!isOpen) {
+            didInitMonthRef.current = false;
             setMonthPickerOpen(false);
             return;
         }
+
+        if (didInitMonthRef.current) {
+            if (viewBill && !isEditMode) return;
+            if (isEditMode) return;
+            applyBillMonth(billMonthRef.current, {
+                preserveDraft: true,
+                draftRows: rowsRef.current,
+                closePicker: false,
+            });
+            return;
+        }
+        didInitMonthRef.current = true;
 
         setSessionBilled([]);
         setMonthPickerOpen(false);
@@ -1277,6 +1307,17 @@ export default function AddBillModal({
             setInfo(
                 'Edit bill details (Accounts / expense lines / amounts). Save, then Retry Zoho or Pay.',
             );
+            return;
+        }
+
+        const forcedMonth = /^\d{4}-\d{2}$/.test(String(initialBillMonth || '').trim())
+            ? String(initialBillMonth).trim()
+            : '';
+        if (forcedMonth) {
+            applyBillMonth(forcedMonth);
+            setBillMonth(forcedMonth);
+            setPickerYear(yearFromBillMonth(forcedMonth));
+            setDraftLoaded(false);
             return;
         }
 
@@ -1371,9 +1412,9 @@ export default function AddBillModal({
                 setInfo('');
             }
         }
-        // intentionally only re-init when modal opens / entry list type changes
+        // Re-filter when bills/entries arrive so the first month click is not stale.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, listEntries, monthlyRental, utilityType, viewBill, editBills, isEditMode]);
+    }, [isOpen, listEntries, existingBills, monthlyRental, utilityType, viewBill, editBills, isEditMode, initialBillMonth, applyBillMonth]);
 
     const allSelected = rows.length > 0 && rows.every((r) => r.selected);
     const someSelected = rows.some((r) => r.selected);
@@ -1836,7 +1877,12 @@ export default function AddBillModal({
                                                               ? `Select ${label} ${pickerYear} — accounts created by this month will show`
                                                               : `Select ${label} ${pickerYear}`
                                                 }
-                                                onClick={() => applyBillMonth(ym)}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    if (disabled) return;
+                                                    applyBillMonth(ym);
+                                                }}
                                                 className={`relative rounded-lg px-2 py-2.5 text-xs font-semibold transition-colors ${
                                                     disabled
                                                         ? 'bg-gray-100 text-gray-400 cursor-not-allowed line-through decoration-gray-300'

@@ -84,14 +84,12 @@ function statusClass(status) {
     return 'bg-slate-50 text-slate-600';
 }
 
-function RecordRow({ item }) {
+function RecordRow({ item, allowNavigate }) {
     const detail = itemDetail(item);
-    return (
-        <Link
-            href={item.href || '#'}
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/80 transition-colors"
-        >
+    const className =
+        'flex items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/80 transition-colors';
+    const content = (
+        <>
             <div className="min-w-0">
                 <p className="text-[11px] sm:text-xs font-bold text-slate-800 truncate">{item.code}</p>
                 {detail ? <p className="text-[10px] text-slate-400 truncate">{detail}</p> : null}
@@ -103,6 +101,16 @@ function RecordRow({ item }) {
                 </span>
                 {item.date ? <p className="text-[9px] text-slate-400 mt-0.5">{formatDate(item.date)}</p> : null}
             </div>
+        </>
+    );
+
+    if (!allowNavigate) {
+        return <div className={className}>{content}</div>;
+    }
+
+    return (
+        <Link href={item.href || '#'} onClick={(e) => e.stopPropagation()} className={className}>
+            {content}
         </Link>
     );
 }
@@ -125,23 +133,33 @@ function ExpandedHeader({ card, count }) {
     );
 }
 
-function CardBody({ card, items }) {
+function CardBody({ card, items, allowNavigate }) {
     const Icon = card.Icon;
 
     return (
-        <div className="flex-1 mx-3 mb-3 rounded-xl bg-slate-50 min-h-0 overflow-hidden flex flex-col">
+        <div className="mx-3 mb-3 rounded-xl bg-slate-50">
             {items.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-1.5 px-3">
+                <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-8">
                     <Icon size={26} className={card.fadedIcon} />
                     <p className="text-xs text-slate-400">{card.emptyText}</p>
                 </div>
             ) : (
-                <div className="flex-1 overflow-y-auto py-0.5">
+                <div className="py-0.5">
                     {items.map((item) => (
-                        <RecordRow key={item.id} item={item} />
+                        <RecordRow key={item.id} item={item} allowNavigate={allowNavigate} />
                     ))}
                 </div>
             )}
+        </div>
+    );
+}
+
+function CollapsedBody({ card, count }) {
+    const Icon = card.Icon;
+    return (
+        <div className="mx-3 mb-3 flex-1 rounded-xl bg-slate-50 flex flex-col items-center justify-center gap-1.5 px-3 min-h-0">
+            <Icon size={26} className={card.fadedIcon} />
+            {count === 0 ? <p className="text-xs text-slate-400">{card.emptyText}</p> : null}
         </div>
     );
 }
@@ -195,10 +213,10 @@ export default function DashboardEmployeeHrCards() {
             <motion.div
                 layout
                 className={cn(
-                    'grid gap-3',
+                    'grid gap-3 items-stretch',
                     expandedKey
-                        ? 'grid-cols-[minmax(0,1fr)_9.75rem] grid-rows-3 h-[22.5rem]'
-                        : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 auto-rows-[11.75rem]',
+                        ? 'grid-cols-[minmax(0,1fr)_9.75rem] grid-rows-3'
+                        : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4',
                 )}
                 transition={{ layout: SPRING }}
             >
@@ -219,7 +237,7 @@ export default function DashboardEmployeeHrCards() {
                                 'dash-card-lift bg-white border border-slate-100 shadow-sm cursor-pointer overflow-hidden flex min-w-0 rounded-2xl',
                                 !expandedKey && 'flex-col h-[11.75rem]',
                                 isMain && 'flex-col col-start-1 row-start-1 row-span-3 h-full',
-                                isSide && cn('col-start-2', SIDE_ROW[sideIndex]),
+                                isSide && cn('col-start-2 h-full min-h-0', SIDE_ROW[sideIndex]),
                             )}
                         >
                             {isSide ? (
@@ -229,14 +247,18 @@ export default function DashboardEmployeeHrCards() {
                                     <ExpandedHeader card={card} count={items.length} />
                                     <AnimatePresence initial={false} mode="popLayout">
                                         <motion.div
-                                            key="body"
-                                            className="flex-1 flex flex-col min-h-0"
+                                            key={isMain ? 'list' : 'preview'}
+                                            className="flex flex-col flex-1 min-h-0"
                                             initial={{ opacity: 0 }}
                                             animate={{ opacity: 1 }}
                                             exit={{ opacity: 0 }}
                                             transition={{ duration: 0.2, ease: 'easeOut' }}
                                         >
-                                            <CardBody card={card} items={items} />
+                                            {isMain ? (
+                                                <CardBody card={card} items={items} allowNavigate />
+                                            ) : (
+                                                <CollapsedBody card={card} count={items.length} />
+                                            )}
                                         </motion.div>
                                     </AnimatePresence>
                                 </>

@@ -7,6 +7,7 @@ import {
     FineFormCard,
     formatMoney,
 } from '../../Fine/components/FineFormCardShared';
+import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 
 export default function LoanFormCard1({ loan, employee, formatDate, typeLabel }) {
     if (!loan) return null;
@@ -25,6 +26,7 @@ export default function LoanFormCard1({ loan, employee, formatDate, typeLabel })
         >
             <DetailGrid>
                 <DetailField label={`${typeLabel} No.`} value={loan.loanId || '—'} />
+                <DetailField label="Zoho No." value={formatZohoDocumentNumber(loan)} />
                 <DetailField label="Date" value={formatDate(loan.appliedDate || loan.createdAt)} />
                 <DetailField label="Applicant Name" value={loan.applicantName} />
                 <DetailField label="Department" value={loan.department} />

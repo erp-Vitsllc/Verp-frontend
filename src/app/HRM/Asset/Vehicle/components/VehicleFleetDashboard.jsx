@@ -5,35 +5,55 @@ import { useRouter } from 'next/navigation';
 import ScrollReveal from '@/components/ScrollReveal';
 import RechartsBox from '@/components/charts/RechartsBox';
 import {
-    Area,
-    AreaChart,
     Bar,
     BarChart,
     CartesianGrid,
     Cell,
     LabelList,
-    Legend,
     Pie,
     PieChart,
     Tooltip as RechartsTooltip,
     XAxis,
     YAxis,
 } from 'recharts';
-import { AlertCircle, Clock, Gauge, MapPin, RefreshCw, Route, TrendingUp, XCircle } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Clock, Gauge, MapPin, RefreshCw, Route, TrendingUp, XCircle } from 'lucide-react';
 import { DatePicker, MonthPicker } from '@/components/ui/date-picker';
-import { endOfDay, format, parse, startOfDay } from 'date-fns';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
+import {
+    endOfDay,
+    endOfMonth,
+    endOfYear,
+    format,
+    parse,
+    startOfDay,
+    startOfMonth,
+    startOfYear,
+    subMonths,
+    subYears,
+} from 'date-fns';
 import {
     FLORAL_CLASS_COLORS,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetAnalyticsTheme';
 import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import { navHrefProps } from '@/utils/linkContextMenu';
+import { VEHICLE_SERVICE_TYPES } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 
 const YEAR_COLORS = FLORAL_CLASS_COLORS;
 
 const FLEET_DASHBOARD_LIST_RETURN = '/HRM/Asset/Vehicle/dashboard';
 
-function sortFleetModalRows(rows) {
+function sortFleetModalRows(rows, modalKind) {
+    if (modalKind === 'vehicleFines') {
+        return [...(rows || [])].sort((a, b) => {
+            const at = a?.awardedDate ? new Date(a.awardedDate).getTime() : 0;
+            const bt = b?.awardedDate ? new Date(b.awardedDate).getTime() : 0;
+            const aOk = Number.isFinite(at) ? at : 0;
+            const bOk = Number.isFinite(bt) ? bt : 0;
+            if (aOk !== bOk) return bOk - aOk;
+            return String(a?.fineId || '').localeCompare(String(b?.fineId || ''));
+        });
+    }
     const n = (v) => {
         const x = Number(v);
         return Number.isFinite(x) ? x : NaN;
@@ -70,13 +90,19 @@ function formatFleetModalDaysCount(days) {
     return `${n} Days`;
 }
 
+function formatFleetModalAmount(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '—';
+    return `AED ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
 function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
     if (!open || !bucket) return null;
-    const rows = sortFleetModalRows(bucket.docs || []);
     const modalKind =
         bucket.modalKind ||
-        rows.find((r) => r?.modalKind)?.modalKind ||
+        (bucket.docs || []).find((r) => r?.modalKind)?.modalKind ||
         'default';
+    const rows = sortFleetModalRows(bucket.docs || [], modalKind);
     const showExpiryCols =
         modalKind === 'default' &&
         rows.some(
@@ -142,9 +168,29 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
                                             <th className={`${thClass} text-right`}>No of Days Service Pending</th>
                                         </>
                                     ) : null}
+                                    {modalKind === 'vehicleFines' ? (
+                                        <>
+                                            <th className={thClass}>Fine ID</th>
+                                            <th className={thClass}>Type</th>
+                                            <th className={thClass}>Vehicle No</th>
+                                            <th className={thClass}>Offender</th>
+                                            <th className={`${thClass} text-right`}>Amount</th>
+                                            <th className={`${thClass} text-center`}>Date</th>
+                                            <th className={thClass}>Status</th>
+                                        </>
+                                    ) : null}
+                                    {modalKind === 'modelYear' ? (
+                                        <>
+                                            <th className={thClass}>Asset ID</th>
+                                            <th className={thClass}>Name</th>
+                                            <th className={thClass}>Vehicle No / Plate</th>
+                                        </>
+                                    ) : null}
                                     {modalKind !== 'assigned' &&
                                     modalKind !== 'unassigned' &&
-                                    modalKind !== 'pendingService' ? (
+                                    modalKind !== 'pendingService' &&
+                                    modalKind !== 'vehicleFines' &&
+                                    modalKind !== 'modelYear' ? (
                                         <>
                                             <th className={thClass}>Card Name</th>
                                             <th className={thClass}>Vehicle No / Plate</th>
@@ -160,12 +206,18 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
                             </thead>
                             <tbody className="divide-y divide-gray-50">
                                 {rows.map((row, idx) => {
-                                    const rowHref = row?.vehicleId
-                                        ? buildVehicleDetailPath(row.vehicleId, {
-                                            tab: row.tab || 'basic',
-                                            focusCard: row.focusCard || undefined,
-                                        })
+                                    const fineHref = row?.fineRecordId || row?._id
+                                        ? `/HRM/Fine/${row.fineRecordId || row._id}`
                                         : '';
+                                    const rowHref =
+                                        modalKind === 'vehicleFines'
+                                            ? fineHref
+                                            : row?.vehicleId
+                                              ? buildVehicleDetailPath(row.vehicleId, {
+                                                    tab: row.tab || 'basic',
+                                                    focusCard: row.focusCard || undefined,
+                                                })
+                                              : '';
                                     return (
                                     <tr
                                         key={`${row.vehicleId || row.assetId || idx}-${row.serviceId || row.cardName || ''}-${idx}`}
@@ -232,9 +284,51 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
                                                 </td>
                                             </>
                                         ) : null}
+                                        {modalKind === 'vehicleFines' ? (
+                                            <>
+                                                <td className="px-4 py-4 text-sm font-bold text-blue-600">
+                                                    {row.fineId || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm font-semibold text-gray-700">
+                                                    {row.fineType || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">
+                                                    {row.plate || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm text-gray-700">
+                                                    {row.offender || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-black text-rose-600 tabular-nums">
+                                                    {formatFleetModalAmount(row.amount)}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm font-medium text-gray-600 text-center">
+                                                    {formatFleetModalExpiryDate(row.awardedDate)}
+                                                </td>
+                                                <td className="px-4 py-4">
+                                                    <span className="px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700">
+                                                        {row.fineStatus || '—'}
+                                                    </span>
+                                                </td>
+                                            </>
+                                        ) : null}
+                                        {modalKind === 'modelYear' ? (
+                                            <>
+                                                <td className="px-4 py-4 text-sm font-semibold text-gray-700">
+                                                    {row.assetId || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm text-gray-700">
+                                                    {row.vehicleName || '—'}
+                                                </td>
+                                                <td className="px-4 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">
+                                                    {row.plate || '—'}
+                                                </td>
+                                            </>
+                                        ) : null}
                                         {modalKind !== 'assigned' &&
                                         modalKind !== 'unassigned' &&
-                                        modalKind !== 'pendingService' ? (
+                                        modalKind !== 'pendingService' &&
+                                        modalKind !== 'vehicleFines' &&
+                                        modalKind !== 'modelYear' ? (
                                             <>
                                                 <td className="px-4 py-4">
                                                     <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">
@@ -276,20 +370,6 @@ function FleetDashboardDetailModal({ open, bucket, onClose, onRowClick }) {
             </div>
         </div>
     );
-}
-
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function buildCalendarYearMonthSeries(rows) {
-    const map = new Map((rows || []).map((r) => [String(r.label), Number(r.total) || 0]));
-    const year = new Date().getFullYear();
-    return Array.from({ length: 12 }, (_, i) => {
-        const key = `${year}-${String(i + 1).padStart(2, '0')}`;
-        return {
-            name: MONTH_SHORT[i],
-            total: Math.round(map.get(key) ?? 0),
-        };
-    });
 }
 
 function formatCostAxisTick(value) {
@@ -344,6 +424,27 @@ function LocatorPeriodTabBar({ options, value, onChange }) {
     );
 }
 
+function CompactPeriodTabBar({ options, value, onChange }) {
+    return (
+        <div className="flex flex-wrap gap-0.5 p-0.5 bg-slate-100 rounded-lg">
+            {options.map((o) => (
+                <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => onChange(o.id)}
+                    className={`px-1.5 py-1 rounded-md text-[8px] font-black uppercase tracking-wide transition-all ${
+                        value === o.id
+                            ? 'bg-white text-teal-700 shadow-sm ring-1 ring-teal-200/50'
+                            : 'text-slate-500 hover:text-teal-700 hover:bg-white/80'
+                    }`}
+                >
+                    {o.label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 const RUNNING_PERIOD_TABS = [
     { id: 'day', label: 'Day' },
     { id: 'week', label: 'Week' },
@@ -361,6 +462,190 @@ const SALIK_PERIOD_TABS = [
     { id: 'week', label: 'Week' },
     { id: 'month', label: 'Month' },
 ];
+
+const SERVICE_COST_PERIOD_TABS = [
+    { id: 'thisMonth', label: 'This Month' },
+    { id: 'thisYear', label: 'This Year' },
+    { id: 'prevMonth', label: 'Prev Month' },
+    { id: 'prevYr', label: 'Prev Yr' },
+    { id: 'custom', label: 'Custom' },
+];
+
+function resolveServiceCostRange(period, customFrom, customTo) {
+    const now = new Date();
+    if (period === 'thisMonth') {
+        return { start: startOfMonth(now), end: endOfMonth(now) };
+    }
+    if (period === 'thisYear') {
+        return { start: startOfYear(now), end: endOfYear(now) };
+    }
+    if (period === 'prevMonth') {
+        const prev = subMonths(now, 1);
+        return { start: startOfMonth(prev), end: endOfMonth(prev) };
+    }
+    if (period === 'prevYr') {
+        const prev = subYears(now, 1);
+        return { start: startOfYear(prev), end: endOfYear(prev) };
+    }
+    if (period === 'custom') {
+        const start = customFrom
+            ? startOfDay(parse(customFrom, 'yyyy-MM-dd', new Date()))
+            : null;
+        const end = customTo
+            ? endOfDay(parse(customTo, 'yyyy-MM-dd', new Date()))
+            : null;
+        return {
+            start: start && !Number.isNaN(start.getTime()) ? start : null,
+            end: end && !Number.isNaN(end.getTime()) ? end : null,
+        };
+    }
+    return { start: startOfMonth(now), end: endOfMonth(now) };
+}
+
+function addDays(date, days) {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+}
+
+function startOfWeekSunday(date) {
+    const start = startOfDay(date);
+    start.setDate(start.getDate() - start.getDay());
+    return start;
+}
+
+function collectVehicleServiceTimes(vehicle) {
+    const fromEvents = Array.isArray(vehicle?.serviceEventDates) ? vehicle.serviceEventDates : [];
+    const fromCosts = Array.isArray(vehicle?.serviceCosts)
+        ? vehicle.serviceCosts.map((s) => s?.date)
+        : [];
+    const raw = fromEvents.length ? fromEvents : fromCosts;
+    return raw
+        .map((d) => new Date(d).getTime())
+        .filter((t) => Number.isFinite(t));
+}
+
+function resolveUsageRange(period, customFrom, customTo) {
+    if (period === 'custom' && !customFrom && !customTo) {
+        return resolveServiceCostRange('thisMonth');
+    }
+    return resolveServiceCostRange(period, customFrom, customTo);
+}
+
+function countTimesInRange(times, startMs, endMs) {
+    return times.filter((t) => t >= startMs && t <= endMs).length;
+}
+
+function buildSevenDayBars(times, endDate) {
+    const end = endOfDay(endDate);
+    const rows = [];
+    for (let i = 6; i >= 0; i -= 1) {
+        const start = startOfDay(addDays(end, -i));
+        const dayEnd = endOfDay(start);
+        rows.push({
+            name: format(start, 'd MMM'),
+            count: countTimesInRange(times, start.getTime(), dayEnd.getTime()),
+        });
+    }
+    return rows;
+}
+
+function buildUsagePeriodBars(vehicles, period, customFrom, customTo, { vehicleWeek } = {}) {
+    const range = resolveUsageRange(period, customFrom, customTo);
+    const start = range.start;
+    const end = range.end;
+    if (!start || !end) return [];
+    const times = (vehicles || []).flatMap(collectVehicleServiceTimes);
+
+    if (vehicleWeek && (period === 'thisMonth' || period === 'prevMonth')) {
+        return buildSevenDayBars(times, end);
+    }
+
+    const spanDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    const useMonths =
+        period === 'thisYear' || period === 'prevYr' || (period === 'custom' && spanDays > 45);
+    const useDays = period === 'custom' && spanDays <= 14;
+
+    if (useMonths) {
+        const rows = [];
+        let cur = startOfMonth(start);
+        const last = startOfMonth(end);
+        while (cur.getTime() <= last.getTime()) {
+            const s = startOfMonth(cur);
+            const e = endOfMonth(cur);
+            rows.push({
+                name: format(s, 'MMM yyyy'),
+                count: countTimesInRange(times, s.getTime(), e.getTime()),
+            });
+            cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+        }
+        return rows;
+    }
+
+    if (useDays) {
+        const rows = [];
+        let cur = startOfDay(start);
+        const last = startOfDay(end);
+        while (cur.getTime() <= last.getTime()) {
+            const dayEnd = endOfDay(cur);
+            rows.push({
+                name: format(cur, 'd MMM'),
+                count: countTimesInRange(times, cur.getTime(), dayEnd.getTime()),
+            });
+            cur = addDays(cur, 1);
+        }
+        return rows;
+    }
+
+    const rows = [];
+    let weekStart = startOfWeekSunday(start);
+    let n = 1;
+    while (weekStart.getTime() <= end.getTime()) {
+        const weekEnd = endOfDay(addDays(weekStart, 6));
+        const clipStart = Math.max(weekStart.getTime(), start.getTime());
+        const clipEnd = Math.min(weekEnd.getTime(), end.getTime());
+        rows.push({
+            name: `W${n}`,
+            count: countTimesInRange(times, clipStart, clipEnd),
+        });
+        n += 1;
+        weekStart = addDays(weekStart, 7);
+    }
+    return rows;
+}
+
+function fleetVehiclePlate(v) {
+    const number = String(v?.plateNumber || '').trim();
+    const emirate = String(v?.plateEmirate || '').trim();
+    if (number && emirate) return `${emirate} ${number}`;
+    if (number) return number;
+    return String(v?.label || v?.assetId || '').trim() || '—';
+}
+
+function fleetVehicleName(v) {
+    return String(v?.name || v?.vehicleBrand || '').trim() || '—';
+}
+
+function serviceEventInRange(dateVal, start, end) {
+    if (!dateVal) return false;
+    const t = new Date(dateVal).getTime();
+    if (!Number.isFinite(t)) return false;
+    if (start && t < start.getTime()) return false;
+    if (end && t > end.getTime()) return false;
+    return true;
+}
+
+function normalizeServiceCostType(raw) {
+    const type = String(raw || '').trim();
+    if (VEHICLE_SERVICE_TYPES.includes(type)) return type;
+    return 'Other';
+}
+
+function vehicleServiceCostEventsInRange(vehicle, start, end, customIncomplete) {
+    const events = Array.isArray(vehicle?.serviceCosts) ? vehicle.serviceCosts : [];
+    if (customIncomplete) return events;
+    return events.filter((s) => serviceEventInRange(s.date, start, end));
+}
 
 function formatLocatorOptionLabel(opt) {
     const base = opt.sublabel ? `${opt.label} · ${opt.sublabel}` : opt.label;
@@ -735,20 +1020,50 @@ const compactChartPanelClass =
 
 const COMPACT_ROW_CHART_HEIGHT = 200;
 const COMPACT_ROW_CHART_MIN = 200;
-const COMPACT_ROW_CARD_HEIGHT = 268;
+const COMPACT_ROW_CARD_HEIGHT = 320;
+const LOWER_ROW_CHART_HEIGHT = 260;
+const LOWER_ROW_CARD_MIN = 360;
 
-function CompactChartCard({ title, subtitle, children }) {
+function CompactChartCard({ title, subtitle, headerExtra, children }) {
     return (
         <div
             className={`${compactChartPanelClass} h-full flex flex-col`}
-            style={{ minHeight: COMPACT_ROW_CARD_HEIGHT, height: COMPACT_ROW_CARD_HEIGHT }}
+            style={{ minHeight: COMPACT_ROW_CARD_HEIGHT }}
         >
             <div className="shrink-0">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-0.5 group-hover/chart:text-teal-800 transition-colors">
                     {title}
                 </h3>
+                {headerExtra ? <div className="mb-2">{headerExtra}</div> : null}
+                {subtitle || !headerExtra ? (
+                    <p
+                        className={`text-[11px] mb-2 min-h-[16px] ${
+                            subtitle ? 'text-slate-400' : 'text-transparent select-none'
+                        }`}
+                        aria-hidden={!subtitle}
+                    >
+                        {subtitle || '\u00A0'}
+                    </p>
+                ) : null}
+            </div>
+            <div className="flex-1 min-h-0">{children}</div>
+        </div>
+    );
+}
+
+function LowerChartCard({ title, subtitle, headerExtra, children }) {
+    return (
+        <div
+            className={`${chartPanelClass} h-full flex flex-col`}
+            style={{ minHeight: LOWER_ROW_CARD_MIN }}
+        >
+            <div className="shrink-0 min-h-[72px]">
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1 group-hover/chart:text-teal-800 transition-colors">
+                    {title}
+                </h3>
+                {headerExtra ? <div className="mb-2">{headerExtra}</div> : null}
                 <p
-                    className={`text-[11px] mb-2 min-h-[16px] ${
+                    className={`text-xs mb-3 min-h-[16px] ${
                         subtitle ? 'text-slate-400' : 'text-transparent select-none'
                     }`}
                     aria-hidden={!subtitle}
@@ -808,6 +1123,63 @@ const tooltipStyle = {
     color: '#5c4f55',
 };
 
+function ModelYearDonutPanel({ pieData, chartAnim, onSliceClick }) {
+    if (!pieData.length) {
+        return (
+            <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center px-4">
+                No model years on record.
+            </p>
+        );
+    }
+
+    return (
+        <div className="flex-1 min-h-0 min-w-0">
+            <RechartsBox
+                height={LOWER_ROW_CHART_HEIGHT}
+                minHeight={LOWER_ROW_CHART_HEIGHT}
+                className="h-full"
+                fillParent
+            >
+                <PieChart>
+                    <Pie
+                        data={pieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={58}
+                        outerRadius={92}
+                        paddingAngle={2}
+                        animationDuration={chartAnim}
+                        animationEasing="ease-out"
+                        onClick={(entry) => {
+                            const payload = entry?.payload || entry;
+                            if (payload?.name) onSliceClick?.(payload);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                    >
+                        {pieData.map((_, i) => (
+                            <Cell
+                                key={`year-${i}`}
+                                fill={YEAR_COLORS[i % YEAR_COLORS.length]}
+                                stroke="#fff"
+                                strokeWidth={2}
+                            />
+                        ))}
+                    </Pie>
+                    <RechartsTooltip
+                        formatter={(value, _name, ctx) => [
+                            `${Number(value)} vehicle(s)`,
+                            `Year ${ctx?.payload?.name || ''}`,
+                        ]}
+                        contentStyle={tooltipStyle}
+                    />
+                </PieChart>
+            </RechartsBox>
+        </div>
+    );
+}
+
 export default function VehicleFleetDashboard({
     data,
     loading,
@@ -819,7 +1191,6 @@ export default function VehicleFleetDashboard({
     onLocatorRefresh,
 }) {
     const router = useRouter();
-    const [usagePeriod, setUsagePeriod] = useState('week');
     const [locatorRunningPeriod, setLocatorRunningPeriod] = useState('day');
     const [locatorRunningDayKey, setLocatorRunningDayKey] = useState('');
     const [locatorRunningWeekKey, setLocatorRunningWeekKey] = useState('');
@@ -835,6 +1206,17 @@ export default function VehicleFleetDashboard({
     const [chartsReady, setChartsReady] = useState(false);
     const [detailModalOpen, setDetailModalOpen] = useState(false);
     const [detailModalBucket, setDetailModalBucket] = useState(null);
+    const [serviceCostPeriod, setServiceCostPeriod] = useState('thisMonth');
+    const [serviceCostCustomFrom, setServiceCostCustomFrom] = useState('');
+    const [serviceCostCustomTo, setServiceCostCustomTo] = useState('');
+    const [serviceCostDrillVehicleId, setServiceCostDrillVehicleId] = useState(null);
+    const [vehicleFinePeriod, setVehicleFinePeriod] = useState('thisMonth');
+    const [vehicleFineCustomFrom, setVehicleFineCustomFrom] = useState('');
+    const [vehicleFineCustomTo, setVehicleFineCustomTo] = useState('');
+    const [usagePeriod, setUsagePeriod] = useState('thisMonth');
+    const [usageCustomFrom, setUsageCustomFrom] = useState('');
+    const [usageCustomTo, setUsageCustomTo] = useState('');
+    const [usageDrillVehicleId, setUsageDrillVehicleId] = useState(null);
 
     useEffect(() => {
         if (!loading && data) {
@@ -869,54 +1251,160 @@ export default function VehicleFleetDashboard({
         if (salik.month?.defaultKey) setSalikMonthKey(salik.month.defaultKey);
     }, [locatorData?.salikWise]);
 
+    const serviceCostRange = useMemo(
+        () => resolveServiceCostRange(serviceCostPeriod, serviceCostCustomFrom, serviceCostCustomTo),
+        [serviceCostPeriod, serviceCostCustomFrom, serviceCostCustomTo],
+    );
+
     const serviceCostByVehicle = useMemo(() => {
         if (!data?.vehicles?.length) return [];
-        return [...data.vehicles]
-            .filter((v) => v.totalServiceCost > 0)
-            .sort((a, b) => b.totalServiceCost - a.totalServiceCost)
-            .slice(0, 8)
-            .map((v) => ({
-                name: v.label,
-                total: Math.round(v.totalServiceCost),
-            }));
-    }, [data]);
+        const { start, end } = serviceCostRange;
+        const customIncomplete =
+            serviceCostPeriod === 'custom' && !serviceCostCustomFrom && !serviceCostCustomTo;
+        const rows = [...data.vehicles]
+            .map((v) => {
+                const events = Array.isArray(v.serviceCosts) ? v.serviceCosts : null;
+                let total;
+                if (events && !customIncomplete) {
+                    total = events.reduce((sum, s) => {
+                        if (!serviceEventInRange(s.date, start, end)) return sum;
+                        return sum + (Number(s.value) || 0);
+                    }, 0);
+                } else if (events && customIncomplete) {
+                    total = events.reduce((sum, s) => sum + (Number(s.value) || 0), 0);
+                } else {
+                    total = Number(v.totalServiceCost) || 0;
+                }
+                return {
+                    vehicleId: v._id,
+                    name: v.label,
+                    total: Math.round(total),
+                };
+            })
+            .filter((v) => v.total > 0)
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 8);
+        return withShortNames(rows);
+    }, [data, serviceCostRange, serviceCostPeriod, serviceCostCustomFrom, serviceCostCustomTo]);
+
+    const serviceCostDrillVehicle = useMemo(() => {
+        if (!serviceCostDrillVehicleId || !data?.vehicles?.length) return null;
+        return data.vehicles.find((v) => String(v._id) === String(serviceCostDrillVehicleId)) || null;
+    }, [data?.vehicles, serviceCostDrillVehicleId]);
+
+    const serviceCostByType = useMemo(() => {
+        if (!serviceCostDrillVehicle) return [];
+        const { start, end } = serviceCostRange;
+        const customIncomplete =
+            serviceCostPeriod === 'custom' && !serviceCostCustomFrom && !serviceCostCustomTo;
+        const events = vehicleServiceCostEventsInRange(
+            serviceCostDrillVehicle,
+            start,
+            end,
+            customIncomplete,
+        );
+        const totals = Object.fromEntries(VEHICLE_SERVICE_TYPES.map((type) => [type, 0]));
+        let other = 0;
+        for (const s of events) {
+            const amount = Number(s.value) || 0;
+            if (!amount) continue;
+            const type = normalizeServiceCostType(s.serviceType);
+            if (type in totals) totals[type] += amount;
+            else other += amount;
+        }
+        const rows = VEHICLE_SERVICE_TYPES.map((type) => ({
+            name: type,
+            total: Math.round(totals[type]),
+        }));
+        if (other > 0) rows.push({ name: 'Other', total: Math.round(other) });
+        return withShortNames(rows);
+    }, [serviceCostDrillVehicle, serviceCostRange, serviceCostPeriod, serviceCostCustomFrom, serviceCostCustomTo]);
+
+    const serviceCostChartData = serviceCostDrillVehicle ? serviceCostByType : serviceCostByVehicle;
+    const serviceCostChartEmpty = !serviceCostDrillVehicle && serviceCostByVehicle.length === 0;
+
+    const vehicleFineRange = useMemo(
+        () => resolveServiceCostRange(vehicleFinePeriod, vehicleFineCustomFrom, vehicleFineCustomTo),
+        [vehicleFinePeriod, vehicleFineCustomFrom, vehicleFineCustomTo],
+    );
+
+    const vehicleFinesByVehicle = useMemo(() => {
+        const { start, end } = vehicleFineRange;
+        const customIncomplete =
+            vehicleFinePeriod === 'custom' && !vehicleFineCustomFrom && !vehicleFineCustomTo;
+        return (data?.finesByVehicle || [])
+            .map((row) => {
+                const allFines = Array.isArray(row.fines) ? row.fines : [];
+                const fines = customIncomplete
+                    ? allFines
+                    : allFines.filter((fine) => serviceEventInRange(fine.awardedDate, start, end));
+                const total = fines.reduce((sum, fine) => sum + (Number(fine.amount) || 0), 0);
+                return {
+                    ...row,
+                    fines,
+                    name: row.label || row.plate || '—',
+                    total: Math.round(total),
+                };
+            })
+            .filter((row) => row.total > 0);
+    }, [data?.finesByVehicle, vehicleFineRange, vehicleFinePeriod, vehicleFineCustomFrom, vehicleFineCustomTo]);
+
+    const vehicleFinesChartData = useMemo(
+        () => withShortNames(vehicleFinesByVehicle.filter((row) => row.total > 0)),
+        [vehicleFinesByVehicle],
+    );
 
     const vehicleValueBars = useMemo(() => {
         if (!data?.vehicles?.length) return [];
-        return [...data.vehicles]
-            .filter((v) => v.assetValue > 0)
-            .sort((a, b) => b.assetValue - a.assetValue)
-            .slice(0, 5)
+        const rows = [...data.vehicles]
             .map((v) => ({
+                vehicleId: v._id,
                 name: v.label,
-                value: Math.round(v.assetValue),
-            }));
+                value: Math.round(Number(v.assetValue) || 0),
+            }))
+            .sort((a, b) => b.value - a.value);
+        return withShortNames(rows);
     }, [data]);
 
-    const serviceCostMonthData = useMemo(() => {
-        return buildCalendarYearMonthSeries(data?.serviceCostByMonth);
-    }, [data?.serviceCostByMonth]);
-
-    const hasServiceCostData = useMemo(
-        () => serviceCostMonthData.some((row) => row.total > 0),
-        [serviceCostMonthData],
-    );
-
     const pieData = useMemo(() => {
-        return (data?.modelYearDistribution || []).map((row) => ({
-            name: row.year,
-            value: row.count,
-        }));
-    }, [data?.modelYearDistribution]);
+        const vehicles = data?.vehicles || [];
+        return (data?.modelYearDistribution || []).map((row) => {
+            const year = String(row.year || 'Unknown').trim() || 'Unknown';
+            const docs = vehicles
+                .filter((v) => {
+                    const y = (v.modelYear || 'Unknown').toString().trim() || 'Unknown';
+                    return y === year;
+                })
+                .map((v) => ({
+                    vehicleId: v._id,
+                    assetId: v.assetId,
+                    vehicleName: fleetVehicleName(v),
+                    plate: fleetVehiclePlate(v),
+                    tab: 'basic',
+                }));
+            return {
+                name: year,
+                value: Number(row.count) || docs.length,
+                docs,
+            };
+        });
+    }, [data?.modelYearDistribution, data?.vehicles]);
+
+    const usageDrillVehicle = useMemo(() => {
+        if (!usageDrillVehicleId || !data?.vehicles?.length) return null;
+        return data.vehicles.find((v) => String(v._id) === String(usageDrillVehicleId)) || null;
+    }, [data?.vehicles, usageDrillVehicleId]);
 
     const usageChartData = useMemo(() => {
-        const block = data?.usageByPeriod?.[usagePeriod];
-        if (!block?.labels?.length) return [];
-        return block.labels.map((label, i) => ({
-            name: label,
-            count: block.usage[i] ?? 0,
-        }));
-    }, [data?.usageByPeriod, usagePeriod]);
+        const vehicles = usageDrillVehicle ? [usageDrillVehicle] : data?.vehicles || [];
+        return buildUsagePeriodBars(
+            vehicles,
+            usagePeriod,
+            usageCustomFrom,
+            usageCustomTo,
+            { vehicleWeek: Boolean(usageDrillVehicle) },
+        );
+    }, [data?.vehicles, usageDrillVehicle, usagePeriod, usageCustomFrom, usageCustomTo]);
 
     const odometerChartData = useMemo(
         () => withShortNames(mapLocatorSeries(locatorData?.odometerByVehicle)),
@@ -1168,6 +1656,9 @@ export default function VehicleFleetDashboard({
     const registrationExpiresWithin30 =
         r.registrationExpiresWithin30 ??
         (Number(r.registration?.due || 0) + Number(r.registration?.dueSoon || 0));
+    const upcomingOilServiceRows = Array.isArray(r.upcomingOilServiceRows)
+        ? r.upcomingOilServiceRows
+        : [];
 
     const openDetailModal = (bucket) => {
         setDetailModalBucket(bucket);
@@ -1180,6 +1671,12 @@ export default function VehicleFleetDashboard({
     };
 
     const handleDetailRowClick = (row) => {
+        if (row?.fineRecordId || (row?.modalKind === 'vehicleFine' && row?._id)) {
+            const fineId = row.fineRecordId || row._id;
+            closeDetailModal();
+            navigateFromList(router, `/HRM/Fine/${fineId}`, FLEET_DASHBOARD_LIST_RETURN);
+            return;
+        }
         const vehicleId = row?.vehicleId;
         if (!vehicleId) return;
         const path = buildVehicleDetailPath(vehicleId, {
@@ -1197,7 +1694,7 @@ export default function VehicleFleetDashboard({
         <div className="space-y-6">
             <div className="flex flex-col xl:flex-row gap-6 mb-2 min-h-[320px]">
                 {/* Card 1 — Oil / Registration + Document Expiry (company-list style) */}
-                <ScrollReveal delayMs={0} durationMs={600} className="flex-1 min-w-0">
+                <ScrollReveal delayMs={0} durationMs={600} className="xl:flex-[2] flex-1 min-w-0">
                     <div className="h-full min-h-[320px] bg-white rounded-xl shadow-sm border border-gray-100 flex p-6 gap-6 overflow-hidden">
                         <div className="w-[150px] shrink-0 flex flex-col gap-4">
                             {[
@@ -1316,10 +1813,10 @@ export default function VehicleFleetDashboard({
                     </div>
                 </ScrollReveal>
 
-                {/* Card 2 — 2x2 status grid + empty half */}
+                {/* Card 2 — 2x2 status grid */}
                 <ScrollReveal delayMs={80} durationMs={600} className="flex-1 min-w-0">
-                    <div className="h-full min-h-[320px] bg-white rounded-xl shadow-sm border border-gray-100 flex p-6 gap-6 overflow-hidden">
-                        <div className="flex-1 grid grid-cols-2 gap-4 min-w-0 content-stretch">
+                    <div className="h-full min-h-[320px] bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                        <div className="h-full grid grid-cols-2 gap-3 content-stretch">
                             {[
                                 {
                                     label: 'Assigned',
@@ -1369,18 +1866,79 @@ export default function VehicleFleetDashboard({
                                     key={item.label}
                                     type="button"
                                     onClick={item.onClick}
-                                    className="bg-gray-50 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center p-3 hover:bg-white hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                                    className="bg-gray-50 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center p-2 hover:bg-white hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
                                 >
                                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 leading-tight px-1">
                                         {item.label}
                                     </span>
-                                    <span className="text-4xl font-black" style={{ color: '#dc2626' }}>
+                                    <span className="text-3xl font-black" style={{ color: '#dc2626' }}>
                                         <AnimatedCount value={item.value || 0} />
                                     </span>
                                 </button>
                             ))}
                         </div>
-                        <div className="flex-1 min-w-0 rounded-lg border border-dashed border-gray-200 bg-gray-50/40" aria-hidden="true" />
+                    </div>
+                </ScrollReveal>
+
+                {/* Card 3 — upcoming events */}
+                <ScrollReveal delayMs={140} durationMs={600} className="flex-1 min-w-0">
+                    <div className="h-full min-h-[320px] max-h-[360px] bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex flex-col">
+                        <div className="flex items-baseline justify-between gap-2">
+                            <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em]">
+                                Upcoming Events
+                            </h3>
+                            <span className="text-xs font-black text-gray-500 tabular-nums">
+                                {upcomingOilServiceRows.length}
+                            </span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1 mb-3">
+                            Next oil service by vehicle · soonest first
+                        </p>
+                        {upcomingOilServiceRows.length === 0 ? (
+                            <div className="flex-1 flex items-center justify-center text-center text-xs font-semibold text-gray-400 px-2">
+                                No upcoming oil service dates.
+                            </div>
+                        ) : (
+                            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+                                {upcomingOilServiceRows.map((row, idx) => {
+                                    const days = Number(row?.daysRemaining);
+                                    const pillClass = !Number.isFinite(days)
+                                        ? 'bg-gray-100 text-gray-500'
+                                        : days <= 7
+                                          ? 'bg-red-100 text-red-600'
+                                          : days <= 30
+                                            ? 'bg-amber-100 text-amber-700'
+                                            : 'bg-emerald-50 text-emerald-700';
+                                    return (
+                                        <button
+                                            key={`${row.vehicleId || row.assetId || idx}-${idx}`}
+                                            type="button"
+                                            onClick={() => handleDetailRowClick(row)}
+                                            className="w-full flex items-center justify-between gap-3 bg-gray-50 rounded-lg border border-gray-100 p-2.5 text-left hover:bg-white hover:shadow-md transition-all duration-300 cursor-pointer active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block text-sm font-bold text-gray-800 truncate">
+                                                    {row.plate || row.assetId || '—'}
+                                                </span>
+                                                <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide truncate">
+                                                    {row.cardName || 'Oil / Next Service'}
+                                                </span>
+                                            </span>
+                                            <span className="shrink-0 text-right">
+                                                <span className="block text-[11px] font-semibold text-gray-600 tabular-nums">
+                                                    {formatFleetModalExpiryDate(row.expiryDate)}
+                                                </span>
+                                                <span
+                                                    className={`inline-block mt-1 text-[10px] font-black px-2 py-0.5 rounded-full tabular-nums ${pillClass}`}
+                                                >
+                                                    {formatFleetModalRemaining(row.daysRemaining)}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 </ScrollReveal>
             </div>
@@ -1392,76 +1950,34 @@ export default function VehicleFleetDashboard({
                 onRowClick={handleDetailRowClick}
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
                 <ScrollReveal delayMs={0} durationMs={700} className="h-full">
                     <CompactChartCard
-                        title="Service cost by month"
-                        subtitle="Total maintenance spend across the year."
+                        title="Vehicle fines"
+                        subtitle="Total fine amounts by vehicle. Click a bar for the fine list."
+                        headerExtra={
+                            <div className="space-y-1.5">
+                                <CompactPeriodTabBar
+                                    options={SERVICE_COST_PERIOD_TABS}
+                                    value={vehicleFinePeriod}
+                                    onChange={setVehicleFinePeriod}
+                                />
+                                {vehicleFinePeriod === 'custom' ? (
+                                    <DateRangePicker
+                                        startValue={vehicleFineCustomFrom}
+                                        endValue={vehicleFineCustomTo}
+                                        onStartChange={setVehicleFineCustomFrom}
+                                        onEndChange={setVehicleFineCustomTo}
+                                        placeholder="Select date range"
+                                        className="h-8 min-w-0 w-full max-w-full text-[10px] px-2"
+                                    />
+                                ) : null}
+                            </div>
+                        }
                     >
-                        {!hasServiceCostData ? (
+                        {vehicleFinesChartData.length === 0 ? (
                             <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
-                                No service spend recorded yet.
-                            </p>
-                        ) : (
-                            <RechartsBox
-                                height={COMPACT_ROW_CHART_HEIGHT}
-                                minHeight={COMPACT_ROW_CHART_MIN}
-                                className="h-full"
-                                fillParent
-                            >
-                                <AreaChart data={serviceCostMonthData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                                    <defs>
-                                        <linearGradient id="fleetServiceCostGrad" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#0d9488" stopOpacity={0.4} />
-                                            <stop offset="95%" stopColor="#0d9488" stopOpacity={0.03} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                                    <XAxis
-                                        dataKey="name"
-                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        interval={0}
-                                    />
-                                    <YAxis
-                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        width={40}
-                                        tickFormatter={formatCostAxisTick}
-                                        domain={[0, 'auto']}
-                                    />
-                                    <RechartsTooltip
-                                        formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Total']}
-                                        contentStyle={tooltipStyle}
-                                    />
-                                    <Area
-                                        type="monotone"
-                                        dataKey="total"
-                                        stroke="#0d9488"
-                                        strokeWidth={2.5}
-                                        fill="url(#fleetServiceCostGrad)"
-                                        fillOpacity={1}
-                                        baseValue={0}
-                                        connectNulls
-                                        dot={false}
-                                        activeDot={{ r: 5, fill: '#0f766e', stroke: '#fff', strokeWidth: 2 }}
-                                        isAnimationActive={chartsReady}
-                                        animationDuration={chartAnim}
-                                        animationEasing="ease-out"
-                                    />
-                                </AreaChart>
-                            </RechartsBox>
-                        )}
-                    </CompactChartCard>
-                </ScrollReveal>
-
-                <ScrollReveal delayMs={80} durationMs={700} className="h-full">
-                    <CompactChartCard title="Service cost by vehicle">
-                        {serviceCostByVehicle.length === 0 ? (
-                            <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
-                                No per-vehicle service costs yet.
+                                No vehicle fines in this period.
                             </p>
                         ) : (
                             <RechartsBox
@@ -1471,38 +1987,64 @@ export default function VehicleFleetDashboard({
                                 fillParent
                             >
                                 <BarChart
-                                    data={serviceCostByVehicle}
-                                    layout="vertical"
-                                    margin={{ left: 4, right: 64, top: 2, bottom: 2 }}
+                                    data={vehicleFinesChartData}
+                                    margin={{ top: 18, right: 8, left: 0, bottom: vehicleFinesChartData.length > 4 ? 36 : 8 }}
                                     barCategoryGap="18%"
                                 >
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                                    <XAxis type="number" hide />
-                                    <YAxis
-                                        type="category"
-                                        dataKey="name"
-                                        width={72}
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                                    <XAxis
+                                        dataKey="chartName"
                                         tick={{ fontSize: 9, fill: '#64748b' }}
+                                        interval={0}
+                                        angle={vehicleFinesChartData.length > 4 ? -28 : 0}
+                                        textAnchor={vehicleFinesChartData.length > 4 ? 'end' : 'middle'}
+                                        height={vehicleFinesChartData.length > 4 ? 42 : 24}
                                         axisLine={false}
                                         tickLine={false}
                                     />
+                                    <YAxis
+                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        width={40}
+                                        tickFormatter={formatCostAxisTick}
+                                    />
                                     <RechartsTooltip
-                                        formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Total']}
+                                        formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Fines']}
+                                        labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
                                         contentStyle={tooltipStyle}
                                     />
                                     <Bar
                                         dataKey="total"
-                                        fill="#0284c7"
-                                        radius={[0, 6, 6, 0]}
-                                        maxBarSize={16}
+                                        fill="#e11d48"
+                                        radius={[6, 6, 0, 0]}
+                                        maxBarSize={36}
+                                        className="cursor-pointer"
                                         animationDuration={chartAnim}
                                         animationEasing="ease-out"
+                                        onClick={(entry, index) => {
+                                            const rows = vehicleFinesChartData || [];
+                                            const row =
+                                                (entry && entry.payload) ||
+                                                (typeof index === 'number' && rows[index] ? rows[index] : null) ||
+                                                entry;
+                                            if (!row || (!row.fines && !row.name)) return;
+                                            if (row.vehicleId) setUsageDrillVehicleId(String(row.vehicleId));
+                                            const fines = row.fines || [];
+                                            openDetailModal({
+                                                name: row.name || row.label,
+                                                title: `Vehicle fines: ${row.plate || row.name || row.label || 'Vehicle'}`,
+                                                subtitle: `${fines.length} fine${fines.length === 1 ? '' : 's'} · ${formatFleetModalAmount(row.total)}`,
+                                                modalKind: 'vehicleFines',
+                                                docs: fines,
+                                            });
+                                        }}
                                     >
                                         <LabelList
                                             dataKey="total"
-                                            position="right"
+                                            position="top"
                                             formatter={(v) => `AED ${Number(v).toLocaleString()}`}
-                                            style={{ fontSize: 10, fill: '#475569', fontWeight: 600 }}
+                                            style={{ fontSize: 9, fill: '#475569', fontWeight: 600 }}
                                         />
                                     </Bar>
                                 </BarChart>
@@ -1511,11 +2053,53 @@ export default function VehicleFleetDashboard({
                     </CompactChartCard>
                 </ScrollReveal>
 
-                <ScrollReveal delayMs={160} durationMs={750} className="h-full">
-                    <CompactChartCard title="Vehicle model year">
-                        {pieData.length === 0 ? (
+                <ScrollReveal delayMs={80} durationMs={700} className="h-full">
+                    <CompactChartCard
+                        title={
+                            serviceCostDrillVehicle
+                                ? `Service cost · ${serviceCostDrillVehicle.label || 'Vehicle'}`
+                                : 'Service cost by vehicle'
+                        }
+                        subtitle={
+                            serviceCostDrillVehicle
+                                ? 'Each bar is a service type for this vehicle. Click Back for all vehicles.'
+                                : 'Click a vehicle bar to see cost by service type.'
+                        }
+                        headerExtra={
+                            <div className="space-y-1.5">
+                                {serviceCostDrillVehicle ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setServiceCostDrillVehicleId(null)}
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wide text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-100"
+                                    >
+                                        <ChevronLeft size={12} />
+                                        All vehicles
+                                    </button>
+                                ) : null}
+                                <CompactPeriodTabBar
+                                    options={SERVICE_COST_PERIOD_TABS}
+                                    value={serviceCostPeriod}
+                                    onChange={setServiceCostPeriod}
+                                />
+                                {serviceCostPeriod === 'custom' ? (
+                                    <DateRangePicker
+                                        startValue={serviceCostCustomFrom}
+                                        endValue={serviceCostCustomTo}
+                                        onStartChange={setServiceCostCustomFrom}
+                                        onEndChange={setServiceCostCustomTo}
+                                        placeholder="Select date range"
+                                        className="h-8 min-w-0 w-full max-w-full text-[10px] px-2"
+                                    />
+                                ) : null}
+                            </div>
+                        }
+                    >
+                        {serviceCostChartEmpty ? (
                             <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
-                                No model years on record.
+                                {serviceCostDrillVehicle
+                                    ? 'No service costs for this vehicle in this period.'
+                                    : 'No service costs in this period.'}
                             </p>
                         ) : (
                             <RechartsBox
@@ -1524,65 +2108,128 @@ export default function VehicleFleetDashboard({
                                 className="h-full"
                                 fillParent
                             >
-                                <PieChart>
-                                    <Pie
-                                        data={pieData}
-                                        dataKey="value"
-                                        nameKey="name"
-                                        cx="50%"
-                                        cy="42%"
-                                        innerRadius={38}
-                                        outerRadius={58}
-                                        paddingAngle={2}
-                                        animationDuration={chartAnim}
-                                        animationEasing="ease-out"
-                                    >
-                                        {pieData.map((_, i) => (
-                                            <Cell key={`year-${i}`} fill={YEAR_COLORS[i % YEAR_COLORS.length]} stroke="#fff" strokeWidth={2} />
-                                        ))}
-                                    </Pie>
-                                    <Legend
-                                        verticalAlign="bottom"
-                                        iconType="circle"
-                                        wrapperStyle={{ fontSize: 8, paddingTop: 0, lineHeight: '12px' }}
+                                <BarChart
+                                    data={serviceCostChartData}
+                                    margin={{
+                                        top: 18,
+                                        right: 8,
+                                        left: 0,
+                                        bottom: serviceCostChartData.length > 4 ? 36 : 8,
+                                    }}
+                                    barCategoryGap="18%"
+                                >
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                                    <XAxis
+                                        dataKey="chartName"
+                                        tick={{ fontSize: 9, fill: '#64748b' }}
+                                        interval={0}
+                                        angle={serviceCostChartData.length > 4 ? -28 : 0}
+                                        textAnchor={serviceCostChartData.length > 4 ? 'end' : 'middle'}
+                                        height={serviceCostChartData.length > 4 ? 42 : 24}
+                                        axisLine={false}
+                                        tickLine={false}
+                                    />
+                                    <YAxis
+                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        width={40}
+                                        tickFormatter={formatCostAxisTick}
                                     />
                                     <RechartsTooltip
-                                        formatter={(value, _name, ctx) => [`${Number(value)} vehicle(s)`, `Year ${ctx?.payload?.name || ''}`]}
+                                        formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Total']}
+                                        labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
                                         contentStyle={tooltipStyle}
                                     />
-                                </PieChart>
+                                    <Bar
+                                        dataKey="total"
+                                        fill="#0284c7"
+                                        radius={[6, 6, 0, 0]}
+                                        maxBarSize={36}
+                                        className={serviceCostDrillVehicle ? undefined : 'cursor-pointer'}
+                                        animationDuration={chartAnim}
+                                        animationEasing="ease-out"
+                                        onClick={(entry, index) => {
+                                            if (serviceCostDrillVehicle) return;
+                                            const rows = serviceCostByVehicle || [];
+                                            const row =
+                                                (entry && entry.payload) ||
+                                                (typeof index === 'number' && rows[index] ? rows[index] : null) ||
+                                                entry;
+                                            const vehicleId = row?.vehicleId;
+                                            if (!vehicleId) return;
+                                            setServiceCostDrillVehicleId(String(vehicleId));
+                                            setUsageDrillVehicleId(String(vehicleId));
+                                        }}
+                                    >
+                                        {serviceCostDrillVehicle
+                                            ? serviceCostChartData.map((row, i) => (
+                                                  <Cell
+                                                      key={`svc-type-${row.name}`}
+                                                      fill={YEAR_COLORS[i % YEAR_COLORS.length]}
+                                                  />
+                                              ))
+                                            : null}
+                                        <LabelList
+                                            dataKey="total"
+                                            position="top"
+                                            formatter={(v) => {
+                                                const n = Number(v);
+                                                if (!n) return '';
+                                                return `AED ${n.toLocaleString()}`;
+                                            }}
+                                            style={{ fontSize: 9, fill: '#475569', fontWeight: 600 }}
+                                        />
+                                    </Bar>
+                                </BarChart>
                             </RechartsBox>
                         )}
                     </CompactChartCard>
                 </ScrollReveal>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                <ScrollReveal delayMs={100} durationMs={750}>
-                    <div className={chartPanelClass}>
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1 group-hover/chart:text-teal-800 transition-colors">
-                            Vehicle value by asset
-                        </h3>
-                        <p className="text-xs text-slate-400 mb-4">Top vehicles by recorded asset value.</p>
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-stretch">
+                <ScrollReveal delayMs={100} durationMs={750} className="h-full">
+                    <LowerChartCard
+                        title="Vehicle value by asset"
+                        subtitle="All vehicles. No recorded value shows as 0."
+                    >
                         {vehicleValueBars.length === 0 ? (
-                            <p className="text-sm text-slate-400 py-12 text-center">No asset values set.</p>
+                            <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
+                                No vehicles on record.
+                            </p>
                         ) : (
-                            <RechartsBox height={300} minHeight={240}>
-                                <BarChart data={vehicleValueBars} margin={{ top: 8, right: 8, left: 0, bottom: 28 }}>
+                            <RechartsBox
+                                height={LOWER_ROW_CHART_HEIGHT}
+                                minHeight={LOWER_ROW_CHART_HEIGHT}
+                                className="h-full"
+                                fillParent
+                            >
+                                <BarChart
+                                    data={vehicleValueBars}
+                                    margin={{
+                                        top: 8,
+                                        right: 8,
+                                        left: 0,
+                                        bottom: vehicleValueBars.length > 4 ? 36 : 8,
+                                    }}
+                                    barCategoryGap="18%"
+                                >
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                     <XAxis
-                                        dataKey="name"
-                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
+                                        dataKey="chartName"
+                                        tick={{ fontSize: 9, fill: '#94a3b8' }}
                                         interval={0}
-                                        angle={-22}
-                                        textAnchor="end"
-                                        height={52}
+                                        angle={vehicleValueBars.length > 4 ? -28 : 0}
+                                        textAnchor={vehicleValueBars.length > 4 ? 'end' : 'middle'}
+                                        height={vehicleValueBars.length > 4 ? 52 : 24}
                                         axisLine={false}
                                         tickLine={false}
                                     />
                                     <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} />
                                     <RechartsTooltip
                                         formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Value']}
+                                        labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
                                         contentStyle={tooltipStyle}
                                     />
                                     <Bar
@@ -1590,22 +2237,74 @@ export default function VehicleFleetDashboard({
                                         fill="#7c3aed"
                                         radius={[8, 8, 0, 0]}
                                         maxBarSize={48}
+                                        className="cursor-pointer"
                                         animationDuration={chartAnim}
                                         animationEasing="ease-out"
+                                        onClick={(entry, index) => {
+                                            const rows = vehicleValueBars || [];
+                                            const row =
+                                                (entry && entry.payload) ||
+                                                (typeof index === 'number' && rows[index] ? rows[index] : null) ||
+                                                entry;
+                                            const vehicleId = row?.vehicleId;
+                                            if (!vehicleId) return;
+                                            setUsageDrillVehicleId(String(vehicleId));
+                                        }}
                                     />
                                 </BarChart>
                             </RechartsBox>
                         )}
-                    </div>
+                    </LowerChartCard>
                 </ScrollReveal>
 
-                <ScrollReveal delayMs={180} durationMs={750}>
-                    <div className={chartPanelClass}>
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1 group-hover/chart:text-teal-800 transition-colors">
-                            Vehicle usage (service events)
-                        </h3>
-                        <PeriodTabs value={usagePeriod} onChange={setUsagePeriod} />
-                        <RechartsBox height={260} minHeight={200}>
+                <ScrollReveal delayMs={180} durationMs={750} className="h-full">
+                    <LowerChartCard
+                        title={
+                            usageDrillVehicle
+                                ? `Vehicle usage · ${usageDrillVehicle.label || 'Vehicle'}`
+                                : 'Vehicle usage (service events)'
+                        }
+                        subtitle={
+                            usageDrillVehicle
+                                ? 'This vehicle: one week of days, including 0.'
+                                : 'All vehicles by week. Click a vehicle bar for that vehicle week of days.'
+                        }
+                        headerExtra={
+                            <div className="space-y-1.5">
+                                {usageDrillVehicle ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setUsageDrillVehicleId(null)}
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wide text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-100"
+                                    >
+                                        <ChevronLeft size={12} />
+                                        All vehicles
+                                    </button>
+                                ) : null}
+                                <CompactPeriodTabBar
+                                    options={SERVICE_COST_PERIOD_TABS}
+                                    value={usagePeriod}
+                                    onChange={setUsagePeriod}
+                                />
+                                {usagePeriod === 'custom' ? (
+                                    <DateRangePicker
+                                        startValue={usageCustomFrom}
+                                        endValue={usageCustomTo}
+                                        onStartChange={setUsageCustomFrom}
+                                        onEndChange={setUsageCustomTo}
+                                        placeholder="Select date range"
+                                        className="h-8 min-w-0 w-full max-w-full text-[10px] px-2"
+                                    />
+                                ) : null}
+                            </div>
+                        }
+                    >
+                        <RechartsBox
+                            height={LOWER_ROW_CHART_HEIGHT}
+                            minHeight={LOWER_ROW_CHART_HEIGHT}
+                            className="h-full"
+                            fillParent
+                        >
                             <BarChart data={usageChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
@@ -1622,7 +2321,31 @@ export default function VehicleFleetDashboard({
                                 />
                             </BarChart>
                         </RechartsBox>
-                    </div>
+                    </LowerChartCard>
+                </ScrollReveal>
+
+                <ScrollReveal delayMs={240} durationMs={750} className="h-full">
+                    <LowerChartCard
+                        title="Vehicle model year"
+                        subtitle="Hover a slice for the year. Click to open the list."
+                    >
+                        <ModelYearDonutPanel
+                            pieData={pieData}
+                            chartAnim={chartAnim}
+                            onSliceClick={(entry) => {
+                                if (!entry?.name) return;
+                                openDetailModal({
+                                    name: entry.name,
+                                    title: `Model year ${entry.name}`,
+                                    subtitle: `${Number(entry.value) || 0} vehicle${
+                                        Number(entry.value) === 1 ? '' : 's'
+                                    }`,
+                                    modalKind: 'modelYear',
+                                    docs: entry.docs || [],
+                                });
+                            }}
+                        />
+                    </LowerChartCard>
                 </ScrollReveal>
             </div>
 

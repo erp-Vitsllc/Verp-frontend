@@ -37,7 +37,9 @@ const VEHICLE_INBOX_TYPES_WITHOUT_ASSET = new Set([
 
 export function isPendingInboxRowVisible(row) {
     if (!row) return false;
-    const requestType = String(row.requestType || '').trim();
+    const requestType = String(row.requestType || row.type || '').trim();
+    // Utility contract expiry bells are disabled — keep payment / status-change rows.
+    if (requestType === 'Utility Contract Expiry') return false;
     if (requestType === 'Asset Owner On Duty') return true;
     if (requestType === 'Asset On Duty Request') return true;
     if (
@@ -50,7 +52,6 @@ export function isPendingInboxRowVisible(row) {
     if (
         requestType === 'Utility Bill Payment' ||
         requestType === 'Utility Bill Payment Reminder' ||
-        requestType === 'Utility Contract Expiry' ||
         requestType === 'Utility Entry Status Change'
     ) {
         return true;

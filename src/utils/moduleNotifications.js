@@ -61,7 +61,7 @@ export const MODULE_ORDER = [
     'Payments',
 ];
 
-const LOAN_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance', 'Employee Advance Request']);
+const LOAN_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance', 'Employee Advance Request', 'Employee Loan Request']);
 
 function valueOr(settled, idx, fallback) {
     return settled[idx]?.status === 'fulfilled' ? settled[idx].value : fallback;
@@ -117,6 +117,8 @@ function pendingInboxToItem(row, moduleCategory) {
                         : `Leave change: ${row?.requestedStatusLabel || 'status update'}`
                     : ''),
             extra3: row?.extra3 || '',
+            assetType: row?.assetType || '',
+            hubRequest: row?.hubRequest === true,
             subjectName: row?.subjectName || '',
             requestType,
             dashboardActionId: row?.dashboardActionId,
@@ -658,6 +660,8 @@ export function moduleNotificationToPendingInboxRow(item = {}) {
         extra1: item.extra1,
         extra2: item.extra2,
         extra3: item.extra3,
+        assetType: item.assetType || '',
+        hubRequest: item.hubRequest === true,
         asset: item.asset,
         fine: item.fine,
         reward: item.reward,

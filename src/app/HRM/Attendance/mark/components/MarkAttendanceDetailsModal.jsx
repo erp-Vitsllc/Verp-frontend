@@ -115,6 +115,7 @@ export default function MarkAttendanceDetailsModal({
     const [timeOut, setTimeOut] = useState('');
     const [reason, setReason] = useState('');
     const [attachment, setAttachment] = useState(null);
+    const [leavePayType, setLeavePayType] = useState('');
     const [error, setError] = useState('');
     const fileRef = useRef(null);
     const bulkCount = Array.isArray(employeeIds) ? employeeIds.length : 0;
@@ -132,6 +133,7 @@ export default function MarkAttendanceDetailsModal({
 
         setReason('');
         setAttachment(null);
+        setLeavePayType('');
         setError('');
         if (fileRef.current) fileRef.current.value = '';
 
@@ -189,14 +191,26 @@ export default function MarkAttendanceDetailsModal({
                 return;
             }
         }
+        if (markKey === 'authorized_leave' && leavePayType !== 'paid' && leavePayType !== 'unpaid') {
+            setError('Choose Paid or Unpaid for authorized leave.');
+            return;
+        }
+        const payType = markKey === 'authorized_leave' ? leavePayType : '';
+        const payLabel =
+            payType === 'paid'
+                ? 'Authorized Leave (Paid)'
+                : payType === 'unpaid'
+                  ? 'Authorized Leave (Unpaid)'
+                  : markLabel;
         onSave?.({
             markKey,
-            markLabel,
+            markLabel: payLabel,
             timeIn: config.showTimes ? timeIn : null,
             timeOut: config.showTimes ? timeOut : null,
             reason: config.showReason ? reason.trim() : '',
             attachmentName: attachment?.name || '',
             attachmentFile: attachment || null,
+            leavePayType: payType,
         });
     };
 
@@ -233,6 +247,40 @@ export default function MarkAttendanceDetailsModal({
                 </div>
 
                 <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+                    {markKey === 'authorized_leave' ? (
+                        <div>
+                            <span className="block text-xs font-semibold text-gray-600 mb-1.5">
+                                Leave pay
+                            </span>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { key: 'paid', label: 'Paid' },
+                                    { key: 'unpaid', label: 'Unpaid' },
+                                ].map((opt) => {
+                                    const active = leavePayType === opt.key;
+                                    return (
+                                        <button
+                                            key={opt.key}
+                                            type="button"
+                                            onClick={() => {
+                                                setLeavePayType(opt.key);
+                                                setError('');
+                                            }}
+                                            className={`h-10 rounded-lg border text-sm font-semibold transition-all ${
+                                                active
+                                                    ? opt.key === 'paid'
+                                                        ? 'border-[#2563EB] bg-blue-50 text-blue-800'
+                                                        : 'border-[#4F46E5] bg-indigo-50 text-indigo-800'
+                                                    : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : null}
                     {config.showTimes ? (
                         <div className="grid grid-cols-2 gap-3">
                             <label className="block">

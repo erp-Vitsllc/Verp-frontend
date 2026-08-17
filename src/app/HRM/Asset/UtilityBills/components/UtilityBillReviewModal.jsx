@@ -27,6 +27,7 @@ import { usePayByPartyOptions } from './PayByPartySelects';
 import AttachmentSourceModal from './AttachmentSourceModal';
 import AddBillModal from './AddBillModal';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
+import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 
 const PAY_BY_EMPLOYEE = 'employee';
 const PAY_BY_COMPANY = 'company';
@@ -108,6 +109,7 @@ function associatedZohoBillsFromRow(row = {}) {
                 zohoBillId: String(line?.zohoBillId || sharedZohoBillId || '').trim(),
                 // Same Zoho bill # for every Add-more line (they are line items, not separate bills).
                 billNumber: baseBillNo || '—',
+                zohoBillNumber: formatZohoDocumentNumber(row),
                 payByEmployeeName: String(line?.payByEmployeeName || '').trim(),
                 payByCompanyName: String(line?.payByCompanyName || '').trim(),
             };
@@ -134,6 +136,7 @@ function associatedZohoBillsFromRow(row = {}) {
         amount: 0,
         zohoBillId,
         billNumber: baseBillNo || '—',
+        zohoBillNumber: formatZohoDocumentNumber(row),
     }));
 }
 
@@ -204,6 +207,7 @@ function buildReviewRows(entries, bills) {
                 provider: bill.provider || entryProvider(entry),
                 zohoVendorId: String(bill.zohoVendorId || '').trim(),
                 zohoBillId: String(bill.zohoBillId || '').trim(),
+                zohoBillNumber: String(bill.zohoBillNumber || '').trim(),
                 zohoBillIds: Array.isArray(bill.zohoBillIds)
                     ? bill.zohoBillIds.map((id) => String(id || '').trim()).filter(Boolean)
                     : String(bill.zohoBillId || '').trim()
@@ -312,6 +316,7 @@ function buildReviewRows(entries, bills) {
             provider: bill.provider || '—',
             zohoVendorId: String(bill.zohoVendorId || '').trim(),
             zohoBillId: String(bill.zohoBillId || '').trim(),
+            zohoBillNumber: String(bill.zohoBillNumber || '').trim(),
             zohoBillIds: Array.isArray(bill.zohoBillIds)
                 ? bill.zohoBillIds.map((id) => String(id || '').trim()).filter(Boolean)
                 : String(bill.zohoBillId || '').trim()
@@ -1832,13 +1837,11 @@ export default function UtilityBillReviewModal({
                                                                                                         child.zohoBillId
                                                                                                     }
                                                                                                 >
-                                                                                                    Synced
-                                                                                                    <span className="font-mono text-slate-400">
-                                                                                                        …
-                                                                                                        {child.zohoBillId.slice(
-                                                                                                            -6,
-                                                                                                        )}
-                                                                                                    </span>
+                                                                                                    {child.zohoBillNumber &&
+                                                                                                    child.zohoBillNumber !==
+                                                                                                        '—'
+                                                                                                        ? child.zohoBillNumber
+                                                                                                        : 'Synced'}
                                                                                                 </span>
                                                                                             ) : (
                                                                                                 <span className="text-[10px] text-amber-700 font-medium">

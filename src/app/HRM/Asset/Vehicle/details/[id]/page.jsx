@@ -28,7 +28,6 @@ import {
     Gauge,
     User,
     ArrowRight,
-    Receipt,
     PenTool,
     AlertTriangle,
     Settings,
@@ -178,7 +177,9 @@ import {
 } from '../../utils/vehicleDetailWarmCache';
 import { parseServiceRemark } from '../../components/vehicleServicePayload';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
-import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
+import FineManagementContent from '@/app/HRM/Fine/components/FineManagementContent';
+
+const VEHICLE_DETAIL_FINE_TYPES = ['Vehicle Fine', 'Vehicle Damage'];
 import {
     AlertDialog,
     AlertDialogContent,
@@ -417,8 +418,6 @@ function VehicleDetailsPageContent() {
     const [assetHistory, setAssetHistory] = useState([]);
     const [loadingHandoverHistory, setLoadingHandoverHistory] = useState(false);
     const [isDownloadingHandoverHistoryPdf, setIsDownloadingHandoverHistoryPdf] = useState('');
-    const [fines, setFines] = useState([]);
-    const [loadingFines, setLoadingFines] = useState(false);
     const [viewingDocument, setViewingDocument] = useState(null);
     const openFilePreview = useCallback(async (attachment, label = 'Attachment') => {
         setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
@@ -456,7 +455,6 @@ function VehicleDetailsPageContent() {
     const [showPermitModal, setShowPermitModal] = useState(false);
     const [isPermitRenew, setIsPermitRenew] = useState(false);
     const [selectedPermitDoc, setSelectedPermitDoc] = useState(null);
-    const [showVehicleFineModal, setShowVehicleFineModal] = useState(false);
     const [showPetrolModal, setShowPetrolModal] = useState(false);
     const [showTollModal, setShowTollModal] = useState(false);
     const [showMortgageModal, setShowMortgageModal] = useState(false);
@@ -1019,34 +1017,6 @@ function VehicleDetailsPageContent() {
         }
     };
 
-    const fetchFines = async () => {
-        try {
-            setLoadingFines(true);
-            const [byObjectIdResp, byAssetCodeResp] = await Promise.all([
-                axiosInstance.get(`/Fine`, { params: { vehicleId: assetId } }),
-                asset?.assetId
-                    ? axiosInstance.get(`/Fine`, { params: { assetId: asset.assetId } })
-                    : Promise.resolve({ data: { fines: [] } }),
-            ]);
-            const merged = [
-                ...(byObjectIdResp?.data?.fines || []),
-                ...(byAssetCodeResp?.data?.fines || []),
-            ];
-            const deduped = [];
-            const seen = new Set();
-            for (const fine of merged) {
-                const id = String(fine?._id || '');
-                if (!id || seen.has(id)) continue;
-                seen.add(id);
-                deduped.push(fine);
-            }
-            setFines(deduped);
-        } catch (error) {
-        } finally {
-            setLoadingFines(false);
-        }
-    };
-
     const refreshData = useCallback(() => {
         if (!assetId) return;
         setDocumentAttachmentsLoaded(false);
@@ -1071,7 +1041,6 @@ function VehicleDetailsPageContent() {
             // Use existing asset payload — avoid a redundant light detail refetch.
             fetchAssetHistory({ forHandover: false });
         }
-        if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
 
     const handleVehicleAssignUpdate = useCallback(() => {
@@ -1180,7 +1149,6 @@ function VehicleDetailsPageContent() {
             // History only — asset already has accessories list metadata from light/upgrade.
             fetchAssetHistory({ forHandover: false });
         }
-        if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
 
     useNotificationFocusScroll({
@@ -4808,68 +4776,22 @@ function VehicleDetailsPageContent() {
 
                             {activeTab === 'fine' && (
                                 <div className="w-full px-2">
-                                    <div className="flex justify-end mb-4">
-                                        {fineTabAccess.create && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowVehicleFineModal(true)}
-                                                className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
-                                            >
-                                                <Plus size={14} />
-                                                Add Fine
-                                            </button>
-                                        )}
-                                    </div>
-                                    {loadingFines ? (
+                                    <Suspense fallback={
                                         <div className="flex flex-col items-center justify-center py-20 gap-4">
                                             <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
                                             <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">Loading fines...</p>
                                         </div>
-                                    ) : fines.length === 0 ? (
-                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-2">
-                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
-                                                <Receipt size={32} />
-                                            </div>
-                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Fines Recorded</h5>
-                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">This vehicle has no registered fines or traffic violations in the system.</p>
-                                        </div>
-                                    ) : (
-                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                                            <table className="w-full text-left border-collapse">
-                                                <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                                    <tr>
-                                                        <th className="px-6 py-4">Fine ID</th>
-                                                        <th className="px-6 py-4">Type</th>
-                                                        <th className="px-6 py-4">Offender</th>
-                                                        <th className="px-6 py-4">Amount</th>
-                                                        <th className="px-6 py-4">Date</th>
-                                                        <th className="px-6 py-4">Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-50">
-                                                    {fines.map((fine) => (
-                                                        <tr
-                                                            key={fine._id}
-                                                            className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
-                                                            data-nav-href={`/HRM/Fine/${fine._id}`}
-                                                            onClick={() => router.push(`/HRM/Fine/${fine._id}`)}
-                                                        >
-                                                            <td className="px-6 py-4 text-sm font-bold text-blue-600">{fine.fineId || '—'}</td>
-                                                            <td className="px-6 py-4 text-sm font-bold text-slate-700">{fine.fineType || '—'}</td>
-                                                            <td className="px-6 py-4 text-sm text-slate-600">{fine.assignedEmployees?.[0]?.employeeName || fine.employeeName || '—'}</td>
-                                                            <td className="px-6 py-4 text-sm font-black text-rose-600">AED {Number(fine.fineAmount || 0).toLocaleString()}</td>
-                                                            <td className="px-6 py-4 text-sm text-slate-600">{fine.awardedDate ? new Date(fine.awardedDate).toLocaleDateString() : '—'}</td>
-                                                            <td className="px-6 py-4">
-                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700">
-                                                                    {fine.fineStatus || '—'}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
+                                    }>
+                                        <FineManagementContent
+                                            embedded
+                                            vehicleId={asset?._id || asset?.id || assetId || ''}
+                                            assetCode={asset?.assetId || ''}
+                                            allowedFineTypes={VEHICLE_DETAIL_FINE_TYPES}
+                                            vehiclePrefill={vehicleFineInitialData}
+                                            vehicles={fineModalVehicles}
+                                            canCreate={fineTabAccess.create}
+                                        />
+                                    </Suspense>
                                 </div>
                             )}
 
@@ -6277,18 +6199,6 @@ function VehicleDetailsPageContent() {
                 existingAttachmentRows={permitAttachmentsForDoc(selectedPermitDoc, (asset?.documents || []))}
                 isRenew={isPermitRenew}
                 hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
-            />
-
-            <AddVehicleFineModal
-                isOpen={showVehicleFineModal}
-                onClose={() => setShowVehicleFineModal(false)}
-                onSuccess={() => {
-                    fetchFines();
-                    setShowVehicleFineModal(false);
-                }}
-                employees={fineModalEmployees}
-                vehicles={fineModalVehicles}
-                initialData={vehicleFineInitialData}
             />
 
             {showReturnModal && asset && (

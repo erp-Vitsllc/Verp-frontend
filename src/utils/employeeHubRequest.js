@@ -1,17 +1,29 @@
+// Kinds offered in the dashboard Request card.
 export const HUB_KINDS = [
     { key: 'leave', label: 'Leave' },
-    { key: 'fine', label: 'Fine' },
     { key: 'advance', label: 'Advance' },
+    { key: 'loan', label: 'Loan' },
+    { key: 'salary', label: 'Salary' },
+    { key: 'certificate', label: 'Certificate' },
     { key: 'assets', label: 'Assets' },
-    { key: 'vehicle', label: 'Vehicle' },
-    { key: 'utility', label: 'Utility Bill' },
 ];
 
+// Asset areas an employee picks before writing an asset request.
+export const HUB_ASSET_TYPES = [
+    { key: 'Vehicle', label: 'Vehicle' },
+    { key: 'Tools', label: 'Tools' },
+    { key: 'Utility Bill', label: 'Utility Bill' },
+];
+
+// Includes retired kinds so older requests still route and render correctly.
 export const HUB_DASHBOARD_TYPES = new Set([
     'Employee Leave Request',
-    'Employee Fine Request',
     'Employee Advance Request',
+    'Employee Loan Request',
+    'Employee Salary Request',
+    'Employee Certificate Request',
     'Employee Asset Request',
+    'Employee Fine Request',
     'Employee Vehicle Request',
     'Employee Utility Request',
 ]);

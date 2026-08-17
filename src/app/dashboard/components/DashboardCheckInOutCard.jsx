@@ -73,6 +73,37 @@ function notifyAttendanceChanged() {
     notifyAttendancePendingInboxChanged();
 }
 
+const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+function weekdayKeyFromDateKey(dateKey) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
+    return WEEKDAY_KEYS[new Date(`${dateKey}T12:00:00.000Z`).getUTCDay()] || null;
+}
+
+function formatMeridiemClock(hour, minute, meridiem) {
+    const h = String(hour || '09').padStart(2, '0');
+    const m = String(minute || '00').padStart(2, '0');
+    const mer = String(meridiem || 'AM').toUpperCase() === 'PM' ? 'PM' : 'AM';
+    return `${Number(h)}:${m} ${mer}`;
+}
+
+function resolveTodayHours(week, dateKey) {
+    const dayKey = weekdayKeyFromDateKey(dateKey);
+    const day = dayKey ? week?.[dayKey] : null;
+    if (!day) return { isOffDay: false, range: '' };
+    if (day.isOffDay) return { isOffDay: true, range: '' };
+    return {
+        isOffDay: false,
+        range: `${formatMeridiemClock(day.startHour, day.startMinute, day.startMeridiem)} – ${formatMeridiemClock(day.endHour, day.endMinute, day.endMeridiem)}`,
+    };
+}
+
+function hoursText(hours) {
+    if (!hours) return '—';
+    if (hours.isOffDay) return 'Off day';
+    return hours.range || '—';
+}
+
 export default function DashboardCheckInOutCard() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -81,6 +112,9 @@ export default function DashboardCheckInOutCard() {
     const [timeIn, setTimeIn] = useState('');
     const [timeOut, setTimeOut] = useState('');
     const [elapsed, setElapsed] = useState(0);
+    const [staffType, setStaffType] = useState('office');
+    const [officeHours, setOfficeHours] = useState({ isOffDay: false, range: '' });
+    const [siteHours, setSiteHours] = useState({ isOffDay: false, range: '' });
     const tickRef = useRef(null);
 
     const checkedIn = Boolean(timeIn);
@@ -98,8 +132,12 @@ export default function DashboardCheckInOutCard() {
                 skipToast: true,
             });
             const record = res.data?.todayRecord || null;
+            const nextStaff = res.data?.employee?.staffType === 'site' ? 'site' : 'office';
             setTimeIn(record?.timeIn || '');
             setTimeOut(record?.timeOut || '');
+            setStaffType(nextStaff);
+            setOfficeHours(resolveTodayHours(res.data?.workingTime?.office, today));
+            setSiteHours(resolveTodayHours(res.data?.workingTime?.site, today));
             setError('');
         } catch (err) {
             if (!soft) {
@@ -262,6 +300,16 @@ export default function DashboardCheckInOutCard() {
                 <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">
                     Check In / Out
                 </h3>
+                <div className="mt-1.5 space-y-0.5 text-[11px] sm:text-xs tabular-nums">
+                    <p className={staffType === 'office' ? 'font-bold text-slate-800' : 'font-semibold text-slate-500'}>
+                        Office hrs{' '}
+                        <span className="font-semibold text-slate-600">· {hoursText(officeHours)}</span>
+                    </p>
+                    <p className={staffType === 'site' ? 'font-bold text-slate-800' : 'font-semibold text-slate-500'}>
+                        Site hrs{' '}
+                        <span className="font-semibold text-slate-600">· {hoursText(siteHours)}</span>
+                    </p>
+                </div>
                 <p className="text-slate-400 text-[10px] sm:text-xs mt-1 sm:mt-2 leading-relaxed">
                     If you forget to check out, the day is auto-marked as mispunched. Check out to
                     mark the day Present. After midnight it resets to 00:00:00.

@@ -57,6 +57,8 @@ import { openUtilityAttachment } from '../../utils/openUtilityAttachment';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import EmployeeNameLink from '@/components/EmployeeNameLink';
+import { normalizeUtilityNotificationBillMonth } from '@/utils/assetNotificationRouting';
+import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 
 const MAX_INLINE_LEN = 48;
 
@@ -362,8 +364,12 @@ function UtilityBillDetailsPageContent() {
     const [pulseBillOn, setPulseBillOn] = useState(false);
     /** Bills tab / Latest Bills: open month expands bill cards below (height grows, no scroll). */
     const [billsBrowseMonth, setBillsBrowseMonth] = useState(null);
+    /** YYYY-MM from payment-day notification click. */
+    const [addBillPrefillMonth, setAddBillPrefillMonth] = useState('');
 
     const focusBillId = searchParams?.get('billId') || '';
+    const addBillFromQuery = String(searchParams?.get('addBill') || '') === '1';
+    const queryBillMonth = normalizeUtilityNotificationBillMonth(searchParams?.get('billMonth') || '');
 
     const triggerBillPulse = useCallback((billId) => {
         const id = String(billId || '').trim();
@@ -826,6 +832,40 @@ function UtilityBillDetailsPageContent() {
     const targetStatus = entryIsActive ? 'Inactive' : 'Active';
     const hasPendingStatusChange = Boolean(pendingStatusChange?._id);
 
+    useEffect(() => {
+        if (!addBillFromQuery || !entry) return;
+
+        if (!entryIsActive) {
+            toast({
+                variant: 'destructive',
+                title: 'Record inactive',
+                description: 'Activate this utility record before adding bills.',
+            });
+        } else {
+            if (queryBillMonth) {
+                setAddBillPrefillMonth(queryBillMonth);
+                setBillsBrowseMonth(queryBillMonth);
+            }
+            setAddBillOpen(true);
+        }
+
+        const next = new URLSearchParams(searchParams?.toString?.() || '');
+        next.delete('addBill');
+        next.delete('billMonth');
+        const qs = next.toString();
+        const base = `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entryId)}`;
+        router.replace(qs ? `${base}?${qs}` : base, { scroll: false });
+    }, [
+        addBillFromQuery,
+        queryBillMonth,
+        entry,
+        entryIsActive,
+        entryId,
+        router,
+        searchParams,
+        toast,
+    ]);
+
     const openStatusChangeModal = () => {
         if (!entry?.id) return;
         if (hasPendingStatusChange) {
@@ -1125,6 +1165,12 @@ function UtilityBillDetailsPageContent() {
                                                     Acc {bill.accountNo}
                                                 </span>
                                             ) : null}
+                                            <span
+                                                className="text-[10px] font-semibold px-2 py-0.5 bg-teal-50 text-teal-700 rounded border border-teal-100/70"
+                                                title="Zoho Books bill number"
+                                            >
+                                                Zoho {formatZohoDocumentNumber(bill)}
+                                            </span>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
@@ -1868,6 +1914,7 @@ function UtilityBillDetailsPageContent() {
                     const id = viewBill?._id;
                     setAddBillOpen(false);
                     setViewBill(null);
+                    setAddBillPrefillMonth('');
                     if (id) {
                         window.setTimeout(() => {
                             document
@@ -1895,6 +1942,7 @@ function UtilityBillDetailsPageContent() {
                 viewBill={viewBill}
                 accountsCanEditLines={viewBillAllowsAccountsLineEdit}
                 onAccountsSaveLines={handleAccountsSaveLines}
+                initialBillMonth={addBillPrefillMonth}
             />
 
             <UtilityBillReviewModal

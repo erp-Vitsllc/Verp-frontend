@@ -56,6 +56,29 @@ export function parseAssetNotificationMeta(extra3) {
     }
 }
 
+/** Normalize bill month to YYYY-MM from meta, query, or "15/08/2026". */
+export function normalizeUtilityNotificationBillMonth(raw) {
+    const s = String(raw || '').trim();
+    if (/^\d{4}-\d{2}$/.test(s)) return s;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 7);
+    const dmy = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+    if (dmy) {
+        return `${dmy[3]}-${String(dmy[2]).padStart(2, '0')}`;
+    }
+    const nested = s.match(/\((\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{4})\)/);
+    if (nested) return normalizeUtilityNotificationBillMonth(nested[1]);
+    return '';
+}
+
+export function buildUtilityPaymentDayAddBillPath(entryId, billMonth = '') {
+    const id = String(entryId || '').trim();
+    if (!id) return '';
+    return appendAssetQueryParams(`/HRM/Asset/UtilityBills/details/${encodeURIComponent(id)}`, {
+        addBill: '1',
+        ...(billMonth ? { billMonth } : {}),
+    });
+}
+
 /** Bulk AC assignment group id from a dashboard / pending-inbox row, or ''. */
 export function resolveBulkAssignmentGroupId(rawItem = {}) {
     const item = normalizeAssetNotificationItem(rawItem);
@@ -439,6 +462,23 @@ export function buildAssetNotificationPath(rawItem) {
         type.includes('utility entry status') ||
         type.includes('utility contract')
     ) {
+        const isPaymentDayReminder =
+            type.includes('utility bill payment reminder') || typeRaw === 'Utility Bill Payment Reminder';
+        if (isPaymentDayReminder) {
+            const entryId = String(meta?.entryId || '').trim();
+            const billMonth =
+                normalizeUtilityNotificationBillMonth(
+                    meta?.yearMonth || meta?.billMonth || meta?.dueDateKey,
+                ) || normalizeUtilityNotificationBillMonth(item.extra2);
+            const addBillPath = buildUtilityPaymentDayAddBillPath(entryId, billMonth);
+            if (addBillPath) return addBillPath;
+            if (meta?.detailsPath) {
+                return appendAssetQueryParams(normalizeNotificationDestinationPath(meta.detailsPath), {
+                    addBill: '1',
+                    ...(billMonth ? { billMonth } : {}),
+                });
+            }
+        }
         if (meta?.reviewPath) return normalizeNotificationDestinationPath(meta.reviewPath);
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
         if (meta?.statusChangeId) {

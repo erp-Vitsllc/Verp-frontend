@@ -2,8 +2,16 @@
 
 import { X, AlertCircle, ShieldAlert } from 'lucide-react';
 
-export default function FineTypeSelectionModal({ isOpen, onClose, onSelect }) {
+export default function FineTypeSelectionModal({ isOpen, onClose, onSelect, allowedFineTypes = null }) {
     if (!isOpen) return null;
+
+    const allowsType = (type) =>
+        !Array.isArray(allowedFineTypes) ||
+        !allowedFineTypes.length ||
+        allowedFineTypes.includes(type);
+
+    const showViolation = allowsType('Vehicle Fine') || allowsType('Safety Fine') || allowsType('Other Fines');
+    const showDamage = allowsType('Vehicle Damage') || allowsType('Project Damage') || allowsType('Loss & Damage');
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -20,6 +28,7 @@ export default function FineTypeSelectionModal({ isOpen, onClose, onSelect }) {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 mt-6">
+                    {showViolation ? (
                     <button
                         onClick={() => onSelect('Violation')}
                         className="flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-100 hover:border-red-100 hover:bg-red-50 transition-all text-left group"
@@ -32,7 +41,9 @@ export default function FineTypeSelectionModal({ isOpen, onClose, onSelect }) {
                             <p className="text-sm text-gray-500">Fines related to policy violations or misconduct.</p>
                         </div>
                     </button>
+                    ) : null}
 
+                    {showDamage ? (
                     <button
                         onClick={() => onSelect('Damage')}
                         className="flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-100 hover:border-orange-100 hover:bg-orange-50 transition-all text-left group"
@@ -45,8 +56,7 @@ export default function FineTypeSelectionModal({ isOpen, onClose, onSelect }) {
                             <p className="text-sm text-gray-500">Fines related to property or asset damage.</p>
                         </div>
                     </button>
-
-
+                    ) : null}
                 </div>
             </div>
         </div>

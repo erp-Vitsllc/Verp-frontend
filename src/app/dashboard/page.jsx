@@ -32,6 +32,8 @@ import {
     groupCommandCenterByModule,
     formatCommandCenterNotificationMessage,
     computePendingActivityByType,
+    resolvePendingActivityType,
+    pendingActivityTypeLegendLabel,
 } from '@/utils/dashboardCommandCenterInbox';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
 import { FINE_PENDING_INBOX_CHANGED } from '@/app/HRM/Fine/utils/finePendingInboxCount';
@@ -42,6 +44,7 @@ import { ATTENDANCE_PENDING_INBOX_CHANGED } from '@/app/HRM/Attendance/utils/att
 import DashboardAttendanceCalendar from '@/app/dashboard/components/DashboardAttendanceCalendar';
 import DashboardCheckInOutCard from '@/app/dashboard/components/DashboardCheckInOutCard';
 import DashboardEmployeeHrCards from '@/app/dashboard/components/DashboardEmployeeHrCards';
+import DashboardEmployeeAssetCards from '@/app/dashboard/components/DashboardEmployeeAssetCards';
 import DashboardMyLeaveCard from '@/app/dashboard/components/DashboardMyLeaveCard';
 import DashboardRequestHub from '@/app/dashboard/components/DashboardRequestHub';
 import ActivityPieChart from '@/app/dashboard/components/ActivityPieChart';
@@ -71,8 +74,6 @@ import {
     LayoutGrid,
 
     ChevronDown,
-
-    ChevronUp,
 
     ChevronRight,
 
@@ -118,6 +119,7 @@ function DashboardContent() {
 
     const [filter, setFilter] = useState('Pending');
     const [activityPieMode, setActivityPieMode] = useState('Pending');
+    const [activityTypeFilter, setActivityTypeFilter] = useState(null);
 
 
 
@@ -503,11 +505,41 @@ function DashboardContent() {
 
     const activityPieModeData = activityPieMode === 'Overdue' ? overdueTypeStats : pendingTypeStats;
 
+    const typeFilteredItems = useMemo(() => {
+        if (!activityTypeFilter) return scopedItems;
+        return scopedItems.filter((item) => resolvePendingActivityType(item) === activityTypeFilter);
+    }, [scopedItems, activityTypeFilter]);
 
+    const typeFilteredStats = useMemo(
+        () => computeIncomingCommandCenterStats(typeFilteredItems),
+        [typeFilteredItems],
+    );
+
+    const typeFilteredOverdueCount = useMemo(
+        () =>
+            typeFilteredItems.filter(
+                (item) =>
+                    isDashboardPendingItem(item) &&
+                    isOverdue(item.requestedDate, item.status, item.type),
+            ).length,
+        [typeFilteredItems],
+    );
+
+    const openActivityLog = (label) => {
+        setActivityTypeFilter(label || null);
+        setViewMode('requests');
+        setFilter(activityPieMode === 'Overdue' ? 'Overdue' : 'Pending');
+        setIsExpanded(true);
+    };
+
+    const closeCommandCenter = () => {
+        setIsExpanded(false);
+        setActivityTypeFilter(null);
+    };
 
     const getFilteredItems = () => {
 
-        const source = scopedItems;
+        const source = typeFilteredItems;
 
 
 
@@ -983,11 +1015,23 @@ function DashboardContent() {
 
                                                     ? 'Each row uses that user’s exact dashboard Inbox counts; cards above are the sum of those rows.'
 
-                                                    : `Manage and track ${selectedUser ? selectedUser.firstName + "'s" : 'your'} requests in one place.`
+                                                    : activityTypeFilter
+                                                        ? `Only ${pendingActivityTypeLegendLabel(activityTypeFilter)} requests — pending, overdue, completed, rejected, and total.`
+                                                        : `Manage and track ${selectedUser ? selectedUser.firstName + "'s" : 'your'} requests in one place.`
 
                                                 }
 
                                             </p>
+                                            {viewMode === 'requests' && activityTypeFilter ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setActivityTypeFilter(null)}
+                                                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-bold uppercase tracking-wider hover:bg-slate-200 transition-colors"
+                                                >
+                                                    {pendingActivityTypeLegendLabel(activityTypeFilter)}
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            ) : null}
 
                                         </div>
 
@@ -1033,7 +1077,10 @@ function DashboardContent() {
 
                                             <button
 
-                                                onClick={() => setViewMode(viewMode === 'requests' ? 'teams' : 'requests')}
+                                                onClick={() => {
+                                                    if (viewMode === 'requests') setActivityTypeFilter(null);
+                                                    setViewMode(viewMode === 'requests' ? 'teams' : 'requests');
+                                                }}
 
                                                 className={`
 
@@ -1061,15 +1108,15 @@ function DashboardContent() {
 
                                             <button
 
-                                                onClick={() => setIsExpanded(false)}
+                                                onClick={closeCommandCenter}
 
-                                                className="self-start md:self-auto p-2 bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
+                                                className="self-start md:self-auto p-2 bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-blue-500 rounded-full transition-colors"
 
                                                 title="Close Command Center"
 
                                             >
 
-                                                <ChevronUp className="w-6 h-6" />
+                                                <ArrowUpRight className="w-5 h-5 sm:w-6 sm:h-6" />
 
                                             </button>
 
@@ -1085,12 +1132,18 @@ function DashboardContent() {
 
                                         {(() => {
 
-                                            const activeStats = viewMode === 'teams' ? aggregatedStats : scopedStats;
+                                            const activeStats = viewMode === 'teams'
+                                                ? aggregatedStats
+                                                : activityTypeFilter
+                                                    ? typeFilteredStats
+                                                    : scopedStats;
 
                                             const overdueCount =
                                                 viewMode === 'teams'
                                                     ? activeStats.overdue || 0
-                                                    : overdueTypeStats.total || 0;
+                                                    : activityTypeFilter
+                                                        ? typeFilteredOverdueCount
+                                                        : overdueTypeStats.total || 0;
 
                                             return [
 
@@ -1228,7 +1281,13 @@ function DashboardContent() {
 
                                                                 </div>
 
-                                                                <p className="text-slate-500 font-medium italic">No {filter.toLowerCase()} items found.</p>
+                                                                <p className="text-slate-500 font-medium italic">
+                                                                    No {filter.toLowerCase()}
+                                                                    {activityTypeFilter
+                                                                        ? ` ${pendingActivityTypeLegendLabel(activityTypeFilter).toLowerCase()}`
+                                                                        : ''}{' '}
+                                                                    items found.
+                                                                </p>
 
                                                             </div>
 
@@ -1506,15 +1565,22 @@ function DashboardContent() {
 
                                         whileHover={dashboardHover}
 
-                                        onClick={() => setIsExpanded(true)}
+                                        onClick={() => {
+                                            setActivityTypeFilter(null);
+                                            setIsExpanded(true);
+                                        }}
 
-                                        className="dash-card-lift col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] cursor-pointer hover:border-blue-100 group relative overflow-hidden"
+                                        className="dash-card-lift col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-5 shadow-sm border border-slate-100 flex flex-col min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] cursor-pointer hover:border-blue-100 group relative overflow-hidden"
 
                                     >
 
-                                        <div className="absolute top-0 right-0 p-2 sm:p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="absolute top-0 right-0 p-2 sm:p-4">
 
-                                            <ArrowUpRight className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500" />
+                                            <span className="flex p-2 bg-slate-50 group-hover:bg-slate-100 text-slate-400 group-hover:text-blue-500 rounded-full transition-colors">
+
+                                                <ArrowUpRight className="w-5 h-5 sm:w-6 sm:h-6" />
+
+                                            </span>
 
                                         </div>
 
@@ -1530,7 +1596,7 @@ function DashboardContent() {
 
                                         </div>
 
-                                        <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0 overflow-y-auto">
+                                        <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0 overflow-hidden px-1">
 
                                             <ActivityPieChart
                                                 data={activityPieModeData}
@@ -1538,11 +1604,13 @@ function DashboardContent() {
                                                 pendingTotal={pendingTypeStats.total || 0}
                                                 overdueTotal={overdueTypeStats.total || 0}
                                                 onModeChange={setActivityPieMode}
+                                                onSliceClick={openActivityLog}
+                                                onCenterClick={() => openActivityLog()}
                                             />
 
                                         </div>
 
-                                        <div className="mt-2 sm:mt-4 text-[9px] sm:text-xs font-bold text-center text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all">
+                                        <div className="pointer-events-none absolute bottom-2 left-0 right-0 text-[9px] sm:text-[10px] font-bold text-center text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
 
                                             Click to view requests
 
@@ -1570,6 +1638,7 @@ function DashboardContent() {
                             <>
                                 <DashboardMyLeaveCard />
                                 <DashboardEmployeeHrCards />
+                                <DashboardEmployeeAssetCards />
                             </>
                         ) : null}
 

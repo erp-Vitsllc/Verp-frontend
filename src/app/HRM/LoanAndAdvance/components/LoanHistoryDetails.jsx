@@ -3,6 +3,7 @@
 import { FileText } from 'lucide-react';
 import { DETAIL_PAIR_COLUMN, DETAIL_PAIR_GRID } from '@/utils/headerPairLayout';
 import { formatMoney } from '../../Fine/components/FineFormCardShared';
+import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 import LoanWorkflowHistoryPanel from './LoanWorkflowHistoryPanel';
 
 export default function LoanHistoryDetails({ loan, employee, formatDate, typeLabel }) {
@@ -31,6 +32,10 @@ export default function LoanHistoryDetails({ loan, employee, formatDate, typeLab
                         <div>
                             <span className="text-xs text-gray-400 block font-medium">{typeLabel} ID</span>
                             <span className="font-semibold text-gray-800">{loan.loanId || '—'}</span>
+                        </div>
+                        <div>
+                            <span className="text-xs text-gray-400 block font-medium">Zoho No.</span>
+                            <span className="font-semibold text-gray-800">{formatZohoDocumentNumber(loan)}</span>
                         </div>
                         <div>
                             <span className="text-xs text-gray-400 block font-medium">Type</span>

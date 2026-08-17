@@ -54,8 +54,8 @@ import {
 } from './utils/utilityBillsApi';
 import { openUtilityAttachment } from './utils/openUtilityAttachment';
 import {
-    buildContractExpiryRows,
     buildTypeOverviewCards,
+    buildUnpaidBillRows,
     currentPeriod,
     utilityBillYears,
 } from './utils/utilityOverviewStats';
@@ -323,7 +323,6 @@ function countUtilityBillPending(items = []) {
         return (
             t === 'Utility Bill Payment' ||
             t === 'Utility Bill Payment Reminder' ||
-            t === 'Utility Contract Expiry' ||
             t === 'Utility Entry Status Change'
         );
     }).length;
@@ -663,7 +662,15 @@ function UtilityBillsPageContent() {
         [typeOverviewCards],
     );
 
-    const contractExpiryRows = useMemo(() => buildContractExpiryRows(entries), [entries]);
+    const unpaidBillRows = useMemo(
+        () =>
+            buildUnpaidBillRows({
+                bills: allTypeBills,
+                year: overviewYear,
+                month: overviewMonth,
+            }),
+        [allTypeBills, overviewYear, overviewMonth],
+    );
 
     /** Pie slices = one per utility type, sized by period deduction amount. */
     const typeDistribution = useMemo(() => {
@@ -1148,7 +1155,7 @@ function UtilityBillsPageContent() {
                             className={`bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                         >
                             <UtilityContractExpiryCard
-                                expiryRows={contractExpiryRows}
+                                unpaidRows={unpaidBillRows}
                                 typeDistribution={typeDistribution}
                                 deductionTotal={deductionTotal}
                             />

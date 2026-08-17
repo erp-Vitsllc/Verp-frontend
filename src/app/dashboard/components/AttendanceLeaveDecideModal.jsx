@@ -7,8 +7,8 @@ const REPORTEE_LEAVE_OPTIONS = [
     {
         key: 'authorized_leave',
         label: 'Authorized Leave',
-        swatch: 'bg-[#F97316]',
-        selected: 'border-[#F97316] bg-orange-50/80',
+        swatch: 'bg-[#2563EB]',
+        selected: 'border-[#2563EB] bg-blue-50/80',
     },
     {
         key: 'sick_leave',
@@ -24,6 +24,11 @@ const REPORTEE_LEAVE_OPTIONS = [
     },
 ];
 
+const PAY_OPTIONS = [
+    { key: 'paid', label: 'Paid' },
+    { key: 'unpaid', label: 'Unpaid' },
+];
+
 export default function AttendanceLeaveDecideModal({
     isOpen,
     dateKey,
@@ -33,26 +38,44 @@ export default function AttendanceLeaveDecideModal({
     reason = '',
     attachmentName = '',
     kind = 'leave',
+    fromDate = '',
+    toDate = '',
+    dayPart = '',
+    requestTimeIn = '',
+    requestTimeOut = '',
     deciding = false,
     error = '',
     onClose,
     onDecide,
 }) {
     const [chosenKey, setChosenKey] = useState('');
+    const [leavePayType, setLeavePayType] = useState('');
     const [localError, setLocalError] = useState('');
 
     useEffect(() => {
         if (!isOpen) return;
         setChosenKey('');
+        setLeavePayType('');
         setLocalError('');
     }, [isOpen, dateKey]);
 
     if (!isOpen) return null;
 
     const kindKey = String(kind || '');
+    const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
+    const rangeLabel = isMultiDay ? `${fromDate} → ${toDate}` : '';
+    const dayPartLabel =
+        dayPart === 'half'
+            ? requestTimeIn && requestTimeOut
+                ? `Half day · ${requestTimeIn} – ${requestTimeOut}`
+                : 'Half day'
+            : dayPart === 'full'
+              ? 'Full day'
+              : '';
     const isYellow = kindKey === 'yellow';
     const isFutureKind = kindKey.startsWith('future_');
     const skipStatusPicker = isYellow || isFutureKind;
+    const needsPayType = kindKey === 'future_leave' || chosenKey === 'authorized_leave';
 
     const title =
         kindKey === 'future_late'
@@ -68,9 +91,13 @@ export default function AttendanceLeaveDecideModal({
     const helpText = isYellow
         ? 'Confirm turns this day green (Present). Reject keeps the yellow status.'
         : kindKey === 'future_leave'
-          ? 'Approve marks this future day as Authorized Leave. Reject keeps it upcoming.'
+          ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Authorized Leave (Paid or Unpaid). Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
           : kindKey === 'future_late'
-            ? 'Approve shows this future day green as Late arrival approved.'
+            ? `Approve shows ${isMultiDay ? 'every working day in this range' : 'this future day'} green as Late arrival approved${
+                  dayPart === 'half' && requestTimeIn && requestTimeOut
+                      ? ` (${requestTimeIn} – ${requestTimeOut})`
+                      : ''
+              }.`
             : kindKey === 'future_early'
               ? 'Approve shows this future day green as Early go approved.'
               : 'Approve applies the status you choose. Reject keeps the current status.';
@@ -80,8 +107,12 @@ export default function AttendanceLeaveDecideModal({
             setLocalError('Choose Authorized, Sick, or Unauthorized leave before approving.');
             return;
         }
+        if (needsPayType && !leavePayType) {
+            setLocalError('Choose Paid or Unpaid for authorized leave.');
+            return;
+        }
         setLocalError('');
-        onDecide?.('approved', chosenKey);
+        onDecide?.('approved', chosenKey, needsPayType ? leavePayType : '');
     };
 
     return (
@@ -124,6 +155,16 @@ export default function AttendanceLeaveDecideModal({
                         <p className="font-semibold text-slate-800">
                             {requestedLabel || (isYellow ? 'Present' : '—')}
                         </p>
+                        {rangeLabel || dayPartLabel ? (
+                            <>
+                                <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">
+                                    {rangeLabel ? 'Dates' : 'Duration'}
+                                </p>
+                                <p className="text-slate-700 text-sm">
+                                    {[rangeLabel, dayPartLabel].filter(Boolean).join(' · ')}
+                                </p>
+                            </>
+                        ) : null}
                         {reason ? (
                             <>
                                 <p className="text-slate-500 text-xs uppercase tracking-wide font-semibold mt-2">
@@ -157,6 +198,7 @@ export default function AttendanceLeaveDecideModal({
                                             disabled={deciding}
                                             onClick={() => {
                                                 setChosenKey(opt.key);
+                                                if (opt.key !== 'authorized_leave') setLeavePayType('');
                                                 setLocalError('');
                                             }}
                                             className={`w-full flex items-center gap-3 h-11 px-3 rounded-xl border text-left transition-all disabled:opacity-50 ${
@@ -176,6 +218,39 @@ export default function AttendanceLeaveDecideModal({
                                             ) : (
                                                 <span className="h-5 w-5 rounded-full border border-slate-200 shrink-0" />
                                             )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : null}
+
+                    {needsPayType ? (
+                        <div>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                Leave pay
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                                {PAY_OPTIONS.map((opt) => {
+                                    const active = leavePayType === opt.key;
+                                    return (
+                                        <button
+                                            key={opt.key}
+                                            type="button"
+                                            disabled={deciding}
+                                            onClick={() => {
+                                                setLeavePayType(opt.key);
+                                                setLocalError('');
+                                            }}
+                                            className={`h-11 rounded-xl border text-sm font-semibold transition-all disabled:opacity-50 ${
+                                                active
+                                                    ? opt.key === 'paid'
+                                                        ? 'border-[#2563EB] bg-blue-50 text-blue-800 shadow-sm'
+                                                        : 'border-[#4F46E5] bg-indigo-50 text-indigo-800 shadow-sm'
+                                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            {opt.label}
                                         </button>
                                     );
                                 })}

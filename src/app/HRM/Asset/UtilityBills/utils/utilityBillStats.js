@@ -56,6 +56,14 @@ export function billDisplayStatus(bill) {
     return String(bill.status || '');
 }
 
+/** True when the bill still needs payment (not Paid / Rejected). */
+export function isUnpaidUtilityBill(bill) {
+    const s = String(bill?.status || '').trim();
+    if (!s) return false;
+    if (s === 'Paid' || s === 'Rejected') return false;
+    return true;
+}
+
 /**
  * Statuses that occupy an entry for a bill month (Approved displays as Not Paid).
  * Pending / Rejected do not occupy — those rows still appear in Add Bills.
@@ -66,17 +74,25 @@ export function isOccupiedBillStatus(status) {
     return OCCUPIED_BILL_STATUSES.has(String(status || ''));
 }
 
+/** Normalize billMonth values to YYYY-MM for occupancy matching. */
+export function normalizeBillMonthKey(value) {
+    const s = String(value || '').trim();
+    if (/^\d{4}-\d{2}$/.test(s)) return s;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 7);
+    return '';
+}
+
 /** Entry ids that already have Approved / Paid for the given YYYY-MM. */
 export function entryIdsWithOccupiedBillForMonth(
     bills = [],
     billMonth = '',
     { excludeBillIds = [] } = {},
 ) {
-    const ym = String(billMonth || '').trim();
+    const ym = normalizeBillMonthKey(billMonth);
     const exclude = new Set((excludeBillIds || []).map(String));
     const set = new Set();
     (bills || []).forEach((b) => {
-        if (String(b?.billMonth || '').trim() !== ym) return;
+        if (normalizeBillMonthKey(b?.billMonth) !== ym) return;
         if (!isOccupiedBillStatus(b?.status)) return;
         if (b?._id != null && exclude.has(String(b._id))) return;
         const id = String(b?.entryId || '');

@@ -11,21 +11,44 @@ import AddLossDamageModal from './AddLossDamageModal';
 import AddOtherDamageModal from './AddOtherDamageModal';
 import AddFineModal from './AddFineModal'; // Assuming we reuse this for general fines
 
-export default function FineFlowManager({ isOpen, onClose, onSuccess, employees = [] }) {
+export default function FineFlowManager({
+    isOpen,
+    onClose,
+    onSuccess,
+    employees = [],
+    allowedFineTypes = null,
+    vehiclePrefill = null,
+    vehicles = [],
+}) {
     const [step, setStep] = useState('category'); // category, violation_type, damage_type, vehicle_form, vehicle_damage_form, safety_form, project_damage_form, loss_damage_form, other_damage_form, general_form
     const [selections, setSelections] = useState({
         category: '',
         subCategory: ''
     });
 
+    const allowsType = (type) =>
+        !Array.isArray(allowedFineTypes) ||
+        !allowedFineTypes.length ||
+        allowedFineTypes.includes(type);
+
     if (!isOpen) return null;
 
     const handleCategorySelect = (category) => {
         if (category === 'Violation') {
             setSelections(prev => ({ ...prev, category }));
+            if (allowsType('Vehicle Fine') && !allowsType('Safety Fine') && !allowsType('Other Fines')) {
+                setSelections({ category, subCategory: 'Vehicle Fine' });
+                setStep('vehicle_form');
+                return;
+            }
             setStep('violation_type');
         } else if (category === 'Damage') {
             setSelections(prev => ({ ...prev, category }));
+            if (allowsType('Vehicle Damage') && !allowsType('Project Damage') && !allowsType('Loss & Damage')) {
+                setSelections({ category, subCategory: 'Vehicle Damage' });
+                setStep('vehicle_damage_form');
+                return;
+            }
             setStep('damage_type');
         } else if (category === 'Other') {
             setSelections(prev => ({ ...prev, category, subCategory: 'General' }));
@@ -67,7 +90,19 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
         if (step === 'violation_type' || step === 'damage_type') {
             setStep('category');
         } else if (step === 'vehicle_form' || step === 'vehicle_damage_form' || step === 'safety_form' || step === 'other_damage_form') {
-            if (step === 'vehicle_form' || step === 'safety_form' || step === 'other_damage_form') {
+            if (step === 'vehicle_form') {
+                if (allowsType('Vehicle Fine') && !allowsType('Safety Fine') && !allowsType('Other Fines')) {
+                    setStep('category');
+                } else {
+                    setStep('violation_type');
+                }
+            } else if (step === 'vehicle_damage_form') {
+                if (allowsType('Vehicle Damage') && !allowsType('Project Damage') && !allowsType('Loss & Damage')) {
+                    setStep('category');
+                } else {
+                    setStep('damage_type');
+                }
+            } else if (step === 'safety_form' || step === 'other_damage_form') {
                 setStep('violation_type');
             } else {
                 setStep('damage_type');
@@ -94,6 +129,7 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
                     isOpen={isOpen}
                     onClose={handleClose}
                     onSelect={handleCategorySelect}
+                    allowedFineTypes={allowedFineTypes}
                 />
             )}
 
@@ -103,6 +139,7 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
                     onClose={handleClose}
                     onSelect={handleViolationTypeSelect}
                     onBack={handleBack}
+                    allowedFineTypes={allowedFineTypes}
                 />
             )}
 
@@ -112,6 +149,7 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
                     onClose={handleClose}
                     onSelect={handleDamageTypeSelect}
                     onBack={handleBack}
+                    allowedFineTypes={allowedFineTypes}
                 />
             )}
 
@@ -124,6 +162,8 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
                         handleClose();
                     }}
                     employees={employees}
+                    vehicles={vehicles}
+                    initialData={vehiclePrefill}
                     onBack={handleBack}
                     fineCategory="Violation"
                     fineTypeName="Vehicle Fine"
@@ -139,6 +179,8 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
                         handleClose();
                     }}
                     employees={employees}
+                    vehicles={vehicles}
+                    initialData={vehiclePrefill}
                     onBack={handleBack}
                     fineCategory="Damage"
                     fineTypeName="Vehicle Damage"

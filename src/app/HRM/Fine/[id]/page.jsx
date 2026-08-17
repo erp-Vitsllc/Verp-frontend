@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { FINE_FOCUS_PREFIX } from '@/utils/fineNotificationRouting';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
@@ -10,20 +11,12 @@ import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import html2canvas from 'html2canvas';
-import { buildHtml2CanvasOptions } from '@/utils/html2canvasSafeCapture';
-import { jsPDF } from 'jspdf';
 import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText, Wallet } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import PermissionGuard from '@/components/PermissionGuard';
 import { format } from 'date-fns';
 import Image from 'next/image';
-import AddFineModal from '../components/AddFineModal';
-import AddVehicleFineModal from '../components/AddVehicleFineModal';
-import AddSafetyFineModal from '../components/AddSafetyFineModal';
-import AddProjectDamageModal from '../components/AddProjectDamageModal';
-import AddLossDamageModal from '../components/AddLossDamageModal';
 import FineFormCards from '../components/FineFormCards';
 import FineApprovedAttachmentsTab from '../components/FineApprovedAttachmentsTab';
 import FineWorkflowHistoryPanel from '../components/FineWorkflowHistoryPanel';
@@ -35,11 +28,11 @@ import {
     formatFineVendorBillPaymentLabel,
     isFineVendorBillPaid,
 } from '../utils/fineVendorPaymentPrefill';
+import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 import {
     isLossDamageFineType,
     buildLossDamageFormFields,
 } from '../components/LossDamageFineDetailsSection';
-import AddOtherDamageModal from '../components/AddOtherDamageModal';
 import {
     canEditApprovedFineSchedule,
     isApprovedFineStatus,
@@ -91,6 +84,13 @@ const EMPTY_FINE_SUMMARIES = {
     personalLoan: { amount: 0, duration: 0, paid: 0, count: 0 },
     salaryAdvance: { amount: 0, duration: 0, paid: 0, count: 0 },
 };
+
+const AddFineModal = dynamic(() => import('../components/AddFineModal'), { ssr: false });
+const AddVehicleFineModal = dynamic(() => import('../components/AddVehicleFineModal'), { ssr: false });
+const AddSafetyFineModal = dynamic(() => import('../components/AddSafetyFineModal'), { ssr: false });
+const AddProjectDamageModal = dynamic(() => import('../components/AddProjectDamageModal'), { ssr: false });
+const AddLossDamageModal = dynamic(() => import('../components/AddLossDamageModal'), { ssr: false });
+const AddOtherDamageModal = dynamic(() => import('../components/AddOtherDamageModal'), { ssr: false });
 
 const FINE_WORKFLOW_STEPS = [
     { id: 1, label: 'Created', role: 'System' },
@@ -991,8 +991,10 @@ function FineDetailsPageContent() {
         return resolveCompanyFinePayableAmount(f);
     };
 
-    // Fetch Employees for Modal
+    // Fetch Employees for edit/resubmit modal only
     useEffect(() => {
+        if (!(showEditModal || isResubmittingModal)) return;
+        if (allEmployees.length) return;
         const fetchEmployees = async () => {
             try {
                 const res = await axiosInstance.get('/Employee');
@@ -1002,9 +1004,9 @@ function FineDetailsPageContent() {
             }
         };
         fetchEmployees();
-    }, []);
+    }, [showEditModal, isResubmittingModal, allEmployees.length]);
 
-    // Fetch Fine and Employee Details
+    // Fetch Fine first so the page can render; extras load in the background.
     useEffect(() => {
         const fetchAllDetails = async () => {
             if (!id) return;
@@ -1020,6 +1022,16 @@ function FineDetailsPageContent() {
                 setActiveTab('fineForm');
 
                 const scheduleDates = deriveFineScheduleMonthYears(fineData);
+                if (fineData.formSummary) {
+                    const { signatures, employeeStats, ...employeeCommon } = fineData.formSummary;
+                    setFineSummaries({
+                        ...EMPTY_FINE_SUMMARIES,
+                        ...employeeCommon,
+                        startMonthYear: scheduleDates.startMonthYear,
+                        endMonthYear: scheduleDates.endMonthYear,
+                    });
+                }
+
                 const targetEmp = resolveActivePartyFromFine(fineData, {
                     recordId: id,
                     party: partyParam,
@@ -1037,22 +1049,7 @@ function FineDetailsPageContent() {
                         empId = empId.split(':')[0].trim();
                     }
 
-                    if (!isCompanyFineView && empId && empId !== 'PENDING') {
-                        try {
-                            const empRes = await axiosInstance.get(`/Employee/${empId}`);
-                            const empDetails = empRes.data.employee || empRes.data;
-                            setEmployeeDetails(empDetails);
-                        } catch (err) {
-                            console.warn('Failed to fetch employee details:', err);
-                            setEmployeeDetails({
-                                firstName: targetEmp.employeeName?.split(' ')[0] || targetEmp.employeeName || 'Employee',
-                                lastName: targetEmp.employeeName?.split(' ').slice(1).join(' ') || '',
-                                employeeId: empId,
-                                designation: '-',
-                                department: fineData.assignedEmployees?.[0]?.department || '-',
-                            });
-                        }
-                    } else {
+                    if (isCompanyFineView) {
                         const companyName = fineData.company?.name || targetEmp.employeeName || 'Company';
                         const companyId = fineData.company?.companyId || fineData.company?._id || 'VEGA-HR-0000';
                         setEmployeeDetails({
@@ -1066,9 +1063,27 @@ function FineDetailsPageContent() {
                             companyId,
                             company: fineData.company,
                         });
+                    } else {
+                        setEmployeeDetails({
+                            firstName: targetEmp.employeeName?.split(' ')[0] || targetEmp.employeeName || 'Employee',
+                            lastName: targetEmp.employeeName?.split(' ').slice(1).join(' ') || '',
+                            employeeId: empId,
+                            designation: '-',
+                            department: fineData.assignedEmployees?.[0]?.department || '-',
+                        });
                     }
 
+                    setLoading(false);
+
                     if (!isCompanyFineView && empId && empId !== 'PENDING') {
+                        axiosInstance.get(`/Employee/${empId}`).then((empRes) => {
+                            const empDetails = empRes.data.employee || empRes.data;
+                            if (empDetails) setEmployeeDetails(empDetails);
+                        }).catch((err) => {
+                            console.warn('Failed to fetch employee details:', err);
+                        });
+
+                        (async () => {
                         try {
                             const allFinesRes = await axiosInstance.get(`/Fine?employeeId=${empId}&limit=1000`);
                             let allFines = [];
@@ -1083,21 +1098,15 @@ function FineDetailsPageContent() {
                             setAllEmployeeFines(allFines);
 
                             if (fineData.formSummary) {
-                                const { signatures, employeeStats, ...employeeCommon } = fineData.formSummary;
-                                setFineSummaries({
-                                    ...EMPTY_FINE_SUMMARIES,
-                                    ...employeeCommon,
-                                    startMonthYear: scheduleDates.startMonthYear,
-                                    endMonthYear: scheduleDates.endMonthYear,
-                                });
-                            } else if (allFines.length > 0 || fineData) {
-                                // Ensure the current fine is in our processing list if it's not already there
+                                return;
+                            }
+
+                            if (allFines.length > 0 || fineData) {
                                 const processedFines = [...allFines];
                                 if (fineData && !processedFines.some(f => (f._id === fineData._id || f.fineId === fineData.fineId))) {
                                     processedFines.push(fineData);
                                 }
 
-                                // Filter: Only show Approved/Active/Paid fines. Exclude Pending/Draft/Rejected.
                                 const activeFines = processedFines.filter((f) =>
                                     APPROVED_FINE_STATUSES.includes(f.fineStatus)
                                 );
@@ -1105,7 +1114,6 @@ function FineDetailsPageContent() {
                                 const paidAmount = activeFines.reduce((sum, f) => sum + (f.paidAmount || 0), 0);
                                 const paidFines = activeFines.filter(f => f.fineStatus === 'Paid' || (getEmpShare(f) > 0 && f.paidAmount >= getEmpShare(f)));
 
-                                // Group by category for the breakdown table
                                 const aggregates = {
                                     'Vehicle': { amount: 0, paid: 0, count: 0, duration: 0 },
                                     'Safety': { amount: 0, paid: 0, count: 0, duration: 0 },
@@ -1130,7 +1138,6 @@ function FineDetailsPageContent() {
                                     aggregates[cat].duration += (parseInt(f.payableDuration) || 1);
                                 });
 
-                                // --- LOAN AND ADVANCE INTEGRATION ---
                                 let loanSummary = {
                                     personalLoan: { amount: 0, duration: 0, paid: 0, count: 0 },
                                     salaryAdvance: { amount: 0, duration: 0, paid: 0, count: 0 }
@@ -1162,7 +1169,6 @@ function FineDetailsPageContent() {
                                         count: sAdvances.length
                                     };
 
-                                    // Calculate Loan installments for Next Deduction inside same scope
                                     loanInstallments = approvedLoans.reduce((sum, l) => {
                                         const amt = Number(l.amount) || 0;
                                         const dur = Number(l.duration) || 1;
@@ -1174,14 +1180,11 @@ function FineDetailsPageContent() {
                                     console.error("Failed to fetch loans:", err);
                                 }
 
-                                // Next Deduction logic: Sum of (Share / Duration) for fines active in the upcoming payroll month
                                 const now = new Date();
-                                // "Next" deduction usually targets the immediate upcoming payroll (current + 1)
                                 const targetYM = addMonthsToYM(now.getFullYear() * 100 + (now.getMonth() + 1), 1);
                                 const targetMonthName = monthNames[(now.getMonth() + 1) % 12];
 
                                 const nextSalaryDeduction = activeFines.reduce((sum, f) => {
-                                    // Use live data for the current fine we are viewing
                                     const isCurrent = (fineData && (f._id === fineData._id || f.fineId === fineData.fineId));
                                     const record = isCurrent ? fineData : f;
 
@@ -1195,13 +1198,11 @@ function FineDetailsPageContent() {
                                     const duration = parseInt(record.payableDuration) || 1;
                                     const endYM = addMonthsToYM(startYM, duration - 1);
 
-                                    // STRICT DATE CHECK: Target month must be within [Start, End]
                                     if (startYM > 0 && targetYM >= startYM && targetYM <= endYM) {
                                         return sum + (share / duration);
                                     }
                                     return sum;
                                 }, 0);
-
 
                                 const totalNextDeduction = nextSalaryDeduction + loanInstallments;
 
@@ -1225,15 +1226,16 @@ function FineDetailsPageContent() {
                         } catch (err) {
                             console.error("Failed to fetch all employee fines:", err);
                         }
-                    } else if (fineData.formSummary) {
-                        const { signatures, employeeStats, ...employeeCommon } = fineData.formSummary;
-                        setFineSummaries({
-                            ...EMPTY_FINE_SUMMARIES,
-                            ...employeeCommon,
-                            startMonthYear: scheduleDates.startMonthYear,
-                            endMonthYear: scheduleDates.endMonthYear,
-                        });
+                        })();
+
+                        axiosInstance.get(`/Employee/loans?employeeId=${empId}`).then((loansRes) => {
+                            const allLoans = Array.isArray(loansRes.data.loans) ? loansRes.data.loans :
+                                (Array.isArray(loansRes.data.data) ? loansRes.data.data : []);
+                            setAllEmployeeLoans(allLoans);
+                        }).catch(() => {});
                     }
+                } else {
+                    setLoading(false);
                 }
             } catch (err) {
                 console.error('Error fetching details:', err);
@@ -1242,7 +1244,6 @@ function FineDetailsPageContent() {
                     description: "Failed to load fine details.",
                     variant: "destructive"
                 });
-            } finally {
                 setLoading(false);
             }
         };
@@ -1305,6 +1306,11 @@ function FineDetailsPageContent() {
         const element = document.getElementById('fine-form-container');
         if (element) {
             try {
+                const [{ default: html2canvas }, { buildHtml2CanvasOptions }, { jsPDF }] = await Promise.all([
+                    import('html2canvas'),
+                    import('@/utils/html2canvasSafeCapture'),
+                    import('jspdf'),
+                ]);
                 const canvas = await html2canvas(element, buildHtml2CanvasOptions({
                     rootElementId: 'fine-form-container',
                 }));
@@ -2456,6 +2462,10 @@ function FineDetailsPageContent() {
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Fine ID</span>
                                                 <span className="font-semibold text-gray-800">{fine.fineId}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Zoho No.</span>
+                                                <span className="font-semibold text-gray-800">{formatZohoDocumentNumber(fine)}</span>
                                             </div>
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Fine Type</span>

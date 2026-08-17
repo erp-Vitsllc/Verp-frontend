@@ -39,6 +39,7 @@ function formatStatusLabel(mark) {
     if (mark.key === 'early_go') return mark.label || 'Early Go';
     if (mark.key === 'mispunch') return mark.label || 'Mispunched';
     if (mark.key === 'unauthorized_leave') return mark.label || 'Unauthorized Leave';
+    if (mark.key === 'authorized_leave') return mark.label || 'Authorized Leave';
     if (mark.key === 'weekly_off') return 'Off Day';
     if (mark.key === 'holiday') return mark.label || 'Holiday';
     return mark.label || '';
@@ -443,7 +444,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
 
     const applyMarkToIds = async (ids, payload) => {
         const idSet = new Set(ids);
-        const { markKey, markLabel, timeIn, timeOut, reason, attachmentName } = payload;
+        const { markKey, markLabel, timeIn, timeOut, reason, attachmentName, leavePayType } = payload;
         const isClear = markKey === 'clear_attendance';
 
         if (isClear) {
@@ -496,6 +497,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
                 timeOut: timeOut != null ? timeOut : '',
                 reason: reason || '',
                 attachmentName: attachmentName || '',
+                leavePayType: leavePayType || '',
             }));
 
         setSaving(true);

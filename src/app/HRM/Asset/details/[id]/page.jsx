@@ -1950,10 +1950,37 @@ function AssetDetailsPageContent() {
         }
     };
 
+    const loadOwnerOnDutyFlags = async () => {
+        try {
+            const inboxRes = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { skipToast: true });
+            setPendingOwnerOnDutyReviewId(
+                findOwnerOnDutyReviewForAsset(inboxRes.data?.items, assetId),
+            );
+            const acFromInbox = findOwnerOnDutyAcRequestForAsset(inboxRes.data?.items, assetId);
+            setPendingOwnerOnDutyAcRequestId(acFromInbox);
+            if (!acFromInbox) {
+                const pendingRes = await axiosInstance
+                    .get(`/AssetItem/owner-on-duty/pending-owner-request/${assetId}`, { skipToast: true })
+                    .catch(() => null);
+                if (pendingRes?.data?.pending && pendingRes.data?.dashboardActionId) {
+                    setPendingOwnerOnDutyAcRequestId(pendingRes.data.dashboardActionId);
+                } else {
+                    setPendingOwnerOnDutyAcRequestId(null);
+                }
+            }
+        } catch {
+            setPendingOwnerOnDutyReviewId(null);
+            setPendingOwnerOnDutyAcRequestId(null);
+        }
+    };
+
     const fetchAssetDetails = async () => {
         try {
-            setLoading(true);
-            const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`);
+            if (!asset) setLoading(true);
+            // Skip vehicle oil/service heals and bulk S3 signing so tools pages paint quickly.
+            const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`, {
+                params: { deferServiceSigning: '1' },
+            });
             const data = response.data;
             const typeLower = String(data?.type || data?.typeId?.name || '').toLowerCase();
             const catLower = String(data?.category || data?.categoryId?.name || '').toLowerCase();
@@ -1972,35 +1999,14 @@ function AssetDetailsPageContent() {
             }
 
             setAsset(data);
-            try {
-                const inboxRes = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { skipToast: true });
-                setPendingOwnerOnDutyReviewId(
-                    findOwnerOnDutyReviewForAsset(inboxRes.data?.items, assetId),
-                );
-                setPendingOwnerOnDutyAcRequestId(
-                    findOwnerOnDutyAcRequestForAsset(inboxRes.data?.items, assetId),
-                );
-                if (!findOwnerOnDutyAcRequestForAsset(inboxRes.data?.items, assetId)) {
-                    const pendingRes = await axiosInstance
-                        .get(`/AssetItem/owner-on-duty/pending-owner-request/${assetId}`, { skipToast: true })
-                        .catch(() => null);
-                    if (pendingRes?.data?.pending && pendingRes.data?.dashboardActionId) {
-                        setPendingOwnerOnDutyAcRequestId(pendingRes.data.dashboardActionId);
-                    } else {
-                        setPendingOwnerOnDutyAcRequestId(null);
-                    }
-                }
-            } catch {
-                setPendingOwnerOnDutyReviewId(null);
-                setPendingOwnerOnDutyAcRequestId(null);
-            }
+            setLoading(false);
+            void loadOwnerOnDutyFlags();
         } catch (error) {
             toast({
                 variant: "destructive",
                 title: "Error",
                 description: "Failed to fetch asset details"
             });
-        } finally {
             setLoading(false);
         }
     };
@@ -2023,8 +2029,12 @@ function AssetDetailsPageContent() {
         }
         fetchAssetDetails();
         fetchAssetHistory();
-        fetchEmployees();
     }, [assetId]);
+
+    useEffect(() => {
+        if (!showDamageModal || employees.length) return;
+        fetchEmployees();
+    }, [showDamageModal, employees.length]);
 
     // Calculate warranty progress
     const warrantyProgress = useMemo(() => {

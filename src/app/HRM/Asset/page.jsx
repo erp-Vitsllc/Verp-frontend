@@ -33,7 +33,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { navigateFromList, navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
-import { navHrefProps } from '@/utils/linkContextMenu';
 import Link from 'next/link';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { buildAssetFocusElementId } from '@/utils/assetNotificationRouting';
@@ -72,6 +71,7 @@ import {
     resolveAdminInCompanyFlowchart,
 } from './utils/canPerformAssetAction';
 import { getToolsAssetTotalValue } from './utils/getToolsAssetTotalValue';
+import SortableTh, { compareSortValues, toggleSortState } from '@/components/SortableTh';
 
 import {
 
@@ -291,6 +291,15 @@ function buildToolsAssetListHref({
     return qs ? `/HRM/Asset?${qs}` : '/HRM/Asset';
 }
 
+function handleSamePageTabLinkClick(event, onSelect) {
+    if (event.defaultPrevented) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+        return;
+    }
+    event.preventDefault();
+    onSelect?.();
+}
+
 function toolsSummaryCardHref(filterKey) {
     switch (filterKey) {
         case 'totalAsset':
@@ -323,13 +332,6 @@ function toolsSummaryCardHref(filterKey) {
         default:
             return '';
     }
-}
-
-function openAssetDetailFromList(router, item, { tab } = {}) {
-    const href = resolveAssetDetailHref(item);
-    if (!href) return;
-    const url = tab ? `${href}?tab=${encodeURIComponent(tab)}` : href;
-    navigateFromList(router, url);
 }
 
 function isAssignmentAcknowledgmentOnly(t) {
@@ -748,6 +750,39 @@ function getAssetListWaitingLabel(item) {
     return 'Action required';
 }
 
+function getAssetListColumnSortValue(item, key) {
+    switch (key) {
+        case 'assetId':
+            return item?.assetId || '';
+        case 'type':
+            return item?.type || '';
+        case 'category':
+            return item?.category || '';
+        case 'name':
+            return item?.name || '';
+        case 'value':
+            return Number(getToolsAssetTotalValue(item)) || 0;
+        case 'purchaseDate': {
+            if (!item?.purchaseDate) return null;
+            const d = new Date(item.purchaseDate);
+            return Number.isNaN(d.getTime()) ? null : d;
+        }
+        case 'invoice':
+            return item?.invoiceFile ? 1 : 0;
+        case 'accessories':
+            return Array.isArray(item?.accessories) ? item.accessories.length : 0;
+        case 'status': {
+            if (assetListShouldShowWaitingBadge(item)) {
+                return `Waiting: ${getAssetListWaitingLabel(item)}`;
+            }
+            const assigneeStr = resolveAssetListAssigneeStr(item);
+            return String(formatAssetAssignmentStatusLine(item, assigneeStr) || item?.status || '');
+        }
+        default:
+            return null;
+    }
+}
+
 function AssetPageContent() {
 
     const router = useRouter();
@@ -809,6 +844,8 @@ function AssetPageContent() {
         return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
     });
     const [assetListPerPage, setAssetListPerPage] = useState(() => parseAssetListPerPage(searchParams.get('perPage')));
+    const [sortKey, setSortKey] = useState('slNo');
+    const [sortDirection, setSortDirection] = useState('asc');
     const skipAssetListPageResetRef = useRef(1);
     const isSyncingFromUrlRef = useRef(false);
 
@@ -962,6 +999,7 @@ function AssetPageContent() {
         setAssignedToEmployeeFilter((prev) => (prev === urlAssignedTo ? prev : urlAssignedTo));
 
         if (urlTab) setActiveTab((prev) => (prev === urlTab ? prev : urlTab));
+        else setActiveTab((prev) => (prev === 'asset' ? prev : 'asset'));
         if (urlView) setViewMode((prev) => (prev === urlView ? prev : urlView));
 
         const normalizedLossDamageStatus = normalizeLossDamageStatusFilter(urlLossDamageStatus);
@@ -1231,9 +1269,27 @@ function AssetPageContent() {
     const sortedFilteredAssetTableRows = useMemo(() => {
         const rows = [...filteredAssetTableRows];
         const groupByUser = shouldGroupAssetListByUser(statusFilter);
-        rows.sort((a, b) => compareAssetListRows(a, b, { groupByUser }));
+        if (sortKey === 'slNo') {
+            rows.sort((a, b) => compareAssetListRows(a, b, { groupByUser }));
+            if (sortDirection === 'desc') rows.reverse();
+            return rows;
+        }
+        rows.sort((a, b) =>
+            compareSortValues(
+                getAssetListColumnSortValue(a, sortKey),
+                getAssetListColumnSortValue(b, sortKey),
+                sortDirection,
+            ),
+        );
         return rows;
-    }, [filteredAssetTableRows, statusFilter]);
+    }, [filteredAssetTableRows, statusFilter, sortKey, sortDirection]);
+
+    const handleAssetListSort = useCallback((key) => {
+        const defaultDir = key === 'value' || key === 'purchaseDate' ? 'desc' : 'asc';
+        const next = toggleSortState(sortKey, sortDirection, key, defaultDir);
+        setSortKey(next.sortKey);
+        setSortDirection(next.sortDirection);
+    }, [sortKey, sortDirection]);
 
     const assetListPagination = useMemo(() => {
         const totalItems = sortedFilteredAssetTableRows.length;
@@ -1266,7 +1322,7 @@ function AssetPageContent() {
             return;
         }
         setAssetListPage(1);
-    }, [deferredSearchQuery, statusFilter, assignedToEmployeeFilter]);
+    }, [deferredSearchQuery, statusFilter, assignedToEmployeeFilter, sortKey, sortDirection]);
 
     const bulkSelectableAssetRows = useMemo(
         () => nonVehicleAssetRows.filter((t) => ['Unassigned', 'Returned'].includes(t.status)),
@@ -2244,177 +2300,96 @@ function AssetPageContent() {
 
                         <div className="flex flex-wrap border-b border-gray-200 mb-4 sm:mb-6">
 
-                            <button
-                                type="button"
-                                {...navHrefProps(buildToolsAssetListHref({ tab: 'asset', status: statusFilter === 'All' ? '' : statusFilter }))}
-
-                                onClick={() => {
-
+                            <Link
+                                href={buildToolsAssetListHref({ tab: 'asset', status: statusFilter === 'All' ? '' : statusFilter })}
+                                onClick={(e) => handleSamePageTabLinkClick(e, () => {
                                     setActiveTab('asset');
-
                                     setSearchQuery('');
-
-                                }}
-
+                                })}
                                 className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'asset'
-
                                     ? 'text-blue-600'
-
                                     : 'text-gray-500 hover:text-gray-700'
-
                                     }`}
-
                             >
-
                                 Assets
-
                                 {activeTab === 'asset' && (
-
                                     <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full" />
-
                                 )}
+                            </Link>
 
-                            </button>
-
-                            <button
-                                type="button"
-                                {...navHrefProps(buildToolsAssetListHref({ tab: 'type' }))}
-
-                                onClick={() => {
-
+                            <Link
+                                href={buildToolsAssetListHref({ tab: 'type' })}
+                                onClick={(e) => handleSamePageTabLinkClick(e, () => {
                                     setActiveTab('type');
-
                                     setSearchQuery('');
-
-                                }}
-
+                                })}
                                 className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'type'
-
                                     ? 'text-blue-600'
-
                                     : 'text-gray-500 hover:text-gray-700'
-
                                     }`}
-
                             >
-
                                 Asset Type
-
                                 {activeTab === 'type' && (
-
                                     <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full" />
-
                                 )}
+                            </Link>
 
-                            </button>
-
-                            <button
-                                type="button"
-                                {...navHrefProps(buildToolsAssetListHref({ tab: 'category' }))}
-
-                                onClick={() => {
-
+                            <Link
+                                href={buildToolsAssetListHref({ tab: 'category' })}
+                                onClick={(e) => handleSamePageTabLinkClick(e, () => {
                                     setActiveTab('category');
-
                                     setSearchQuery('');
-
-                                }}
-
+                                })}
                                 className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'category'
-
                                     ? 'text-blue-600'
-
                                     : 'text-gray-500 hover:text-gray-700'
-
                                     }`}
-
                             >
-
                                 Category
-
                                 {activeTab === 'category' && (
-
                                     <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full" />
-
                                 )}
+                            </Link>
 
-                            </button>
-
-                            <button
-                                type="button"
-                                {...navHrefProps(buildToolsAssetListHref({ tab: 'accessories' }))}
-
-                                onClick={() => {
-
+                            <Link
+                                href={buildToolsAssetListHref({ tab: 'accessories' })}
+                                onClick={(e) => handleSamePageTabLinkClick(e, () => {
                                     setActiveTab('accessories');
-
                                     setSearchQuery('');
-
                                     setAccessoryCatalogStatusFilter('all');
-
-                                }}
-
+                                })}
                                 className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'accessories'
-
                                     ? 'text-blue-600'
-
                                     : 'text-gray-500 hover:text-gray-700'
-
                                     }`}
-
                             >
-
                                 Accessories
-
                                 {activeTab === 'accessories' && (
-
                                     <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full" />
-
                                 )}
+                            </Link>
 
-                            </button>
-
-                            <button
-                                type="button"
-                                {...navHrefProps(buildToolsAssetListHref({ tab: 'lossDamage', lossDamageStatus: 'All' }))}
-
-                                onClick={() => {
-
+                            <Link
+                                href={buildToolsAssetListHref({ tab: 'lossDamage', lossDamageStatus: 'All' })}
+                                onClick={(e) => handleSamePageTabLinkClick(e, () => {
                                     setActiveTab('lossDamage');
-
                                     setSearchQuery('');
                                     setLossDamageStatusFilter('All');
                                     setLossDamageSubTab('assets');
-
-                                }}
-
+                                })}
                                 className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-3 font-medium text-xs sm:text-sm transition-all relative ${activeTab === 'lossDamage'
-
                                     ? 'text-blue-600'
-
                                     : 'text-gray-500 hover:text-gray-700'
-
                                     }`}
-
-                                type="button"
-
                             >
-
                                 <span className="inline-flex items-center gap-1.5">
-
                                     <AlertCircle size={16} className={activeTab === 'lossDamage' ? 'text-rose-600' : 'text-gray-400'} />
-
                                     Loss &amp; Damage
-
                                 </span>
-
                                 {activeTab === 'lossDamage' && (
-
                                     <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full" />
-
                                 )}
-
-                            </button>
+                            </Link>
 
                         </div>
 
@@ -2735,25 +2710,16 @@ function AssetPageContent() {
 
                                                     )}
 
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">VALUE</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">PURCHASE DATE</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">INVOICE</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">ACCESSORIES</th>
-
-                                                    <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+                                                    <SortableTh label="SL NO" sortKey="slNo" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="ID" sortKey="assetId" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="TYPE" sortKey="type" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="CATEGORY" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="NAME" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="VALUE" sortKey="value" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="PURCHASE DATE" sortKey="purchaseDate" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="INVOICE" sortKey="invoice" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="ACCESSORIES" sortKey="accessories" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
+                                                    <SortableTh label="STATUS" sortKey="status" activeKey={sortKey} direction={sortDirection} onSort={handleAssetListSort} className="lg:py-4" />
 
                                                     <th className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
 
@@ -3161,31 +3127,21 @@ function AssetPageContent() {
 
 
 
-                                                    return categoryList.map((cat, index) => (
+                                                    return categoryList.map((cat, index) => {
+                                                        const categoryHref = buildToolsAssetListHref({
+                                                            tab: 'asset',
+                                                            search: cat.name || '',
+                                                        });
 
-                                                        <tr
-
+                                                        return (
+                                                        <ListTableRowLink
                                                             key={cat._id}
-
-                                                            {...navHrefProps(
-                                                                buildToolsAssetListHref({
-                                                                    tab: 'asset',
-                                                                    search: cat.name || '',
-                                                                }),
-                                                            )}
-
-                                                            onClick={(e) => {
-
-                                                                e.stopPropagation();
-
-                                                                setActiveTab('asset');
-
-                                                                setSearchQuery(cat.name);
-
-                                                            }}
-
+                                                            href={categoryHref}
+                                                            router={router}
+                                                            enabled={Boolean(categoryHref)}
+                                                        >
+                                                        <tr
                                                             className="hover:bg-gray-50 transition-colors cursor-pointer"
-
                                                         >
 
                                                             <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">{index + 1}</td>
@@ -3286,8 +3242,9 @@ function AssetPageContent() {
                                                             </td>
 
                                                         </tr>
-
-                                                    ));
+                                                        </ListTableRowLink>
+                                                        );
+                                                    });
 
                                                 })()}
 
@@ -3341,11 +3298,27 @@ function AssetPageContent() {
 
                                                     }
 
-                                                    return accessoryCatalogFiltered.map((row, index) => (
+                                                    return accessoryCatalogFiltered.map((row, index) => {
+                                                        const attachedAssetHref = catalogRowStatus(row) === 'Attached'
+                                                            ? (() => {
+                                                                const aid = row?.assetItemId?._id || row?.assetItemId;
+                                                                return aid ? `/HRM/Asset/details/${String(aid)}?tab=accessories` : '';
+                                                            })()
+                                                            : '';
+
+                                                        return (
                                                         <Fragment key={row._id}>
+                                                            <ListTableRowLink
+                                                                href={attachedAssetHref}
+                                                                router={router}
+                                                                enabled={Boolean(attachedAssetHref)}
+                                                            >
                                                             <tr
                                                                 className="hover:bg-gray-50 transition-colors cursor-pointer"
-                                                                onClick={() => setExpandedAccessoryCatalogId((prev) => prev === row._id ? null : row._id)}
+                                                                onClick={() => {
+                                                                    if (attachedAssetHref) return;
+                                                                    setExpandedAccessoryCatalogId((prev) => prev === row._id ? null : row._id);
+                                                                }}
                                                             >
 
                                                                 <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">{index + 1}</td>
@@ -3429,6 +3402,7 @@ function AssetPageContent() {
                                                                 </td>
 
                                                             </tr>
+                                                            </ListTableRowLink>
                                                             {expandedAccessoryCatalogId === row._id && (
                                                                 <tr className="bg-slate-50/60">
                                                                     <td colSpan="8" className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4">
@@ -3439,27 +3413,19 @@ function AssetPageContent() {
                                                                             </p>
                                                                             <div className="flex flex-wrap items-center gap-2">
                                                                                 {catalogRowStatus(row) === 'Attached' && row.assetItemId && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        {...navHrefProps(
-                                                                                            (() => {
-                                                                                                const aid = row.assetItemId?._id || row.assetItemId;
-                                                                                                return aid
-                                                                                                    ? `/HRM/Asset/details/${String(aid)}?tab=accessories`
-                                                                                                    : '';
-                                                                                            })(),
-                                                                                        )}
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
+                                                                                    <Link
+                                                                                        href={(() => {
                                                                                             const aid = row.assetItemId?._id || row.assetItemId;
-                                                                                            if (!aid) return;
-                                                                                            navigateFromList(router, `/HRM/Asset/details/${String(aid)}?tab=accessories`);
-                                                                                        }}
+                                                                                            return aid
+                                                                                                ? `/HRM/Asset/details/${String(aid)}?tab=accessories`
+                                                                                                : '#';
+                                                                                        })()}
+                                                                                        onClick={(e) => e.stopPropagation()}
                                                                                         className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-[10px] font-black uppercase tracking-wide border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all inline-flex items-center gap-1.5"
                                                                                     >
                                                                                         <ExternalLink size={14} />
                                                                                         View asset
-                                                                                    </button>
+                                                                                    </Link>
                                                                                 )}
                                                                                 {canAttachCatalogRow(row) && (
                                                                                     <button
@@ -3524,7 +3490,8 @@ function AssetPageContent() {
                                                                 </tr>
                                                             )}
                                                         </Fragment>
-                                                    ));
+                                                        );
+                                                    });
 
                                                 })()}
 
@@ -3564,13 +3531,18 @@ function AssetPageContent() {
                                                             const displayName = item.name || '—';
                                                             const displayStatus = item.pendingAction === 'Loss and Damage' ? 'Pending' : (item.status || '—');
 
+                                                            const assetHref = resolveAssetDetailHref(item) || '';
+
                                                             return (
-                                                                <tr
+                                                                <ListTableRowLink
                                                                     key={`asset-${item._id}`}
+                                                                    href={assetHref}
+                                                                    router={router}
+                                                                    enabled={Boolean(assetHref)}
+                                                                >
+                                                                <tr
                                                                     id={buildAssetFocusElementId({ assetId: item._id })}
                                                                     className="hover:bg-rose-50/40 transition-colors cursor-pointer"
-                                                                    {...navHrefProps(resolveAssetDetailHref(item) || '')}
-                                                                    onClick={() => openAssetDetailFromList(router, item)}
                                                                 >
                                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">{index + 1}</div>
@@ -3651,6 +3623,7 @@ function AssetPageContent() {
                                                                         )}
                                                                     </td>
                                                                 </tr>
+                                                                </ListTableRowLink>
                                                             );
                                                         })
                                                     )}
@@ -3689,21 +3662,24 @@ function AssetPageContent() {
                                                             const displayName = acc?.name || 'Accessory';
                                                             const displayStatus = acc?.pendingAction === 'Loss and Damage' ? 'Pending' : (acc?.status || '—');
 
+                                                            const accessoryHref = (() => {
+                                                                const base = resolveAssetDetailHref(item);
+                                                                return base ? `${base}?tab=accessories` : '';
+                                                            })();
+
                                                             return (
-                                                                <tr
+                                                                <ListTableRowLink
                                                                     key={`accessory-${acc?._id || index}`}
+                                                                    href={accessoryHref}
+                                                                    router={router}
+                                                                    enabled={Boolean(accessoryHref)}
+                                                                >
+                                                                <tr
                                                                     id={buildAssetFocusElementId({
                                                                         assetId: item._id,
                                                                         accessoryKey: String(acc?.accessoryId || acc?._id || ''),
                                                                     })}
                                                                     className="hover:bg-rose-50/40 transition-colors cursor-pointer"
-                                                                    {...navHrefProps(
-                                                                        (() => {
-                                                                            const base = resolveAssetDetailHref(item);
-                                                                            return base ? `${base}?tab=accessories` : '';
-                                                                        })(),
-                                                                    )}
-                                                                    onClick={() => openAssetDetailFromList(router, item, { tab: 'accessories' })}
                                                                 >
                                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">
                                                                         <div className="relative z-10 pointer-events-none">{index + 1}</div>
@@ -3772,6 +3748,7 @@ function AssetPageContent() {
                                                                         )}
                                                                     </td>
                                                                 </tr>
+                                                                </ListTableRowLink>
                                                             );
                                                         })
                                                     )}
@@ -3853,31 +3830,20 @@ function AssetPageContent() {
 
 
 
+                                                            const typeHref = buildToolsAssetListHref({
+                                                                tab: 'category',
+                                                                search: type.type || '',
+                                                            });
+
                                                             return (
-
-                                                                <tr
-
+                                                                <ListTableRowLink
                                                                     key={type._id}
-
-                                                                    {...navHrefProps(
-                                                                        buildToolsAssetListHref({
-                                                                            tab: 'category',
-                                                                            search: type.type || '',
-                                                                        }),
-                                                                    )}
-
-                                                                    onClick={(e) => {
-
-                                                                        e.stopPropagation();
-
-                                                                        setActiveTab('category');
-
-                                                                        setSearchQuery(type.type);
-
-                                                                    }}
-
+                                                                    href={typeHref}
+                                                                    router={router}
+                                                                    enabled={Boolean(typeHref)}
+                                                                >
+                                                                <tr
                                                                     className="hover:bg-gray-50 transition-colors cursor-pointer"
-
                                                                 >
 
                                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-700">{index + 1}</td>
@@ -3974,7 +3940,7 @@ function AssetPageContent() {
                                                                     </td>
 
                                                                 </tr>
-
+                                                                </ListTableRowLink>
                                                             );
 
                                                         });

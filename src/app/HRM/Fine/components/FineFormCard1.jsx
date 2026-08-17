@@ -14,6 +14,7 @@ import {
     formatDeductionMonth,
     formatMoney,
 } from './FineFormCardShared';
+import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 
 function resolveIsVehicleAsset(fine, assetDetails) {
     const typeLower = String(assetDetails?.type || assetDetails?.typeId?.name || '').toLowerCase();
@@ -186,6 +187,10 @@ export default function FineFormCard1({
                 title="Asset Fine Report"
                 subtitle="Asset and deduction details"
             >
+                <DetailGrid>
+                    <DetailField label="Fine No." value={fine.fineId || '—'} />
+                    <DetailField label="Zoho No." value={formatZohoDocumentNumber(fine)} />
+                </DetailGrid>
                 {vehicleFields ? (
                     <>
                         <SectionDivider title={isVehicle ? 'Vehicle Details' : 'Asset Details'} />
@@ -217,6 +222,7 @@ export default function FineFormCard1({
         >
             <DetailGrid>
                 <DetailField label="Fine No." value={f.fineId} />
+                <DetailField label="Zoho No." value={formatZohoDocumentNumber(fine)} />
                 <DetailField label="Fine Issued Date" value={f.reportDate} />
             </DetailGrid>
 

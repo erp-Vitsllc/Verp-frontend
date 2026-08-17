@@ -12,7 +12,8 @@ import {
     startOfMonth,
 } from 'date-fns';
 import { Clock, Users } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { createPortal } from 'react-dom';
 import axiosInstance from '@/utils/axios';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import AttendanceTeamTreeModal from './AttendanceTeamTreeModal';
@@ -21,7 +22,7 @@ import AttendanceYellowRequestModal from './AttendanceYellowRequestModal';
 import AttendanceFutureRequestModal from './AttendanceFutureRequestModal';
 import AttendanceLeaveDecideModal from './AttendanceLeaveDecideModal';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
-import { dashboardHover, dashboardItem } from './dashboardMotion';
+import { dashboardHover, dashboardItem, DASH_EASE } from './dashboardMotion';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -31,7 +32,9 @@ const LEAVE_KEYS = new Set(['on_leave']);
 const SICK_LEAVE_KEYS = new Set(['sick_leave']);
 const AUTHORIZED_LEAVE_KEYS = new Set(['authorized_leave']);
 const UNAUTHORIZED_KEYS = new Set(['unauthorized_leave']);
-/** Late Arrival, Early Go, Mispunched — all yellow on the dashboard calendar. */
+const ABSENT_KEYS = new Set(['not_marked', 'absent']);
+/** Late Arrival and Mispunch are yellow. Early Go is shown as Late Arrival. */
+const LATE_ARRIVAL_KEYS = new Set(['late_arrived', 'early_go']);
 const YELLOW_STATUS_KEYS = new Set(['late_arrived', 'early_go', 'mispunch']);
 const OFF_DAY_KEYS = new Set(['holiday', 'weekly_off']);
 const RED_CLICK_KEYS = new Set(['unauthorized_leave', 'on_leave']);
@@ -41,11 +44,23 @@ const TONE = {
     present: 'bg-[#2ECC71] text-white',
     holiday: 'bg-[#9CA3AF] text-white',
     future: 'bg-white text-slate-500 border border-slate-200',
-    absent: 'bg-[#E74C3C] text-white',
+    unauthorized: 'bg-[#E74C3C] text-white',
     leave: 'bg-[#E74C3C] text-white',
     sickLeave: 'bg-[#22C55E] text-white',
-    authorizedLeave: 'bg-[#F97316] text-white',
-    yellow: 'bg-[#F1C40F] text-slate-900',
+    authorizedLeave: 'bg-[#2563EB] text-white',
+    absent: 'bg-[#F97316] text-black',
+    yellow: 'bg-[#F1C40F] text-black',
+};
+
+const TONE_FILL = {
+    present: { backgroundColor: '#2ECC71', color: '#ffffff' },
+    holiday: { backgroundColor: '#9CA3AF', color: '#ffffff' },
+    unauthorized: { backgroundColor: '#E74C3C', color: '#ffffff' },
+    leave: { backgroundColor: '#E74C3C', color: '#ffffff' },
+    sickLeave: { backgroundColor: '#22C55E', color: '#ffffff' },
+    authorizedLeave: { backgroundColor: '#2563EB', color: '#ffffff' },
+    absent: { backgroundColor: '#F97316', color: '#000000' },
+    yellow: { backgroundColor: '#F1C40F', color: '#000000' },
 };
 
 function getDubaiDateKey(date = new Date()) {
@@ -79,12 +94,132 @@ function isMispunchReason(reason) {
         .includes('mispunch');
 }
 
+function authorizedPayType(record) {
+    const pay = String(record?.leavePayType || '').toLowerCase();
+    if (pay === 'paid' || pay === 'unpaid') return pay;
+    const label = String(record?.statusLabel || '').toLowerCase();
+    if (label.includes('unpaid')) return 'unpaid';
+    if (/\bpaid\b/.test(label) || label.includes('(paid)')) return 'paid';
+    return '';
+}
+
 function isRedTone(toneCell) {
-    return toneCell === TONE.absent || toneCell === TONE.leave;
+    return toneCell === TONE.unauthorized || toneCell === TONE.leave;
 }
 
 function isYellowTone(toneCell) {
     return toneCell === TONE.yellow;
+}
+
+function colorFromToneCell(cell) {
+    const key = Object.keys(TONE).find((name) => TONE[name] === cell);
+    return TONE_FILL[key]?.backgroundColor || '#64748b';
+}
+
+function shouldShowPunchTimes(record, tone) {
+    if (!record) return false;
+    if (tone?.cell === TONE.present || tone?.cell === TONE.yellow) return true;
+    const key = String(record.statusKey || '');
+    return (
+        PRESENT_KEYS.has(key) ||
+        LATE_ARRIVAL_KEYS.has(key) ||
+        key === 'mispunch' ||
+        isMispunchReason(record.reason)
+    );
+}
+
+function CalendarDayTooltip({ hovered, reduceMotion }) {
+    if (!hovered || typeof document === 'undefined') return null;
+
+    const pad = 18;
+    const estimatedWidth = 280;
+    const estimatedHeight = hovered.showTimes ? 200 : hovered.payLabel ? 170 : 140;
+    const left = Math.min(
+        Math.max(12, hovered.x + pad),
+        Math.max(12, window.innerWidth - estimatedWidth - 12),
+    );
+    const top = Math.min(
+        Math.max(12, hovered.y - estimatedHeight - 8),
+        Math.max(12, window.innerHeight - estimatedHeight - 12),
+    );
+
+    return createPortal(
+        <AnimatePresence>
+            <motion.div
+                key={hovered.dateKey}
+                initial={reduceMotion ? false : { opacity: 0, y: 10, scale: 0.94 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={reduceMotion ? undefined : { opacity: 0, y: 8, scale: 0.96 }}
+                transition={{ duration: reduceMotion ? 0 : 0.18, ease: DASH_EASE }}
+                className="pointer-events-none fixed z-[120]"
+                style={{ left, top }}
+            >
+                <div
+                    className="min-w-[230px] max-w-[290px] rounded-3xl border border-white/15 px-5 py-4 text-white shadow-[0_24px_60px_rgba(15,23,42,0.38)] backdrop-blur-md"
+                    style={{
+                        background: 'linear-gradient(180deg, rgba(15,23,42,0.97), rgba(15,23,42,0.9))',
+                        boxShadow: `0 18px 44px ${hovered.color}55, 0 24px 60px rgba(15,23,42,0.38)`,
+                    }}
+                >
+                    <div
+                        className="h-1.5 w-full rounded-full mb-3"
+                        style={{ background: `linear-gradient(90deg, ${hovered.color}, ${hovered.color}66)` }}
+                    />
+                    <div className="flex items-center gap-2.5 mb-1">
+                        <span
+                            className="w-3.5 h-3.5 rounded-full shrink-0 ring-4 ring-white/15"
+                            style={{ backgroundColor: hovered.color }}
+                        />
+                        <span className="text-base font-black tracking-tight leading-tight">
+                            {hovered.status}
+                        </span>
+                    </div>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+                        {hovered.dateLabel}
+                    </p>
+                    {hovered.payLabel ? (
+                        <span
+                            className={`inline-flex items-center justify-center min-h-[22px] px-2.5 rounded-md text-[10px] font-bold uppercase tracking-wide mb-2 ${
+                                hovered.payMuted ? 'bg-white/10 text-slate-300' : ''
+                            }`}
+                            style={
+                                hovered.payMuted
+                                    ? undefined
+                                    : { backgroundColor: hovered.color, color: '#ffffff' }
+                            }
+                        >
+                            {hovered.payLabel}
+                        </span>
+                    ) : null}
+                    {hovered.showTimes ? (
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                            <div className="rounded-2xl bg-white/10 px-3 py-2.5">
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                                    {hovered.expectedTimes ? 'Expected in' : 'Check in'}
+                                </p>
+                                <p className="text-lg font-black tabular-nums leading-none mt-1">
+                                    {hovered.timeIn || '—'}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl bg-white/10 px-3 py-2.5">
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                                    {hovered.expectedTimes ? 'Expected out' : 'Check out'}
+                                </p>
+                                <p className="text-lg font-black tabular-nums leading-none mt-1">
+                                    {hovered.timeOut || '—'}
+                                </p>
+                            </div>
+                        </div>
+                    ) : hovered.detail ? (
+                        <p className="text-xs font-semibold text-slate-300 leading-snug mt-1">
+                            {hovered.detail}
+                        </p>
+                    ) : null}
+                </div>
+            </motion.div>
+        </AnimatePresence>,
+        document.body,
+    );
 }
 
 function nextDateKey(dateKey) {
@@ -133,13 +268,11 @@ function dayTone({ record, isFuture, isHoliday, isWeeklyOff, holidayName, isToda
     if (record && AUTHORIZED_LEAVE_KEYS.has(record.statusKey)) {
         return {
             cell: TONE.authorizedLeave,
-            label: record.statusLabel || 'Authorized Leave',
+            label: 'Authorized Leave',
+            payType: authorizedPayType(record),
         };
     }
     if (isApprovedFutureLateEarly(record) && (isFuture || !record?.timeIn)) {
-        if (record.leaveRequestKind === 'future_early' || record.statusKey === 'early_go') {
-            return { cell: TONE.present, label: 'Early go approved' };
-        }
         return { cell: TONE.present, label: 'Late arrival approved' };
     }
     if (isFuture) {
@@ -156,7 +289,7 @@ function dayTone({ record, isFuture, isHoliday, isWeeklyOff, holidayName, isToda
     }
     if (record && UNAUTHORIZED_KEYS.has(record.statusKey)) {
         return {
-            cell: TONE.absent,
+            cell: TONE.unauthorized,
             label: 'Unauthorized Leave',
         };
     }
@@ -172,12 +305,14 @@ function dayTone({ record, isFuture, isHoliday, isWeeklyOff, holidayName, isToda
             label: record.statusLabel || 'On Leave',
         };
     }
+    if (record && ABSENT_KEYS.has(record.statusKey)) {
+        return {
+            cell: TONE.absent,
+            label: 'Absent',
+        };
+    }
     if (record && YELLOW_STATUS_KEYS.has(record.statusKey)) {
-        if (record.statusKey === 'early_go') {
-            const detail = record.reason ? ` — ${record.reason}` : '';
-            return { cell: TONE.yellow, label: `Early Go${detail}` };
-        }
-        if (record.statusKey === 'late_arrived') {
+        if (LATE_ARRIVAL_KEYS.has(record.statusKey)) {
             const detail = record.reason ? ` — ${record.reason}` : '';
             return { cell: TONE.yellow, label: `Late Arrival${detail}` };
         }
@@ -212,13 +347,23 @@ function dayTone({ record, isFuture, isHoliday, isWeeklyOff, holidayName, isToda
             label: record.statusLabel || 'On time',
         };
     }
+    if (!isFuture && !isToday) {
+        return {
+            cell: TONE.absent,
+            label: 'Absent',
+        };
+    }
     return {
         cell: TONE.future,
         label: '—',
     };
 }
 
-export default function DashboardAttendanceCalendar() {
+export default function DashboardAttendanceCalendar({
+    forEmployeeId = '',
+    hideTeamControls = false,
+    className = '',
+}) {
     const searchParams = useSearchParams();
     const todayKey = getDubaiDateKey();
     const deepAttendanceDate = String(searchParams?.get('attendanceDate') || '').trim();
@@ -241,9 +386,11 @@ export default function DashboardAttendanceCalendar() {
     const [todayRecord, setTodayRecord] = useState(null);
     const [employeeName, setEmployeeName] = useState('');
     const [staffType, setStaffType] = useState('office');
+    const [scheduleWeek, setScheduleWeek] = useState(null);
     const [offWeekdays, setOffWeekdays] = useState(() => new Set(['saturday', 'sunday']));
     const [selfEmployeeId, setSelfEmployeeId] = useState('');
-    const [viewEmployeeId, setViewEmployeeId] = useState('');
+    const lockedEmployeeId = String(forEmployeeId || '').trim();
+    const [viewEmployeeId, setViewEmployeeId] = useState(lockedEmployeeId);
     const [isSelf, setIsSelf] = useState(true);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -264,6 +411,12 @@ export default function DashboardAttendanceCalendar() {
     const [decideSubmitting, setDecideSubmitting] = useState(false);
     const [decideError, setDecideError] = useState('');
     const [deepLinkApplied, setDeepLinkApplied] = useState(false);
+    const [hoveredDay, setHoveredDay] = useState(null);
+    const reduceMotion = useReducedMotion();
+
+    useEffect(() => {
+        if (lockedEmployeeId) setViewEmployeeId(lockedEmployeeId);
+    }, [lockedEmployeeId]);
 
     const activeEmployeeId = viewEmployeeId || selfEmployeeId;
 
@@ -307,7 +460,9 @@ export default function DashboardAttendanceCalendar() {
             setRecordsByDate(map);
             setTodayRecord(res.data?.todayRecord || map[todayKey] || null);
             setEmployeeName(res.data?.employee?.name || '');
-            setStaffType(res.data?.employee?.staffType === 'site' ? 'site' : 'office');
+            const nextStaffType = res.data?.employee?.staffType === 'site' ? 'site' : 'office';
+            setStaffType(nextStaffType);
+            setScheduleWeek(res.data?.workingTime?.[nextStaffType] || null);
             setOffWeekdays(new Set(Array.isArray(res.data?.offWeekdays) ? res.data.offWeekdays : []));
             setIsSelf(res.data?.isSelf !== false);
             if (!viewEmployeeId && res.data?.employee?.id) {
@@ -487,7 +642,16 @@ export default function DashboardAttendanceCalendar() {
         }
     };
 
-    const submitFutureRequest = async ({ kind, reason, attachmentName }) => {
+    const submitFutureRequest = async ({
+        kind,
+        fromDate,
+        toDate,
+        dayPart,
+        timeIn,
+        timeOut,
+        reason,
+        attachmentName,
+    }) => {
         if (!futureModal?.dateKey || !kind) return;
         setFutureSubmitting(true);
         setFutureError('');
@@ -495,8 +659,13 @@ export default function DashboardAttendanceCalendar() {
             await axiosInstance.post(
                 '/Attendance/me/future-request',
                 {
-                    date: futureModal.dateKey,
+                    date: fromDate || futureModal.dateKey,
+                    fromDate: fromDate || futureModal.dateKey,
+                    toDate: toDate || fromDate || futureModal.dateKey,
                     kind,
+                    dayPart: dayPart || 'full',
+                    timeIn: timeIn || '',
+                    timeOut: timeOut || '',
                     reason,
                     attachmentName: attachmentName || '',
                 },
@@ -512,7 +681,7 @@ export default function DashboardAttendanceCalendar() {
         }
     };
 
-    const submitLeaveDecision = async (decision, approvedStatusKey) => {
+    const submitLeaveDecision = async (decision, approvedStatusKey, leavePayType) => {
         if (!decideModal?.record?._id && !decideModal?.dateKey) return;
         setDecideSubmitting(true);
         setDecideError('');
@@ -525,6 +694,7 @@ export default function DashboardAttendanceCalendar() {
                     employeeMongoId: decideModal.record?.employeeMongoId || viewEmployeeId,
                     decision,
                     approvedStatusKey: approvedStatusKey || '',
+                    leavePayType: leavePayType || '',
                 },
                 { skipToast: true },
             );
@@ -542,13 +712,13 @@ export default function DashboardAttendanceCalendar() {
         <>
             <motion.div
                 variants={dashboardItem}
-                whileHover={dashboardHover}
-                className="dash-card-lift col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-4 sm:p-5 shadow-sm border border-slate-100 flex flex-col overflow-hidden min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:max-h-[380px] lg:min-h-[380px]"
+                whileHover={hideTeamControls ? undefined : dashboardHover}
+                className={`dash-card-lift col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-4 sm:p-5 shadow-sm border border-slate-100 flex flex-col overflow-hidden min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:max-h-[380px] lg:min-h-[380px] ${className}`.trim()}
             >
                 <div className="flex items-start justify-between gap-3 shrink-0">
                     <div className="min-w-0">
                         <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em]">
-                            {viewingOther ? 'User Requests' : 'My Attendance'}
+                            {hideTeamControls || viewingOther ? 'Employee Attendance' : 'My Attendance'}
                             {staffType ? (
                                 <span className="ml-1.5 text-slate-500 normal-case tracking-normal">
                                     · {staffType === 'site' ? 'Site' : 'Office'}
@@ -562,6 +732,7 @@ export default function DashboardAttendanceCalendar() {
                     </div>
 
                     <div className="flex flex-col items-end gap-1.5 shrink-0 min-w-0">
+                        {hideTeamControls ? null : (
                         <div className="flex items-center gap-1.5 flex-wrap justify-end">
                             <button
                                 type="button"
@@ -581,6 +752,7 @@ export default function DashboardAttendanceCalendar() {
                                 </button>
                             ) : null}
                         </div>
+                        )}
                         {viewingOther && employeeName ? (
                             <div className="text-right max-w-[200px]">
                                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
@@ -689,22 +861,60 @@ export default function DashboardAttendanceCalendar() {
                                     !alreadyApprovedFuture;
                                 const canDecide = viewingOther && pendingLeave;
 
+                                const hoverHint = pendingLeave
+                                    ? 'Request pending'
+                                    : canFutureRequest
+                                      ? 'Request leave or late arrival'
+                                      : isFuture &&
+                                          !isHoliday &&
+                                          !isWeeklyOff &&
+                                          earliestFutureDate &&
+                                          dateKey < earliestFutureDate
+                                        ? `Requests open from ${earliestFutureDate}`
+                                        : '';
+
+                                const showDayHover = (event) => {
+                                    const baseLabel = String(tone.label || 'Attendance').split(' — ')[0];
+                                    const payType = tone.payType || authorizedPayType(record);
+                                    const isAuthorizedLeave = AUTHORIZED_LEAVE_KEYS.has(record?.statusKey);
+                                    const payWord = payType === 'paid' ? 'Paid' : payType === 'unpaid' ? 'Unpaid' : '';
+                                    const statusLabel =
+                                        isAuthorizedLeave && payWord ? `${baseLabel} (${payWord})` : baseLabel;
+                                    const punchedIn = formatClock(record?.timeIn);
+                                    const punchedOut = formatClock(record?.timeOut);
+                                    const requestedIn = formatClock(record?.leaveRequestTimeIn);
+                                    const requestedOut = formatClock(record?.leaveRequestTimeOut);
+                                    // Future days have no punches yet, so the approved request window
+                                    // is the only timing to show.
+                                    const showExpected =
+                                        !punchedIn &&
+                                        !punchedOut &&
+                                        Boolean(requestedIn || requestedOut);
+                                    setHoveredDay({
+                                        dateKey,
+                                        dateLabel: format(day, 'd MMM yyyy'),
+                                        status: statusLabel,
+                                        detail: hoverHint || (tone.label !== baseLabel ? tone.label : ''),
+                                        payLabel:
+                                            payWord ||
+                                            (isAuthorizedLeave ? 'Pay type not set' : ''),
+                                        payMuted: isAuthorizedLeave && !payWord,
+                                        color: colorFromToneCell(tone.cell),
+                                        showTimes: shouldShowPunchTimes(record, tone) || showExpected,
+                                        expectedTimes: showExpected,
+                                        timeIn: showExpected ? requestedIn : punchedIn,
+                                        timeOut: showExpected ? requestedOut : punchedOut,
+                                        x: event.clientX,
+                                        y: event.clientY,
+                                    });
+                                };
+
                                 return (
                                     <div
                                         key={dateKey}
-                                        title={
-                                            pendingLeave
-                                                ? `${tone.label} — request pending`
-                                                : canFutureRequest
-                                                  ? 'Request leave, late arrival, or early go'
-                                                  : isFuture &&
-                                                      !isHoliday &&
-                                                      !isWeeklyOff &&
-                                                      earliestFutureDate &&
-                                                      dateKey < earliestFutureDate
-                                                    ? `Requests open from ${earliestFutureDate}`
-                                                    : tone.label
-                                        }
+                                        onMouseEnter={showDayHover}
+                                        onMouseMove={showDayHover}
+                                        onMouseLeave={() => setHoveredDay(null)}
                                         className="min-h-0 flex items-center justify-center py-0.5 relative"
                                     >
                                         <button
@@ -732,16 +942,13 @@ export default function DashboardAttendanceCalendar() {
                                                 canFutureRequest ||
                                                 canDecide
                                                     ? 'cursor-pointer hover:brightness-95 hover:scale-110'
-                                                    : 'cursor-default'
+                                                    : 'cursor-default pointer-events-none'
                                             }`}
                                             style={{ animationDelay: `${Number(format(day, 'd')) * 18}ms` }}
                                         >
                                             {format(day, 'd')}
                                             {pendingLeave ? (
-                                                <span
-                                                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 text-slate-900 text-[9px] font-black leading-none flex items-center justify-center border border-white shadow"
-                                                    title="Pending request"
-                                                >
+                                                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 text-slate-900 text-[9px] font-black leading-none flex items-center justify-center border border-white shadow">
                                                     !
                                                 </span>
                                             ) : null}
@@ -750,49 +957,13 @@ export default function DashboardAttendanceCalendar() {
                                 );
                             })}
                         </div>
-
-                        <div className="mt-2 pt-1.5 border-t border-slate-100 flex flex-nowrap items-center justify-between gap-x-1.5 text-[8px] sm:text-[9px] leading-none text-slate-500 shrink-0 overflow-hidden whitespace-nowrap">
-                            <span className="inline-flex items-center gap-1 shrink-0 cursor-default" title="Present">
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#2ECC71] shrink-0" /> Present
-                            </span>
-                            <span
-                                className="inline-flex items-center gap-1 shrink-0 cursor-default"
-                                title="Unauthorized Leave"
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#E74C3C] shrink-0" /> Unauthorized
-                            </span>
-                            <span className="inline-flex items-center gap-1 shrink-0 cursor-default" title="On Leave">
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#E74C3C] shrink-0" /> Leave
-                            </span>
-                            <span
-                                className="inline-flex items-center gap-1 shrink-0 cursor-default"
-                                title="Sick Leave"
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E] shrink-0" /> Sick
-                            </span>
-                            <span
-                                className="inline-flex items-center gap-1 shrink-0 cursor-default"
-                                title="Authorized Leave"
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#F97316] shrink-0" /> Auth Leave
-                            </span>
-                            <span
-                                className="inline-flex items-center gap-1 shrink-0 cursor-default"
-                                title="Holiday (includes off day)"
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#9CA3AF] shrink-0" /> Holiday
-                            </span>
-                            <span
-                                className="inline-flex items-center gap-1 shrink-0 cursor-default"
-                                title="Late Arrival, Early Go, Mispunched"
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#F1C40F] shrink-0" /> Late/Early/Mispunch
-                            </span>
-                        </div>
                     </div>
                 )}
             </motion.div>
 
+            <CalendarDayTooltip hovered={hoveredDay} reduceMotion={reduceMotion} />
+
+            {hideTeamControls ? null : (
             <AttendanceTeamTreeModal
                 open={teamOpen}
                 selectedId={activeEmployeeId}
@@ -810,6 +981,7 @@ export default function DashboardAttendanceCalendar() {
                     loadMonth();
                 }}
             />
+            )}
 
             <AttendanceLeaveRequestModal
                 key={requestModal?.dateKey || 'leave-closed'}
@@ -846,6 +1018,7 @@ export default function DashboardAttendanceCalendar() {
                 isOpen={Boolean(futureModal)}
                 dateKey={futureModal?.dateKey}
                 earliestDate={earliestFutureDate || ''}
+                scheduleWeek={scheduleWeek}
                 submitting={futureSubmitting}
                 error={futureError}
                 onClose={() => {
@@ -871,6 +1044,11 @@ export default function DashboardAttendanceCalendar() {
                 }
                 attachmentName={decideModal?.record?.attachmentName || ''}
                 kind={decideModal?.record?.leaveRequestKind || 'leave'}
+                fromDate={decideModal?.record?.leaveRequestFromDate || ''}
+                toDate={decideModal?.record?.leaveRequestToDate || ''}
+                dayPart={decideModal?.record?.leaveRequestDayPart || ''}
+                requestTimeIn={decideModal?.record?.leaveRequestTimeIn || ''}
+                requestTimeOut={decideModal?.record?.leaveRequestTimeOut || ''}
                 deciding={decideSubmitting}
                 error={decideError}
                 onClose={() => {

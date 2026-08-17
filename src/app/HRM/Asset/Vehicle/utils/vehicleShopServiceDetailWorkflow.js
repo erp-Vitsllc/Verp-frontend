@@ -571,6 +571,7 @@ export function buildAccidentRepairOilStyleWorkflowEvents(asset, service, flowch
     const requester =
         formatTrackerActorName(remark.requestedByName) ||
         formatTrackerActorName(remark.createdByName) ||
+        formatTrackerActorName(formatEmployeeName(service?.requestedBy)) ||
         adminOfficer;
 
     const live =

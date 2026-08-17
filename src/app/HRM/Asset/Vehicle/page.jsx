@@ -6,12 +6,12 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, Trash2, Filter, Pencil, Wrench, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, Trash2, Filter, Pencil, Wrench, Handshake, Receipt, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import {
     isVehicleProfileActivationActive,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAdminDeleteAccess';
-import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessCreateService, canEditVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canEditVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 
 import {
     AlertDialog,
@@ -38,7 +38,6 @@ import {
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import VehicleListAssignmentStatusCell from '@/app/HRM/Asset/Vehicle/components/VehicleListAssignmentStatusCell';
 import VehicleListServiceStatusCell from '@/app/HRM/Asset/Vehicle/components/VehicleListServiceStatusCell';
-import VehicleCreateServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleCreateServiceModal';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
@@ -356,7 +355,6 @@ export default function VehicleAssetPage() {
     const [vehicleInboxCount, setVehicleInboxCount] = useState(0);
     const vehicleInboxWarmRef = useRef(false);
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, vehicle: null });
-    const [createServiceModalOpen, setCreateServiceModalOpen] = useState(false);
 
     const openInactiveVehicleEdit = useCallback(async (vehicle, e) => {
         e?.stopPropagation();
@@ -397,7 +395,6 @@ export default function VehicleAssetPage() {
     const [fleetListTab, setFleetListTab] = useState('active');
     const canViewActiveFleet = mounted && canAccessActiveFleet();
     const canViewSoldFleet = mounted && canAccessSoldFleet();
-    const canCreateService = mounted && canAccessCreateService();
 
     const setFleetListTabAndUrl = useCallback(
         (next) => {
@@ -840,16 +837,27 @@ export default function VehicleAssetPage() {
                                     <LayoutDashboard size={18} />
                                     Fleet dashboard
                                 </Link>
-                                {canCreateService ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setCreateServiceModalOpen(true)}
+                                <Link
+                                    href="/HRM/Asset/Vehicle/access-service"
                                     className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-teal-600 text-white text-xs sm:text-sm font-semibold hover:bg-teal-700 shadow-sm transition-colors whitespace-nowrap"
                                 >
-                                    <Wrench size={18} />
-                                    Create service
-                                </button>
-                                ) : null}
+                                    <Wrench size={16} />
+                                    Access Service
+                                </Link>
+                                <Link
+                                    href="/HRM/Asset/Vehicle/access-handover"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-teal-600 text-white text-xs sm:text-sm font-semibold hover:bg-teal-700 shadow-sm transition-colors whitespace-nowrap"
+                                >
+                                    <Handshake size={16} />
+                                    Access Handover
+                                </Link>
+                                <Link
+                                    href="/HRM/Asset/Vehicle/access-fine"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-teal-600 text-white text-xs sm:text-sm font-semibold hover:bg-teal-700 shadow-sm transition-colors whitespace-nowrap"
+                                >
+                                    <Receipt size={16} />
+                                    Access Vehicle Fine
+                                </Link>
 
                                 <button
                                     onClick={fetchVehicles}
@@ -1294,15 +1302,6 @@ export default function VehicleAssetPage() {
                     }}
                 />
             )}
-
-            <VehicleCreateServiceModal
-                isOpen={createServiceModalOpen}
-                vehicles={vehicles}
-                onClose={() => setCreateServiceModalOpen(false)}
-                onSuccess={() => {
-                    void fetchVehicleInboxCount({ force: true });
-                }}
-            />
 
             <AlertDialog
                 open={deleteConfirm.isOpen}

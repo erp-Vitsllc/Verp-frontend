@@ -1,6 +1,7 @@
 /** Period filtering + aggregation for the Utility Bills overview header cards. */
 
 import { getMonthlyRentalAmount, isEntryActive } from './utilityBillsStorage';
+import { billDisplayStatus, isUnpaidUtilityBill } from './utilityBillStats';
 
 export const ALL_MONTHS = 'all';
 
@@ -127,6 +128,39 @@ function formatExpiryDate(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value || '');
     return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+/** Unpaid bill rows for the selected overview month / year. */
+export function buildUnpaidBillRows({ bills = [], year, month } = {}) {
+    return (Array.isArray(bills) ? bills : [])
+        .filter((bill) => billMatchesPeriod(bill?.billMonth, year, month))
+        .filter((bill) => isUnpaidUtilityBill(bill))
+        .map((bill) => {
+            const id = String(bill?._id || bill?.id || '');
+            const entryId = String(bill?.entryId || bill?.entry?._id || bill?.entry || '').trim();
+            const href = entryId
+                ? `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entryId)}${
+                      id ? `?billId=${encodeURIComponent(id)}` : ''
+                  }`
+                : '';
+            return {
+                id,
+                entryId,
+                batchId: String(bill?.batchId || ''),
+                type: String(bill?.utilityType || ''),
+                title: String(bill?.provider || bill?.utilityType || 'Utility').trim(),
+                subtitle: [bill?.accountNo, bill?.billMonth].filter(Boolean).join(' · '),
+                amount: Number(bill?.amount) || 0,
+                status: billDisplayStatus(bill),
+                rawStatus: String(bill?.status || ''),
+                href,
+            };
+        })
+        .sort((a, b) => {
+            const typeCmp = String(a.type).localeCompare(String(b.type));
+            if (typeCmp !== 0) return typeCmp;
+            return Number(b.amount) - Number(a.amount);
+        });
 }
 
 /** Active (not expired) contracts with an end date, soonest end first. */

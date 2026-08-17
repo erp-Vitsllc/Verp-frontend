@@ -86,8 +86,24 @@ export default function FineFormCard3({
         const loan = fineSummaries?.personalLoan || { amount: 0, paid: 0, count: 0 };
 
         const approved = filterApprovedEmployeeFines(allEmployeeFines, employeeOwnerId);
+        const useSummaryFallback = approved.length === 0 && fineSummaries?.aggregates;
 
         const fineRows = FINE_ROWS.map(({ key, label }) => {
+            if (useSummaryFallback) {
+                const agg = fineSummaries.aggregates[key] || { amount: 0, paid: 0, count: 0 };
+                const amount = parseFloat(agg.amount) || 0;
+                const paid = parseFloat(agg.paid) || 0;
+                const count = agg.count || 0;
+                return {
+                    key,
+                    label: `${label} (${count})`,
+                    amount,
+                    paid,
+                    outstanding: Math.max(0, amount - paid),
+                    salary: { amount, paid, count, outstanding: Math.max(0, amount - paid) },
+                    eos: { amount: 0, paid: 0, count: 0, outstanding: 0 },
+                };
+            }
             const matching = approved.filter((f) => categorizeEmployeeFine(f) === key);
             const salary = sumCategoryBySource(matching, employeeOwnerId, 'salary');
             const eos = sumCategoryBySource(matching, employeeOwnerId, 'eos');

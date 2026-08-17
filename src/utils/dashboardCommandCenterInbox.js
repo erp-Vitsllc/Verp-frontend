@@ -13,13 +13,16 @@ import { COMPANY_ACTIVATION_INCOMPLETE_TYPE } from '@/utils/companyActivationInc
 import { EMPLOYEE_NOTIFICATION_TYPES } from '@/utils/employeePageNotifications';
 import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
-import { isVehicleAssetInboxRow } from '@/utils/assetInboxScope';
+import {
+    isUtilityBillInboxRow,
+    isVehicleAssetInboxRow,
+} from '@/utils/assetInboxScope';
 import { isDashboardPendingItem } from '@/utils/activationNotificationFilters';
 
 export const FINE_MODULE_TYPES = new Set(['Fine', 'Group Fine Request', 'Employee Fine Request']);
 export const PAYMENT_MODULE_TYPES = new Set(['Payment Approval']);
 export const REWARD_MODULE_TYPES = new Set(['Reward']);
-export const LOAN_MODULE_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance', 'Employee Advance Request']);
+export const LOAN_MODULE_TYPES = new Set(['Loan', 'Loan Request', 'Advance', 'Loan and Advance', 'Loan/Advance', 'Employee Advance Request', 'Employee Loan Request']);
 
 export const VEHICLE_MODULE_TYPES = new Set([
     'Vehicle Service Request',
@@ -78,6 +81,8 @@ export function isCommandCenterHiddenType(typeOrItem) {
             ? typeOrItem
             : String(typeOrItem?.type || typeOrItem?.requestType || '').trim();
     if (isCardDeletedNotificationHiddenType(type)) return true;
+    // Utility contract expiry bells are disabled — other expiry types stay.
+    if (type === 'Utility Contract Expiry') return true;
     // Flowchart responsibility acceptance lives on Settings → FlowChart, not Command Center.
     return type === 'Responsibility Approval';
 }
@@ -99,6 +104,10 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (LOAN_MODULE_TYPES.has(type)) return 'Loan and Advance';
     if (UTILITY_BILL_MODULE_TYPES.has(type)) return 'Utility Bills';
     if (VEHICLE_MODULE_TYPES.has(type)) return 'Vehicle Asset';
+    if (type === 'Employee Asset Request') {
+        if (isUtilityBillInboxRow(item)) return 'Utility Bills';
+        return isVehicleAssetInboxRow(item) ? 'Vehicle Asset' : 'Tools Asset';
+    }
     // Fleet shared Asset Approval / Assignment / Return → Vehicle; equipment → Tools.
     if (
         type === 'Asset Approval' ||
@@ -296,7 +305,14 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Employee Leave Request') return 'Leave request';
     if (type === 'Employee Fine Request') return 'Fine request';
     if (type === 'Employee Advance Request') return 'Advance request';
-    if (type === 'Employee Asset Request') return 'Asset request';
+    if (type === 'Employee Loan Request') return 'Loan request';
+    if (type === 'Employee Salary Request') return 'Salary request';
+    if (type === 'Employee Certificate Request') return 'Certificate request';
+    if (type === 'Employee Asset Request') {
+        if (isUtilityBillInboxRow(item)) return 'Utility bill request';
+        if (isVehicleAssetInboxRow(item)) return 'Vehicle request';
+        return 'Tools request';
+    }
     if (type === 'Employee Vehicle Request') return 'Vehicle request';
     if (type === 'Employee Utility Request') return 'Utility bill request';
     if (type === 'Employee Document Expiry Reminder') return 'Employee Document Expiry';
