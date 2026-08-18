@@ -325,6 +325,43 @@ export function serviceCountByType(services, asset = null) {
     return counts;
 }
 
+/** Sum of pending / not-completed rows across every Service type tab. */
+export function pendingVehicleServiceTotal(services, asset = null) {
+    return Object.values(serviceCountByType(services, asset)).reduce(
+        (sum, n) => sum + Number(n || 0),
+        0,
+    );
+}
+
+/**
+ * Service list / dashboard / fleet list: running work is Pending;
+ * Complete, Billed, and Rejected (and billing after work is done) are Completed.
+ */
+export function isVehicleServiceListCompletedStatus(statusInfo) {
+    const label = String(statusInfo?.label || '')
+        .trim()
+        .toLowerCase()
+        .replace(/_/g, ' ');
+    const tone = String(statusInfo?.tone || '')
+        .trim()
+        .toLowerCase();
+    if (tone === 'complete' || tone === 'rejected') return true;
+    return (
+        label === 'complete' ||
+        label === 'completed' ||
+        label === 'billed' ||
+        label === 'rejected' ||
+        label === 'not paid'
+    );
+}
+
+export function toVehicleServiceListBucketStatus(statusInfo) {
+    if (isVehicleServiceListCompletedStatus(statusInfo)) {
+        return { label: 'Completed', tone: 'complete' };
+    }
+    return { label: 'Pending', tone: 'pending' };
+}
+
 /** True when the Status column is already finished — do not badge that tab. */
 function isVehicleServiceCompletedForTabCount(service, asset) {
     const key = vehicleServiceTypeKey(service);
@@ -335,16 +372,7 @@ function isVehicleServiceCompletedForTabCount(service, asset) {
                   return { label: row.status, tone: row.statusTone };
               })()
             : resolveOilServiceTableStatusLabel(service, asset);
-    const label = String(info?.label || '').trim().toLowerCase();
-    const tone = String(info?.tone || '').trim().toLowerCase();
-    if (label === 'not paid') return false;
-    return (
-        tone === 'complete' ||
-        tone === 'rejected' ||
-        label === 'complete' ||
-        label === 'completed' ||
-        label === 'billed'
-    );
+    return isVehicleServiceListCompletedStatus(info);
 }
 
 /** Latest services for a type, newest first (vehicle detail Service tab helpers). */
@@ -535,6 +563,7 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
     }
 
     const amountInfo = resolveServiceAmountTypeAndStatus(requestMeta || service);
+    const listStatus = toVehicleServiceListBucketStatus(statusInfo);
 
     return {
         id: serviceId || id || `oil-pending-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -550,8 +579,8 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
         amountType: amountInfo.amountType,
         amountStatus: amountInfo.amountStatus,
         amountStatusTone: amountInfo.amountStatusTone,
-        status: statusInfo.label,
-        statusTone: statusInfo.tone,
+        status: listStatus.label,
+        statusTone: listStatus.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : nextOilServiceDate || null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
         createdAt: service?.createdAt || service?.date || null,
@@ -676,6 +705,7 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
           })()
         : { label: 'Pending', tone: 'pending' };
     const amountInfo = resolveServiceAmountTypeAndStatus(remark || service);
+    const listStatus = toVehicleServiceListBucketStatus(statusInfo);
 
     return {
         id: serviceId || `car-wash-${Date.now()}`,
@@ -689,8 +719,8 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
         amountType: amountInfo.amountType,
         amountStatus: amountInfo.amountStatus,
         amountStatusTone: amountInfo.amountStatusTone,
-        status: statusInfo.label,
-        statusTone: statusInfo.tone,
+        status: listStatus.label,
+        statusTone: listStatus.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
         createdAt: service?.createdAt || service?.date || null,
@@ -738,6 +768,7 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
         ? resolveOilServiceTableStatusLabel(service, asset)
         : { label: 'Draft', tone: 'draft' };
     const amountInfo = resolveServiceAmountTypeAndStatus(remark || service);
+    const listStatus = toVehicleServiceListBucketStatus(statusInfo);
 
     return {
         id: serviceId || `${serviceType}-pending-${Date.now()}`,
@@ -750,8 +781,8 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
         amountType: amountInfo.amountType,
         amountStatus: amountInfo.amountStatus,
         amountStatusTone: amountInfo.amountStatusTone,
-        status: statusInfo.label,
-        statusTone: statusInfo.tone,
+        status: listStatus.label,
+        statusTone: listStatus.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
         sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
         createdAt: service?.createdAt || service?.date || null,

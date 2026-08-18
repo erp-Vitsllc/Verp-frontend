@@ -525,10 +525,25 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
     useEffect(() => {
         if (!isAccidentRepair) return;
-        if (formData.accidentOwnerType === 'thirdParty' && formData.policeFineAmount) {
-            setFormData((prev) => ({ ...prev, policeFineAmount: '' }));
-        }
-    }, [isAccidentRepair, formData.accidentOwnerType, formData.policeFineAmount]);
+        if (formData.accidentOwnerType !== 'thirdParty') return;
+        setFormData((prev) => {
+            if (
+                !prev.policeFineAmount &&
+                !prev.insuranceFineAmount &&
+                !prev.otherFineAmount &&
+                !(Array.isArray(prev.otherFineRows) && prev.otherFineRows.length)
+            ) {
+                return prev;
+            }
+            return {
+                ...prev,
+                policeFineAmount: '',
+                insuranceFineAmount: '',
+                otherFineAmount: '',
+                otherFineRows: [],
+            };
+        });
+    }, [isAccidentRepair, formData.accidentOwnerType]);
 
     const isHrApprovalStep = embedMode && workflowStage === 'pending_hr';
     const isAdminApprovalStep = embedMode && workflowStage === 'pending_admin';

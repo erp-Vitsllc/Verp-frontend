@@ -15,6 +15,7 @@ import {
 } from '../utils/validateFineDeductionVsVisa';
 import { isEndOfServiceFineSource } from '../utils/fineScheduleUtils';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 function isAttachedAccessory(acc) {
@@ -71,6 +72,8 @@ function mapAssetForPicker(a) {
 
 export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, isAssetFlow = false, onAssetRequest = null, isInitialRequest = false, isApprovalFlow = false, scheduleOnlyEdit = false, assetControllerOnlyEdit = false }) {
     const { toast } = useToast();
+    const [showZohoConfirm, setShowZohoConfirm] = useState(false);
+    const [pendingPayload, setPendingPayload] = useState(null);
     const [assets, setAssets] = useState([]);
     const [loadingAssets, setLoadingAssets] = useState(false);
     const [selectedAssetId, setSelectedAssetId] = useState('');
@@ -101,6 +104,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         attachmentMime: '',
         companyDescription: '',
         serviceCharge: '',
+        discount: '',
         depreciationAmount: '',
         sourceOfIncome: 'Salary',
         assetPurchaseDate: '',
@@ -150,8 +154,9 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             .reduce((sum, a) => sum + (parseFloat(a.amount || 0) || 0), 0);
         const sc = parseFloat(fd.serviceCharge || 0) || 0;
         const dep = parseFloat(fd.depreciationAmount || 0) || 0;
-        const grand = Math.max(0, assetVal + accSum + sc - dep);
-        return { assetVal, accSum, sc, dep, grand };
+        const disc = parseFloat(fd.discount || 0) || 0;
+        const grand = Math.max(0, assetVal + accSum + sc - dep - disc);
+        return { assetVal, accSum, sc, dep, disc, grand };
     };
 
     const syncTotalsToForm = (asset, accList = billableAccessories, fdPatch = {}) => {
@@ -413,7 +418,23 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             }
 
             const isBoth = (initialData.responsibleFor || 'Employee') === 'Employee & Company';
-            const grandForUi = storedFine > 0 ? storedFine : (parseFloat(String(baseFineAmount || 0)) || 0) + sc;
+            const dep = parseFloat(initialData.assetDepreciationAmount ?? initialData.depreciationAmount ?? 0) || 0;
+            const disc = parseFloat(initialData.discount || 0) || 0;
+            const accListForTotals = (matchedAsset?.accessories || initialData.accessories || [])
+                .filter(isAttachedAccessory);
+            const breakdownAssetForTotals = matchedAsset || {
+                assetValue: initialData.assetValue ?? initialData.fineAmount ?? 0,
+            };
+            const computedGrand = computeFineTotals(
+                breakdownAssetForTotals,
+                accListForTotals,
+                {
+                    serviceCharge: String(sc),
+                    depreciationAmount: String(dep),
+                    discount: String(disc),
+                },
+            ).grand;
+            const grandForUi = computedGrand > 0 ? computedGrand : (storedFine > 0 ? storedFine : 0);
 
             let uiEmployeeAmount = '';
             let uiCompanyAmount = '';
@@ -450,7 +471,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             }
 
             setFormData({
-                fineAmount: String(storedFine || ''),
+                fineAmount: String(grandForUi || ''),
                 responsibleFor: initialData.responsibleFor || 'Employee',
                 employeeAmount: uiEmployeeAmount,
                 companyAmount: uiCompanyAmount,
@@ -466,6 +487,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 attachmentMime: typeof existingAttachment === 'string' ? 'application/pdf' : (existingAttachment?.mimeType || ''),
                 companyDescription: initialData.companyDescription || '',
                 serviceCharge: String(initialData.serviceCharge || ''),
+                discount: String(initialData.discount || ''),
                 depreciationAmount: String(initialData.assetDepreciationAmount ?? initialData.depreciationAmount ?? ''),
                 sourceOfIncome: initialData.sourceOfIncome || 'Salary',
                 assetPurchaseDate: initialData.purchaseDate || initialData.assetPurchaseDate || '',
@@ -547,7 +569,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
                 awardedDate: new Date().toISOString().split('T')[0],
                 description: '', attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '',
-                companyDescription: '', serviceCharge: '', depreciationAmount: '', sourceOfIncome: 'Salary',
+                companyDescription: '', serviceCharge: '', discount: '', depreciationAmount: '', sourceOfIncome: 'Salary',
                 assetPurchaseDate: '', fineSource: '',
             });
 
@@ -720,6 +742,12 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const handleDepreciationChange = (val) => {
         const asset = resolveBreakdownAsset();
         syncTotalsToForm(asset, billableAccessories, { depreciationAmount: val });
+    };
+
+    const handleDiscountChange = (val) => {
+        const asset = resolveBreakdownAsset();
+        syncTotalsToForm(asset, billableAccessories, { discount: val });
+        if (errors.discount) setErrors((prev) => ({ ...prev, discount: '' }));
     };
 
     const handleRemoveAccessory = (acc) => {
@@ -954,18 +982,25 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
         const serviceChargeAmount = parseFloat(formData.serviceCharge || 0) || 0;
         const depreciationAmount = parseFloat(formData.depreciationAmount || 0) || 0;
+        const discountAmount = parseFloat(formData.discount || 0) || 0;
         const grandTotalFine = parseFloat(formData.fineAmount || 0) || 0;
-        const baseFineAmount = Math.max(0, grandTotalFine - serviceChargeAmount);
+        const grossForBases = grandTotalFine + discountAmount;
+        const baseFineAmount = Math.max(0, grossForBases - serviceChargeAmount);
 
         const totalPartiesCount = (formData.responsibleFor === 'Employee & Company') ? 2 : 1;
         const scPerParty = serviceChargeAmount / totalPartiesCount;
+
+        const originalBaseFromNetPayable = (payable) =>
+            grandTotalFine > 0 ? (payable / grandTotalFine) * baseFineAmount : 0;
 
         const employeesList = [];
         if (formData.responsibleFor !== 'Company' && effectiveEmployeeId) {
             const empPayable = formData.responsibleFor === 'Employee'
                 ? grandTotalFine
                 : parseFloat(formData.employeeAmount || 0) || 0;
-            const empBase = Math.max(0, empPayable - scPerParty);
+            const empBase = formData.responsibleFor === 'Employee'
+                ? baseFineAmount
+                : originalBaseFromNetPayable(empPayable);
             employeesList.push({
                 employeeId: effectiveEmployeeId,
                 employeeName: effectiveEmployeeName,
@@ -979,7 +1014,9 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const compPayable = formData.responsibleFor === 'Company'
                 ? grandTotalFine
                 : parseFloat(formData.companyAmount || 0) || 0;
-            const compBase = Math.max(0, compPayable - scPerParty);
+            const compBase = formData.responsibleFor === 'Company'
+                ? baseFineAmount
+                : originalBaseFromNetPayable(compPayable);
             employeesList.push({
                 employeeId: 'VEGA-HR-0000',
                 employeeName: 'Vega Digital IT Solutions',
@@ -1009,12 +1046,12 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 ? 0
                 : (formData.responsibleFor === 'Employee'
                     ? baseFineAmount
-                    : Math.max(0, (parseFloat(formData.employeeAmount || 0) || 0) - scPerParty)),
+                    : originalBaseFromNetPayable(parseFloat(formData.employeeAmount || 0) || 0)),
             companyAmount: formData.responsibleFor === 'Employee'
                 ? 0
                 : (formData.responsibleFor === 'Company'
                     ? baseFineAmount
-                    : Math.max(0, (parseFloat(formData.companyAmount || 0) || 0) - scPerParty)),
+                    : originalBaseFromNetPayable(parseFloat(formData.companyAmount || 0) || 0)),
             payableDuration:
                 formData.sourceOfIncome === 'Salary'
                     ? parseInt(formData.payableDuration, 10)
@@ -1024,6 +1061,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             monthStart: formData.sourceOfIncome === 'Salary' ? formData.monthStart : '',
             awardedDate: formData.awardedDate || new Date().toISOString().split('T')[0],
             serviceCharge: serviceChargeAmount,
+            discount: discountAmount,
             sourceOfIncome: formData.sourceOfIncome,
             assetDepreciationAmount: depreciationAmount,
             assetPurchaseDate: formData.assetPurchaseDate || '',
@@ -1212,13 +1250,20 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 return;
             }
 
+            const isAlreadyBilled = Boolean(
+                initialData?._id &&
+                (initialData?.zohoBillId || initialData?.zohoBillNumber || initialData?.zohoSyncStatus === 'synced' || initialData?.vendorBillStatus === 'Paid')
+            );
+
             if (initialData?._id) {
-                if (isResubmitting) {
-                    payload.fineStatus = 'Pending';
-                    payload.resubmit = true;
+                if (isAlreadyBilled) {
+                    setPendingPayload(payload);
+                    setShowZohoConfirm(true);
+                    setSubmitting(false);
+                    return;
                 }
-                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
-                toast({ title: 'Success', description: 'Fine updated successfully' });
+                await executeSaveFine(payload, false);
+                return;
             } else {
                 await axiosInstance.post('/Fine', payload);
                 toast({ title: 'Success', description: 'Loss/Damage fine submitted for approval' });
@@ -1230,6 +1275,36 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 variant: 'destructive',
                 title: 'Error',
                 description: error.response?.data?.message || error.message || 'Submission failed. Please check all required fields.'
+            });
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const executeSaveFine = async (payloadToSubmit, updateZohoBool) => {
+        try {
+            setSubmitting(true);
+            payloadToSubmit.updateZoho = updateZohoBool;
+
+            if (isResubmitting) {
+                payloadToSubmit.fineStatus = 'Pending';
+                payloadToSubmit.resubmit = true;
+            }
+
+            const response = await axiosInstance.put(`/Fine/${initialData._id}`, payloadToSubmit);
+            toast({
+                title: "Success",
+                description: response.data?.message || (isResubmitting ? "Fine resubmitted successfully" : "Fine updated successfully")
+            });
+            setShowZohoConfirm(false);
+            setPendingPayload(null);
+            if (onSuccess) onSuccess(response.data);
+            onClose();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || error.message || 'Submission failed',
             });
         } finally {
             setSubmitting(false);
@@ -1438,13 +1513,26 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                     />
                                 </div>
 
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-medium text-gray-700">Discount (AED)</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        step="0.01"
+                                        value={formData.discount}
+                                        onChange={(e) => handleDiscountChange(e.target.value)}
+                                        placeholder="0.00"
+                                        className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-red-500/20"
+                                    />
+                                </div>
+
                                 <div className="space-y-1.5 col-span-full md:col-span-1">
                                     <label className="text-sm font-medium text-gray-700">
                                         Total Fine Value (AED) <span className="text-red-500">*</span>
                                         <span className="block text-xs font-normal text-gray-500 mt-0.5">
                                             {billableAccessories.length > 0
-                                                ? '(Asset + accessories + service charge) − depreciation'
-                                                : '(Asset value + service charge) − depreciation'}
+                                                ? '(Asset + accessories + service charge) − depreciation − discount'
+                                                : '(Asset value + service charge) − depreciation − discount'}
                                         </span>
                                     </label>
                                     <input
@@ -1675,8 +1763,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                             <span className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-0.5">Summary</span>
                             <span className="text-xs text-red-600 font-medium italic">
                                 {breakdownTotals.accSum > 0
-                                    ? `Asset ${breakdownTotals.assetVal.toFixed(2)} + accessories ${breakdownTotals.accSum.toFixed(2)} + service ${breakdownTotals.sc.toFixed(2)} − depreciation ${breakdownTotals.dep.toFixed(2)}`
-                                    : `Asset ${breakdownTotals.assetVal.toFixed(2)} + service ${breakdownTotals.sc.toFixed(2)} − depreciation ${breakdownTotals.dep.toFixed(2)}`}
+                                    ? `Asset ${breakdownTotals.assetVal.toFixed(2)} + accessories ${breakdownTotals.accSum.toFixed(2)} + service ${breakdownTotals.sc.toFixed(2)} − depreciation ${breakdownTotals.dep.toFixed(2)} − discount ${(breakdownTotals.disc || 0).toFixed(2)}`
+                                    : `Asset ${breakdownTotals.assetVal.toFixed(2)} + service ${breakdownTotals.sc.toFixed(2)} − depreciation ${breakdownTotals.dep.toFixed(2)} − discount ${(breakdownTotals.disc || 0).toFixed(2)}`}
                             </span>
                         </div>
                         <div className="flex items-baseline gap-1.5">
@@ -1723,6 +1811,23 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     </div>
                 </form>
             </div>
+
+            <ZohoUpdateConfirmModal
+                isOpen={showZohoConfirm}
+                billNumber={initialData?.zohoBillNumber || initialData?.zohoBillId || ''}
+                record={initialData}
+                submitting={submitting}
+                onConfirmUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, true);
+                }}
+                onConfirmNoUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, false);
+                }}
+                onCancel={() => {
+                    setShowZohoConfirm(false);
+                    setPendingPayload(null);
+                }}
+            />
         </div>
     );
 }

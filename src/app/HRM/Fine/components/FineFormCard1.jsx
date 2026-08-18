@@ -15,6 +15,7 @@ import {
     formatMoney,
 } from './FineFormCardShared';
 import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
+import { resolveFineNetTotal } from '@/utils/finePayableAmount';
 
 function resolveIsVehicleAsset(fine, assetDetails) {
     const typeLower = String(assetDetails?.type || assetDetails?.typeId?.name || '').toLowerCase();
@@ -190,6 +191,19 @@ export default function FineFormCard1({
                 <DetailGrid>
                     <DetailField label="Fine No." value={fine.fineId || '—'} />
                     <DetailField label="Zoho No." value={formatZohoDocumentNumber(fine)} />
+                    <DetailField
+                        label="Service Charge"
+                        value={`${formatMoney(fine.serviceCharge)} AED`}
+                    />
+                    <DetailField
+                        label="Discount"
+                        value={`${formatMoney(fine.discount)} AED`}
+                    />
+                    <DetailField
+                        label="Total Fine"
+                        value={`${formatMoney(resolveFineNetTotal(fine) || fine.totalFineAmount || fine.fineAmount)} AED`}
+                        valueClassName="font-bold text-blue-600"
+                    />
                 </DetailGrid>
                 {vehicleFields ? (
                     <>
@@ -236,7 +250,7 @@ export default function FineFormCard1({
 
             <SectionDivider title="Asset & Financial Details" />
             <p className="text-xs text-gray-500 mb-4">
-                Total payable = (asset{f.accessoryAmount > 0 ? ' + accessories' : ''} + service charge) − depreciation
+                Total payable = (asset{f.accessoryAmount > 0 ? ' + accessories' : ''} + service charge) − depreciation − discount
             </p>
 
             <DetailGrid>
@@ -264,6 +278,10 @@ export default function FineFormCard1({
                     value={`${formatMoney(f.companyPayableAmount)} AED`}
                 />
                 <DetailField label="Service Charge" value={`${formatMoney(f.serviceCharge)} AED`} />
+                <DetailField
+                    label="Discount"
+                    value={`${formatMoney(f.discount ?? f.breakdown?.discount ?? fine.discount)} AED`}
+                />
                 <DetailField
                     label="Total Payable Fine"
                     value={`${formatMoney(f.totalFine)} AED`}

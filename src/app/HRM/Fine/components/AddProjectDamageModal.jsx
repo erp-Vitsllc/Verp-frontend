@@ -15,13 +15,18 @@ import {
     validateEmployeesDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import { applyFineDiscount, validateFineDiscount } from '../utils/fineDiscount';
 
 export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
+    const [showZohoConfirm, setShowZohoConfirm] = useState(false);
+    const [pendingPayload, setPendingPayload] = useState(null);
 
     const [formData, setFormData] = useState({
         serviceCharge: '',
+        discount: '',
         projectId: '',
         projectName: '',
         engineerName: '',
@@ -92,8 +97,12 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 projectId: initialData.projectId || '',
                 projectName: initialData.projectName || '',
                 engineerName: initialData.engineerName || '',
-                // When editing, load the GRAND TOTAL deduction amount
-                deductionAmount: String(initialData.fineAmount || ''),
+                // When editing, load the GROSS deduction (stored total is net of discount)
+                deductionAmount: String(
+                    ((parseFloat(initialData.fineAmount) || 0) + (parseFloat(initialData.discount) || 0)) ||
+                        initialData.fineAmount ||
+                        '',
+                ),
                 reason: initialData.description || '',
                 finePaidBy: rf,
                 employeeDeductionAmount: String(empPayable || initialData.employeeAmount || ''),
@@ -104,6 +113,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 attachmentName: initialData.attachment?.name || '',
                 attachmentMime: '',
                 serviceCharge: String(initialData.serviceCharge || ''),
+                discount: String(initialData.discount || ''),
                 fineSource: initialData.fineSource || '',
             });
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
@@ -153,7 +163,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 projectId: '', projectName: '', engineerName: '', deductionAmount: '',
                 reason: '', finePaidBy: 'Employee', employeeDeductionAmount: '', companyFineAmount: '',
                 attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: '',
-                serviceCharge: '', fineSource: '',
+                serviceCharge: '', discount: '', fineSource: '',
             });
             setAssignedEmployees([]);
             setSelectedEmployeeId('');
@@ -190,8 +200,9 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         if (count === 0) return;
 
         let totalEmployeeAmount = 0;
+        const netTotal = applyFineDiscount(formData.deductionAmount, formData.discount);
         if (formData.finePaidBy === 'Employee') {
-            totalEmployeeAmount = parseFloat(formData.deductionAmount) || 0;
+            totalEmployeeAmount = netTotal;
         } else if (formData.finePaidBy === 'Employee & Company') {
             totalEmployeeAmount = parseFloat(formData.employeeDeductionAmount) || 0;
         }
@@ -202,7 +213,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             ...emp,
             fineAmount: share.toFixed(2)
         })));
-    }, [formData.deductionAmount, formData.employeeDeductionAmount, formData.finePaidBy, assignedEmployees.length, initialData?._id]);
+    }, [formData.deductionAmount, formData.discount, formData.employeeDeductionAmount, formData.finePaidBy, assignedEmployees.length, initialData?._id]);
 
     if (!isOpen) return null;
 
@@ -263,7 +274,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     const handleAmountChange = (employeeId, amount) => {
         let totalTarget = 0;
         if (formData.finePaidBy === 'Employee') {
-            totalTarget = parseFloat(formData.deductionAmount) || 0;
+            totalTarget = applyFineDiscount(formData.deductionAmount, formData.discount);
         } else if (formData.finePaidBy === 'Employee & Company') {
             totalTarget = parseFloat(formData.employeeDeductionAmount) || 0;
         }
@@ -291,6 +302,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
         if (!formData.projectId) newErrors.projectId = 'Project is required';
         if (!formData.deductionAmount) newErrors.deductionAmount = 'Deduction amount is required';
+        const discountErr = validateFineDiscount(formData.discount, formData.deductionAmount);
+        if (discountErr) newErrors.discount = discountErr;
         if (!formData.reason) newErrors.reason = 'Reason is required';
         const hasAttachment = Boolean(
             formData.attachmentBase64 ||
@@ -303,7 +316,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
         // Same company validation removed per user request
 
-        const totalInput = parseFloat(formData.deductionAmount) || 0;
+        const totalInput = applyFineDiscount(formData.deductionAmount, formData.discount);
         const currentSelectedSum = assignedEmployees.reduce((sum, emp) => sum + (parseFloat(emp.fineAmount) || 0), 0);
 
         if (formData.finePaidBy === 'Employee') {
@@ -378,8 +391,10 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         try {
             setSubmitting(true);
             const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
-            const grandTotalFine = parseFloat(formData.deductionAmount) || 0;
-            const baseFineAmount = Math.max(0, grandTotalFine - serviceChargeAmount);
+            const discountAmount = parseFloat(formData.discount || 0) || 0;
+            const grossFine = parseFloat(formData.deductionAmount) || 0;
+            const grandTotalFine = applyFineDiscount(grossFine, discountAmount);
+            const baseFineAmount = Math.max(0, grossFine - serviceChargeAmount);
 
             const totalPartiesCount =
                 assignedEmployees.length + (formData.finePaidBy === 'Employee & Company' ? 1 : 0);
@@ -428,6 +443,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 monthStart: monthStart,
                 awardedDate: awardedDate || new Date().toISOString().split('T')[0],
                 serviceCharge: serviceChargeAmount,
+                discount: discountAmount,
                 fineAmount: grandTotalFine,
                 employeeAmount: totalEmpAmount,
                 companyAmount: totalCompAmount
@@ -474,15 +490,51 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 };
             }
 
+            const isAlreadyBilled = Boolean(
+                initialData?._id &&
+                (initialData?.zohoBillId || initialData?.zohoBillNumber || initialData?.zohoSyncStatus === 'synced' || initialData?.vendorBillStatus === 'Paid')
+            );
+
             if (initialData?._id) {
-                if (isResubmitting) { payload.fineStatus = 'Pending'; payload.resubmit = true; }
-                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
-                toast({ title: "Success", description: "Project fine updated successfully" });
+                if (isAlreadyBilled) {
+                    setPendingPayload(payload);
+                    setShowZohoConfirm(true);
+                    setSubmitting(false);
+                    return;
+                }
+                await executeSaveFine(payload, false);
+                return;
             } else {
                 await axiosInstance.post('/Fine', payload);
                 toast({ title: "Success", description: "Project damage submitted for approval" });
             }
             if (onSuccess) onSuccess();
+            onClose();
+        } catch (error) {
+            toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || "Submission failed" });
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const executeSaveFine = async (payloadToSubmit, updateZohoBool) => {
+        try {
+            setSubmitting(true);
+            payloadToSubmit.updateZoho = updateZohoBool;
+
+            if (isResubmitting) {
+                payloadToSubmit.fineStatus = 'Pending';
+                payloadToSubmit.resubmit = true;
+            }
+
+            const response = await axiosInstance.put(`/Fine/${initialData._id}`, payloadToSubmit);
+            toast({
+                title: "Success",
+                description: response.data?.message || (isResubmitting ? "Fine resubmitted successfully" : "Project fine updated successfully")
+            });
+            setShowZohoConfirm(false);
+            setPendingPayload(null);
+            if (onSuccess) onSuccess(response.data);
             onClose();
         } catch (error) {
             toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || "Submission failed" });
@@ -575,6 +627,22 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                 placeholder="0.00"
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
                             />
+                        </div>
+                        <div className="space-y-1.5 ">
+                            <label className="text-sm font-medium text-gray-700">Discount</label>
+                            <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={formData.discount}
+                                onChange={(e) => {
+                                    setFormData((p) => ({ ...p, discount: e.target.value }));
+                                    if (errors.discount) setErrors((prev) => ({ ...prev, discount: '' }));
+                                }}
+                                placeholder="0.00"
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.discount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
+                            />
+                            {errors.discount ? <p className="text-xs text-red-500 ml-1">{errors.discount}</p> : null}
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Fine Paid By</label>
@@ -753,12 +821,12 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                         <div className="flex flex-col">
                             <span className="text-[10px] font-black uppercase tracking-widest text-purple-500 mb-0.5">Summary</span>
                             <span className="text-xs text-purple-600 font-medium italic">
-                                Total payable amount (Fine + Service Charge)
+                                Total payable amount (Fine − Discount)
                             </span>
                         </div>
                         <div className="flex items-baseline gap-1.5">
                             <span className="text-2xl font-black text-purple-900">
-                                {(parseFloat(formData.deductionAmount || 0)).toLocaleString()}
+                                {applyFineDiscount(formData.deductionAmount, formData.discount).toLocaleString()}
                             </span>
                             <span className="text-[11px] font-bold text-purple-700 uppercase">AED</span>
                         </div>
@@ -773,6 +841,23 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                     </div>
                 </form>
             </div>
+
+            <ZohoUpdateConfirmModal
+                isOpen={showZohoConfirm}
+                billNumber={initialData?.zohoBillNumber || initialData?.zohoBillId || ''}
+                record={initialData}
+                submitting={submitting}
+                onConfirmUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, true);
+                }}
+                onConfirmNoUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, false);
+                }}
+                onCancel={() => {
+                    setShowZohoConfirm(false);
+                    setPendingPayload(null);
+                }}
+            />
         </div>
     );
 }

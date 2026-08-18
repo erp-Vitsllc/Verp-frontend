@@ -14,7 +14,9 @@ import {
     validateFineDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
+import { applyFineDiscount, validateFineDiscount } from '../utils/fineDiscount';
 
 // Reusable searchable employee dropdown
 function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasError }) {
@@ -96,6 +98,8 @@ function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasErr
 
 export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {}, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
+    const [showZohoConfirm, setShowZohoConfirm] = useState(false);
+    const [pendingPayload, setPendingPayload] = useState(null);
     const [selectedFineType, setSelectedFineType] = useState(initialData?.fineType || '');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState((initialData?.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData?.employeeId || '');
     // Helper to determine count (default 1)
@@ -112,6 +116,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         employeeAmount: '',
         companyAmount: '',
         serviceCharge: '',
+        discount: '',
         attachment: null,
         attachmentBase64: '',
         attachmentName: '',
@@ -135,8 +140,12 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 setSelectedFineType(initialData.fineType || '');
                 setSelectedEmployeeId((initialData.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData.employeeId || '');
                 setFormData({
-                    // When editing, load the GRAND TOTAL fine amount
-                    fineAmount: String(initialData.fineAmount || ''),
+                    // When editing, load the GROSS fine amount (stored total is already net of discount)
+                    fineAmount: String(
+                        ((parseFloat(initialData.fineAmount) || 0) + (parseFloat(initialData.discount) || 0)) ||
+                            initialData.fineAmount ||
+                            '',
+                    ),
                     description: initialData.description || '',
                     remarks: initialData.remarks || '',
                     awardedDate: initialData.awardedDate ? new Date(initialData.awardedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
@@ -146,6 +155,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     employeeAmount: initialData.employeeAmount || '',
                     companyAmount: initialData.companyAmount || '',
                     serviceCharge: initialData.serviceCharge || '',
+                    discount: initialData.discount || '',
                     attachment: null,
                     attachmentBase64: '',
                     attachmentName: initialData.attachment?.name || '',
@@ -167,6 +177,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     employeeAmount: '',
                     companyAmount: '',
                     serviceCharge: '',
+                    discount: '',
                     attachment: null,
                     attachmentBase64: '',
                     attachmentName: '',
@@ -238,6 +249,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         } else if (isNaN(formData.fineAmount) || parseFloat(formData.fineAmount) <= 0) {
             newErrors.fineAmount = 'Please enter a valid amount';
         }
+
+        const discountErr = validateFineDiscount(formData.discount, formData.fineAmount);
+        if (discountErr) newErrors.discount = discountErr;
 
         if (!formData.description || formData.description.trim() === '') {
             newErrors.description = 'Description is required';
@@ -314,8 +328,10 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             setSubmitting(true);
 
             const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
-            const grandTotalFine = parseFloat(formData.fineAmount);
-            const baseFineAmount = grandTotalFine - serviceChargeAmount;
+            const discountAmount = parseFloat(formData.discount || 0) || 0;
+            const grossFine = parseFloat(formData.fineAmount);
+            const grandTotalFine = applyFineDiscount(grossFine, discountAmount);
+            const baseFineAmount = grossFine - serviceChargeAmount;
 
             const totalEmp = (formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? baseFineAmount : parseFloat(formData.employeeAmount)));
             const totalComp = (formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? baseFineAmount : parseFloat(formData.companyAmount)));
@@ -363,8 +379,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 responsibleFor: formData.responsibleFor,
                 employeeAmount: totalEmp,
                 companyAmount: totalComp,
-                totalEmployeeFineAmount: grandTotalFine - totalComp, // Explicitly store total fine - company share
+                totalEmployeeFineAmount: grandTotalFine - totalComp,
                 serviceCharge: serviceChargeAmount,
+                discount: discountAmount,
                 fineSource: formData.fineSource || '',
                 category: initialData.category || 'Other',
                 subCategory: initialData.subCategory || selectedFineType || '',
@@ -380,32 +397,70 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 };
             }
 
-            let response;
+            const isAlreadyBilled = Boolean(
+                (initialData?._id || initialData?.fineId) &&
+                (initialData?.zohoBillId || initialData?.zohoBillNumber || initialData?.zohoSyncStatus === 'synced' || initialData?.vendorBillStatus === 'Paid')
+            );
+
             if (initialData && (initialData._id || initialData.fineId)) {
-                // UPDATE Mode
-                const fineId = initialData._id || initialData.fineId;
-                response = await axiosInstance.put(`/Fine/${fineId}`, payload);
+                if (isAlreadyBilled) {
+                    setPendingPayload(payload);
+                    setShowZohoConfirm(true);
+                    setSubmitting(false);
+                    return;
+                }
+                await executeSaveFine(payload, false);
+                return;
             } else {
                 // CREATE Mode
                 response = await axiosInstance.post('/Fine', payload);
+                const fineId = response.data?.fine?.fineId || '';
+                setGeneratedFineId(fineId);
+                toast({
+                    variant: "default",
+                    title: "Success",
+                    description: "Fine drafted successfully."
+                });
+                setTimeout(() => {
+                    resetForm();
+                    if (onSuccess) onSuccess();
+                    onClose();
+                }, 2000);
             }
+        } catch (error) {
+            const errorMessage = error.response?.data?.message || error.message || "Failed to add fine";
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: errorMessage
+            });
+        } finally {
+            setSubmitting(false);
+        }
+    };
 
-            const fineId = response.data?.fine?.fineId || '';
-            setGeneratedFineId(fineId);
+    const executeSaveFine = async (payloadToSubmit, updateZohoBool) => {
+        try {
+            setSubmitting(true);
+            payloadToSubmit.updateZoho = updateZohoBool;
+
+            const fineId = initialData._id || initialData.fineId;
+            const response = await axiosInstance.put(`/Fine/${fineId}`, payloadToSubmit);
 
             toast({
                 variant: "default",
                 title: "Success",
-                description: isResubmitting ? "Fine resubmitted successfully." : `Fine ${initialData?._id ? 'updated' : 'drafted'} successfully.`
+                description: response.data?.message || (isResubmitting ? "Fine resubmitted successfully." : "Fine updated successfully.")
             });
-
+            setShowZohoConfirm(false);
+            setPendingPayload(null);
             setTimeout(() => {
                 resetForm();
-                if (onSuccess) onSuccess();
+                if (onSuccess) onSuccess(response.data);
                 onClose();
-            }, 2000);
+            }, 1000);
         } catch (error) {
-            const errorMessage = error.response?.data?.message || error.message || "Failed to add fine";
+            const errorMessage = error.response?.data?.message || error.message || "Failed to update fine";
             toast({
                 variant: "destructive",
                 title: "Error",
@@ -430,6 +485,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             employeeAmount: '',
             companyAmount: '',
             serviceCharge: '',
+            discount: '',
             attachment: null,
             attachmentBase64: '',
             attachmentName: '',
@@ -605,6 +661,29 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                         </div>
                     </div>
 
+                    {/* Discount */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                            Discount
+                        </label>
+                        <div className="w-full md:flex-1 flex flex-col gap-1">
+                            <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={formData.discount}
+                                onChange={(e) => {
+                                    setFormData(prev => ({ ...prev, discount: e.target.value }));
+                                    if (errors.discount) setErrors(prev => ({ ...prev, discount: '' }));
+                                }}
+                                placeholder="Enter discount"
+                                className={`w-full h-10 px-3 rounded-xl border ${errors.discount ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
+                                disabled={submitting}
+                            />
+                            {errors.discount && <p className="text-xs text-red-500">{errors.discount}</p>}
+                        </div>
+                    </div>
+
                     {/* Fine Issued Date */}
                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
@@ -759,12 +838,12 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                         <div className="flex flex-col">
                             <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-0.5">Summary</span>
                             <span className="text-xs text-blue-600 font-medium italic">
-                                Total payable amount (Fine + Service Charge)
+                                Total payable amount (Fine − Discount)
                             </span>
                         </div>
                         <div className="flex items-baseline gap-1.5">
                             <span className="text-2xl font-black text-blue-900">
-                                {(parseFloat(formData.fineAmount || 0)).toLocaleString()}
+                                {applyFineDiscount(formData.fineAmount, formData.discount).toLocaleString()}
                             </span>
                             <span className="text-[11px] font-bold text-blue-700 uppercase">AED</span>
                         </div>
@@ -791,6 +870,23 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     </div>
                 </form>
             </div>
+
+            <ZohoUpdateConfirmModal
+                isOpen={showZohoConfirm}
+                billNumber={initialData?.zohoBillNumber || initialData?.zohoBillId || ''}
+                record={initialData}
+                submitting={submitting}
+                onConfirmUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, true);
+                }}
+                onConfirmNoUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, false);
+                }}
+                onCancel={() => {
+                    setShowZohoConfirm(false);
+                    setPendingPayload(null);
+                }}
+            />
         </div>
     );
 }

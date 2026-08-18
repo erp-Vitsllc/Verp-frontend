@@ -249,11 +249,19 @@ export function resolveVehicleListAssignedToDisplay(vehicle) {
 }
 
 /**
- * Fleet list Service Status — "On Service" when a service is ongoing / pending, else empty.
- * After Complete Service (or Car Wash send), Accounts Zoho billing must NOT show On Service.
+ * Fleet list Service Status — Pending while any service is still running
+ * (Draft through On Service). Completed after Complete / Billed / Rejected.
  */
 export function resolveVehicleListServiceStatusLabel(vehicle) {
     if (!vehicle) return '';
+
+    const pendingCount = Number(vehicle.pendingServiceCount);
+    const completedCount = Number(vehicle.completedServiceCount);
+    const hasPendingCount = Number.isFinite(pendingCount);
+    const hasCompletedCount = Number.isFinite(completedCount);
+    if (hasPendingCount && pendingCount > 0) return 'Pending';
+    if (hasCompletedCount && completedCount > 0) return 'Completed';
+    if (hasPendingCount && hasCompletedCount) return '';
 
     const wf = vehicle.activeServiceWorkflow || {};
     const stage = String(wf.stage || '')
@@ -263,11 +271,8 @@ export function resolveVehicleListServiceStatusLabel(vehicle) {
         .trim()
         .toLowerCase();
 
-    if (wf.serviceWorkCompleted === true) {
-        return '';
-    }
+    if (wf.serviceWorkCompleted === true) return 'Completed';
 
-    // Billing / closed stages — service work is done (or never On Service).
     if (
         stage === 'pending_billing' ||
         stage === 'billed' ||
@@ -277,14 +282,13 @@ export function resolveVehicleListServiceStatusLabel(vehicle) {
         stage === 'cancelled' ||
         stage === 'canceled'
     ) {
-        return '';
+        return 'Completed';
     }
-    // Oil cash Make Payment uses pending_accounts after Complete Service only.
     if (stage === 'pending_accounts' && typeLabel.includes('oil')) {
-        return '';
+        return 'Completed';
     }
 
-    if (vehicle.onServiceActive === true) return 'On Service';
+    if (vehicle.onServiceActive === true) return 'Pending';
 
     const statusKey = String(vehicle.status || '')
         .toLowerCase()
@@ -295,17 +299,15 @@ export function resolveVehicleListServiceStatusLabel(vehicle) {
         statusKey === 'service' ||
         statusKey === 'maintenance'
     ) {
-        return 'On Service';
+        return 'Pending';
     }
 
-    const hasActiveRecord = Boolean(
-        String(wf.serviceRecordId || wf.serviceId || '').trim(),
-    );
+    const hasActiveRecord = Boolean(String(wf.serviceRecordId || wf.serviceId || '').trim());
     if (hasActiveRecord && stage && !TERMINAL_SERVICE_WORKFLOW_STAGES.has(stage)) {
-        return 'On Service';
+        return 'Pending';
     }
     if (hasActiveRecord && !stage) {
-        return 'On Service';
+        return 'Pending';
     }
 
     return '';

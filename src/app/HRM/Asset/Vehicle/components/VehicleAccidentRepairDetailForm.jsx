@@ -38,7 +38,9 @@ import {
     getAccidentRepairDetailFormMissingFields,
     isAccidentRepairDetailFormComplete,
     validateAccidentRepairDetailForm,
-    applyEmployeePayTargetToRows,
+    applyAccidentOtherPartyAmountReset,
+    accidentRepairPayPatchFromFines,
+    accidentRepairPayPatchUnchanged,
     sumEmployeeLiabilityRows,
     sumOtherFineRows,
 } from '../utils/vehicleAccidentRepairDetailForm';
@@ -431,17 +433,18 @@ export default function VehicleAccidentRepairDetailForm({
         });
     }, [asset?._id, asset?.documents, formData.accidentOwnerType]);
 
-    useEffect(() => {
-        if (formData.accidentOwnerType !== 'thirdParty') return;
-        setFormData((prev) => {
-            const updates = {};
-            if (prev.policeFineAmount) updates.policeFineAmount = '';
-            return Object.keys(updates).length ? { ...prev, ...updates } : prev;
-        });
-    }, [formData.accidentOwnerType]);
-
     const set = useCallback((key, value) => {
         setFormData((prev) => ({ ...prev, [key]: value }));
+    }, []);
+
+    const setAccidentOwnerType = useCallback((nextType) => {
+        setFormData((prev) => {
+            if (prev.accidentOwnerType === nextType) return prev;
+            if (nextType === 'thirdParty') {
+                return applyAccidentOtherPartyAmountReset({ ...prev, accidentOwnerType: nextType });
+            }
+            return { ...prev, accidentOwnerType: nextType };
+        });
     }, []);
 
     const isSelfParty = formData.accidentOwnerType !== 'thirdParty';
@@ -453,39 +456,15 @@ export default function VehicleAccidentRepairDetailForm({
     const setPaymentByMode = useCallback(
         (mode) => {
             setFormData((prev) => {
-                const costBase =
-                    Number(prev.estimatedCost) > 0
-                        ? Math.round(Number(prev.estimatedCost))
-                        : totalFines > 0
-                          ? Math.round(totalFines)
-                          : 0;
-                const companyPayPercent = mode === 'company' ? '100' : mode === 'person' ? '0' : '50';
-                const employeePayPercent = mode === 'person' ? '100' : mode === 'company' ? '0' : '50';
-                const companyPayAmount =
-                    mode === 'company'
-                        ? String(costBase)
-                        : mode === 'person'
-                          ? '0'
-                          : String(Math.round(costBase / 2));
-                const employeePayAmount =
-                    mode === 'person'
-                        ? String(costBase)
-                        : mode === 'company'
-                          ? '0'
-                          : String(Math.max(0, costBase - Number(companyPayAmount)));
-                return {
+                const withMode = {
                     ...prev,
                     paymentByMode: mode,
-                    companyPayPercent,
-                    employeePayPercent,
-                    companyPayAmount,
-                    employeePayAmount,
-                    estimatedCost: costBase > 0 ? String(costBase) : prev.estimatedCost || '',
-                    employeeLiabilityRows: applyEmployeePayTargetToRows(
-                        prev.employeeLiabilityRows,
-                        costBase,
-                        employeePayPercent,
-                    ),
+                    companyPayPercent: mode === 'company' ? '100' : mode === 'person' ? '0' : '50',
+                    employeePayPercent: mode === 'person' ? '100' : mode === 'company' ? '0' : '50',
+                };
+                return {
+                    ...withMode,
+                    ...accidentRepairPayPatchFromFines(withMode, totalFines),
                 };
             });
         },
@@ -495,26 +474,29 @@ export default function VehicleAccidentRepairDetailForm({
     const applyPayAmountChange = useCallback(
         (field, value) => {
             setFormData((prev) => {
-                const costBase = totalFines > 0 ? totalFines : prev.estimatedCost;
+                const mode = String(prev.paymentByMode || 'company').toLowerCase();
+                if (mode === 'company' || mode === 'person' || field === 'totalAmount') {
+                    return { ...prev, ...accidentRepairPayPatchFromFines(prev, totalFines) };
+                }
                 const absolutePay = resolveInitiateAbsolutePayAmounts({
-                    estimatedCost: costBase,
+                    estimatedCost: totalFines,
                     companyPayPercent: prev.companyPayPercent,
                     employeePayPercent: prev.employeePayPercent,
                     companyPayAmount: prev.companyPayAmount,
                     employeePayAmount: prev.employeePayAmount,
                 });
                 const synced = syncInitiateServicePayAmounts({
-                    field: field === 'totalAmount' ? 'companyPay' : field,
-                    value: field === 'totalAmount' ? String(absolutePay.companyPayAmount) : value,
-                    estimatedCost: costBase,
+                    field,
+                    value,
+                    estimatedCost: totalFines,
                     companyPayAmount: absolutePay.companyPayAmount,
                     employeePayAmount: absolutePay.employeePayAmount,
-                    paymentByMode: prev.paymentByMode || 'company',
+                    paymentByMode: mode,
                     employeeLiabilityRows: prev.employeeLiabilityRows,
                 });
                 return {
                     ...prev,
-                    estimatedCost: totalFines > 0 ? String(totalFines) : synced.estimatedCost,
+                    estimatedCost: String(Math.round(totalFines) || 0),
                     companyPayPercent: synced.companyPayPercent,
                     employeePayPercent: synced.employeePayPercent,
                     companyPayAmount: synced.companyPayAmount,
@@ -526,28 +508,20 @@ export default function VehicleAccidentRepairDetailForm({
     );
 
     useEffect(() => {
-        if (!formData.paymentByMode) return;
-        if (!(totalFines > 0)) return;
         const liveAmt = Number(liveHrReview?.approvedAmount);
-        if (Number.isFinite(liveAmt) && liveAmt > 0) return;
+        const otherParty = formData.accidentOwnerType === 'thirdParty';
+        if (!otherParty && Number.isFinite(liveAmt) && liveAmt > 0) return;
         setFormData((prev) => {
-            const current = Number(prev.estimatedCost) || 0;
-            if (current === totalFines) return prev;
-            return {
-                ...prev,
-                estimatedCost: String(totalFines),
-                employeeLiabilityRows: applyEmployeePayTargetToRows(
-                    prev.employeeLiabilityRows,
-                    totalFines,
-                    prev.employeePayPercent,
-                ),
-            };
+            const patch = accidentRepairPayPatchFromFines(prev, totalFines);
+            if (accidentRepairPayPatchUnchanged(prev, patch)) return prev;
+            return { ...prev, ...patch };
         });
-    }, [formData.paymentByMode, liveHrReview?.approvedAmount, totalFines]);
+    }, [formData.accidentOwnerType, formData.paymentByMode, liveHrReview?.approvedAmount, totalFines]);
 
     // Mirror live HR Approval edits into Initiate Service (mode, amounts, employees).
     useEffect(() => {
         if (!liveHrReview) return;
+        if (formData.accidentOwnerType === 'thirdParty') return;
         const modeRaw = String(liveHrReview.paymentByMode || '').toLowerCase();
         const mode =
             modeRaw === 'person' || modeRaw === 'company' || modeRaw === 'split' ? modeRaw : '';
@@ -626,6 +600,7 @@ export default function VehicleAccidentRepairDetailForm({
             return next;
         });
     }, [
+        formData.accidentOwnerType,
         liveHrReview?.approvedAmount,
         liveHrReview?.companyPay,
         liveHrReview?.employeePay,
@@ -691,15 +666,6 @@ export default function VehicleAccidentRepairDetailForm({
         !String(formData.companyPayPartyId || '').trim() &&
         !String(formData.companyPayPartyName || '').trim();
     const finesTotalError = Math.abs((totalFines || 0) - (estimatedCost || 0)) > 0.01;
-    const payTableTotal = useMemo(() => {
-        const companyPart = showCompanyPay ? Number(companyPayAmount) || 0 : 0;
-        const employeePart = showEmployeePay
-            ? employeeLiabilitySum > 0
-                ? employeeLiabilitySum
-                : Number(employeePayAmount) || 0
-            : 0;
-        return companyPart + employeePart;
-    }, [showCompanyPay, showEmployeePay, companyPayAmount, employeePayAmount, employeeLiabilitySum]);
 
     useEffect(() => {
         const c = asset?.assignedCompany;
@@ -1256,7 +1222,7 @@ export default function VehicleAccidentRepairDetailForm({
                         >
                             <AccidentPartyToggle
                                 value={formData.accidentOwnerType || 'self'}
-                                onChange={(v) => set('accidentOwnerType', v)}
+                                onChange={setAccidentOwnerType}
                                 disabled={fieldsDisabled}
                             />
                             {errors.accidentOwnerType ? (
@@ -1558,7 +1524,7 @@ export default function VehicleAccidentRepairDetailForm({
                                             {...numberInputNoScrollProps}
                                         />
                                     </div>
-                                    {!fieldsDisabled ? (
+                                    {!fieldsDisabled && formData.accidentOwnerType === 'self' ? (
                                         <button
                                             type="button"
                                             onClick={() =>
@@ -1683,7 +1649,7 @@ export default function VehicleAccidentRepairDetailForm({
                                     <input
                                         type="text"
                                         readOnly
-                                        value={totalFines ? String(totalFines) : ''}
+                                        value={String(totalFines)}
                                         className={`${tireMoneyInput} pl-11 bg-gray-50 font-semibold`}
                                     />
                                 </div>
@@ -1880,7 +1846,7 @@ export default function VehicleAccidentRepairDetailForm({
                                             min="0"
                                             step="1"
                                             readOnly
-                                            value={estimatedCost || payTableTotal || 0}
+                                            value={totalFines}
                                             disabled={fieldsDisabled}
                                             {...numberInputNoScrollProps}
                                         />
@@ -1895,6 +1861,8 @@ export default function VehicleAccidentRepairDetailForm({
                                                     requirePayable: true,
                                                     requireFinesTotalMatch: true,
                                                     finesTotal: totalFines,
+                                                    allowZeroEstimated:
+                                                        formData.accidentOwnerType === 'thirdParty',
                                                 }) ||
                                                     `TOTAL and TOTAL AMOUNT must be equal (${totalFines.toLocaleString()} AED)`}
                                             </p>

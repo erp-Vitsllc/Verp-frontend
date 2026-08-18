@@ -271,6 +271,19 @@ function resolveAssetDetailHref(item) {
         : `/HRM/Asset/details/${item._id}`;
 }
 
+function mergeToolsAssetListRows(primary, extra) {
+    const byId = new Map();
+    for (const row of Array.isArray(primary) ? primary : []) {
+        if (row?._id) byId.set(String(row._id), row);
+    }
+    for (const row of Array.isArray(extra) ? extra : []) {
+        if (!row?._id) continue;
+        const key = String(row._id);
+        if (!byId.has(key)) byId.set(key, row);
+    }
+    return Array.from(byId.values());
+}
+
 /** Build `/HRM/Asset?...` URLs for tools tabs / KPI filters / type→category drill-downs. */
 function buildToolsAssetListHref({
     tab = 'asset',
@@ -875,6 +888,8 @@ function AssetPageContent() {
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const toolsInboxWarmRef = useRef(false);
     const toolsInboxInFlightRef = useRef(false);
+    const toolsListFetchGenRef = useRef(0);
+    const toolsListHasRowsRef = useRef(false);
 
     const [bulkInitialAssetIds, setBulkInitialAssetIds] = useState(null);
 
@@ -1131,15 +1146,33 @@ function AssetPageContent() {
 
 
     const fetchAssetTypes = useCallback(async () => {
+        const gen = ++toolsListFetchGenRef.current;
         try {
-            setLoading(true);
-            const response = await axiosInstance.get('/AssetType', { params: { scope: 'tools' } });
-            setAssetTypes(response.data);
+            if (!toolsListHasRowsRef.current) setLoading(true);
+            const mineRes = await axiosInstance.get('/AssetType', {
+                params: { scope: 'tools', view: 'mine' },
+            });
+            if (gen !== toolsListFetchGenRef.current) return;
+            const mineRows = Array.isArray(mineRes.data) ? mineRes.data : [];
+            setAssetTypes(mineRows);
+            if (mineRows.length) toolsListHasRowsRef.current = true;
+            setLoading(false);
+
+            const restRes = await axiosInstance.get('/AssetType', {
+                params: { scope: 'tools', view: 'rest' },
+            });
+            if (gen !== toolsListFetchGenRef.current) return;
+            setAssetTypes((prev) => {
+                const merged = mergeToolsAssetListRows(prev, restRes.data);
+                if (merged.length) toolsListHasRowsRef.current = true;
+                return merged;
+            });
         } catch (error) {
             if (!isSessionAuthError(error)) {
             }
-        } finally {
-            setLoading(false);
+            if (gen === toolsListFetchGenRef.current) {
+                setLoading(false);
+            }
         }
     }, []);
 

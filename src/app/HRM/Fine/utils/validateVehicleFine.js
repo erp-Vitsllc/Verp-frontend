@@ -34,10 +34,11 @@ export const VEHICLE_FINE_ALLOWED_MIME = [
     'image/jpg',
 ];
 
-export function getVehicleFinePayableTotal(fineAmount, serviceCharge) {
+export function getVehicleFinePayableTotal(fineAmount, serviceCharge, discount = 0) {
     const baseFine = parseMoney(fineAmount) ?? 0;
     const charge = parseMoney(serviceCharge) ?? 0;
-    return baseFine + charge;
+    const disc = parseMoney(discount) ?? 0;
+    return Math.max(0, Number((baseFine + charge - disc).toFixed(2)));
 }
 
 export function getVehicleFineServiceSharePerParty(serviceCharge, parties = 2) {
@@ -133,8 +134,13 @@ export function validateVehicleFine(input, options = {}) {
 
     const baseFine = parseMoney(input.fineAmount);
     const serviceCharge = parseMoney(input.serviceCharge) ?? 0;
+    const discount = parseMoney(input.discount) ?? 0;
     const grandTotal =
-        baseFine !== null ? baseFine + serviceCharge : serviceCharge > 0 ? serviceCharge : null;
+        baseFine !== null
+            ? Math.max(0, Number((baseFine + serviceCharge - discount).toFixed(2)))
+            : serviceCharge > 0
+              ? Math.max(0, Number((serviceCharge - discount).toFixed(2)))
+              : null;
 
     if (input.fineAmount === '' || input.fineAmount === null || input.fineAmount === undefined) {
         if (!isDraft) errors.fineAmount = 'Fine amount is required';
@@ -155,6 +161,18 @@ export function validateVehicleFine(input, options = {}) {
             errors.serviceCharge = 'Service charge cannot be negative';
         } else if (serviceCharge > VEHICLE_FINE_LIMITS.maxServiceCharge) {
             errors.serviceCharge = 'Service charge is too large';
+        }
+    }
+
+    const preDiscountTotal =
+        baseFine !== null ? baseFine + serviceCharge : serviceCharge > 0 ? serviceCharge : 0;
+    if (input.discount !== '' && input.discount != null) {
+        if (!hasAtMostTwoDecimals(input.discount)) {
+            errors.discount = 'Discount can have at most 2 decimal places';
+        } else if (discount < 0) {
+            errors.discount = 'Discount cannot be negative';
+        } else if (preDiscountTotal > 0 && discount > preDiscountTotal + 0.001) {
+            errors.discount = 'Discount cannot exceed Fine Amount + Service Charge';
         }
     }
 
@@ -195,7 +213,9 @@ export function validateVehicleFine(input, options = {}) {
         if (portionsTarget !== null && empAmt !== null && compAmt !== null) {
             if (Math.abs(empAmt + compAmt - portionsTarget) > 0.01) {
                 errors.amountMismatch =
-                    serviceCharge > 0
+                    discount > 0
+                        ? `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount + Service Charge − Discount (AED ${portionsTarget.toFixed(2)}).`
+                        : serviceCharge > 0
                         ? `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount + Service Charge (AED ${portionsTarget.toFixed(2)}).`
                         : `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal Fine Amount (AED ${portionsTarget.toFixed(2)})`;
             }

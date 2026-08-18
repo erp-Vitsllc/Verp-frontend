@@ -28,15 +28,24 @@ const TYPE_ICONS = {
 
 export default function VehicleAccessServiceTypesPage() {
     const [counts, setCounts] = useState({});
+    const [totalPending, setTotalPending] = useState(0);
     const [loading, setLoading] = useState(true);
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
             const res = await axiosInstance.get('/AssetItem/vehicle-access-services', { skipToast: true });
-            setCounts(res.data?.counts && typeof res.data.counts === 'object' ? res.data.counts : {});
+            const nextCounts = res.data?.counts && typeof res.data.counts === 'object' ? res.data.counts : {};
+            setCounts(nextCounts);
+            const fromApi = Number(res.data?.total);
+            setTotalPending(
+                Number.isFinite(fromApi)
+                    ? fromApi
+                    : Object.values(nextCounts).reduce((sum, n) => sum + Number(n || 0), 0),
+            );
         } catch {
             setCounts({});
+            setTotalPending(0);
         } finally {
             setLoading(false);
         }
@@ -50,6 +59,7 @@ export default function VehicleAccessServiceTypesPage() {
         <VehicleAccessPageShell
             title="Access Service"
             subtitle="Choose a service type to list every record across the fleet"
+            count={loading ? null : totalPending}
             onRefresh={load}
             refreshing={loading}
         >
@@ -71,11 +81,22 @@ export default function VehicleAccessServiceTypesPage() {
                                     <Icon size={20} />
                                 </span>
                                 <span className="min-w-0">
-                                    <span className="block text-sm font-black uppercase tracking-wide text-slate-800 group-hover:text-teal-800">
-                                        {type}
+                                    <span className="flex items-center gap-2">
+                                        <span className="block text-sm font-black uppercase tracking-wide text-slate-800 group-hover:text-teal-800">
+                                            {type}
+                                        </span>
+                                        {!loading && count > 0 ? (
+                                            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-black text-red-600 tabular-nums">
+                                                {count}
+                                            </span>
+                                        ) : null}
                                     </span>
                                     <span className="block text-xs text-slate-500 mt-1 tabular-nums">
-                                        {loading ? 'Loading…' : `${count} record${count === 1 ? '' : 's'}`}
+                                        {loading
+                                            ? 'Loading…'
+                                            : count > 0
+                                              ? `${count} pending`
+                                              : 'No pending records'}
                                     </span>
                                 </span>
                             </Link>

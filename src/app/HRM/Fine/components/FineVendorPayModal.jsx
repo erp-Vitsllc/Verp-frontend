@@ -366,7 +366,7 @@ export default function FineVendorPayModal({
                         {
                             bill_id: zohoBillId,
                             bill_number: String(
-                                fine?.billNumber || fine?.zohoBillNumber || fineId || '',
+                                fine?.zohoBillNumber || fineId || '',
                             ).trim(),
                             amount_applied: payAmt,
                         },

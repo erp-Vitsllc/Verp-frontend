@@ -428,19 +428,25 @@ export function buildAddServiceBody(formData, options = {}) {
             accidentOwner: formData.accidentOwnerType === 'thirdParty' ? 'Third Party' : 'Self',
             accidentStatus: 'Active',
             policeFineAmount:
-                formData.policeFineAmount !== '' && formData.policeFineAmount != null
-                    ? Number(formData.policeFineAmount)
-                    : undefined,
+                formData.accidentOwnerType === 'thirdParty'
+                    ? Number(formData.policeFineAmount) || 0
+                    : formData.policeFineAmount !== '' && formData.policeFineAmount != null
+                      ? Number(formData.policeFineAmount)
+                      : undefined,
             otherFineAmount:
                 formData.otherFineAmount !== '' && formData.otherFineAmount != null
                     ? Number(formData.otherFineAmount)
-                    : undefined,
+                    : formData.accidentOwnerType === 'thirdParty'
+                      ? 0
+                      : undefined,
             assignedByEmployeeId: String(formData.assignedByEmployeeId || '').trim() || undefined,
             insuranceCompany: String(formData.insuranceCompany || '').trim(),
             insuranceFineAmount:
-                formData.insuranceFineAmount !== '' && formData.insuranceFineAmount != null
-                    ? Number(formData.insuranceFineAmount)
-                    : undefined,
+                formData.accidentOwnerType === 'thirdParty'
+                    ? 0
+                    : formData.insuranceFineAmount !== '' && formData.insuranceFineAmount != null
+                      ? Number(formData.insuranceFineAmount)
+                      : undefined,
             policeReportName: String(formData.attachmentName || formData.remarkAttachmentName || '').trim(),
             claimReportName: String(formData.quotation2Name || '').trim(),
             insuranceFineCopyName: String(formData.quotation3Name || '').trim(),

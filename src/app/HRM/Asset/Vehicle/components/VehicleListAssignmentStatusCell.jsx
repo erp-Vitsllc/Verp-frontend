@@ -3,6 +3,7 @@
 import {
     getAssetStatusBadgeClass,
     isLeaveActive,
+    isServiceActive,
 } from '@/utils/assetStatusHelpers';
 import {
     getVehicleListWaitingLabel,
@@ -19,6 +20,20 @@ const LIST_PILL =
     'inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide whitespace-nowrap';
 
 const pendingApprovalTextClass = `${LIST_PILL} bg-amber-100 text-amber-950 ring-1 ring-amber-300/80`;
+
+/** Assigned To is assignment only — On Service color belongs in Service Status. */
+function assignmentListBadgeClass(vehicle) {
+    if (isLeaveActive(vehicle)) return `${LIST_PILL} bg-sky-100 text-sky-800`;
+    const statusStr = String(vehicle?.status || '');
+    const isPool = statusStr === 'Unassigned' || statusStr === 'Returned';
+    if (isPool && !vehicle?.assignedTo && !vehicle?.assignedCompany) {
+        return `${LIST_PILL} bg-emerald-100 text-emerald-700`;
+    }
+    if (isServiceActive(vehicle) || vehicle?.assignedTo || vehicle?.assignedCompany || statusStr === 'Assigned') {
+        return `${LIST_PILL} bg-indigo-100 text-indigo-700`;
+    }
+    return `${LIST_PILL} ${getAssetStatusBadgeClass(statusStr, { ...vehicle, onServiceActive: false })}`;
+}
 
 export default function VehicleListAssignmentStatusCell({ vehicle }) {
     if (!vehicle) return <span className="text-gray-400">—</span>;
@@ -77,7 +92,7 @@ export default function VehicleListAssignmentStatusCell({ vehicle }) {
             ) : null}
             {showAssigneeBadge ? (
                 <span
-                    className={`${LIST_PILL} ${getAssetStatusBadgeClass(vehicle.status, vehicle)}`}
+                    className={assignmentListBadgeClass(vehicle)}
                     title={badgeLabel}
                 >
                     <EmployeeAssignmentStatusLine

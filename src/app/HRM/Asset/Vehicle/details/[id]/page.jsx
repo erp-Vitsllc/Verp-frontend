@@ -1652,6 +1652,14 @@ function VehicleDetailsPageContent() {
         () => vehicleTabCrud('accessoriesList'),
         [permissionsMounted],
     );
+    const pendingServiceCountsByType = useMemo(
+        () => serviceCountByType(asset?.services, asset),
+        [asset],
+    );
+    const pendingServiceTotal = useMemo(
+        () => Object.values(pendingServiceCountsByType).reduce((sum, n) => sum + Number(n || 0), 0),
+        [pendingServiceCountsByType],
+    );
     const oilServiceRequestRows = useMemo(
         () => buildOilServiceRequestRowsFromAsset(asset),
         [asset],
@@ -3835,12 +3843,17 @@ function VehicleDetailsPageContent() {
                                                 ),
                                             )}
                                             onClick={() => navigateToVehicleTab(tab.id)}
-                                            className={`relative px-1 py-3 whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
+                                            className={`relative inline-flex items-center px-1 py-3 whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
                                                 ? 'text-blue-600 border-blue-500'
                                                 : 'text-slate-500 border-transparent hover:text-slate-700'
                                                 }`}
                                         >
                                             {tab.label}
+                                            {tab.id === 'service' && pendingServiceTotal > 0 ? (
+                                                <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-black text-red-600 tabular-nums">
+                                                    {pendingServiceTotal}
+                                                </span>
+                                            ) : null}
                                         </button>
                                     ))}
                                 </div>
@@ -4796,7 +4809,7 @@ function VehicleDetailsPageContent() {
                             )}
 
                             {activeTab === 'service' && asset && (() => {
-                                const serviceCounts = serviceCountByType(asset.services, asset);
+                                const serviceCounts = pendingServiceCountsByType;
                                 const isOilServiceTab = serviceInnerTab === 'Oil Service';
                                 const isCarWashTab = serviceInnerTab === 'Car Wash';
                                 const isVehicleServiceTabRequest = isVehicleServiceTabRequestType(serviceInnerTab);

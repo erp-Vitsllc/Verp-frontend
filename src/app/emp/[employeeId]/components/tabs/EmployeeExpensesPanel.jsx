@@ -123,7 +123,7 @@ export default function EmployeeExpensesPanel({ employee }) {
                       {
                           utilityBillId: row.utilityBillId,
                           zohoBillId: row.zohoBillId || '',
-                          billNumber: row.accountNo || '',
+                          billNumber: row.zohoBillNumber || '',
                       },
                   ]
                 : [],
@@ -131,7 +131,7 @@ export default function EmployeeExpensesPanel({ employee }) {
             selectedBillIds: row.zohoBillId ? [row.zohoBillId] : [],
             zohoBillIds: row.zohoBillId ? [row.zohoBillId] : [],
             organizationId: row.zohoOrganizationId || '',
-            billNumber: row.accountNo || '',
+            billNumber: row.zohoBillNumber || '',
             accountNo: row.accountNo || '',
             utilityType: row.utilityType || '',
             billMonth: row.billMonth || '',

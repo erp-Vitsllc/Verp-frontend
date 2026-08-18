@@ -53,9 +53,13 @@ export function isHrUser(user, fine) {
     return false;
 }
 
-export function canEditApprovedFineSchedule(user, fine) {
+/** HR department, flowchart HR on fine, or HR who approved the fine — full edit after approval. */
+export function canEditApprovedFine(user, fine) {
     return Boolean(user && fine && isApprovedFineStatus(fine.fineStatus) && isHrUser(user, fine));
 }
+
+/** @deprecated Use canEditApprovedFine — HR can now edit all fields, not only schedule. */
+export const canEditApprovedFineSchedule = canEditApprovedFine;
 
 export function isFieldLockedForApprovedEdit(scheduleOnlyEdit, fieldName) {
     if (!scheduleOnlyEdit) return false;

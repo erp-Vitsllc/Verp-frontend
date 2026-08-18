@@ -1767,7 +1767,7 @@ export default function UtilityBillReviewModal({
                                                                         <thead>
                                                                             <tr className="text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
                                                                                 <th className="px-3 py-1.5 text-left font-semibold">
-                                                                                    Bill #
+                                                                                    Zoho No.
                                                                                 </th>
                                                                                 <th className="px-3 py-1.5 text-left font-semibold">
                                                                                     Items
@@ -1800,9 +1800,11 @@ export default function UtilityBillReviewModal({
                                                                                         className="border-b border-slate-50 last:border-0"
                                                                                     >
                                                                                         <td className="px-3 py-1.5 font-medium text-slate-700 tabular-nums">
-                                                                                            {
-                                                                                                child.billNumber
-                                                                                            }
+                                                                                            {child.zohoBillNumber &&
+                                                                                            child.zohoBillNumber !==
+                                                                                                '—'
+                                                                                                ? child.zohoBillNumber
+                                                                                                : '—'}
                                                                                         </td>
                                                                                         <td className="px-3 py-1.5 text-slate-700">
                                                                                             {
@@ -1837,11 +1839,7 @@ export default function UtilityBillReviewModal({
                                                                                                         child.zohoBillId
                                                                                                     }
                                                                                                 >
-                                                                                                    {child.zohoBillNumber &&
-                                                                                                    child.zohoBillNumber !==
-                                                                                                        '—'
-                                                                                                        ? child.zohoBillNumber
-                                                                                                        : 'Synced'}
+                                                                                                    Synced
                                                                                                 </span>
                                                                                             ) : (
                                                                                                 <span className="text-[10px] text-amber-700 font-medium">

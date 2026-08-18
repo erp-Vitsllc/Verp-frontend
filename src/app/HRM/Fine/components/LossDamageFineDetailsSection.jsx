@@ -1,6 +1,6 @@
 'use client';
 
-import { resolveEmployeeFinePayableAmount, resolveCompanyFinePayableAmount } from '@/utils/finePayableAmount';
+import { resolveEmployeeFinePayableAmount, resolveCompanyFinePayableAmount, resolveFineNetTotal } from '@/utils/finePayableAmount';
 
 export function isLossDamageFineType(fine) {
     if (!fine) return false;
@@ -77,14 +77,27 @@ export function resolveLossDamageFineBreakdown(fine, assetDetails = null) {
 
     const assetDepreciationAmount = parseFloat(fine?.assetDepreciationAmount || 0) || 0;
     const serviceCharge = parseFloat(fine?.serviceCharge || 0) || 0;
+    const discount = parseFloat(fine?.discount || 0) || 0;
     const totalFine = parseFloat(fine?.totalFineAmount || fine?.fineAmount || 0) || 0;
 
     const actualFineAmount = Math.max(
         0,
-        items.length > 0 ? assetValue + accessoryAmount : totalFine - serviceCharge + assetDepreciationAmount,
+        items.length > 0 ? assetValue + accessoryAmount : totalFine - serviceCharge + assetDepreciationAmount + discount,
     );
 
-    const computedTotal = Math.max(0, actualFineAmount - assetDepreciationAmount + serviceCharge);
+    const computedTotal = Math.max(0, actualFineAmount - assetDepreciationAmount + serviceCharge - discount);
+
+    let resolvedTotal = computedTotal;
+    if (totalFine > 0) {
+        const grossBeforeDiscount = actualFineAmount - assetDepreciationAmount + serviceCharge;
+        if (discount > 0 && Math.abs(totalFine - grossBeforeDiscount) < 0.02) {
+            resolvedTotal = computedTotal;
+        } else if (discount > 0 && totalFine > computedTotal + 0.01) {
+            resolvedTotal = computedTotal;
+        } else {
+            resolvedTotal = totalFine;
+        }
+    }
 
     return {
         assetValue,
@@ -92,7 +105,8 @@ export function resolveLossDamageFineBreakdown(fine, assetDetails = null) {
         actualFineAmount,
         assetDepreciationAmount,
         serviceCharge,
-        totalFine: totalFine > 0 ? totalFine : computedTotal,
+        discount,
+        totalFine: resolvedTotal,
     };
 }
 
@@ -137,21 +151,20 @@ export function buildAssetLossFineCardFields(
     const compBase = parseFloat(fine.companyAmount || 0) || 0;
     const sc = parseFloat(fine.serviceCharge || base.serviceCharge || 0) || 0;
     const rf = String(fine.responsibleFor || '').trim();
+    const netTotal = base.totalFine ?? resolveFineNetTotal(fine);
     let employeePayableAmount = empBase;
     let companyPayableAmount = compBase;
-    if (rf === 'Employee & Company' && sc > 0) {
-        employeePayableAmount = empBase + sc / 2;
-        companyPayableAmount = compBase + sc / 2;
-    } else if (rf === 'Employee' && sc > 0) {
-        employeePayableAmount = empBase + sc;
-    } else if (rf === 'Company' && sc > 0) {
-        companyPayableAmount = compBase + sc;
-    } else if (typeof getEmpShare === 'function' && !isCompanyFine) {
-        const payable = Number(getEmpShare(fine)) || 0;
-        if (payable > employeePayableAmount) employeePayableAmount = payable;
+    if (typeof getEmpShare === 'function' && !isCompanyFine) {
+        employeePayableAmount = Number(getEmpShare(fine)) || 0;
+    } else if (rf === 'Employee') {
+        employeePayableAmount = netTotal;
+    } else if (rf === 'Employee & Company') {
+        employeePayableAmount = Math.max(0, netTotal / 2);
+        companyPayableAmount = Math.max(0, netTotal - employeePayableAmount);
+    } else if (rf === 'Company') {
+        companyPayableAmount = netTotal;
     } else if (typeof getCompShare === 'function' && isCompanyFine) {
-        const payable = Number(getCompShare(fine)) || 0;
-        if (payable > companyPayableAmount) companyPayableAmount = payable;
+        companyPayableAmount = Number(getCompShare(fine)) || 0;
     }
 
     return {
@@ -195,6 +208,7 @@ export function buildLossDamageFormFields(
         actualFineAmount,
         assetDepreciationAmount,
         serviceCharge,
+        discount,
         totalFine,
     } = breakdown;
 
@@ -264,6 +278,7 @@ export function buildLossDamageFormFields(
         actualFineAmount,
         assetDepreciationAmount,
         serviceCharge,
+        discount,
         totalFine,
         breakdown,
         payableType,
@@ -351,6 +366,7 @@ export default function LossDamageFineDetailsSection({
                     value={`AED ${formatMoney(f.assetDepreciationAmount ?? f.breakdown?.assetDepreciationAmount ?? 0)}`}
                 />
                 <FormRow label="Service Charge" value={`AED ${formatMoney(f.serviceCharge)}`} />
+                <FormRow label="Discount" value={`AED ${formatMoney(f.discount)}`} />
                 <FormRow label="Total Fine" value={`AED ${formatMoney(f.totalFine)}`} valueClassName="font-bold" />
 
                 <FormRow label="Payable Type" value={f.payableType} />

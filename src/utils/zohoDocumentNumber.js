@@ -1,6 +1,5 @@
 /**
- * Human-readable Zoho serial (bill_number / expense_number), not the internal Zoho id.
- * Empty until the record is actually billed/expensed in Zoho.
+ * Zoho Books Serial No. custom field (e.g. VITS-Bills-012507), not Bill# or expense_number.
  */
 export function resolveZohoDocumentNumber(record = {}) {
     const expenseNo = String(record.zohoExpenseNumber || '').trim();
@@ -8,17 +7,6 @@ export function resolveZohoDocumentNumber(record = {}) {
 
     const billNo = String(record.zohoBillNumber || '').trim();
     if (billNo) return billNo;
-
-    const billed = Boolean(
-        String(record.zohoBillId || '').trim() ||
-            String(record.zohoExpenseId || '').trim() ||
-            (Array.isArray(record.zohoBillIds) &&
-                record.zohoBillIds.some((id) => String(id || '').trim())),
-    );
-    if (billed) {
-        const sent = String(record.billNumber || '').trim();
-        if (sent) return sent;
-    }
 
     return '';
 }

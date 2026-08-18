@@ -12,7 +12,6 @@ import {
     VEHICLE_FINE_LIMITS,
     getVehicleFinePayableTotal,
     toVehicleFinePartyPayableAmount,
-    toVehicleFinePartyBaseAmount,
 } from '@/app/HRM/Fine/utils/validateVehicleFine';
 import {
     ERP_ATTACHMENT_ACCEPT,
@@ -24,6 +23,7 @@ import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 import { validateApprovedFineScheduleEdit } from '../utils/validateFineDeductionVsVisa';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 
 export default function AddVehicleFineModal({
     isOpen,
@@ -40,6 +40,8 @@ export default function AddVehicleFineModal({
     allowMultipleImages = false,
 }) {
     const { toast } = useToast();
+    const [showZohoConfirm, setShowZohoConfirm] = useState(false);
+    const [pendingPayload, setPendingPayload] = useState(null);
     // Vehicles are now passed via props
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
@@ -61,6 +63,7 @@ export default function AddVehicleFineModal({
         attachmentMime: '',
         companyDescription: '',
         serviceCharge: '',
+        discount: '',
         fineSource: '',
         zohoVendorId: '',
         zohoVendorName: '',
@@ -90,12 +93,13 @@ export default function AddVehicleFineModal({
 
             const isBoth = (initialData.responsibleFor || 'Employee') === 'Employee & Company';
             const sc = parseFloat(initialData.serviceCharge || 0) || 0;
+            const discountAmt = parseFloat(initialData.discount || 0) || 0;
             const grandTotal = parseFloat(initialData.totalFineAmount || initialData.fineAmount || 0) || 0;
             const empStored = parseFloat(initialData.employeeAmount || 0) || 0;
             const compStored = parseFloat(initialData.companyAmount || 0) || 0;
             const partsBase = empStored + compStored;
             const baseFineAmount =
-                partsBase > 0.001 ? partsBase : Math.max(0, grandTotal - sc);
+                partsBase > 0.001 ? partsBase : Math.max(0, grandTotal - sc + discountAmt);
 
             // Prefer top-level companyAmount; else recover from company party row
             const companyParty = (initialData.assignedEmployees || []).find(
@@ -132,24 +136,35 @@ export default function AddVehicleFineModal({
             let uiCompanyAmount = String(initialData.companyAmount ?? '');
             
             if (isBoth) {
-                // UI portions = payable (base + service-charge share)
+                // UI portions = payable (base + service-charge share − discount share)
                 let empBase = Number.isFinite(storedEmpBase) ? storedEmpBase : 0;
                 let compBase = Number.isFinite(storedCompBase) ? storedCompBase : 0;
-                // Legacy: portions already saved as payables (sum ≈ grand) — use as-is
+                const grossGrand = baseFineAmount + sc;
+                const netGrand = Math.max(0, Number((grossGrand - discountAmt).toFixed(2)));
+                // Legacy: portions already saved as payables (sum ≈ grand) — scale to net
                 if (
                     sc > 0 &&
                     Math.abs(empBase + compBase - grandTotal) <= 0.05 &&
                     Math.abs(empBase + compBase - baseFineAmount) > 0.05
                 ) {
-                    uiEmployeeAmount = String(empBase);
-                    uiCompanyAmount = String(compBase);
+                    const legacySum = empBase + compBase;
+                    if (legacySum > 0 && netGrand !== legacySum) {
+                        uiEmployeeAmount = String(Number(((empBase / legacySum) * netGrand).toFixed(2)));
+                        uiCompanyAmount = String(Number((netGrand - parseFloat(uiEmployeeAmount)).toFixed(2)));
+                    } else {
+                        uiEmployeeAmount = String(empBase);
+                        uiCompanyAmount = String(compBase);
+                    }
                 } else {
-                    uiEmployeeAmount = String(
-                        Number(toVehicleFinePartyPayableAmount(empBase, sc, 2).toFixed(2)),
-                    );
-                    uiCompanyAmount = String(
-                        Number(toVehicleFinePartyPayableAmount(compBase, sc, 2).toFixed(2)),
-                    );
+                    const empGross = Number(toVehicleFinePartyPayableAmount(empBase, sc, 2).toFixed(2));
+                    const compGross = Number(toVehicleFinePartyPayableAmount(compBase, sc, 2).toFixed(2));
+                    if (grossGrand > 0 && discountAmt > 0) {
+                        uiEmployeeAmount = String(Number(((empGross / grossGrand) * netGrand).toFixed(2)));
+                        uiCompanyAmount = String(Number((netGrand - parseFloat(uiEmployeeAmount)).toFixed(2)));
+                    } else {
+                        uiEmployeeAmount = String(empGross);
+                        uiCompanyAmount = String(compGross);
+                    }
                 }
             }
 
@@ -170,6 +185,7 @@ export default function AddVehicleFineModal({
                 attachmentMime: '',
                 companyDescription: initialData.companyDescription || '',
                 serviceCharge: String(initialData.serviceCharge || ''),
+                discount: String(initialData.discount || ''),
                 fineSource: initialData.fineSource || '',
                 zohoVendorId: initialData.zohoVendorId || '',
                 zohoVendorName: initialData.zohoVendorName || initialData.fineSource || '',
@@ -218,6 +234,7 @@ export default function AddVehicleFineModal({
                 attachmentMime: '',
                 companyDescription: '',
                 serviceCharge: '',
+                discount: '',
                 fineSource: '',
                 zohoVendorId: '',
                 zohoVendorName: '',
@@ -269,10 +286,8 @@ export default function AddVehicleFineModal({
             const fineAmount = newFineAmount !== undefined ? newFineAmount : prev.fineAmount;
             const serviceCharge =
                 nextState.serviceCharge !== undefined ? nextState.serviceCharge : prev.serviceCharge;
-            // Portions are payable totals (Fine Amount + Service Charge)
-            const baseFine = parseFloat(fineAmount || 0) || 0;
-            const sc = parseFloat(serviceCharge || 0) || 0;
-            const grand = baseFine + sc;
+            const discount = nextState.discount !== undefined ? nextState.discount : prev.discount;
+            const grand = getVehicleFinePayableTotal(fineAmount, serviceCharge, discount);
 
             if (currentResponsible === 'Employee & Company') {
                 const half = Number((grand / 2).toFixed(2));
@@ -281,6 +296,7 @@ export default function AddVehicleFineModal({
                     ...nextState,
                     fineAmount,
                     serviceCharge,
+                    discount,
                     employeeAmount: String(half),
                     companyAmount: String(Number((grand - half).toFixed(2))),
                 };
@@ -290,14 +306,17 @@ export default function AddVehicleFineModal({
                 ...nextState,
                 fineAmount,
                 serviceCharge,
+                discount,
             };
         });
     };
 
     const handleEmployeeAmountChange = (val) => {
-        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
-        const sc = parseFloat(formData.serviceCharge || 0) || 0;
-        const grand = baseFine + sc;
+        const grand = getVehicleFinePayableTotal(
+            formData.fineAmount,
+            formData.serviceCharge,
+            formData.discount,
+        );
 
         const numVal = parseFloat(val) || 0;
         let finalEmp = numVal;
@@ -314,9 +333,11 @@ export default function AddVehicleFineModal({
     };
 
     const handleCompanyAmountChange = (val) => {
-        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
-        const sc = parseFloat(formData.serviceCharge || 0) || 0;
-        const grand = baseFine + sc;
+        const grand = getVehicleFinePayableTotal(
+            formData.fineAmount,
+            formData.serviceCharge,
+            formData.discount,
+        );
 
         const numVal = parseFloat(val) || 0;
         let finalComp = numVal;
@@ -499,6 +520,7 @@ export default function AddVehicleFineModal({
                 employeeId: selectedEmployeeId,
                 fineAmount: formData.fineAmount,
                 serviceCharge: formData.serviceCharge,
+                discount: formData.discount,
                 responsibleFor: formData.responsibleFor,
                 employeeAmount: formData.employeeAmount,
                 companyAmount: formData.companyAmount,
@@ -568,8 +590,17 @@ export default function AddVehicleFineModal({
             }
 
             const serviceChargeAmount = parseFloat(formData.serviceCharge || 0) || 0;
+            const discountAmount = parseFloat(formData.discount || 0) || 0;
             const baseFineAmount = parseFloat(formData.fineAmount || 0) || 0;
-            const grandTotalFine = baseFineAmount + serviceChargeAmount;
+            const grandTotalFine = getVehicleFinePayableTotal(
+                baseFineAmount,
+                serviceChargeAmount,
+                discountAmount,
+            );
+            const netGrand = grandTotalFine;
+
+            const originalBaseFromNetPayable = (payable) =>
+                netGrand > 0 ? (payable / netGrand) * baseFineAmount : 0;
 
             const employeesList = [];
             if (formData.responsibleFor !== 'Company') {
@@ -580,7 +611,7 @@ export default function AddVehicleFineModal({
                 const empBase =
                     formData.responsibleFor === 'Employee'
                         ? baseFineAmount
-                        : toVehicleFinePartyBaseAmount(empPayable, serviceChargeAmount, 2);
+                        : originalBaseFromNetPayable(empPayable);
                 employeesList.push({
                     employeeId: selectedEmployeeId,
                     employeeName: employeeName,
@@ -598,7 +629,7 @@ export default function AddVehicleFineModal({
                 const compBase =
                     formData.responsibleFor === 'Company'
                         ? baseFineAmount
-                        : toVehicleFinePartyBaseAmount(compPayable, serviceChargeAmount, 2);
+                        : originalBaseFromNetPayable(compPayable);
                 employeesList.push({
                     employeeId: 'VEGA-HR-0000',
                     employeeName: 'Vega Digital IT Solutions',
@@ -617,21 +648,13 @@ export default function AddVehicleFineModal({
                     ? 0
                     : formData.responsibleFor === 'Employee'
                       ? baseFineAmount
-                      : toVehicleFinePartyBaseAmount(
-                            parseFloat(formData.employeeAmount || 0) || 0,
-                            serviceChargeAmount,
-                            2,
-                        );
+                      : originalBaseFromNetPayable(parseFloat(formData.employeeAmount || 0) || 0);
             const compStoredBase =
                 formData.responsibleFor === 'Employee'
                     ? 0
                     : formData.responsibleFor === 'Company'
                       ? baseFineAmount
-                      : toVehicleFinePartyBaseAmount(
-                            parseFloat(formData.companyAmount || 0) || 0,
-                            serviceChargeAmount,
-                            2,
-                        );
+                      : originalBaseFromNetPayable(parseFloat(formData.companyAmount || 0) || 0);
             const payload = {
                 isBulk: true,
                 company: commonCompanyId,
@@ -639,8 +662,9 @@ export default function AddVehicleFineModal({
                 category: fineCategory,
                 subCategory: fineTypeName,
                 fineType: fineTypeName,
-                // Payload fineAmount should be the TOTAL (Fine Amount + Service Charge)
+                // Payload fineAmount should be the TOTAL (Fine Amount + Service Charge − Discount)
                 fineAmount: grandTotalFine,
+                totalFineAmount: grandTotalFine,
                 responsibleFor: formData.responsibleFor,
                 employeeAmount: empStoredBase,
                 companyAmount: compStoredBase,
@@ -648,6 +672,7 @@ export default function AddVehicleFineModal({
                 monthStart: formData.monthStart,
                 awardedDate: formData.awardedDate || new Date().toISOString().split('T')[0],
                 serviceCharge: serviceChargeAmount,
+                discount: discountAmount,
                 vehicleId: selectedVehicleId,
                 assetId:
                     selectedVehicle?.assetId ||
@@ -709,18 +734,20 @@ export default function AddVehicleFineModal({
                 };
             }
 
-            if (initialData?._id) {
-                // Update Logic
-                if (isResubmitting) {
-                    payload.fineStatus = 'Pending';
-                    payload.resubmit = true;
-                }
+            const isAlreadyBilled = Boolean(
+                initialData?._id &&
+                (initialData?.zohoBillId || initialData?.zohoBillNumber || initialData?.zohoSyncStatus === 'synced' || initialData?.vendorBillStatus === 'Paid')
+            );
 
-                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
-                toast({
-                    title: "Success",
-                    description: isResubmitting ? "Fine resubmitted successfully" : "Fine updated successfully"
-                });
+            if (initialData?._id) {
+                if (isAlreadyBilled) {
+                    setPendingPayload(payload);
+                    setShowZohoConfirm(true);
+                    setSubmitting(false);
+                    return;
+                }
+                await executeSaveFine(payload, false);
+                return;
             } else {
                 const response = await axiosInstance.post('/Fine', payload);
                 toast({
@@ -733,13 +760,44 @@ export default function AddVehicleFineModal({
                 onClose();
                 return;
             }
-
-            if (onSuccess) onSuccess();
-            onClose();
         } catch (error) {
             const apiErrors = error.response?.data?.errors;
             if (applyFieldErrorsFromApi(apiErrors)) {
                 // Keep error on the modal fields — do not toast on the page behind
+                return;
+            }
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Submission failed',
+            });
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const executeSaveFine = async (payloadToSubmit, updateZohoBool) => {
+        try {
+            setSubmitting(true);
+            payloadToSubmit.updateZoho = updateZohoBool;
+
+            if (isResubmitting) {
+                payloadToSubmit.fineStatus = 'Pending';
+                payloadToSubmit.resubmit = true;
+            }
+
+            const response = await axiosInstance.put(`/Fine/${initialData._id}`, payloadToSubmit);
+            toast({
+                title: "Success",
+                description: response.data?.message || (isResubmitting ? "Fine resubmitted successfully" : "Fine updated successfully")
+            });
+            setShowZohoConfirm(false);
+            setPendingPayload(null);
+            if (onSuccess) onSuccess(response.data);
+            onClose();
+        } catch (error) {
+            const apiErrors = error.response?.data?.errors;
+            if (applyFieldErrorsFromApi(apiErrors)) {
                 return;
             }
             toast({
@@ -879,6 +937,25 @@ export default function AddVehicleFineModal({
                             {errors.serviceCharge ? <p className="text-xs text-red-500 ml-1">{errors.serviceCharge}</p> : null}
                         </div>
 
+                        {/* Discount */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Discount</label>
+                            <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={formData.discount}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateFineAmountAndPortions(formData.fineAmount, { discount: val });
+                                    if (errors.discount) setErrors(prev => ({ ...prev, discount: '' }));
+                                }}
+                                placeholder="0.00"
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.discount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
+                            />
+                            {errors.discount ? <p className="text-xs text-red-500 ml-1">{errors.discount}</p> : null}
+                        </div>
+
                         {/* Responsible For */}
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Responsible For</label>
@@ -887,9 +964,11 @@ export default function AddVehicleFineModal({
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     setFormData(prev => {
-                                        const baseFine = parseFloat(prev.fineAmount || 0) || 0;
-                                        const sc = parseFloat(prev.serviceCharge || 0) || 0;
-                                        const grand = baseFine + sc;
+                                        const grand = getVehicleFinePayableTotal(
+                                            prev.fineAmount,
+                                            prev.serviceCharge,
+                                            prev.discount,
+                                        );
 
                                         let empAmt = prev.employeeAmount;
                                         let compAmt = prev.companyAmount;
@@ -1223,7 +1302,7 @@ export default function AddVehicleFineModal({
                         <div className="flex flex-col">
                             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-0.5">Summary</span>
                             <span className="text-xs text-gray-600 font-medium italic">
-                                Total payable = Fine Amount + Service Charge
+                                Total payable = Fine Amount + Service Charge − Discount
                             </span>
                         </div>
                         <div className="flex items-baseline gap-1.5">
@@ -1231,6 +1310,7 @@ export default function AddVehicleFineModal({
                                 {getVehicleFinePayableTotal(
                                     formData.fineAmount,
                                     formData.serviceCharge,
+                                    formData.discount,
                                 ).toLocaleString(undefined, {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -1260,6 +1340,23 @@ export default function AddVehicleFineModal({
                     </div>
                 </form>
             </div >
+
+            <ZohoUpdateConfirmModal
+                isOpen={showZohoConfirm}
+                billNumber={initialData?.zohoBillNumber || initialData?.zohoBillId || ''}
+                record={initialData}
+                submitting={submitting}
+                onConfirmUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, true);
+                }}
+                onConfirmNoUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, false);
+                }}
+                onCancel={() => {
+                    setShowZohoConfirm(false);
+                    setPendingPayload(null);
+                }}
+            />
         </div >
     );
 }

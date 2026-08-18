@@ -14,6 +14,7 @@ import {
     loadUtilityBillPaymentInvoice,
 } from '../utils/utilityBillPaymentInvoice';
 import PaymentInvoiceViewerModal from '@/app/Accounts/Payments/components/PaymentInvoiceViewerModal';
+import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 
 function monthLabel(billMonth) {
     if (!billMonth || !/^\d{4}-\d{2}$/.test(String(billMonth))) return '—';
@@ -174,9 +175,9 @@ export default function ViewBillModal({
                         <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border bg-gray-50 text-gray-700 border-gray-200">
                             {billDisplayStatus(bill)}
                         </span>
-                        {bill.accountNo ? (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 bg-gray-100 text-gray-600 rounded border border-gray-200/50">
-                                Acc {bill.accountNo}
+                        {formatZohoDocumentNumber(bill) !== '—' ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 bg-teal-50 text-teal-700 rounded border border-teal-100/70">
+                                Zoho {formatZohoDocumentNumber(bill)}
                             </span>
                         ) : null}
                     </div>

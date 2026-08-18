@@ -476,7 +476,7 @@ export default function VehicleAccidentRepairForm({
                         <MoneyInput
                             value={formData.otherFineAmount || ''}
                             onChange={(e) => set('otherFineAmount', e.target.value)}
-                            disabled={fieldDisabled}
+                            disabled={fieldDisabled || formData.accidentOwnerType !== 'self'}
                             placeholder="AED"
                         />
                     </div>
@@ -485,7 +485,7 @@ export default function VehicleAccidentRepairForm({
                         <input
                             type="text"
                             readOnly
-                            value={totalFines ? `${totalFines} AED` : ''}
+                            value={`${totalFines} AED`}
                             className={`${fieldInput} text-red-600 font-medium`}
                         />
                     </div>

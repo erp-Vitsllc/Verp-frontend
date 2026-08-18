@@ -3,7 +3,7 @@
  * while fresh API data loads in the background.
  */
 
-const LIST_CACHE_KEY = 'verp:vehicle-fleet-list-cache';
+const LIST_CACHE_KEY = 'verp:vehicle-fleet-list-cache-v2';
 const LIST_CACHE_AT_KEY = 'verp:vehicle-fleet-list-cache-at';
 const MAX_CACHE_AGE_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -33,6 +33,8 @@ export function saveVehicleListCache(rows) {
             actionRequiredBy: v.actionRequiredBy,
             onServiceActive: v.onServiceActive,
             onLeaveActive: v.onLeaveActive,
+            pendingServiceCount: v.pendingServiceCount,
+            completedServiceCount: v.completedServiceCount,
             activeServiceWorkflow: v.activeServiceWorkflow
                 ? {
                       stage: v.activeServiceWorkflow.stage || '',

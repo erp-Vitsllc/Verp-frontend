@@ -34,7 +34,6 @@ import {
     buildLossDamageFormFields,
 } from '../components/LossDamageFineDetailsSection';
 import {
-    canEditApprovedFineSchedule,
     isApprovedFineStatus,
     isHrUser,
 } from '../utils/fineApprovedEdit';
@@ -224,18 +223,26 @@ function getFineBaseRowAmount(fine, emp, isCo) {
     return Math.max(0, base);
 }
 
-/** Payable total = base employee + company portions + service charge. */
+/** Payable total = base employee + company portions + service charge − discount. */
 function computeFinePayableTotal(fine) {
     if (!fine) return 0;
     const sc = parseFloat(fine.serviceCharge || 0);
+    const discount = parseFloat(fine.discount || 0);
     let emp = parseFloat(fine.employeeAmount || 0);
     const comp = parseFloat(fine.companyAmount || 0);
     if (emp < 0 && sc > 0) {
         emp = emp + sc;
     }
-    const fromComponents = emp + comp + sc;
+    const fromComponents = Math.max(0, emp + comp + sc - discount);
     const stored = parseFloat(fine.totalFineAmount || fine.fineAmount || 0);
+    const gross = emp + comp + sc;
+    if (fromComponents > 0 && discount > 0 && Math.abs(stored - gross) < 0.02) {
+        return fromComponents;
+    }
     if (fromComponents > 0 && (stored <= 0 || stored < fromComponents - 0.009)) {
+        return fromComponents;
+    }
+    if (discount > 0 && stored > fromComponents + 0.01) {
         return fromComponents;
     }
     return Math.max(stored, fromComponents);
@@ -1589,14 +1596,14 @@ function FineDetailsPageContent() {
         return canAccountsPayFineVendorBill(fine, currentUser, flowchartRows);
     }, [fine, currentUser, flowchartRows]);
 
-    const approvedScheduleOnlyEdit = useMemo(
-        () => isHr && isApprovedFineStatus(fine?.fineStatus),
+    const canHrEditApprovedFine = useMemo(
+        () => Boolean(isHr && isApprovedFineStatus(fine?.fineStatus)),
         [isHr, fine],
     );
 
     const approvedAssetControllerOnlyEdit = useMemo(
-        () => isAssetController && isApprovedFineStatus(fine?.fineStatus),
-        [isAssetController, fine],
+        () => Boolean(isAssetController && !isHr && isApprovedFineStatus(fine?.fineStatus)),
+        [isAssetController, isHr, fine],
     );
 
     const canShowEditFine = useMemo(() => {
@@ -1604,7 +1611,7 @@ function FineDetailsPageContent() {
         // Group fines: edit only from the Group Fine overview (not per employee/company).
         if (isGroup && !isGroupOverviewActive) return false;
         if (isApprovedFineStatus(fine.fineStatus)) {
-            return approvedScheduleOnlyEdit || approvedAssetControllerOnlyEdit;
+            return canHrEditApprovedFine || approvedAssetControllerOnlyEdit;
         }
         if (fine.fineStatus === 'Rejected' && canResubmit) return true;
         // Edit on in-progress fines: assignee (or portal admin), not every Add Fine user
@@ -1613,7 +1620,7 @@ function FineDetailsPageContent() {
         currentUser,
         fine,
         canResubmit,
-        approvedScheduleOnlyEdit,
+        canHrEditApprovedFine,
         approvedAssetControllerOnlyEdit,
         isGroup,
         isGroupOverviewActive,
@@ -2290,7 +2297,7 @@ function FineDetailsPageContent() {
                                         className="py-3 px-5 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5 ml-auto cursor-pointer"
                                     >
                                         <Edit className="w-4 h-4" />
-                                        {approvedScheduleOnlyEdit ? 'Edit Schedule' : 'Edit Fine'}
+                                        Edit Fine
                                     </button>
                                 )}
                             </div>
@@ -2361,7 +2368,7 @@ function FineDetailsPageContent() {
                                             className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
                                         >
                                             <Edit className="w-4 h-4" />
-                                            {approvedScheduleOnlyEdit ? 'Edit Schedule' : 'Edit Fine'}
+                                            Edit Fine
                                         </button>
                                     )}
                                     {isApprovedFineStatus(fine.fineStatus) && (
@@ -2725,7 +2732,7 @@ function FineDetailsPageContent() {
                                     employees={allEmployees}
                                     initialData={fine}
                                     isResubmitting={isResubmittingModal}
-                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    scheduleOnlyEdit={false}
                                     fineCategory="Violation"
                                     fineTypeName="Vehicle Fine"
                                 />
@@ -2738,7 +2745,7 @@ function FineDetailsPageContent() {
                                     employees={allEmployees}
                                     initialData={fine}
                                     isResubmitting={isResubmittingModal}
-                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    scheduleOnlyEdit={false}
                                     fineCategory="Damage"
                                     fineTypeName="Vehicle Damage"
                                     allowMultipleImages
@@ -2752,7 +2759,7 @@ function FineDetailsPageContent() {
                                     employees={allEmployees}
                                     initialData={fine}
                                     isResubmitting={isResubmittingModal}
-                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    scheduleOnlyEdit={false}
                                 />
                             )}
                             {fine.fineType === 'Project Damage' && (
@@ -2763,7 +2770,7 @@ function FineDetailsPageContent() {
                                     employees={allEmployees}
                                     initialData={fine}
                                     isResubmitting={isResubmittingModal}
-                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    scheduleOnlyEdit={false}
                                 />
                             )}
                             {fine.fineType === 'Loss & Damage' && (
@@ -2784,7 +2791,7 @@ function FineDetailsPageContent() {
                                             : {}),
                                     }}
                                     isResubmitting={isResubmittingModal}
-                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    scheduleOnlyEdit={false}
                                     assetControllerOnlyEdit={approvedAssetControllerOnlyEdit}
                                 />
                             )}
@@ -2796,7 +2803,7 @@ function FineDetailsPageContent() {
                                     employees={allEmployees}
                                     initialData={fine}
                                     isResubmitting={isResubmittingModal}
-                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    scheduleOnlyEdit={false}
                                 />
                             )}
                             {/* Fallback for general fines or unmatched types */}
@@ -2809,7 +2816,7 @@ function FineDetailsPageContent() {
                                     initialData={fine}
                                     currentUser={currentUser}
                                     isResubmitting={isResubmittingModal}
-                                    scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                    scheduleOnlyEdit={false}
                                 />
                             )}
                         </>

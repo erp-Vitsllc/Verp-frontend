@@ -1160,17 +1160,14 @@ function UtilityBillDetailsPageContent() {
                                             <span className="text-xs sm:text-sm font-bold text-gray-800 tracking-tight">
                                                 {monthLabelFromKey(bill.billMonth)}
                                             </span>
-                                            {bill.accountNo ? (
-                                                <span className="text-[10px] font-semibold px-2 py-0.5 bg-gray-100 text-gray-600 rounded border border-gray-200/50">
-                                                    Acc {bill.accountNo}
+                                            {formatZohoDocumentNumber(bill) !== '—' ? (
+                                                <span
+                                                    className="text-[10px] font-semibold px-2 py-0.5 bg-teal-50 text-teal-700 rounded border border-teal-100/70"
+                                                    title="Zoho Books Serial No."
+                                                >
+                                                    Zoho {formatZohoDocumentNumber(bill)}
                                                 </span>
                                             ) : null}
-                                            <span
-                                                className="text-[10px] font-semibold px-2 py-0.5 bg-teal-50 text-teal-700 rounded border border-teal-100/70"
-                                                title="Zoho Books bill number"
-                                            >
-                                                Zoho {formatZohoDocumentNumber(bill)}
-                                            </span>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">

@@ -631,6 +631,15 @@ export default function VehicleAssetPage() {
         });
     }, [vehicles, searchQuery, statusFilter, fleetListTab]);
 
+    const pendingServiceStatusCount = useMemo(
+        () =>
+            filteredVehicles.reduce(
+                (sum, v) => sum + (resolveVehicleListServiceStatusLabel(v) === 'Pending' ? 1 : 0),
+                0,
+            ),
+        [filteredVehicles],
+    );
+
     const sortedFilteredVehicles = useMemo(() => {
         const column = VEHICLE_LIST_COLUMNS.find((c) => c.key === sortKey) || VEHICLE_LIST_COLUMNS[0];
         return [...filteredVehicles].sort((a, b) =>
@@ -843,6 +852,11 @@ export default function VehicleAssetPage() {
                                 >
                                     <Wrench size={16} />
                                     Access Service
+                                    {pendingServiceStatusCount > 0 ? (
+                                        <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-white px-1.5 py-0.5 text-[9px] font-black text-red-600 tabular-nums">
+                                            {pendingServiceStatusCount}
+                                        </span>
+                                    ) : null}
                                 </Link>
                                 <Link
                                     href="/HRM/Asset/Vehicle/access-handover"
@@ -1014,7 +1028,7 @@ export default function VehicleAssetPage() {
                                                 return (
                                                     <th
                                                         key={column.key}
-                                                        className="px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap"
+                                                        className="relative px-2 sm:px-3 py-2 sm:py-2.5 whitespace-nowrap"
                                                     >
                                                         <button
                                                             type="button"
@@ -1032,6 +1046,11 @@ export default function VehicleAssetPage() {
                                                             }`}
                                                         >
                                                             {column.label}
+                                                            {column.key === 'serviceStatus' && pendingServiceStatusCount > 0 ? (
+                                                                <span className="ml-1 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-black text-red-600 tabular-nums">
+                                                                    {pendingServiceStatusCount}
+                                                                </span>
+                                                            ) : null}
                                                             {isActive ? (
                                                                 sortDirection === 'asc' ? (
                                                                     <ArrowUp size={12} className="opacity-100" />

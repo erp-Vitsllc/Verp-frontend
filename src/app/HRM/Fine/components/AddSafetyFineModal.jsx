@@ -15,11 +15,11 @@ import {
     validateEmployeesDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import {
     getVehicleFinePayableTotal,
     toVehicleFinePartyPayableAmount,
-    toVehicleFinePartyBaseAmount,
     getVehicleFineServiceSharePerParty,
     VEHICLE_FINE_LIMITS,
 } from '../utils/validateVehicleFine';
@@ -55,6 +55,8 @@ function resolveCompanySelectId(company, companies = []) {
 
 export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
+    const [showZohoConfirm, setShowZohoConfirm] = useState(false);
+    const [pendingPayload, setPendingPayload] = useState(null);
     const [totalFineAmount, setTotalFineAmount] = useState('');
     const [responsibleFor, setResponsibleFor] = useState('Employee');
     const [employeeAmount, setEmployeeAmount] = useState('');
@@ -69,6 +71,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [payableDuration, setPayableDuration] = useState('1');
     const [selectedEmployees, setSelectedEmployees] = useState([]); // Array of employee objects { employeeId, employeeName, fineAmount, duration }
     const [serviceCharge, setServiceCharge] = useState('');
+    const [discount, setDiscount] = useState('');
     const [formData, setFormData] = useState({
         attachment: null,
         attachmentBase64: '',
@@ -108,11 +111,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             const partsBase = empBase + compBase;
             const grandTotal =
                 parseFloat(initialData.totalFineAmount || initialData.fineAmount || 0) || 0;
-            // Prefer stored base portions; never treat (base+SC) − SC as base when portions exist
+            const discountAmt = parseFloat(initialData.discount || 0) || 0;
             const baseFine =
                 partsBase > 0.001
                     ? partsBase
-                    : Math.max(0, grandTotal - sc);
+                    : Math.max(0, grandTotal - sc + discountAmt);
 
             const isBoth = (initialData.responsibleFor || 'Employee') === 'Employee & Company';
             const realEmpCount = (initialData.assignedEmployees || []).filter(
@@ -123,29 +126,40 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setTotalFineAmount(String(baseFine || ''));
             setResponsibleFor(initialData.responsibleFor || 'Employee');
             if (isBoth) {
-                // UI portions = payable (base + SC share)
+                const grossGrand = baseFine + sc;
+                const netGrand = Math.max(0, Number((grossGrand - discountAmt).toFixed(2)));
                 if (
                     sc > 0 &&
                     Math.abs(empBase + compBase - grandTotal) <= 0.05 &&
                     Math.abs(empBase + compBase - baseFine) > 0.05
                 ) {
-                    setEmployeeAmount(String(empBase || ''));
-                    setCompanyAmount(String(compBase || ''));
+                    const legacySum = empBase + compBase;
+                    if (legacySum > 0 && discountAmt > 0) {
+                        const empNet = Number(((empBase / legacySum) * netGrand).toFixed(2));
+                        setEmployeeAmount(String(empNet));
+                        setCompanyAmount(String(Number((netGrand - empNet).toFixed(2))));
+                    } else {
+                        setEmployeeAmount(String(empBase || ''));
+                        setCompanyAmount(String(compBase || ''));
+                    }
                 } else {
-                    setEmployeeAmount(
-                        String(
-                            Number(
-                                toVehicleFinePartyPayableAmount(empBase, sc, partyCount).toFixed(2),
-                            ),
-                        ),
+                    const empGross = Number(
+                        toVehicleFinePartyPayableAmount(empBase, sc, partyCount).toFixed(2),
                     );
-                    setCompanyAmount(
-                        String(
-                            Number(
-                                toVehicleFinePartyPayableAmount(compBase, sc, partyCount).toFixed(2),
+                    if (grossGrand > 0 && discountAmt > 0) {
+                        const empNet = Number(((empGross / grossGrand) * netGrand).toFixed(2));
+                        setEmployeeAmount(String(empNet));
+                        setCompanyAmount(String(Number((netGrand - empNet).toFixed(2))));
+                    } else {
+                        setEmployeeAmount(String(empGross));
+                        setCompanyAmount(
+                            String(
+                                Number(
+                                    toVehicleFinePartyPayableAmount(compBase, sc, partyCount).toFixed(2),
+                                ),
                             ),
-                        ),
-                    );
+                        );
+                    }
                 }
             } else {
                 setEmployeeAmount(
@@ -160,6 +174,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 );
             }
             setServiceCharge(String(initialData.serviceCharge ?? ''));
+            setDiscount(String(initialData.discount ?? ''));
             setDescription(initialData.description || '');
             setCompanyDescription(initialData.companyDescription || '');
             setFineSource(initialData.fineSource || '');
@@ -238,6 +253,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setAwardedDate(new Date().toISOString().split('T')[0]);
             setPayableDuration('1');
             setServiceCharge('');
+            setDiscount('');
             setFormData({
                 attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: ''
             });
@@ -267,14 +283,17 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         if (isOpen) fetchCompanies();
     }, [isOpen, initialData]);
 
-    const updateSafetyPortions = (newTotalFine, nextServiceCharge) => {
-        // Portions are payable totals (Fine Amount + Service Charge)
+    const updateSafetyPortions = (newTotalFine, nextServiceCharge, nextDiscount) => {
         const base = parseFloat(newTotalFine !== undefined ? newTotalFine : totalFineAmount) || 0;
         const sc =
             parseFloat(
                 nextServiceCharge !== undefined ? nextServiceCharge : serviceCharge,
             ) || 0;
-        const grand = base + sc;
+        const disc =
+            parseFloat(
+                nextDiscount !== undefined ? nextDiscount : discount,
+            ) || 0;
+        const grand = getVehicleFinePayableTotal(base, sc, disc);
 
         if (responsibleFor === 'Employee & Company') {
             const half = Number((grand / 2).toFixed(2));
@@ -284,9 +303,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     };
 
     const handleEmployeeAmountChange = (val) => {
-        const base = parseFloat(totalFineAmount || 0) || 0;
-        const sc = parseFloat(serviceCharge || 0) || 0;
-        const grand = base + sc;
+        const grand = getVehicleFinePayableTotal(totalFineAmount, serviceCharge, discount);
         const numVal = parseFloat(val) || 0;
         let finalEmp = numVal;
         if (finalEmp > grand) finalEmp = grand;
@@ -297,9 +314,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     };
 
     const handleCompanyAmountChange = (val) => {
-        const base = parseFloat(totalFineAmount || 0) || 0;
-        const sc = parseFloat(serviceCharge || 0) || 0;
-        const grand = base + sc;
+        const grand = getVehicleFinePayableTotal(totalFineAmount, serviceCharge, discount);
         const numVal = parseFloat(val) || 0;
         let finalComp = numVal;
         if (finalComp > grand) finalComp = grand;
@@ -333,9 +348,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
         let totalTarget = 0;
         if (responsibleFor === 'Employee') {
-            // Per-employee rows are payable shares of Fine Amount + Service Charge
-            totalTarget =
-                (parseFloat(totalFineAmount) || 0) + (parseFloat(serviceCharge) || 0);
+            totalTarget = getVehicleFinePayableTotal(totalFineAmount, serviceCharge, discount);
         } else if (responsibleFor === 'Employee & Company') {
             // employeeAmount is payable employee pool (includes SC share)
             totalTarget = parseFloat(employeeAmount) || 0;
@@ -350,7 +363,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             fineAmount: perEmpAmount.toFixed(2),
             duration: payableDuration // Update duration when master changes
         })));
-    }, [totalFineAmount, serviceCharge, responsibleFor, employeeAmount, companyAmount, selectedEmployees.length, payableDuration]);
+    }, [totalFineAmount, serviceCharge, discount, responsibleFor, employeeAmount, companyAmount, selectedEmployees.length, payableDuration]);
 
     if (!isOpen) return null;
 
@@ -408,9 +421,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     };
 
     const handleAmountChange = (employeeId, amount) => {
-        const base = parseFloat(totalFineAmount || 0) || 0;
-        const sc = parseFloat(serviceCharge || 0) || 0;
-        const grandPayable = base + sc;
+        const grandPayable = getVehicleFinePayableTotal(totalFineAmount, serviceCharge, discount);
 
         const totalTarget = (responsibleFor === 'Employee & Company')
             ? (parseFloat(employeeAmount) || 0)
@@ -462,10 +473,16 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
         const baseFineInput = parseFloat(totalFineAmount) || 0;
         const scValue = parseFloat(serviceCharge || 0) || 0;
-        const grandPayable = baseFineInput + scValue;
+        const discountValue = parseFloat(discount || 0) || 0;
+        const grandPayable = getVehicleFinePayableTotal(baseFineInput, scValue, discountValue);
 
         if (scValue < 0) {
             newErrors.serviceCharge = 'Service charge cannot be negative';
+        }
+        if (discountValue < 0) {
+            newErrors.discount = 'Discount cannot be negative';
+        } else if (discountValue > baseFineInput + scValue + 0.001) {
+            newErrors.discount = 'Discount cannot exceed Fine Amount + Service Charge';
         }
 
         const currentSelectedSum = selectedEmployees.reduce((sum, emp) => sum + (parseFloat(emp.fineAmount) || 0), 0);
@@ -473,7 +490,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         if (responsibleFor === 'Employee') {
             // Per-employee rows hold payable shares (Fine Amount + Service Charge)
             if (Math.abs(currentSelectedSum - grandPayable) > 0.05) {
-                newErrors.amountMismatch = `Sum of individual fines (AED ${currentSelectedSum.toFixed(2)}) must equal Fine Amount + Service Charge (AED ${grandPayable.toFixed(2)})`;
+                newErrors.amountMismatch = `Sum of individual fines (AED ${currentSelectedSum.toFixed(2)}) must equal Fine Amount + Service Charge − Discount (AED ${grandPayable.toFixed(2)})`;
             }
         } else if (responsibleFor === 'Employee & Company') {
             if (!employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
@@ -483,7 +500,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             const compTarget = parseFloat(companyAmount) || 0;
 
             if (Math.abs(grandPayable - (empTarget + compTarget)) > 0.01) {
-                newErrors.employeeAmount = `Portions sum (AED ${(empTarget + compTarget).toFixed(2)}) must equal Fine Amount + Service Charge (AED ${grandPayable.toFixed(2)})`;
+                newErrors.employeeAmount = `Portions sum (AED ${(empTarget + compTarget).toFixed(2)}) must equal Fine Amount + Service Charge − Discount (AED ${grandPayable.toFixed(2)})`;
             }
         }
 
@@ -561,8 +578,9 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setSubmitting(true);
 
             const serviceChargeAmount = parseFloat(serviceCharge) || 0;
+            const discountAmount = parseFloat(discount) || 0;
             const baseFineAmount = parseFloat(totalFineAmount) || 0;
-            const grandTotalFine = getVehicleFinePayableTotal(baseFineAmount, serviceChargeAmount);
+            const grandTotalFine = getVehicleFinePayableTotal(baseFineAmount, serviceChargeAmount, discountAmount);
 
             // Service charge is split equally across every bill party (each employee + company when involved)
             let totalPartiesCount = Math.max(1, selectedEmployees.length);
@@ -580,19 +598,14 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             } else if (responsibleFor === 'Company') {
                 totalCompAmount = baseFineAmount;
             } else if (responsibleFor === 'Employee & Company') {
-                // Form portions are payable — strip SC share for stored bases
                 const empPayable = parseFloat(employeeAmount) || 0;
                 const compPayable = parseFloat(companyAmount) || 0;
-                totalEmpAmount = toVehicleFinePartyBaseAmount(
-                    empPayable,
-                    serviceChargeAmount,
-                    totalPartiesCount,
-                );
-                totalCompAmount = toVehicleFinePartyBaseAmount(
-                    compPayable,
-                    serviceChargeAmount,
-                    totalPartiesCount,
-                );
+                totalEmpAmount = grandTotalFine > 0
+                    ? (empPayable / grandTotalFine) * baseFineAmount
+                    : 0;
+                totalCompAmount = grandTotalFine > 0
+                    ? (compPayable / grandTotalFine) * baseFineAmount
+                    : 0;
             }
 
             // Determine Company: Use selectedCompanyId if available
@@ -619,10 +632,12 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 isBulk: true,
                 monthStart: monthStart,
                 awardedDate: awardedDate || new Date().toISOString().split('T')[0],
-                fineAmount: grandTotalFine, // Total = base + service charge
+                fineAmount: grandTotalFine, // Total = base + service charge − discount
+                totalFineAmount: grandTotalFine,
                 employeeAmount: totalEmpAmount,
                 companyAmount: totalCompAmount,
-                serviceCharge: serviceChargeAmount
+                serviceCharge: serviceChargeAmount,
+                discount: discountAmount,
             };
 
             // UI row amounts already include SC share — do not add again
@@ -637,7 +652,9 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             if (responsibleFor !== 'Company') {
                 selectedEmployees.forEach(emp => {
                     const individualPayable = parseFloat(emp.fineAmount) || 0;
-                    const individualBase = Math.max(0, individualPayable - scPerParty);
+                    const individualBase = grandTotalFine > 0
+                        ? (individualPayable / grandTotalFine) * baseFineAmount
+                        : Math.max(0, individualPayable - scPerParty);
 
                     employeesPayload.push({
                         employeeId: emp.employeeId,
@@ -660,7 +677,9 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 const individualBase =
                     responsibleFor === 'Company'
                         ? baseFineAmount
-                        : Math.max(0, individualPayable - scPerParty);
+                        : grandTotalFine > 0
+                          ? (individualPayable / grandTotalFine) * baseFineAmount
+                          : Math.max(0, individualPayable - scPerParty);
                 
                 employeesPayload.push({
                     employeeId: 'VEGA-HR-0000',
@@ -686,13 +705,20 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 employees: employeesPayload
             };
 
+            const isAlreadyBilled = Boolean(
+                initialData?._id &&
+                (initialData?.zohoBillId || initialData?.zohoBillNumber || initialData?.zohoSyncStatus === 'synced' || initialData?.vendorBillStatus === 'Paid')
+            );
+
             if (initialData?._id) {
-                if (isResubmitting) {
-                    payload.fineStatus = 'Pending';
-                    payload.resubmit = true;
+                if (isAlreadyBilled) {
+                    setPendingPayload(payload);
+                    setShowZohoConfirm(true);
+                    setSubmitting(false);
+                    return;
                 }
-                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
-                toast({ title: "Success", description: "Safety fine updated successfully" });
+                await executeSaveFine(payload, false);
+                return;
             } else {
                 await axiosInstance.post('/Fine', payload);
                 toast({ title: "Success", description: "Safety fine submitted successfully" });
@@ -718,6 +744,33 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                     return;
                 }
             }
+            const msg = error.response?.data?.message || "Submission failed";
+            toast({ variant: "destructive", title: "Error", description: msg });
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const executeSaveFine = async (payloadToSubmit, updateZohoBool) => {
+        try {
+            setSubmitting(true);
+            payloadToSubmit.updateZoho = updateZohoBool;
+
+            if (isResubmitting) {
+                payloadToSubmit.fineStatus = 'Pending';
+                payloadToSubmit.resubmit = true;
+            }
+
+            const response = await axiosInstance.put(`/Fine/${initialData._id}`, payloadToSubmit);
+            toast({
+                title: "Success",
+                description: response.data?.message || (isResubmitting ? "Fine resubmitted successfully" : "Safety fine updated successfully")
+            });
+            setShowZohoConfirm(false);
+            setPendingPayload(null);
+            if (onSuccess) onSuccess(response.data);
+            onClose();
+        } catch (error) {
             const msg = error.response?.data?.message || "Submission failed";
             toast({ variant: "destructive", title: "Error", description: msg });
         } finally {
@@ -779,6 +832,26 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             />
                         </div>
 
+                        {/* Discount */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Discount</label>
+                            <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={discount}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setDiscount(val);
+                                    updateSafetyPortions(totalFineAmount, serviceCharge, val);
+                                    if (errors.discount) setErrors((prev) => ({ ...prev, discount: '' }));
+                                }}
+                                placeholder="0.00"
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.discount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
+                            />
+                            {errors.discount ? <p className="text-xs text-red-500 ml-1">{errors.discount}</p> : null}
+                        </div>
+
                         {/* Responsible For */}
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Responsible For</label>
@@ -788,9 +861,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     const val = e.target.value;
                                     setResponsibleFor(val);
                                     
-                                    const base = parseFloat(totalFineAmount) || 0;
-                                    const sc = parseFloat(serviceCharge) || 0;
-                                    const grand = base + sc;
+                                    const grand = getVehicleFinePayableTotal(totalFineAmount, serviceCharge, discount);
                                     
                                     if (val === 'Employee & Company') {
                                         const half = Number((grand / 2).toFixed(2));
@@ -1102,7 +1173,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                         <div className="flex flex-col">
                             <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-0.5">Summary</span>
                             <span className="text-xs text-blue-600 font-medium italic">
-                                Total payable = Fine Amount + Service Charge
+                                Total payable = Fine Amount + Service Charge − Discount
                             </span>
                         </div>
                         <div className="flex items-baseline gap-1.5">
@@ -1110,6 +1181,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                 {getVehicleFinePayableTotal(
                                     totalFineAmount,
                                     serviceCharge,
+                                    discount,
                                 ).toLocaleString(undefined, {
                                     minimumFractionDigits: 0,
                                     maximumFractionDigits: 2,
@@ -1139,6 +1211,23 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                     </div>
                 </form>
             </div>
+
+            <ZohoUpdateConfirmModal
+                isOpen={showZohoConfirm}
+                billNumber={initialData?.zohoBillNumber || initialData?.zohoBillId || ''}
+                record={initialData}
+                submitting={submitting}
+                onConfirmUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, true);
+                }}
+                onConfirmNoUpdate={() => {
+                    if (pendingPayload) executeSaveFine(pendingPayload, false);
+                }}
+                onCancel={() => {
+                    setShowZohoConfirm(false);
+                    setPendingPayload(null);
+                }}
+            />
         </div>
     );
 }

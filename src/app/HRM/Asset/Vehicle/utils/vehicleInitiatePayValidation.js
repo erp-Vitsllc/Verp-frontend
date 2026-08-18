@@ -45,6 +45,7 @@ export function validateInitiateServicePaySplit(formData = {}, options = {}) {
         requireCompanyParty = true,
         finesTotal = null,
         requireFinesTotalMatch = false,
+        allowZeroEstimated = false,
     } = options;
 
     const errors = {};
@@ -57,14 +58,14 @@ export function validateInitiateServicePaySplit(formData = {}, options = {}) {
     }
 
     const estimated = Number(formData.estimatedCost);
-    if (!Number.isFinite(estimated) || estimated <= 0) {
+    if (!Number.isFinite(estimated) || estimated < 0 || (!allowZeroEstimated && estimated <= 0)) {
         errors.estimatedCost = 'Total amount is required';
         return errors;
     }
 
     if (requireFinesTotalMatch && finesTotal != null) {
         const fines = Math.round(Number(finesTotal) || 0);
-        if (fines > 0 && Math.abs(fines - Math.round(estimated)) > 0.01) {
+        if (Math.abs(fines - Math.round(estimated || 0)) > 0.01) {
             errors.finesTotalMatch = `TOTAL and TOTAL AMOUNT must be equal (${fines.toLocaleString()} AED)`;
         }
     }
