@@ -13,6 +13,9 @@ import {
     SectionDivider,
     formatDeductionMonth,
     formatMoney,
+    fineTypeReportTitle,
+    fineTypeReportSubtitle,
+    fineTypeFinancialSectionTitle,
 } from './FineFormCardShared';
 import { formatZohoDocumentNumber } from '@/utils/zohoDocumentNumber';
 import { resolveFineNetTotal } from '@/utils/finePayableAmount';
@@ -178,6 +181,9 @@ export default function FineFormCard1({
     const isLossDamage = isLossDamageFineType(fine);
     const f = fields;
     const isVehicle = resolveIsVehicleAsset(fine, assetDetails);
+    const reportTitle = fineTypeReportTitle(fine);
+    const reportSubtitle = fineTypeReportSubtitle(fine, { groupOverview: showGroupPlaceholder });
+    const financialSectionTitle = fineTypeFinancialSectionTitle(fine);
 
     if (!isLossDamage || !f) {
         return (
@@ -185,8 +191,8 @@ export default function FineFormCard1({
                 icon={FileWarning}
                 iconBg="bg-amber-50"
                 iconColor="text-amber-600"
-                title="Asset Fine Report"
-                subtitle="Asset and deduction details"
+                title={reportTitle}
+                subtitle={reportSubtitle}
             >
                 <DetailGrid>
                     <DetailField label="Fine No." value={fine.fineId || '—'} />
@@ -227,12 +233,8 @@ export default function FineFormCard1({
             icon={FileWarning}
             iconBg="bg-amber-50"
             iconColor="text-amber-600"
-            title="Asset Fine Report"
-            subtitle={
-                showGroupPlaceholder
-                    ? 'Group request — asset, vehicle and deduction details'
-                    : 'Asset and deduction details'
-            }
+            title={reportTitle}
+            subtitle={reportSubtitle}
         >
             <DetailGrid>
                 <DetailField label="Fine No." value={f.fineId} />
@@ -248,7 +250,7 @@ export default function FineFormCard1({
                 />
             </div>
 
-            <SectionDivider title="Asset & Financial Details" />
+            <SectionDivider title={financialSectionTitle} />
             <p className="text-xs text-gray-500 mb-4">
                 Total payable = (asset{f.accessoryAmount > 0 ? ' + accessories' : ''} + service charge) − depreciation − discount
             </p>

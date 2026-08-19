@@ -54,6 +54,7 @@ import {
 } from './utils/utilityBillsApi';
 import { openUtilityAttachment } from './utils/openUtilityAttachment';
 import {
+    buildPaidBillRows,
     buildTypeOverviewCards,
     buildUnpaidBillRows,
     currentPeriod,
@@ -210,6 +211,11 @@ function formatCellValue(key, values) {
         return Number.isFinite(n) ? `${n.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} AED` : String(v.monthlyRental);
     }
     if (key === 'paymentDate' || key === 'paymentDay') {
+        const rawRental = v.monthlyRental;
+        const rental = Number(rawRental);
+        if (rawRental !== '' && rawRental != null && Number.isFinite(rental) && rental === 0) {
+            return 'Not Applicable';
+        }
         const n = Number(v.paymentDay ?? v.paymentDate);
         if (Number.isInteger(n) && n >= 1 && n <= 31) return `Day ${n} every month`;
         return '—';
@@ -662,14 +668,21 @@ function UtilityBillsPageContent() {
         [typeOverviewCards],
     );
 
+    const paidBillRows = useMemo(
+        () =>
+            buildPaidBillRows({
+                bills: allTypeBills,
+            }),
+        [allTypeBills],
+    );
+
     const unpaidBillRows = useMemo(
         () =>
             buildUnpaidBillRows({
                 bills: allTypeBills,
-                year: overviewYear,
-                month: overviewMonth,
+                entries,
             }),
-        [allTypeBills, overviewYear, overviewMonth],
+        [allTypeBills, entries],
     );
 
     /** Pie slices = one per utility type, sized by period deduction amount. */
@@ -1148,6 +1161,8 @@ function UtilityBillsPageContent() {
                                 yearOptions={overviewYearOptions}
                                 onMonthChange={setOverviewMonth}
                                 onYearChange={setOverviewYear}
+                                typeDistribution={typeDistribution}
+                                deductionTotal={deductionTotal}
                             />
                         </div>
 
@@ -1155,9 +1170,8 @@ function UtilityBillsPageContent() {
                             className={`bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                         >
                             <UtilityContractExpiryCard
+                                paidRows={paidBillRows}
                                 unpaidRows={unpaidBillRows}
-                                typeDistribution={typeDistribution}
-                                deductionTotal={deductionTotal}
                             />
                         </div>
                     </div>

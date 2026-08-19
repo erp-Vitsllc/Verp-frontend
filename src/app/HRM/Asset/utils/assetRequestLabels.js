@@ -35,8 +35,32 @@ const VEHICLE_INBOX_TYPES_WITHOUT_ASSET = new Set([
     'Vehicle Disposition Request',
 ]);
 
+export function isAcceptedAssignmentOutcomeInboxRow(row = {}) {
+    const requestType = String(row?.requestType || row?.type || '').trim();
+    if (requestType && requestType !== 'Asset Assignment' && requestType !== 'Asset') {
+        return false;
+    }
+    let meta = null;
+    try {
+        meta = typeof row?.extra3 === 'string' ? JSON.parse(row.extra3) : row?.extra3;
+    } catch {
+        meta = null;
+    }
+    if (meta?.isBulkAssignment === true) return false;
+    const extra1 = String(row?.extra1 || '').trim();
+    const extra2 = String(row?.extra2 || '').trim();
+    const outcome = String(meta?.outcome || '').toLowerCase();
+    if (meta?.assignmentOutcome === true && (outcome === 'accept' || outcome === 'accepted')) {
+        return true;
+    }
+    if (/\bassignment accepted\b/i.test(extra1) && !/^bulk assignment\b/i.test(extra1)) return true;
+    if (/^assignment accepted$/i.test(extra2)) return true;
+    return false;
+}
+
 export function isPendingInboxRowVisible(row) {
     if (!row) return false;
+    if (isAcceptedAssignmentOutcomeInboxRow(row)) return false;
     const requestType = String(row.requestType || row.type || '').trim();
     // Utility contract expiry bells are disabled — keep payment / status-change rows.
     if (requestType === 'Utility Contract Expiry') return false;

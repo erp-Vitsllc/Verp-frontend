@@ -18,14 +18,18 @@ import {
     X,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { useToast } from '@/hooks/use-toast';
 import { HUB_ASSET_TYPES, HUB_KINDS } from '@/utils/employeeHubRequest';
+import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { notifyFinePendingInboxChanged } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { notifyLoanPendingInboxChanged } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { notifyAssetPendingInboxChanged } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { dashboardItem } from './dashboardMotion';
 import AttendanceFutureRequestModal from './AttendanceFutureRequestModal';
+import LeaveRequestTypeModal from './LeaveRequestTypeModal';
+import { MY_REQUESTS_CHANGED } from './DashboardMyRequestsCard';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import AddLoanModal from '@/app/HRM/LoanAndAdvance/components/AddLoanModal';
 
@@ -65,8 +69,8 @@ const KIND_META = {
     leave: { label: 'Leave', Icon: Plane, wrap: 'bg-sky-50 text-sky-600' },
     advance: { label: 'Advance', Icon: Wallet, wrap: 'bg-violet-50 text-violet-600' },
     loan: { label: 'Loan', Icon: HandCoins, wrap: 'bg-blue-50 text-blue-600' },
-    salary: { label: 'Salary', Icon: BadgeDollarSign, wrap: 'bg-emerald-50 text-emerald-600' },
-    certificate: { label: 'Certificate', Icon: ScrollText, wrap: 'bg-amber-50 text-amber-600' },
+    salary: { label: 'Early Salary', Icon: BadgeDollarSign, wrap: 'bg-emerald-50 text-emerald-600' },
+    certificate: { label: 'Salary Certificate', Icon: ScrollText, wrap: 'bg-amber-50 text-amber-600' },
     assets: { label: 'Assets', Icon: Package, wrap: 'bg-slate-100 text-slate-600' },
     // Retired kinds — kept so existing requests still render.
     fine: { label: 'Fine', Icon: ShieldAlert, wrap: 'bg-rose-50 text-rose-600' },
@@ -95,13 +99,30 @@ function ComposeModal({ kind, submitting, error, onClose, onSubmit }) {
     const [description, setDescription] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [assetType, setAssetType] = useState('');
+    const [localError, setLocalError] = useState('');
     const meta = KIND_META[kind] || KIND_META.leave;
     const Icon = meta.Icon;
     const needsAssetType = kind === 'assets';
     const showDetails = !needsAssetType || Boolean(assetType);
 
+    const handleAttachmentChange = (event) => {
+        const result = guardAttachmentFileChange(event, (_, file) => {
+            setAttachment(file);
+            if (file) setLocalError('');
+        });
+        if (result?.blocked) setLocalError(result.message);
+    };
+
     const handleSubmit = (e) => {
         e.preventDefault();
+        if (attachment) {
+            const check = validateErpUploadFile(attachment);
+            if (!check.ok) {
+                setLocalError(check.message);
+                return;
+            }
+        }
+        setLocalError('');
         onSubmit?.({
             assetType: needsAssetType ? assetType : '',
             description: String(description || '').trim(),
@@ -204,8 +225,9 @@ function ComposeModal({ kind, submitting, error, onClose, onSubmit }) {
                                 <input
                                     ref={fileRef}
                                     type="file"
+                                    accept={ERP_ATTACHMENT_ACCEPT}
                                     className="hidden"
-                                    onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+                                    onChange={handleAttachmentChange}
                                 />
                                 <button
                                     type="button"
@@ -216,6 +238,7 @@ function ComposeModal({ kind, submitting, error, onClose, onSubmit }) {
                                     <Paperclip size={15} className="text-slate-400" />
                                     <span className="truncate">{attachment?.name || 'Choose file'}</span>
                                 </button>
+                                <p className="mt-1.5 text-xs text-slate-400">{ERP_ATTACHMENT_HINT}</p>
                             </div>
                         </>
                     ) : (
@@ -223,7 +246,7 @@ function ComposeModal({ kind, submitting, error, onClose, onSubmit }) {
                             Choose an asset type to add your reason and attachment.
                         </p>
                     )}
-                    {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+                    {localError || error ? <p className="text-sm text-rose-600">{localError || error}</p> : null}
                     <div className="flex justify-end gap-2 pt-1">
                         <button
                             type="button"
@@ -354,6 +377,9 @@ export default function DashboardRequestHub() {
     const [leaveDateKey, setLeaveDateKey] = useState('');
     const [leaveEarliestDate, setLeaveEarliestDate] = useState('');
     const [leaveScheduleWeek, setLeaveScheduleWeek] = useState(null);
+    const [leaveHolidayDates, setLeaveHolidayDates] = useState(null);
+    const [leaveOffWeekdays, setLeaveOffWeekdays] = useState(null);
+    const [leaveVariant, setLeaveVariant] = useState('');
     const [selfLoanEmployee, setSelfLoanEmployee] = useState(null);
 
     const hubRequestId = String(searchParams?.get('hubRequestId') || '').trim();
@@ -395,22 +421,26 @@ export default function DashboardRequestHub() {
                     ? holidayRes.data.holidays
                     : [];
                 const holidayDates = new Set(
-                    (Array.isArray(holidayRes.data?.dates)
-                        ? holidayRes.data.dates
-                        : holidayList.map((h) => h.date)
-                    ).filter(Boolean),
+                    holidayList
+                        .filter((h) => holidayAppliesToStaff(h, staffType))
+                        .map((h) => h.date)
+                        .filter(Boolean),
                 );
                 const earliest =
                     firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) || '';
                 setLeaveScheduleWeek(attendanceRes.data?.workingTime?.[staffType] || null);
                 setLeaveEarliestDate(earliest);
                 setLeaveDateKey(earliest);
+                setLeaveHolidayDates(holidayDates);
+                setLeaveOffWeekdays(offWeekdays);
             } catch {
                 if (!cancelled) {
                     const fallback = nextDateKey(nextDateKey(todayKey));
                     setLeaveScheduleWeek(null);
                     setLeaveEarliestDate(fallback);
                     setLeaveDateKey(fallback);
+                    setLeaveHolidayDates(null);
+                    setLeaveOffWeekdays(null);
                 }
             }
         })();
@@ -487,6 +517,7 @@ export default function DashboardRequestHub() {
     }, [hubRequestId, toast]);
 
     const sendLeaveRequest = async ({
+        kind,
         fromDate,
         toDate,
         dayPart,
@@ -504,7 +535,7 @@ export default function DashboardRequestHub() {
                     date: fromDate || leaveDateKey,
                     fromDate: fromDate || leaveDateKey,
                     toDate: toDate || fromDate || leaveDateKey,
-                    kind: 'leave',
+                    kind: kind || (leaveVariant === 'annual' ? 'annual_leave' : 'leave'),
                     dayPart: dayPart || 'full',
                     timeIn: timeIn || '',
                     timeOut: timeOut || '',
@@ -515,11 +546,13 @@ export default function DashboardRequestHub() {
             );
             notifyAttendancePendingInboxChanged();
             window.dispatchEvent(new CustomEvent(ATTENDANCE_CHECK_CHANGED));
+            window.dispatchEvent(new CustomEvent(MY_REQUESTS_CHANGED));
             toast({
                 title: 'Request sent',
                 description: res.data?.message || 'Your primary reportee has been notified.',
             });
             setComposeKind('');
+            setLeaveVariant('');
             setOpen(false);
         } catch (err) {
             setError(err?.response?.data?.message || 'Could not send this request.');
@@ -547,6 +580,7 @@ export default function DashboardRequestHub() {
                 attachmentName,
             });
             notifyKindInboxes(composeKind);
+            window.dispatchEvent(new CustomEvent(MY_REQUESTS_CHANGED));
             toast({
                 title: 'Request sent',
                 description: res.data?.message || 'Your primary reportee has been notified.',
@@ -648,16 +682,40 @@ export default function DashboardRequestHub() {
                 ) : null}
             </AnimatePresence>
 
-            {composeKind === 'leave' ? (
+            {composeKind === 'leave' && !leaveVariant ? (
+                <LeaveRequestTypeModal
+                    isOpen
+                    submitting={submitting}
+                    icon={
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-sky-50 text-sky-600">
+                            <Plane size={18} />
+                        </div>
+                    }
+                    onClose={() => {
+                        if (!submitting) {
+                            setComposeKind('');
+                            setLeaveVariant('');
+                            setError('');
+                        }
+                    }}
+                    onSelect={(type) => {
+                        setError('');
+                        setLeaveVariant(type);
+                    }}
+                />
+            ) : composeKind === 'leave' && leaveVariant ? (
                 <AttendanceFutureRequestModal
-                    key={leaveDateKey || 'hub-leave'}
+                    key={`${leaveVariant}-${leaveDateKey || 'hub-leave'}`}
                     isOpen
                     dateKey={leaveDateKey}
                     earliestDate={leaveEarliestDate}
                     scheduleWeek={leaveScheduleWeek}
+                    variant={leaveVariant === 'annual' ? 'annual' : 'authorized'}
+                    holidayDates={leaveHolidayDates}
+                    offWeekdays={leaveOffWeekdays}
                     submitting={submitting}
                     error={error}
-                    heading="Leave"
+                    heading={leaveVariant === 'annual' ? 'Annual leave' : 'Authorized leave'}
                     eyebrow="Request"
                     icon={
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-sky-50 text-sky-600">
@@ -667,12 +725,13 @@ export default function DashboardRequestHub() {
                     onClose={() => {
                         if (!submitting) {
                             setComposeKind('');
+                            setLeaveVariant('');
                             setError('');
                         }
                     }}
                     onSubmit={sendLeaveRequest}
                 />
-            ) : composeKind === 'loan' || composeKind === 'advance' ? (
+            ) : composeKind === 'leave' ? null : composeKind === 'loan' || composeKind === 'advance' ? (
                 <AddLoanModal
                     key={`${composeKind}-${selfLoanEmployee?.employeeId || 'loading'}`}
                     isOpen={Boolean(selfLoanEmployee)}
@@ -687,6 +746,7 @@ export default function DashboardRequestHub() {
                     }}
                     onSuccess={() => {
                         notifyLoanPendingInboxChanged();
+                        window.dispatchEvent(new CustomEvent(MY_REQUESTS_CHANGED));
                         setComposeKind('');
                         setSelfLoanEmployee(null);
                         setOpen(false);

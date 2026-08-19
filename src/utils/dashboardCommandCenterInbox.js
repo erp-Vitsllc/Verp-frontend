@@ -306,8 +306,8 @@ export function formatCommandCenterSubtype(item = {}) {
     if (type === 'Employee Fine Request') return 'Fine request';
     if (type === 'Employee Advance Request') return 'Advance request';
     if (type === 'Employee Loan Request') return 'Loan request';
-    if (type === 'Employee Salary Request') return 'Salary request';
-    if (type === 'Employee Certificate Request') return 'Certificate request';
+    if (type === 'Employee Salary Request') return 'Early salary request';
+    if (type === 'Employee Certificate Request') return 'Salary certificate request';
     if (type === 'Employee Asset Request') {
         if (isUtilityBillInboxRow(item)) return 'Utility bill request';
         if (isVehicleAssetInboxRow(item)) return 'Vehicle request';

@@ -17,6 +17,7 @@ import {
     X,
     LockKeyhole,
     History,
+    Pencil,
 } from 'lucide-react';
 import {
     DETAIL_PAIR_COLUMN,
@@ -34,6 +35,8 @@ import {
     entryLifecycleStatus,
     getMonthlyRentalAmount,
     isEntryActive,
+    normalizePaymentDay,
+    normalizeUtilityEntry,
     normalizeUtilityFields,
 } from '../../utils/utilityBillsStorage';
 import {
@@ -44,6 +47,7 @@ import {
     updateUtilityEntryApi,
 } from '../../utils/utilityBillsApi';
 import FieldViewModal from '../../components/FieldViewModal';
+import CreateUtilityEntryModal from '../../components/CreateUtilityEntryModal';
 import AddBillModal from '../../components/AddBillModal';
 import UtilityBillReviewModal from '../../components/UtilityBillReviewModal';
 import ActivateDeactivateUtilityModal from '../../components/ActivateDeactivateUtilityModal';
@@ -338,6 +342,7 @@ function UtilityBillDetailsPageContent() {
     const searchParams = useSearchParams();
     const { toast } = useToast();
     const canAdminDelete = isAdmin();
+    const canEditEntryDetails = canAdminDelete;
     const entryId = params?.id ? String(params.id) : '';
 
     const [entry, setEntry] = useState(null);
@@ -366,6 +371,7 @@ function UtilityBillDetailsPageContent() {
     const [billsBrowseMonth, setBillsBrowseMonth] = useState(null);
     /** YYYY-MM from payment-day notification click. */
     const [addBillPrefillMonth, setAddBillPrefillMonth] = useState('');
+    const [editEntryOpen, setEditEntryOpen] = useState(false);
 
     const focusBillId = searchParams?.get('billId') || '';
     const addBillFromQuery = String(searchParams?.get('addBill') || '') === '1';
@@ -983,6 +989,28 @@ function UtilityBillDetailsPageContent() {
             toast({
                 variant: 'destructive',
                 title: 'Could not delete record',
+                description: err?.response?.data?.message || 'Please try again.',
+            });
+        }
+    };
+
+    const handleSaveEntryDetails = async (payload) => {
+        if (!canEditEntryDetails || !entry?.id) return;
+        try {
+            const values = normalizePaymentDay(payload.values || {});
+            const updated = await updateUtilityEntryApi(entry.id, {
+                type: payload.type,
+                values,
+            });
+            if (!updated) throw new Error('No entry returned');
+            setEntry(normalizeUtilityEntry(updated));
+            invalidateAssetPendingInbox('tools');
+            clearModuleNotificationFeedsCache();
+            toast({ title: 'Record updated' });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not update utility record',
                 description: err?.response?.data?.message || 'Please try again.',
             });
         }
@@ -1756,22 +1784,34 @@ function UtilityBillDetailsPageContent() {
                                                 {entryStatus}
                                             </span>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={openStatusChangeModal}
-                                            disabled={hasPendingStatusChange}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border shadow-sm shrink-0 disabled:opacity-60 disabled:cursor-not-allowed ${
-                                                entryIsActive
-                                                    ? 'bg-white hover:bg-teal-50 text-teal-700 border-teal-200'
-                                                    : 'bg-teal-500 hover:bg-teal-600 text-white border-teal-500'
-                                            }`}
-                                        >
-                                            {hasPendingStatusChange
-                                                ? 'Pending HR'
-                                                : entryIsActive
-                                                  ? 'Deactivate'
-                                                  : 'Activate'}
-                                        </button>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {canEditEntryDetails ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setEditEntryOpen(true)}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 shadow-sm"
+                                                >
+                                                    <Pencil size={14} />
+                                                    Edit
+                                                </button>
+                                            ) : null}
+                                            <button
+                                                type="button"
+                                                onClick={openStatusChangeModal}
+                                                disabled={hasPendingStatusChange}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-medium border shadow-sm shrink-0 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                                    entryIsActive
+                                                        ? 'bg-white hover:bg-teal-50 text-teal-700 border-teal-200'
+                                                        : 'bg-teal-500 hover:bg-teal-600 text-white border-teal-500'
+                                                }`}
+                                            >
+                                                {hasPendingStatusChange
+                                                    ? 'Pending HR'
+                                                    : entryIsActive
+                                                      ? 'Deactivate'
+                                                      : 'Activate'}
+                                            </button>
+                                        </div>
                                     </div>
                                     {renderDetailFields()}
                                 </div>
@@ -1903,6 +1943,15 @@ function UtilityBillDetailsPageContent() {
                 onClose={() => setViewModalOpen(false)}
                 title={`${entry.type} Details`}
                 fields={viewFields.length ? viewFields : detailRows}
+            />
+
+            <CreateUtilityEntryModal
+                isOpen={editEntryOpen}
+                onClose={() => setEditEntryOpen(false)}
+                utilityType={entry?.type || ''}
+                enabledFields={utilityConfig?.fields || {}}
+                initialEntry={entry}
+                onSave={handleSaveEntryDetails}
             />
 
             <AddBillModal

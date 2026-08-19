@@ -454,6 +454,7 @@ export const VEHICLE_MAIN_TAB_MODULES = {
     handover: ['hrm_asset_vehicle'],
     history: ['hrm_asset_vehicle'],
     document: ['hrm_asset_vehicle'],
+    fuel: ['hrm_asset_vehicle'],
 };
 
 /** Basic Details tab cards → Vehicle parent. */

@@ -105,9 +105,44 @@ export function isEntryActive(record) {
     return entryLifecycleStatus(record) === 'Active';
 }
 
-/** Normalize stored paymentDay (1–31); migrate legacy full dates. */
+/** Sentinel for payment day when monthly rental is zero (no recurring bill). */
+export const PAYMENT_DAY_NOT_APPLICABLE = 'na';
+
+export function getMonthlyRentalAmount(entry) {
+    const n = Number(entry?.values?.monthlyRental);
+    return Number.isFinite(n) ? n : 0;
+}
+
+export function hasExplicitMonthlyRental(entry) {
+    const raw = entry?.values?.monthlyRental;
+    return raw !== '' && raw != null && raw !== undefined;
+}
+
+export function isZeroMonthlyRentalEntry(entry) {
+    return hasExplicitMonthlyRental(entry) && getMonthlyRentalAmount(entry) === 0;
+}
+
+/** Accounts with monthly rental > 0 (or no rental field) participate in bills and reminders. */
+export function entryRequiresMonthlyBill(entry) {
+    if (!hasExplicitMonthlyRental(entry)) return true;
+    return getMonthlyRentalAmount(entry) > 0;
+}
+
+/** Normalize stored paymentDay (1–31); migrate legacy full dates. Clears day when rental is zero. */
 export function normalizePaymentDay(values = {}) {
     const next = { ...(values || {}) };
+    const rawRental = next.monthlyRental;
+    const rental = Number(rawRental);
+    if (rawRental !== '' && rawRental != null && Number.isFinite(rental) && rental === 0) {
+        delete next.paymentDay;
+        delete next.paymentDate;
+        return next;
+    }
+    if (String(next.paymentDay || '').trim().toLowerCase() === PAYMENT_DAY_NOT_APPLICABLE) {
+        delete next.paymentDay;
+        delete next.paymentDate;
+        return next;
+    }
     let day = Number(next.paymentDay);
     if (!Number.isInteger(day) || day < 1 || day > 31) {
         const legacy = String(next.paymentDate || '').trim();
@@ -127,7 +162,15 @@ export function normalizePaymentDay(values = {}) {
     return next;
 }
 
-export function formatPaymentDayLabel(day) {
+export function formatPaymentDayLabel(day, monthlyRental) {
+    const rawRental = monthlyRental;
+    const rental = Number(rawRental);
+    if (rawRental !== '' && rawRental != null && Number.isFinite(rental) && rental === 0) {
+        return 'Not Applicable';
+    }
+    if (String(day || '').trim().toLowerCase() === PAYMENT_DAY_NOT_APPLICABLE) {
+        return 'Not Applicable';
+    }
     const n = Number(day);
     if (!Number.isInteger(n) || n < 1 || n > 31) return '—';
     return `Day ${n} every month`;
@@ -181,7 +224,7 @@ export function formatCellValue(key, values) {
             : String(v.monthlyRental);
     }
     if (key === 'paymentDate' || key === 'paymentDay') {
-        return formatPaymentDayLabel(v.paymentDay ?? v.paymentDate);
+        return formatPaymentDayLabel(v.paymentDay ?? v.paymentDate, v.monthlyRental);
     }
     if (key === 'assignment') return null;
     if (key === 'attachment') {
@@ -217,7 +260,10 @@ export function buildDetailFieldRows(entry, utilityConfig) {
             rows.push({
                 key: 'paymentDay',
                 label: 'Payment Day',
-                value: formatPaymentDayLabel(values.paymentDay ?? values.paymentDate),
+                value: formatPaymentDayLabel(
+                    values.paymentDay ?? values.paymentDate,
+                    values.monthlyRental,
+                ),
             });
             return;
         }
@@ -250,9 +296,4 @@ export function buildDetailFieldRows(entry, utilityConfig) {
     });
 
     return rows;
-}
-
-export function getMonthlyRentalAmount(entry) {
-    const n = Number(entry?.values?.monthlyRental);
-    return Number.isFinite(n) ? n : 0;
 }

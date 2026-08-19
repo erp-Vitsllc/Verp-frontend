@@ -12,6 +12,7 @@ import {
     removeUtilityProviderApi,
 } from '../utils/utilityBillsApi';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
+import { PAYMENT_DAY_NOT_APPLICABLE } from '../utils/utilityBillsStorage';
 
 /** Assignment is a row action, not an entry form field. */
 const FORM_SKIP_KEYS = new Set(['assignment']);
@@ -59,9 +60,14 @@ function valuesFromEntry(entry, enabledKeys) {
             next.contractStart = String(src.contractStart || '').trim();
             next.contractEnd = String(src.contractEnd || '').trim();
         } else if (key === PAYMENT_DATE_KEY) {
-            const day = Number(src.paymentDay ?? src.paymentDate);
-            next.paymentDay =
-                Number.isInteger(day) && day >= 1 && day <= 31 ? String(day) : '';
+            const rental = Number(src.monthlyRental);
+            if (Number.isFinite(rental) && rental === 0) {
+                next.paymentDay = PAYMENT_DAY_NOT_APPLICABLE;
+            } else {
+                const day = Number(src.paymentDay ?? src.paymentDate);
+                next.paymentDay =
+                    Number.isInteger(day) && day >= 1 && day <= 31 ? String(day) : '';
+            }
         } else if (key === 'monthlyRental') {
             next.monthlyRental =
                 src.monthlyRental === '' || src.monthlyRental == null
@@ -255,7 +261,18 @@ export default function CreateUtilityEntryModal({
     };
 
     const setField = (key, value) => {
-        setValues((prev) => ({ ...prev, [key]: value }));
+        setValues((prev) => {
+            const next = { ...prev, [key]: value };
+            if (key === 'monthlyRental') {
+                const rental = Number(value);
+                if (Number.isFinite(rental) && rental === 0) {
+                    next.paymentDay = PAYMENT_DAY_NOT_APPLICABLE;
+                } else if (next.paymentDay === PAYMENT_DAY_NOT_APPLICABLE) {
+                    next.paymentDay = '';
+                }
+            }
+            return next;
+        });
     };
 
     const handleAttachmentFile = async (e) => {
@@ -309,10 +326,19 @@ export default function CreateUtilityEntryModal({
         }
 
         if (enabledKeys.includes(PAYMENT_DATE_KEY)) {
-            const day = Number(values.paymentDay);
-            if (!Number.isInteger(day) || day < 1 || day > 31) {
-                setError('Please select a payment day (1–31).');
-                return;
+            const amount = Number(values.monthlyRental);
+            const isZeroRental = Number.isFinite(amount) && amount === 0;
+            if (!isZeroRental) {
+                const day = Number(values.paymentDay);
+                if (
+                    values.paymentDay === PAYMENT_DAY_NOT_APPLICABLE ||
+                    !Number.isInteger(day) ||
+                    day < 1 ||
+                    day > 31
+                ) {
+                    setError('Please select a payment day (1–31) or set monthly rental to 0.');
+                    return;
+                }
             }
         }
 
@@ -322,6 +348,12 @@ export default function CreateUtilityEntryModal({
         }
 
         const payloadValues = { ...values };
+        const rental = Number(payloadValues.monthlyRental);
+        if (Number.isFinite(rental) && rental === 0) {
+            delete payloadValues.paymentDay;
+        } else if (payloadValues.paymentDay === PAYMENT_DAY_NOT_APPLICABLE) {
+            delete payloadValues.paymentDay;
+        }
         if (attachmentEnabled) {
             payloadValues.attachment = attachment;
         }
@@ -555,17 +587,25 @@ export default function CreateUtilityEntryModal({
         }
 
         if (field.key === PAYMENT_DATE_KEY) {
+            const rental = Number(values.monthlyRental);
+            const isZeroRental = Number.isFinite(rental) && rental === 0;
             return (
                 <div key={field.key}>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                         Payment Day
                     </label>
                     <select
-                        value={values.paymentDay || ''}
+                        value={
+                            isZeroRental
+                                ? PAYMENT_DAY_NOT_APPLICABLE
+                                : values.paymentDay || ''
+                        }
                         onChange={(e) => setField('paymentDay', e.target.value)}
                         className={inputClass}
+                        disabled={isZeroRental}
                     >
                         <option value="">Select day of month</option>
+                        <option value={PAYMENT_DAY_NOT_APPLICABLE}>Not Applicable</option>
                         {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
                             <option key={day} value={String(day)}>
                                 {day}
@@ -573,7 +613,9 @@ export default function CreateUtilityEntryModal({
                         ))}
                     </select>
                     <p className="mt-1 text-xs text-gray-500">
-                        Same day every month (e.g. 10 = the 10th of each month).
+                        {isZeroRental
+                            ? 'No monthly bill — payment day does not apply when monthly rental is 0.'
+                            : 'Same day every month (e.g. 10 = the 10th of each month). Choose Not Applicable only when monthly rental is 0.'}
                     </p>
                 </div>
             );

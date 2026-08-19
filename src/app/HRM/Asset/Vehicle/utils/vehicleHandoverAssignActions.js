@@ -13,6 +13,7 @@ import {
     pickFlowchartAdminRow,
 } from './vehicleHandoverAssignWorkflow';
 import { isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
+import { isHandoverNoEditComplete } from './vehicleHandoverPhotoComparison';
 
 /** History-record completeness only (matches backend accept gate — not live list / previous merge). */
 function isReceiverAssessmentCompleteOnHistory(historyEntry) {
@@ -122,8 +123,8 @@ export function isFlowchartHrUser(user, flowchartHrRow) {
     return false;
 }
 
-export function isHandoverHrStage(vehicle, historyEntry = null) {
-    const stage = getEffectiveHandoverStage(vehicle, historyEntry);
+export function isHandoverHrStage(vehicle, historyEntry = null, assetHistory = []) {
+    const stage = getEffectiveHandoverStage(vehicle, historyEntry, assetHistory);
     return stage === 'hr' || stage === 'management';
 }
 
@@ -169,13 +170,21 @@ export function isHandoverReceiverUser(vehicle, historyEntry, currentUser) {
     return Boolean(assigneeRef) && userMatchesEmployeeRef(currentUser, assigneeRef);
 }
 
-export function isHandoverHistoryFullyApproved(historyEntry) {
+export function isHandoverHistoryFullyApproved(historyEntry, vehicle = null, assetHistory = []) {
     if (!historyEntry) return false;
+
+    if (historyEntry?.details?.hrApprovalSkipped === true) return true;
+    if (isHandoverNoEditComplete(historyEntry, assetHistory, vehicle)) return true;
 
     const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '')
         .trim()
         .toLowerCase();
     if (lifecycle === 'approved') return true;
+    // Copied/stale HR dates must not freeze an accepted/pending cycle as "fully approved"
+    // (that hid Approve/Reject while still drawing a pending HR step).
+    if (lifecycle === 'accepted' || lifecycle === 'pending' || lifecycle === 'rejected') {
+        return false;
+    }
     if (historyEntry?.details?.handoverHrApprovedAt) return true;
 
     const hrStage = historyEntry?.details?.vehicleHandoverWorkflow?.stages?.hr;
@@ -201,25 +210,29 @@ export function isHandoverHistoryRejected(historyEntry) {
     return acceptance === 'rejected';
 }
 
-export function isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle = null) {
+export function isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle = null, assetHistory = []) {
     if (!historyEntry) return false;
     if (historyEntry?.details?.hrApprovalSkipped === true) return false;
-    if (isHandoverHistoryFullyApproved(historyEntry)) return false;
+    if (isHandoverHistoryFullyApproved(historyEntry, vehicle, assetHistory)) return false;
 
     const vehicleStatus = String(vehicle?.acceptanceStatus || '').trim();
-    const hasActiveFlow = Boolean(getHandoverFlowStage(vehicle));
-    if (vehicleStatus === 'Accepted' && !hasActiveFlow) return false;
+    const flowStage = String(getHandoverFlowStage(vehicle) || '').toLowerCase();
+    const flowLinked = isHandoverFlowLinkedToHistory(vehicle, historyEntry);
+    const liveHrFlow =
+        flowLinked &&
+        (flowStage === 'hr' || flowStage === 'management' || flowStage === 'hod');
+
+    if (vehicleStatus === 'Accepted' && !liveHrFlow) return false;
 
     const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '')
         .trim()
         .toLowerCase();
     if (lifecycle === 'approved' || lifecycle === 'rejected') return false;
 
-    const workflow = historyEntry?.details?.vehicleHandoverWorkflow;
-    const targetDone = Boolean(workflow?.stages?.target?.date);
-    const hrDone = Boolean(workflow?.stages?.hr?.date);
+    if (liveHrFlow) return true;
 
-    return (lifecycle === 'accepted' || targetDone) && !hrDone;
+    // No live HR assignment — do not treat leftover target-accepted rows as waiting on HR.
+    return false;
 }
 
 /** Optimistic client merge after HR approves — keeps workflow UI in sync before refetch completes. */
@@ -265,8 +278,8 @@ function isHandoverFlowLinkedToHistory(vehicle, historyEntry) {
     return String(flow.historyId) === String(historyEntry._id);
 }
 
-export function getHandoverAcceptanceStatus(vehicle, historyEntry = null) {
-    if (isHandoverHistoryFullyApproved(historyEntry)) {
+export function getHandoverAcceptanceStatus(vehicle, historyEntry = null, assetHistory = []) {
+    if (isHandoverHistoryFullyApproved(historyEntry, vehicle, assetHistory)) {
         return 'Accepted';
     }
 
@@ -305,12 +318,12 @@ export function getHandoverAcceptanceStatus(vehicle, historyEntry = null) {
     ).trim();
 }
 
-export function getEffectiveHandoverStage(vehicle, historyEntry = null) {
+export function getEffectiveHandoverStage(vehicle, historyEntry = null, assetHistory = []) {
     if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) {
         return null;
     }
 
-    if (isHandoverHistoryFullyApproved(historyEntry)) {
+    if (isHandoverHistoryFullyApproved(historyEntry, vehicle, assetHistory)) {
         return null;
     }
 
@@ -543,14 +556,15 @@ export function canUserActOnHandoverAssign({
     currentUser = null,
     flowchartAdminRow = null,
     flowchartHrRow = null,
+    assetHistory = [],
 }) {
     if (!vehicle || !currentUser) return false;
     if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return false;
-    if (isHandoverHistoryFullyApproved(historyEntry)) return false;
+    if (isHandoverHistoryFullyApproved(historyEntry, vehicle, assetHistory)) return false;
     if (isHandoverHistoryRejected(historyEntry)) return false;
-    if (getHandoverAcceptanceStatus(vehicle, historyEntry) !== 'Pending') return false;
+    if (getHandoverAcceptanceStatus(vehicle, historyEntry, assetHistory) !== 'Pending') return false;
 
-    const stage = getEffectiveHandoverStage(vehicle, historyEntry);
+    const stage = getEffectiveHandoverStage(vehicle, historyEntry, assetHistory);
 
     const pendingActorRef = resolvePendingHandoverActorRef(
         vehicle,

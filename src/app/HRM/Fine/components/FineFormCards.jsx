@@ -12,7 +12,7 @@ import { isApprovedFineStatus } from '../utils/fineApprovedEdit';
 
 /**
  * Fine Form tab — two independent columns so row heights don't force-align across cards.
- * Group Fine overview: Asset Fine Report (with vehicle details) + Group Parties (no HR card).
+ * Group Fine overview: type-specific report card (with vehicle details) + Group Parties (no HR card).
  * Employee financial cards (summary + schedules) are identical across all fine types for the same employee.
  */
 export default function FineFormCards(props) {

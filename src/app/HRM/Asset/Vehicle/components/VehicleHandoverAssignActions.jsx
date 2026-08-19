@@ -58,7 +58,7 @@ export default function VehicleHandoverAssignActions({
     const [actionLoading, setActionLoading] = useState(false);
     const submitInFlightRef = useRef(false);
 
-    const stage = getEffectiveHandoverStage(vehicle, historyEntry);
+    const stage = getEffectiveHandoverStage(vehicle, historyEntry, assetHistory);
     const canAct = canApprove;
     const reportsComplete = useMemo(
         () => isHandoverReportsCompleteForEntry(historyEntry, vehicle),
@@ -140,7 +140,7 @@ export default function VehicleHandoverAssignActions({
             const historyId = historyEntry?._id;
             const wasHrApproval =
                 isHrStage ||
-                String(getEffectiveHandoverStage(vehicle, historyEntry) || '').toLowerCase() === 'hr';
+                String(getEffectiveHandoverStage(vehicle, historyEntry, assetHistory) || '').toLowerCase() === 'hr';
 
             if (historyId && !String(historyId).startsWith('live-')) {
                 if (action === 'Accept' && wasHrApproval) {
@@ -237,7 +237,7 @@ export default function VehicleHandoverAssignActions({
 
     if (!vehicle || !historyEntry) return null;
 
-    if (isHandoverHistoryFullyApproved(historyEntry) || isHandoverHistoryRejected(historyEntry)) {
+    if (isHandoverHistoryFullyApproved(historyEntry, vehicle, assetHistory) || isHandoverHistoryRejected(historyEntry)) {
         return hideWhenInactive ? null : (
             <div className={`grid grid-cols-2 gap-2 sm:gap-3 ${className}`}>
                 <div className={`${ACTION_BOX} border-transparent bg-transparent min-h-[44px]`} aria-hidden="true" />

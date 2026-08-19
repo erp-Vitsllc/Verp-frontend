@@ -17,12 +17,24 @@ import {
  * @param {string} permissionType - The permission type ('view', 'create', 'edit', 'delete', 'full')
  * @param {ReactNode} children - The content to render if user has permission
  */
-export default function PermissionGuard({ moduleId, permissionType = 'view', children, redirectTo = '/dashboard' }) {
+export default function PermissionGuard({
+    moduleId,
+    moduleIds,
+    permissionType = 'view',
+    children,
+    redirectTo = '/dashboard',
+}) {
     const router = useRouter();
+    const accessIds =
+        Array.isArray(moduleIds) && moduleIds.length > 0
+            ? moduleIds
+            : [moduleId];
+    const primaryModuleId = accessIds[0];
+    const needsAssetFlowchart = accessIds.some((id) => isAssetModuleId(id));
     const [mounted, setMounted] = useState(false);
     // Don't blank the page while flowchart meta loads — use cache when present.
     const [flowchartReady, setFlowchartReady] = useState(() => {
-        if (!isAssetModuleId(moduleId)) return true;
+        if (!needsAssetFlowchart) return true;
         if (typeof window === 'undefined') return true;
         return Boolean(getCachedAssetFlowchartRoleMeta()) || isAdmin();
     });
@@ -33,7 +45,7 @@ export default function PermissionGuard({ moduleId, permissionType = 'view', chi
     }, []);
 
     useEffect(() => {
-        if (!mounted || !isAssetModuleId(moduleId)) {
+        if (!mounted || !needsAssetFlowchart) {
             setFlowchartReady(true);
             return;
         }
@@ -46,35 +58,38 @@ export default function PermissionGuard({ moduleId, permissionType = 'view', chi
         return () => {
             cancelled = true;
         };
-    }, [mounted, moduleId]);
+    }, [mounted, needsAssetFlowchart]);
 
     const hasAccess = (() => {
-        if (moduleId === 'dashboard') return true;
+        if (accessIds.includes('dashboard')) return true;
         if (isAdmin()) return true;
-        const groupAccess = hasAnyPermission(moduleId);
-        if (isAssetModuleId(moduleId)) {
-            return canAccessAssetModuleViaFlowchart(moduleId, groupAccess);
-        }
-        return groupAccess;
+        return accessIds.some((id) => {
+            if (id === 'dashboard') return true;
+            const groupAccess = hasAnyPermission(id);
+            if (isAssetModuleId(id)) {
+                return canAccessAssetModuleViaFlowchart(id, groupAccess);
+            }
+            return groupAccess;
+        });
     })();
 
     useEffect(() => {
         if (!mounted || !flowchartReady) return;
 
-        if (moduleId === 'dashboard') return;
+        if (accessIds.includes('dashboard')) return;
         if (isAdmin()) return;
 
         if (!hasAccess) {
             router.replace(redirectTo);
         }
-    }, [moduleId, router, redirectTo, mounted, flowchartReady, hasAccess]);
+    }, [primaryModuleId, router, redirectTo, mounted, flowchartReady, hasAccess]);
 
     // During SSR or before mount, render children to prevent hydration mismatch
     if (!mounted) {
         return <>{children}</>;
     }
 
-    if (moduleId === 'dashboard') {
+    if (accessIds.includes('dashboard')) {
         return <>{children}</>;
     }
 
@@ -84,7 +99,7 @@ export default function PermissionGuard({ moduleId, permissionType = 'view', chi
 
     // Optimistic paint: never return null for asset modules while meta loads —
     // notification → vehicle redirect felt stuck on a blank screen.
-    if (isAssetModuleId(moduleId) && !flowchartReady) {
+    if (needsAssetFlowchart && !flowchartReady) {
         return <>{children}</>;
     }
 

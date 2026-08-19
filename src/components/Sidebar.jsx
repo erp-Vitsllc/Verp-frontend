@@ -881,15 +881,6 @@ export default function Sidebar() {
             return true;
         }
 
-        // Salary sits under Payroll after Leave; show it with the rest of Payroll.
-        if (subItem.label === 'Salary') {
-            return (
-                hasAnyPermission('hrm_salary') ||
-                hasAnyPermission('hrm_leave') ||
-                hasAnyPermission('hrm_attendance')
-            );
-        }
-
         // Match PermissionGuard / route access: any view on this module OR on descendants (e.g. hrm_company_list).
         // Groups often grant only child keys (hrm_company_*) without a row for the parent hrm_company.
         // Flowchart Asset Controller / Admin Officer bypass Vehicle + Tools group perms.

@@ -24,6 +24,7 @@ import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 import { validateApprovedFineScheduleEdit } from '../utils/validateFineDeductionVsVisa';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
+import { toFineDateInputValue, toFineMonthInputValue } from '../utils/fineScheduleUtils';
 
 export default function AddVehicleFineModal({
     isOpen,
@@ -54,8 +55,8 @@ export default function AddVehicleFineModal({
         employeeAmount: '',
         companyAmount: '',
         payableDuration: '1',
-        monthStart: new Date().toISOString().split('T')[0].slice(0, 7), // YYYY-MM
-        awardedDate: new Date().toISOString().split('T')[0],
+        monthStart: toFineMonthInputValue(), // YYYY-MM
+        awardedDate: toFineDateInputValue(),
         description: '',
         attachment: null,
         attachmentBase64: '',
@@ -174,10 +175,10 @@ export default function AddVehicleFineModal({
                 employeeAmount: uiEmployeeAmount,
                 companyAmount: uiCompanyAmount,
                 payableDuration: String(initialData.payableDuration || '1'),
-                monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+                monthStart: initialData.monthStart || toFineMonthInputValue(),
                 awardedDate: initialData.awardedDate
-                    ? new Date(initialData.awardedDate).toISOString().split('T')[0]
-                    : new Date().toISOString().split('T')[0],
+                    ? toFineDateInputValue(initialData.awardedDate)
+                    : toFineDateInputValue(),
                 description: initialData.description || '',
                 attachment: null,
                 attachmentBase64: '',
@@ -225,8 +226,8 @@ export default function AddVehicleFineModal({
                 employeeAmount: '',
                 companyAmount: '',
                 payableDuration: '1',
-                monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
-                awardedDate: new Date().toISOString().split('T')[0],
+                monthStart: toFineMonthInputValue(),
+                awardedDate: toFineDateInputValue(),
                 description: '',
                 attachment: null,
                 attachmentBase64: '',
@@ -670,7 +671,7 @@ export default function AddVehicleFineModal({
                 companyAmount: compStoredBase,
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
-                awardedDate: formData.awardedDate || new Date().toISOString().split('T')[0],
+                awardedDate: formData.awardedDate || toFineDateInputValue(),
                 serviceCharge: serviceChargeAmount,
                 discount: discountAmount,
                 vehicleId: selectedVehicleId,

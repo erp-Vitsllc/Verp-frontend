@@ -1,9 +1,15 @@
 /** Period filtering + aggregation for the Utility Bills overview header cards. */
 
-import { getMonthlyRentalAmount, isEntryActive } from './utilityBillsStorage';
-import { billDisplayStatus, isUnpaidUtilityBill } from './utilityBillStats';
+import { getMonthlyRentalAmount, isEntryActive, normalizePaymentDay, entryRequiresMonthlyBill } from './utilityBillsStorage';
+import {
+    billDisplayStatus,
+    entryAvailableFromMonth,
+    normalizeBillMonthKey,
+} from './utilityBillStats';
 
 export const ALL_MONTHS = 'all';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export const MONTH_OPTIONS = [
     { value: '01', label: 'January' },
@@ -117,11 +123,101 @@ export function buildTypeOverviewCards({ typeTabs = [], entries = [], bills = []
         .filter((item) => item.recordCount > 0);
 }
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 function startOfToday() {
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+/** Bill month YYYY-MM + payment day (1–31) → due date at start of that calendar day. */
+export function payableDueDateForBillMonth(billMonth, paymentDay = 16) {
+    const month = String(billMonth || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(month)) return null;
+
+    const [yearStr, monthStr] = month.split('-');
+    const year = Number(yearStr);
+    const monthIndex = Number(monthStr) - 1;
+    if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) return null;
+
+    const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+    let day = Number(paymentDay);
+    if (!Number.isInteger(day) || day < 1) day = 16;
+    day = Math.min(day, lastDay);
+
+    return new Date(year, monthIndex, day);
+}
+
+/** True once today is after the account's payable day for that bill month. */
+export function isPayableDatePassed(billMonth, paymentDay, refDate = new Date()) {
+    const due = payableDueDateForBillMonth(billMonth, paymentDay);
+    if (!due) return false;
+    const today = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate());
+    return today.getTime() > due.getTime();
+}
+
+function resolvePaymentDay(bill, entry) {
+    if (entry && !entryRequiresMonthlyBill(entry)) return null;
+    const fromBill = Number(bill?.paymentDay);
+    if (Number.isInteger(fromBill) && fromBill >= 1 && fromBill <= 31) return fromBill;
+    const values = normalizePaymentDay(entry?.values || {});
+    const fromEntry = Number(values.paymentDay);
+    if (Number.isInteger(fromEntry) && fromEntry >= 1 && fromEntry <= 31) return fromEntry;
+    return null;
+}
+
+function calendarCurrentMonthKey(refDate = new Date()) {
+    return `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function calendarPreviousMonthKey(refDate = new Date()) {
+    const d = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Paid-bills window: this month and last month only. */
+function paidOverviewMonthKeys(refDate = new Date()) {
+    return new Set([calendarCurrentMonthKey(refDate), calendarPreviousMonthKey(refDate)]);
+}
+
+function isPaidOverviewMonth(billMonth, refDate = new Date()) {
+    const ym = normalizeBillMonthKey(billMonth);
+    return ym ? paidOverviewMonthKeys(refDate).has(ym) : false;
+}
+
+/** Unpaid window: current month and every earlier month (no future months). */
+function isCurrentOrEarlierBillMonth(billMonth, refDate = new Date()) {
+    const ym = normalizeBillMonthKey(billMonth);
+    if (!ym) return false;
+    return ym <= calendarCurrentMonthKey(refDate);
+}
+
+/** Every YYYY-MM from entry availability through the current calendar month. */
+function billMonthsThroughCurrentForEntry(entry, refDate = new Date()) {
+    const currentYm = calendarCurrentMonthKey(refDate);
+    const fromYm = entryAvailableFromMonth(entry);
+    if (!fromYm || fromYm > currentYm) return [];
+
+    const months = [];
+    let year = Number(fromYm.slice(0, 4));
+    let month = Number(fromYm.slice(5, 7));
+    const [endYear, endMonth] = currentYm.split('-').map(Number);
+
+    while (year < endYear || (year === endYear && month <= endMonth)) {
+        months.push(`${year}-${String(month).padStart(2, '0')}`);
+        month += 1;
+        if (month > 12) {
+            month = 1;
+            year += 1;
+        }
+    }
+    return months;
+}
+
+function entriesById(entries = []) {
+    return new Map(
+        (Array.isArray(entries) ? entries : [])
+            .map((entry) => [String(entry?.id || '').trim(), entry])
+            .filter(([id]) => id),
+    );
 }
 
 function formatExpiryDate(value) {
@@ -130,37 +226,124 @@ function formatExpiryDate(value) {
     return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-/** Unpaid bill rows for the selected overview month / year. */
-export function buildUnpaidBillRows({ bills = [], year, month } = {}) {
+function mapBillToOverviewRow(bill, entry = null) {
+    const id = String(bill?._id || bill?.id || '');
+    const entryId = String(bill?.entryId || bill?.entry?._id || bill?.entry || '').trim();
+    const href = entryId
+        ? `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entryId)}${
+              id ? `?billId=${encodeURIComponent(id)}` : ''
+          }`
+        : '';
+    const rawStatus = String(bill?.status || '').trim();
+    const billMonth = String(bill?.billMonth || '').trim();
+    const paymentDay = resolvePaymentDay(bill, entry);
+    const overdue = isPayableDatePassed(billMonth, paymentDay);
+    let statusLabel =
+        rawStatus === 'Approved'
+            ? 'Not Paid'
+            : rawStatus === 'Paid'
+              ? 'Paid'
+              : billDisplayStatus(bill) || rawStatus;
+    if (overdue && rawStatus !== 'Paid') {
+        statusLabel = `Overdue · ${statusLabel}`;
+    }
+    return {
+        id,
+        entryId,
+        batchId: String(bill?.batchId || ''),
+        type: String(bill?.utilityType || ''),
+        title: String(bill?.provider || bill?.utilityType || 'Utility').trim(),
+        subtitle: [bill?.accountNo, billMonth].filter(Boolean).join(' · '),
+        amount: Number(bill?.amount) || 0,
+        status: statusLabel,
+        rawStatus,
+        billMonth,
+        paymentDay,
+        isOverdue: overdue,
+        href,
+        isMissingBill: false,
+    };
+}
+
+function sortOverviewBillRows(a, b) {
+    const monthCmp = String(b.billMonth || '').localeCompare(String(a.billMonth || ''));
+    if (monthCmp !== 0) return monthCmp;
+    const typeCmp = String(a.type).localeCompare(String(b.type));
+    if (typeCmp !== 0) return typeCmp;
+    if (Boolean(a.isMissingBill) !== Boolean(b.isMissingBill)) {
+        return a.isMissingBill ? 1 : -1;
+    }
+    return Number(b.amount) - Number(a.amount);
+}
+
+/** Paid bills for the current calendar month and the previous month. */
+export function buildPaidBillRows({ bills = [], refDate = new Date() } = {}) {
     return (Array.isArray(bills) ? bills : [])
-        .filter((bill) => billMatchesPeriod(bill?.billMonth, year, month))
-        .filter((bill) => isUnpaidUtilityBill(bill))
-        .map((bill) => {
-            const id = String(bill?._id || bill?.id || '');
-            const entryId = String(bill?.entryId || bill?.entry?._id || bill?.entry || '').trim();
-            const href = entryId
-                ? `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entryId)}${
-                      id ? `?billId=${encodeURIComponent(id)}` : ''
-                  }`
-                : '';
-            return {
-                id,
-                entryId,
-                batchId: String(bill?.batchId || ''),
-                type: String(bill?.utilityType || ''),
-                title: String(bill?.provider || bill?.utilityType || 'Utility').trim(),
-                subtitle: [bill?.accountNo, bill?.billMonth].filter(Boolean).join(' · '),
-                amount: Number(bill?.amount) || 0,
-                status: billDisplayStatus(bill),
-                rawStatus: String(bill?.status || ''),
-                href,
-            };
+        .filter((bill) => isPaidOverviewMonth(bill?.billMonth, refDate))
+        .filter((bill) => String(bill?.status || '').trim() === 'Paid')
+        .map((bill) => mapBillToOverviewRow(bill))
+        .sort(sortOverviewBillRows);
+}
+
+/**
+ * Pending unpaid bills and missing bills for the current month and all earlier months.
+ */
+export function buildUnpaidBillRows({ bills = [], entries = [], refDate = new Date() } = {}) {
+    const list = Array.isArray(bills) ? bills : [];
+    const entryMap = entriesById(entries);
+
+    const billRows = list
+        .filter((bill) => isCurrentOrEarlierBillMonth(bill?.billMonth, refDate))
+        .filter((bill) => {
+            const status = String(bill?.status || '').trim();
+            return status && status !== 'Paid';
         })
-        .sort((a, b) => {
-            const typeCmp = String(a.type).localeCompare(String(b.type));
-            if (typeCmp !== 0) return typeCmp;
-            return Number(b.amount) - Number(a.amount);
-        });
+        .filter((bill) => {
+            const entry = entryMap.get(String(bill?.entryId || '').trim()) || null;
+            return !entry || entryRequiresMonthlyBill(entry);
+        })
+        .map((bill) => mapBillToOverviewRow(bill, entryMap.get(String(bill?.entryId || '').trim()) || null));
+
+    const billsByEntryMonth = new Map();
+    for (const bill of list) {
+        const entryId = String(bill?.entryId || '').trim();
+        const ym = normalizeBillMonthKey(bill?.billMonth);
+        if (!entryId || !ym) continue;
+        billsByEntryMonth.set(`${entryId}::${ym}`, bill);
+    }
+
+    const missingBillRows = [];
+    for (const entry of Array.isArray(entries) ? entries : []) {
+        if (!isEntryActive(entry)) continue;
+        if (!entryRequiresMonthlyBill(entry)) continue;
+        const entryId = String(entry?.id || '').trim();
+        if (!entryId) continue;
+        const paymentDay = resolvePaymentDay(null, entry);
+        if (!paymentDay) continue;
+
+        for (const ym of billMonthsThroughCurrentForEntry(entry, refDate)) {
+            if (billsByEntryMonth.has(`${entryId}::${ym}`)) continue;
+            const overdue = isPayableDatePassed(ym, paymentDay, refDate);
+            missingBillRows.push({
+                id: `missing-${entryId}-${ym}`,
+                entryId,
+                batchId: '',
+                type: String(entry?.type || ''),
+                title: String(entry?.values?.provider || entry?.type || 'Utility').trim(),
+                subtitle: [entry?.values?.accountNumber, ym].filter(Boolean).join(' · '),
+                amount: getMonthlyRentalAmount(entry),
+                status: overdue ? 'Overdue · Bill not created' : 'Bill not created',
+                rawStatus: 'missing',
+                billMonth: ym,
+                paymentDay,
+                isOverdue: overdue,
+                href: `/HRM/Asset/UtilityBills/details/${encodeURIComponent(entryId)}`,
+                isMissingBill: true,
+            });
+        }
+    }
+
+    return [...billRows, ...missingBillRows].sort(sortOverviewBillRows);
 }
 
 /** Active (not expired) contracts with an end date, soonest end first. */
@@ -178,7 +361,7 @@ export function buildContractExpiryRows(entries = []) {
                 endDate.getMonth(),
                 endDate.getDate(),
             ).getTime();
-            const daysLeft = Math.ceil((endDay - today) / MS_PER_DAY);
+            const daysLeft = Math.ceil((endDay - today.getTime()) / MS_PER_DAY);
             // Only list contracts that are still active (not expired).
             if (daysLeft < 0) return null;
             return {

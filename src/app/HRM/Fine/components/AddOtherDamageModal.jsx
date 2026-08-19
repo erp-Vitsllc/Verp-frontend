@@ -18,6 +18,7 @@ import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { applyFineDiscount, validateFineDiscount } from '../utils/fineDiscount';
+import { toFineDateInputValue, toFineMonthInputValue } from '../utils/fineScheduleUtils';
 
 export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
@@ -44,8 +45,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
     const [currentEmployeeId, setCurrentEmployeeId] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [payableDuration, setPayableDuration] = useState('1');
-    const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
-    const [awardedDate, setAwardedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [monthStart, setMonthStart] = useState(toFineMonthInputValue());
+    const [awardedDate, setAwardedDate] = useState(toFineDateInputValue());
     const [selectedCompanyId, setSelectedCompanyId] = useState('');
 
     const [errors, setErrors] = useState({});
@@ -112,11 +113,11 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 discount: String(initialData.discount || ''),
                 fineSource: initialData.fineSource || '',
             });
-            setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
+            setMonthStart(initialData.monthStart || toFineMonthInputValue());
             setAwardedDate(
                 initialData.awardedDate
-                    ? new Date(initialData.awardedDate).toISOString().split('T')[0]
-                    : new Date().toISOString().split('T')[0],
+                    ? toFineDateInputValue(initialData.awardedDate)
+                    : toFineDateInputValue(),
             );
             setPayableDuration(String(initialData.payableDuration || '1'));
 
@@ -163,8 +164,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             setCurrentEmployeeId('');
             setSearchQuery('');
             setPayableDuration('1');
-            setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
-            setAwardedDate(new Date().toISOString().split('T')[0]);
+            setMonthStart(toFineMonthInputValue());
+            setAwardedDate(toFineDateInputValue());
 
         }
     }, [isOpen, initialData, employees]);
@@ -386,7 +387,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 description: formData.description, companyDescription: formData.companyDescription,
                 fineSource: formData.fineSource || '',
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'), isBulk: true, monthStart,
-                awardedDate: awardedDate || new Date().toISOString().split('T')[0],
+                awardedDate: awardedDate || toFineDateInputValue(),
                 fineAmount: grandTotalFine,
                 employeeAmount: totalEmpAmount,
                 companyAmount: totalCompAmount,

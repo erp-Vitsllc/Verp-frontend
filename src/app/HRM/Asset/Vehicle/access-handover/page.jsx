@@ -1,187 +1,127 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import {
+    Car,
+    ClipboardCheck,
+    ClipboardList,
+    Handshake,
+    UserCheck,
+    UserPlus,
+} from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-import { useToast } from '@/hooks/use-toast';
-import { navigateFromList } from '@/utils/listReturnNavigation';
-import { navHrefProps } from '@/utils/linkContextMenu';
 import VehicleAccessPageShell from '@/app/HRM/Asset/Vehicle/components/VehicleAccessPageShell';
 import {
-    buildHandoverHistoryRows,
-    getHandoverByLabel,
-    getHandoverEndDate,
-    getHandoverHistoryStatus,
-    getHandoverStartDate,
-    getHandoverToLabel,
-    getHandoverTypeLabel,
-    resolveHandoverDeleteHistoryId,
-} from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverHistory';
+    VEHICLE_ACCESS_HANDOVER_STATUSES,
+    vehicleAccessHandoverListPath,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
 
-function formatHandoverDate(value) {
-    if (!value) return '—';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '—';
-    return date.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-    });
+const STATUS_ICONS = {
+    'pending-hr': UserCheck,
+    'pending-inspection': ClipboardList,
+    'completed-inspection': ClipboardCheck,
+    'pending-assignee': UserPlus,
+    'completed-handover': Handshake,
+    'unassigned-vehicle': Car,
+};
+
+function countHint(status, count, loading) {
+    if (loading) return 'Loading…';
+    if (count <= 0) {
+        return status.pending ? 'No pending records' : 'No records';
+    }
+    if (status.key === 'unassigned-vehicle') {
+        return `${count} vehicle${count === 1 ? '' : 's'}`;
+    }
+    if (status.pending) {
+        return `${count} pending`;
+    }
+    return `${count} record${count === 1 ? '' : 's'}`;
 }
 
-function vehicleNo(vehicle) {
-    return [vehicle?.plateEmirate, vehicle?.plateNumber].filter(Boolean).join(' ').trim() || '—';
-}
-
-export default function VehicleAccessHandoverPage() {
-    const router = useRouter();
-    const { toast } = useToast();
-    const [items, setItems] = useState([]);
+export default function VehicleAccessHandoverTypesPage() {
+    const [counts, setCounts] = useState({});
+    const [totalPending, setTotalPending] = useState(0);
     const [loading, setLoading] = useState(true);
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await axiosInstance.get('/AssetItem/vehicle-access-handovers');
-            setItems(Array.isArray(res.data?.items) ? res.data.items : []);
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Could not load handovers',
-                description: error?.response?.data?.message || 'Try again in a moment.',
-            });
-            setItems([]);
+            const res = await axiosInstance.get('/AssetItem/vehicle-access-handovers', { skipToast: true });
+            const nextCounts = res.data?.counts && typeof res.data.counts === 'object' ? res.data.counts : {};
+            setCounts(nextCounts);
+            const fromApi = Number(res.data?.total);
+            setTotalPending(
+                Number.isFinite(fromApi)
+                    ? fromApi
+                    : VEHICLE_ACCESS_HANDOVER_STATUSES.filter((row) => row.pending).reduce(
+                          (sum, row) => sum + Number(nextCounts[row.key] || 0),
+                          0,
+                      ),
+            );
+        } catch {
+            setCounts({});
+            setTotalPending(0);
         } finally {
             setLoading(false);
         }
-    }, [toast]);
+    }, []);
 
     useEffect(() => {
         load();
     }, [load]);
 
-    const rows = useMemo(
-        () =>
-            items
-                .map((item) => {
-                    const vehicle = item.vehicle || {};
-                    const historyRows = buildHandoverHistoryRows(
-                        item.history ? [item.history] : [],
-                        vehicle,
-                    );
-                    const entry = historyRows.length
-                        ? [...historyRows].sort((a, b) => {
-                              const ta = new Date(a.date || a.createdAt || 0).getTime();
-                              const tb = new Date(b.date || b.createdAt || 0).getTime();
-                              return tb - ta;
-                          })[0]
-                        : item.history;
-                    if (!entry) return null;
-                    return { vehicle, entry };
-                })
-                .filter(Boolean),
-        [items],
-    );
-
-    const handoverHref = (vehicle, entry) => {
-        const vehicleId = vehicle?._id;
-        if (!vehicleId || !entry) return '';
-        const assignId = resolveHandoverDeleteHistoryId(entry, vehicle, [entry]);
-        if (assignId) return `/HRM/Asset/Vehicle/details/${vehicleId}/assign/${assignId}`;
-        return `/HRM/Asset/Vehicle/details/${vehicleId}?tab=handover`;
-    };
-
-    const openRow = (vehicle, entry) => {
-        const href = handoverHref(vehicle, entry);
-        if (!href) return;
-        navigateFromList(router, href);
-    };
-
     return (
         <VehicleAccessPageShell
             title="Access Handover"
-            subtitle="Last handover record for every vehicle"
-            count={loading ? null : rows.length}
+            subtitle="Choose a handover status to list matching vehicles"
+            count={loading ? null : totalPending}
             onRefresh={load}
             refreshing={loading}
         >
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                {loading ? (
-                    <div className="py-16 text-center text-sm text-slate-500">Loading handovers…</div>
-                ) : rows.length === 0 ? (
-                    <div className="py-16 text-center text-sm text-slate-500">
-                        No handover records found on the fleet.
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm border-collapse min-w-[980px]">
-                            <thead className="bg-slate-50 border-b border-slate-200">
-                                <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
-                                    <th className="px-4 py-3 whitespace-nowrap">Sl No.</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">Vehicle asset no</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">Vehicle no</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">Type</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">Start Date</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">End Date</th>
-                                    <th className="px-4 py-3 min-w-[140px]">From</th>
-                                    <th className="px-4 py-3 min-w-[140px]">To</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {rows.map(({ vehicle, entry }, index) => {
-                                    const status = getHandoverHistoryStatus(entry, vehicle);
-                                    const href = handoverHref(vehicle, entry);
-                                    return (
-                                        <tr
-                                            key={String(entry._id || `${vehicle._id}-${index}`)}
-                                            role="button"
-                                            tabIndex={0}
-                                            {...navHrefProps(href)}
-                                            onClick={() => openRow(vehicle, entry)}
-                                            onKeyDown={(event) => {
-                                                if (event.key === 'Enter' || event.key === ' ') {
-                                                    event.preventDefault();
-                                                    openRow(vehicle, entry);
-                                                }
-                                            }}
-                                            className="cursor-pointer hover:bg-slate-50/70 transition-colors border-b border-slate-100"
-                                            title="Open handover details"
-                                        >
-                                            <td className="px-4 py-3 text-slate-600 font-semibold">{index + 1}</td>
-                                            <td className="px-4 py-3 font-mono text-xs text-slate-700">
-                                                {vehicle.assetId || '—'}
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-800">{vehicleNo(vehicle)}</td>
-                                            <td className="px-4 py-3 text-slate-800 whitespace-nowrap font-medium">
-                                                {getHandoverTypeLabel(entry, vehicle)}
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
-                                                {formatHandoverDate(getHandoverStartDate(entry))}
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
-                                                {formatHandoverDate(getHandoverEndDate(entry))}
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-800">
-                                                {getHandoverByLabel(entry) || '—'}
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-800">
-                                                {getHandoverToLabel(entry) || '—'}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <span
-                                                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${status.className}`}
-                                                >
-                                                    {status.label}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
+                <h2 className="text-sm font-black uppercase tracking-widest text-slate-500 mb-4">
+                    Vehicle handover statuses
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                    {VEHICLE_ACCESS_HANDOVER_STATUSES.map((status) => {
+                        const Icon = STATUS_ICONS[status.key] || Handshake;
+                        const count = Number(counts[status.key] || 0);
+                        return (
+                            <Link
+                                key={status.key}
+                                href={vehicleAccessHandoverListPath(status.key)}
+                                className="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 hover:border-teal-300 hover:bg-teal-50/60 transition-colors"
+                            >
+                                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white border border-slate-200 text-teal-700 shadow-sm shrink-0">
+                                    <Icon size={20} />
+                                </span>
+                                <span className="min-w-0">
+                                    <span className="flex items-center gap-2">
+                                        <span className="block text-sm font-black uppercase tracking-wide text-slate-800 group-hover:text-teal-800">
+                                            {status.label}
+                                        </span>
+                                        {!loading && count > 0 ? (
+                                            <span
+                                                className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-black tabular-nums ${
+                                                    status.pending
+                                                        ? 'bg-red-100 text-red-600'
+                                                        : 'bg-teal-100 text-teal-700'
+                                                }`}
+                                            >
+                                                {count}
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                    <span className="block text-xs text-slate-500 mt-1 tabular-nums">
+                                        {countHint(status, count, loading)}
+                                    </span>
+                                </span>
+                            </Link>
+                        );
+                    })}
+                </div>
             </div>
         </VehicleAccessPageShell>
     );

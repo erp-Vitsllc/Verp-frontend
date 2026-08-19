@@ -17,6 +17,7 @@ import {
     getHandoverTypeLabel,
     resolveHandoverDeleteHistoryId,
 } from '../utils/vehicleHandoverHistory';
+import { isHandoverNoEditComplete } from '../utils/vehicleHandoverPhotoComparison';
 import { navHrefProps } from '@/utils/linkContextMenu';
 
 function formatHandoverDate(value) {
@@ -166,7 +167,10 @@ export default function VehicleHandoverHistoryTable({
                         </tr>
                     ) : (
                         rows.map((entry, index) => {
-                            const status = getHandoverHistoryStatus(entry, asset, { assetHistory });
+                            const status = getHandoverHistoryStatus(entry, asset, {
+                                assetHistory,
+                                noEditApproved: isHandoverNoEditComplete(entry, assetHistory, asset),
+                            });
                             const typeLabel = getHandoverTypeLabel(entry, asset, { allRows: rows });
                             const startDate = formatHandoverDate(getHandoverStartDate(entry));
                             const endDate = formatHandoverDate(getHandoverEndDate(entry, asset));

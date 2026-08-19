@@ -80,6 +80,7 @@ import VehicleRegistrationModal from '../../components/VehicleRegistrationModal'
 import VehicleInsuranceModal from '../../components/VehicleInsuranceModal';
 import VehicleWarrantyModal from '../../components/VehicleWarrantyModal';
 import VehiclePermitModal from '../../components/VehiclePermitModal';
+import VehicleFuelTab from '../../components/VehicleFuelTab';
 import VehiclePetrolModal from '../../components/VehiclePetrolModal';
 import VehicleTollModal from '../../components/VehicleTollModal';
 import VehicleMortgageModal from '../../components/VehicleMortgageModal';
@@ -411,7 +412,7 @@ function VehicleDetailsPageContent() {
     const [notRenewLoading, setNotRenewLoading] = useState(false);
     const [activeTab, setActiveTab] = useState(() => {
         const tab = String(searchParams.get('tab') || 'basic').trim();
-        const allowed = ['basic', 'permit', 'mortgage', 'petrolToll', 'service', 'fine', 'accessoriesList', 'handover', 'history', 'document'];
+        const allowed = ['basic', 'permit', 'fuel', 'mortgage', 'petrolToll', 'service', 'fine', 'accessoriesList', 'handover', 'history', 'document'];
         return allowed.includes(tab) ? tab : 'basic';
     }); // basic | permit | mortgage | petrolToll | service | fine | handover | history | document
     // Registration / Insurance / Warranty are shown as cards (employee profile style).
@@ -545,7 +546,7 @@ function VehicleDetailsPageContent() {
     }, [replaceDetailState, buildVehicleTabUpdates, vehicleTabOmitDefaults]);
 
     useEffect(() => {
-        const allowed = ['basic', 'permit', 'mortgage', 'petrolToll', 'service', 'fine', 'accessoriesList', 'handover', 'history', 'document'];
+        const allowed = ['basic', 'permit', 'fuel', 'mortgage', 'petrolToll', 'service', 'fine', 'accessoriesList', 'handover', 'history', 'document'];
         const tab = String(searchParams.get('tab') || 'basic').trim();
         const nextTab = allowed.includes(tab) ? tab : 'basic';
         setActiveTab((prev) => (prev === nextTab ? prev : nextTab));
@@ -1613,6 +1614,7 @@ function VehicleDetailsPageContent() {
             [
                 { id: 'basic', label: 'Basic Details' },
                 { id: 'permit', label: 'Permit' },
+                { id: 'fuel', label: 'Fuel' },
                 { id: 'fine', label: 'Fine' },
                 { id: 'service', label: 'Service' },
                 { id: 'accessoriesList', label: 'Accessories List' },
@@ -1971,7 +1973,14 @@ function VehicleDetailsPageContent() {
                 label: 'Current KM',
                 value: formatVehicleCurrentKm(a),
             },
-        ];
+            {
+                label: 'Monthly limit',
+                value:
+                    a.fuelMonthlyLimit != null && a.fuelMonthlyLimit !== ''
+                        ? `AED ${Number(a.fuelMonthlyLimit).toLocaleString()}`
+                        : '—',
+            },
+        ].filter(Boolean);
         const disp = String(a.vehicleDispositionStatus || 'active').toLowerCase();
         const wfStage = String(a.vehicleDispositionWorkflow?.stage || '').toLowerCase();
         const wfTarget = String(a.vehicleDispositionWorkflow?.targetStatus || '').toLowerCase();
@@ -4785,6 +4794,10 @@ function VehicleDetailsPageContent() {
                                         </div>
                                     )}
                                 </div>
+                            )}
+
+                            {activeTab === 'fuel' && (
+                                <VehicleFuelTab asset={asset} isFlowchartHr={isFlowchartHr} />
                             )}
 
                             {activeTab === 'fine' && (

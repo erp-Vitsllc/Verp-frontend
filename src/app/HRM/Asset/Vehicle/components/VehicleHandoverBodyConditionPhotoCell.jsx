@@ -45,10 +45,11 @@ export default function VehicleHandoverBodyConditionPhotoCell({
                         <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
                     ) : photoUrl ? (
                         <img
+                            key={photoUrl}
                             src={photoUrl}
                             alt={`${label} photo`}
                             className="h-full w-full object-cover object-center"
-                            loading="lazy"
+                            loading="eager"
                             decoding="async"
                             onError={resolved.retry}
                         />
@@ -72,10 +73,11 @@ export default function VehicleHandoverBodyConditionPhotoCell({
                         <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
                     ) : photoUrl ? (
                         <img
+                            key={photoUrl}
                             src={photoUrl}
                             alt={`${label} photo`}
                             className="h-full w-full object-cover object-center"
-                            loading="lazy"
+                            loading="eager"
                             decoding="async"
                             onError={resolved.retry}
                         />

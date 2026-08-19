@@ -1,4 +1,4 @@
-import { isPendingInboxRowVisible } from './assetRequestLabels';
+import { isPendingInboxRowVisible, isAcceptedAssignmentOutcomeInboxRow } from './assetRequestLabels';
 import { isDisplayableAssetPendingInboxRow } from '@/utils/assetNotificationRouting';
 import {
     ASSET_PENDING_INBOX_ENDPOINT,
@@ -36,6 +36,7 @@ export function dedupeAssetPendingInboxItems(items) {
 
         // One inbox row per asset assignment task (same user with multiple roles still sees it once).
         if (requestType !== 'Asset Assignment' || row?.isBulk) return true;
+        if (isAcceptedAssignmentOutcomeInboxRow(row)) return false;
         const meta = parseInboxExtra3(row?.extra3);
         if (meta?.isBulkAssignment === true) return true;
         const assetId = row?.primaryAssetId || row?.requestObjectId;

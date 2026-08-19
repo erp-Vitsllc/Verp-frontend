@@ -124,6 +124,56 @@ export function resolveEmployeeFinePaidAmount(fine, employeeId, shareAmount) {
     return Math.min(paid, share);
 }
 
+function humanAssigneeIds(fine) {
+    const fromAssigned = (fine?.assignedEmployees || [])
+        .map((ae) => ae?.employeeId)
+        .filter((id) => id && id !== 'PENDING' && id !== 'VEGA-HR-0000' && id !== 'VEGA_INTERNAL');
+    if (fromAssigned.length) return [...new Set(fromAssigned)];
+
+    const fallback = String(fine?.employeeId || '').trim();
+    if (fallback && fallback !== 'VEGA-HR-0000' && fallback !== 'VEGA_INTERNAL' && fallback !== 'PENDING') {
+        return [fallback];
+    }
+    return [];
+}
+
+/** Remaining employee share on one fine (unpaid + leftover from partial payments). Company-only = 0. */
+export function resolveEmployeeOutstandingOnFine(fine, employeeId) {
+    if (!fine) return 0;
+    if ((fine.responsibleFor || '').trim() === 'Company') return 0;
+
+    const share = resolveEmployeeFinePayableAmount(fine, employeeId);
+    if (share <= 0.01) return 0;
+    const paid = resolveEmployeeFinePaidAmount(fine, employeeId, share);
+    return Math.max(0, Number((share - paid).toFixed(2)));
+}
+
+/**
+ * Total employees still owe across these fines (not paid + partially unpaid).
+ * Dedupes split siblings (VEGA-FINE-0001-A / -B) so a party is counted once.
+ */
+export function sumEmployeeOutstandingOnFines(fines = []) {
+    const bestByParty = new Map();
+
+    (fines || []).forEach((fine) => {
+        if (!fine) return;
+        if ((fine.responsibleFor || '').trim() === 'Company') return;
+        humanAssigneeIds(fine).forEach((employeeId) => {
+            const key = `${fineBaseId(fine.fineId) || String(fine._id || '')}:${employeeId}`;
+            const existing = bestByParty.get(key);
+            if (!existing || partyDedupeScore(fine, employeeId) > partyDedupeScore(existing.fine, employeeId)) {
+                bestByParty.set(key, { fine, employeeId });
+            }
+        });
+    });
+
+    let total = 0;
+    bestByParty.forEach(({ fine, employeeId }) => {
+        total += resolveEmployeeOutstandingOnFine(fine, employeeId);
+    });
+    return Number(total.toFixed(2));
+}
+
 /** Approved fines only for this employee — excludes pending/draft/rejected. */
 export function filterApprovedEmployeeFines(allFines = [], employeeId) {
     if (!employeeId) return [];

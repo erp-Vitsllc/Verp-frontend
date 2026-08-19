@@ -5,13 +5,11 @@ import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
-import ErpPageHeader from '@/components/ErpPageHeader';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
-import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
-import DashboardAttendanceCalendar from '@/app/dashboard/components/DashboardAttendanceCalendar';
+import EmployeeAttendanceProfileView from '../components/EmployeeAttendanceProfileView';
 
-function EmployeeAttendancePageInner({ employeeMongoId }) {
+function EmployeeAttendanceProfilePageInner({ employeeMongoId }) {
     const router = useRouter();
     const handleListReturnBack = useListReturnBack(() => router.push('/HRM/Leave'));
 
@@ -29,22 +27,7 @@ function EmployeeAttendancePageInner({ employeeMongoId }) {
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
                         <ListReturnBackButton onNavigate={handleListReturnBack} />
-                        <ErpPageHeader title="Employee Attendance" />
-
-                        <div className={HEADER_PAIR_GRID}>
-                            <div
-                                className={`bg-white rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
-                            />
-                            <div
-                                className={`bg-white rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
-                            />
-                        </div>
-
-                        <DashboardAttendanceCalendar
-                            forEmployeeId={employeeMongoId}
-                            hideTeamControls
-                            className="!col-span-1 lg:!col-span-1 w-full"
-                        />
+                        <EmployeeAttendanceProfileView employeeMongoId={employeeMongoId} />
                     </div>
                 </div>
             </div>
@@ -52,7 +35,7 @@ function EmployeeAttendancePageInner({ employeeMongoId }) {
     );
 }
 
-export default function EmployeeAttendancePage({ params }) {
+export default function EmployeeAttendanceProfilePage({ params }) {
     const { id } = use(params);
     const employeeMongoId = String(id || '').trim();
 
@@ -60,11 +43,11 @@ export default function EmployeeAttendancePage({ params }) {
         <Suspense
             fallback={
                 <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">
-                    Loading attendance...
+                    Loading attendance profile...
                 </div>
             }
         >
-            <EmployeeAttendancePageInner employeeMongoId={employeeMongoId} />
+            <EmployeeAttendanceProfilePageInner employeeMongoId={employeeMongoId} />
         </Suspense>
     );
 }

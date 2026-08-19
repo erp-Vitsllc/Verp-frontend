@@ -1,3 +1,49 @@
+/** Local YYYY-MM-DD for date inputs. Avoids UTC `toISOString()` shifting the calendar day. */
+export function toFineDateInputValue(value = new Date()) {
+    if (value == null || value === '') return '';
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+        if (/^\d{4}-\d{2}-\d{2}/.test(trimmed) && !trimmed.includes('T') && !trimmed.includes(' ')) {
+            return trimmed.slice(0, 10);
+        }
+    }
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) {
+        if (typeof value === 'string') {
+            const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (match) return match[1];
+        }
+        return '';
+    }
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+/** Local YYYY-MM for month pickers. */
+export function toFineMonthInputValue(value = new Date()) {
+    if (value == null || value === '') return '';
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+        const my = trimmed.match(/^(\d{1,2})\/(\d{4})$/);
+        if (my) return `${my[2]}-${String(my[1]).padStart(2, '0')}`;
+    }
+    const ymd = toFineDateInputValue(value);
+    return ymd ? ymd.slice(0, 7) : '';
+}
+
+/** Display issued/report date without timezone day-shift (M/D/YYYY). */
+export function formatFineIssuedDate(value) {
+    if (!value) return '-';
+    const ymd = toFineDateInputValue(value);
+    if (!ymd) return '-';
+    const [y, m, d] = ymd.split('-');
+    return `${Number(m)}/${Number(d)}/${y}`;
+}
+
 /** Approved fines only — employee financials exclude pending/draft/rejected. */
 export const APPROVED_FINE_STATUSES = ['Approved', 'Active', 'Paid', 'Completed'];
 

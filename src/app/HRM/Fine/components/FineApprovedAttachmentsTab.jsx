@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Download, FileText, Loader2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Download, ExternalLink, FileText, Loader2, Paperclip } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { loadPdfJs } from '@/app/emp/[employeeId]/utils/lazyLibraries';
@@ -14,6 +14,51 @@ function formatApprovalDate(value) {
     } catch {
         return null;
     }
+}
+
+function reportTitleForFine(fine) {
+    const type = String(fine?.fineType || '').trim();
+    if (!type) return 'FINE REPORT';
+    return `${type.toUpperCase()} REPORT`;
+}
+
+function reportPdfFileName(fine, fallbackId) {
+    const slug = String(fine?.fineType || 'Fine').replace(/[^a-zA-Z0-9]+/g, '') || 'Fine';
+    const id = fine?.fineId || fallbackId || 'fine';
+    return `${slug}Report-${id}.pdf`;
+}
+
+function isImageAttachment(item) {
+    const mime = String(item?.mimeType || '').toLowerCase();
+    const name = String(item?.name || item?.label || '').toLowerCase();
+    return mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/.test(name);
+}
+
+function collectCorrespondingAttachments(fine, reportName) {
+    const list = [];
+    const seen = new Set();
+
+    const add = (item, fallbackLabel = '') => {
+        if (!item) return;
+        const key = String(item.publicId || item.url || item.name || '').trim();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        list.push({
+            ...item,
+            label: item.label || item.name || fallbackLabel || 'Attachment',
+        });
+    };
+
+    (fine?.approvalAttachments || []).forEach((item) => {
+        const isReport = item?.source === 'approved-form' || item?.source === 'asset-loss-report';
+        add(item, isReport ? reportName : 'Supporting Document');
+    });
+    add(fine?.attachment, 'Supporting Document');
+    (fine?.attachments || []).forEach((item, index) => {
+        add(item, `Attachment ${index + 1}`);
+    });
+
+    return list;
 }
 
 async function renderPdfPageImages(blob) {
@@ -54,7 +99,12 @@ export default function FineApprovedAttachmentsTab({
     const [error, setError] = useState('');
     const pdfBlobRef = useRef(null);
 
-    const downloadFileName = `AssetLossFineReport-${fine?.fineId || fineRouteId || 'fine'}.pdf`;
+    const reportTitle = reportTitleForFine(fine);
+    const downloadFileName = reportPdfFileName(fine, fineRouteId);
+    const correspondingFiles = useMemo(
+        () => collectCorrespondingAttachments(fine, downloadFileName),
+        [fine, downloadFileName],
+    );
 
     useEffect(() => {
         let cancelled = false;
@@ -68,7 +118,10 @@ export default function FineApprovedAttachmentsTab({
             try {
                 // Prefer Mongo _id (group overview URL uses base fineId which has no DB row)
                 const targetId = fine?._id || fineRouteId || fine?.fineId;
-                const params = employeeId ? { employeeId } : undefined;
+                const params = {
+                    ...(employeeId ? { employeeId } : {}),
+                    t: fine?.updatedAt || fine?.awardedDate || '',
+                };
                 const response = await axiosInstance.get(
                     `/Fine/${encodeURIComponent(String(targetId))}/approved-report-pdf`,
                     { responseType: 'blob', params },
@@ -103,7 +156,20 @@ export default function FineApprovedAttachmentsTab({
         return () => {
             cancelled = true;
         };
-    }, [fine?._id, fine?.fineId, fineRouteId, employeeId]);
+    }, [
+        fine?._id,
+        fine?.fineId,
+        fine?.updatedAt,
+        fine?.awardedDate,
+        fine?.discount,
+        fine?.monthStart,
+        fine?.description,
+        fine?.totalFineAmount,
+        fine?.serviceCharge,
+        fine?.fineAmount,
+        fineRouteId,
+        employeeId,
+    ]);
 
     const handleDownload = async () => {
         try {
@@ -112,7 +178,10 @@ export default function FineApprovedAttachmentsTab({
 
             if (!blob) {
                 const targetId = fine?._id || fineRouteId || fine?.fineId;
-                const params = employeeId ? { employeeId } : undefined;
+                const params = {
+                    ...(employeeId ? { employeeId } : {}),
+                    t: fine?.updatedAt || fine?.awardedDate || '',
+                };
                 const response = await axiosInstance.get(
                     `/Fine/${encodeURIComponent(String(targetId))}/approved-report-pdf`,
                     { responseType: 'blob', params },
@@ -131,7 +200,7 @@ export default function FineApprovedAttachmentsTab({
 
             toast({
                 title: 'Download started',
-                description: 'Attachment is downloading.',
+                description: `${downloadFileName} is downloading.`,
                 variant: 'success',
                 className: 'bg-green-50 border-green-200 text-green-800',
             });
@@ -155,9 +224,15 @@ export default function FineApprovedAttachmentsTab({
                 <div className="px-6 py-3 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2 min-w-0">
                         <FileText size={16} className="text-blue-600 shrink-0" />
-                        <p className="text-[11px] font-semibold text-slate-600">
-                            {approvedOn ? `Approved on ${approvedOn}` : 'Attachment'}
-                        </p>
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-bold tracking-wide text-slate-800">
+                                {reportTitle}
+                            </p>
+                            <p className="text-[10px] text-slate-500 truncate">
+                                {downloadFileName}
+                                {approvedOn ? ` · Approved on ${approvedOn}` : ''}
+                            </p>
+                        </div>
                     </div>
                     <button
                         type="button"
@@ -174,6 +249,62 @@ export default function FineApprovedAttachmentsTab({
                     </button>
                 </div>
 
+                {correspondingFiles.length > 0 && (
+                    <div className="px-6 py-3 border-b border-slate-100 bg-white">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">
+                            Corresponding attachments
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            {correspondingFiles.map((item, index) => {
+                                const key = item.publicId || item.url || item.name || index;
+                                const label = item.label || item.name || `Attachment ${index + 1}`;
+                                const isReport =
+                                    item.source === 'approved-form' || item.source === 'asset-loss-report';
+                                const content = (
+                                    <>
+                                        {isImageAttachment(item) ? (
+                                            <img
+                                                src={item.url}
+                                                alt=""
+                                                className="h-6 w-6 rounded object-cover shrink-0"
+                                            />
+                                        ) : (
+                                            <Paperclip size={14} className="text-slate-400 shrink-0" />
+                                        )}
+                                        <span className="truncate max-w-[200px]">{label}</span>
+                                        {item.url ? <ExternalLink size={12} className="text-slate-400 shrink-0" /> : null}
+                                    </>
+                                );
+                                const className = `inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-medium ${
+                                    isReport
+                                        ? 'border-blue-200 bg-blue-50 text-blue-800'
+                                        : 'border-slate-200 bg-slate-50 text-slate-700'
+                                }`;
+
+                                if (item.url) {
+                                    return (
+                                        <a
+                                            key={key}
+                                            href={item.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className={`${className} hover:opacity-90`}
+                                        >
+                                            {content}
+                                        </a>
+                                    );
+                                }
+
+                                return (
+                                    <span key={key} className={className}>
+                                        {content}
+                                    </span>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex-1 p-8 bg-slate-100/30 overflow-y-auto max-h-[800px] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
                     {error ? (
                         <div className="w-full min-h-[400px] flex flex-col items-center justify-center text-slate-500">
@@ -183,7 +314,7 @@ export default function FineApprovedAttachmentsTab({
                     ) : loading ? (
                         <div className="w-full min-h-[400px] flex flex-col items-center justify-center text-slate-500">
                             <Loader2 size={36} className="animate-spin text-blue-600 mb-3" />
-                            <p className="text-sm font-medium text-slate-600">Loading attachment…</p>
+                            <p className="text-sm font-medium text-slate-600">Loading {downloadFileName}…</p>
                         </div>
                     ) : (
                         <div className="flex justify-center">
@@ -192,7 +323,7 @@ export default function FineApprovedAttachmentsTab({
                                     <img
                                         key={`page-${index}`}
                                         src={src}
-                                        alt={`Attachment page ${index + 1}`}
+                                        alt={`${reportTitle} page ${index + 1}`}
                                         className="w-full h-auto bg-white block"
                                     />
                                 ))}

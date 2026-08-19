@@ -131,7 +131,7 @@ function VehicleHandoverAssignPageContent() {
         flowchartRows,
         hrActiveHolder,
         loading: permissionsLoading,
-    } = useHandoverAssignPermissions(vehicle, historyEntry);
+    } = useHandoverAssignPermissions(vehicle, historyEntry, assetHistory);
     const isInspectionHandover = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
     const reportsReadOnly = !permissionsLoading && !canEditReports && !canForceEditPhotos;
     const inspectionFormReadOnly =
@@ -145,7 +145,7 @@ function VehicleHandoverAssignPageContent() {
     const isHrReviewStage = useMemo(
         () =>
             handoverAtHrStage ||
-            isHandoverHrStage(vehicle, historyEntry) ||
+            isHandoverHrStage(vehicle, historyEntry, assetHistory) ||
             canReviewInspection,
         [canReviewInspection, handoverAtHrStage, vehicle, historyEntry],
     );
@@ -867,7 +867,7 @@ function VehicleHandoverAssignPageContent() {
                             handoverItemFineWaivers={handoverItemFineWaiversForUi}
                             handoverItemFineInclusions={handoverItemFineInclusionsForUi}
                             approvedHandoverFineIds={
-                                isHandoverHistoryFullyApproved(historyEntry) ? approvedHandoverFineIds : []
+                                isHandoverHistoryFullyApproved(historyEntry, vehicle, assetHistory) ? approvedHandoverFineIds : []
                             }
                             canReviewInspection={canReviewInspection}
                             canSubmitInspectionForHr={canSubmitInspectionForHr}

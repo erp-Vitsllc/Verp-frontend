@@ -22,6 +22,7 @@ import {
     isAccidentRepairGarageFormComplete,
     validateAccidentRepairGarageForm,
 } from '../utils/vehicleAccidentRepairGarageForm';
+import { isAccidentOtherPartyService } from '../utils/vehicleAccidentRepairWorkflow';
 import {
     ACCIDENT_REPAIR_DETAIL_GRID_LAYOUT,
     tireBtnPrimary,
@@ -58,6 +59,7 @@ export default function VehicleAccidentRepairGarageCard({
     const [formData, setFormData] = useState(() => buildAccidentRepairGarageFormState(service, asset));
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
+    const otherParty = useMemo(() => isAccidentOtherPartyService(service), [service]);
     const scheduleSubmitStatus = getScheduleSubmitStatus(
         remark,
         asset?.activeServiceWorkflow,
@@ -132,11 +134,14 @@ export default function VehicleAccidentRepairGarageCard({
 
     const subtitle = scheduleGate.locked
         ? scheduleGate.message
-        : !canManage
-          ? 'Waiting for Admin / Admin Officer to schedule / reschedule'
-          : canEditGarage
-            ? 'Admin / Admin Officer can schedule / reschedule anytime until Complete Service'
-            : 'Garage vendor and scheduled service window';
+        : otherParty
+          ? 'Other party damage — garage vendor fields optional; amount is 0'
+          : !canManage
+            ? 'Waiting for Admin / Admin Officer to schedule / reschedule'
+            : canEditGarage
+              ? 'Admin / Admin Officer can schedule / reschedule anytime until Complete Service'
+              : 'Garage vendor and scheduled service window';
+    const garageFieldOptionalSuffix = otherParty ? ' (optional)' : '';
 
     return (
         <div className={`w-full ${className}`.trim()}>
@@ -159,9 +164,15 @@ export default function VehicleAccidentRepairGarageCard({
                     serviceTypeLabel="Accident Repair"
                     onUpdated={onUpdated}
                 />
+                {otherParty ? (
+                    <div className="mb-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                        Not required — other party damage. Service dates are still required; garage vendor
+                        details are optional.
+                    </div>
+                ) : null}
                 <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass} mb-2.5`}>
                     <VehicleAccidentRepairFormFieldCell
-                        label="Garage Location"
+                        label={`Garage Location${garageFieldOptionalSuffix}`}
                         accentClass="border-gray-200 bg-white"
                         minHeightPx={fieldMinHeightPx}
                     >
@@ -174,7 +185,7 @@ export default function VehicleAccidentRepairGarageCard({
                         />
                     </VehicleAccidentRepairFormFieldCell>
                     <VehicleAccidentRepairFormFieldCell
-                        label="Garage Contact"
+                        label={`Garage Contact${garageFieldOptionalSuffix}`}
                         accentClass="border-gray-200 bg-white"
                         minHeightPx={fieldMinHeightPx}
                     >
@@ -190,7 +201,7 @@ export default function VehicleAccidentRepairGarageCard({
 
                 <div className={`grid grid-cols-1 sm:grid-cols-3 ${gapClass}`}>
                     <VehicleAccidentRepairFormFieldCell
-                        label="Garage Name (Vendor)"
+                        label={`Garage Name (Vendor)${garageFieldOptionalSuffix}`}
                         accentClass="border-gray-200 bg-white"
                         minHeightPx={fieldMinHeightPx}
                     >
@@ -237,6 +248,26 @@ export default function VehicleAccidentRepairGarageCard({
                             disabledDays={serviceEndDisabledDays(formData.serviceStartDate)}
                         />
                     </VehicleAccidentRepairFormFieldCell>
+                    {otherParty ? (
+                        <VehicleAccidentRepairFormFieldCell
+                            label="Amount"
+                            accentClass="border-gray-200 bg-white"
+                            minHeightPx={fieldMinHeightPx}
+                        >
+                            <div className="relative">
+                                <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                                    AED
+                                </span>
+                                <input
+                                    className={`${tireFieldSelect} pl-11 opacity-70`}
+                                    type="text"
+                                    readOnly
+                                    value="0"
+                                    disabled
+                                />
+                            </div>
+                        </VehicleAccidentRepairFormFieldCell>
+                    ) : null}
                 </div>
 
                 <div className="mt-4 border-t border-gray-100 pt-4">

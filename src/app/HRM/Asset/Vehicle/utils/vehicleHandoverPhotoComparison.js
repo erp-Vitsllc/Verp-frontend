@@ -296,5 +296,32 @@ export function buildBodyConditionComparisonRows(historyEntry, assetHistory = []
 export function hasHandoverPhotoChanges(historyEntry, assetHistory = [], asset = null) {
     const assessment = buildAssessmentComparisonRows(historyEntry, assetHistory, asset);
     const body = buildBodyConditionComparisonRows(historyEntry, assetHistory);
-    return assessment.some((row) => row.changed) || body.some((row) => row.changed);
+    return (
+        assessment.some((row) => row.changed) ||
+        body.some((row) => {
+            if (row.current?.photoSource === 'previous') return false;
+            return row.photoChanged;
+        })
+    );
+}
+
+/** Target accepted and accessories/body match the previous report — no HR, status is Approved. */
+export function isHandoverNoEditComplete(historyEntry, assetHistory = [], vehicle = null) {
+    if (!historyEntry) return false;
+    if (historyEntry?.details?.hrApprovalSkipped === true) return true;
+
+    const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '')
+        .trim()
+        .toLowerCase();
+    if (lifecycle === 'rejected' || lifecycle === 'pending') return false;
+
+    const targetDone =
+        lifecycle === 'accepted' ||
+        lifecycle === 'approved' ||
+        Boolean(historyEntry?.details?.vehicleHandoverWorkflow?.stages?.target?.date) ||
+        String(historyEntry?.details?.acceptanceStatus || '').trim() === 'Accepted';
+    if (!targetDone) return false;
+
+    if (!Array.isArray(assetHistory) || assetHistory.length === 0) return false;
+    return !hasHandoverPhotoChanges(historyEntry, assetHistory, vehicle);
 }

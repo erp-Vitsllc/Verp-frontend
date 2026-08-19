@@ -51,7 +51,7 @@ function computeAssetAging(purchaseDate) {
 
 function mapPayableType(responsibleFor) {
     const rf = String(responsibleFor || 'Employee').trim();
-    if (rf === 'Employee & Company') return 'Employee/Company';
+    if (rf === 'Employee & Company') return 'Employee and Company';
     if (rf === 'Company') return 'Company';
     return 'Employee';
 }

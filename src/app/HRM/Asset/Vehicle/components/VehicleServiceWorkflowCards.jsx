@@ -611,6 +611,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         !!(String(accidentStatusForm.serviceReport?.data || '').trim()) || hasPersistedCompletionReport;
     const shopInvoiceReady =
         !!(String(accidentStatusForm.returnShopInvoice?.data || '').trim()) || hasPersistedShopInvoice;
+    const accidentDocsOptional = isAccidentRepairRequest;
     const canSubmitStatusForm =
         isScheduledStage &&
         canActOnWorkflow &&
@@ -618,8 +619,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         !statusFormFieldsLocked &&
         !serviceReportFileReading &&
         !shopInvoiceFileReading &&
-        completionReportReady &&
-        shopInvoiceReady;
+        (accidentDocsOptional || (completionReportReady && shopInvoiceReady));
     const hrApproved = !!hrApproveEntry;
     const accountsApproved = !!accountsApproveEntry;
     const showAccountsSection =
@@ -1028,21 +1028,23 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         }
         const completionPayload = buildWorkflowUploadPayload(accidentStatusForm.serviceReport);
         const shopPayload = buildWorkflowUploadPayload(accidentStatusForm.returnShopInvoice);
-        if (!completionPayload && !hasPersistedCompletionReport) {
-            toast({
-                variant: 'destructive',
-                title: 'Service completion report required',
-                description: 'Please upload a workshop / service completion report (PDF or image) before submit.',
-            });
-            return;
-        }
-        if (!shopPayload && !hasPersistedShopInvoice) {
-            toast({
-                variant: 'destructive',
-                title: 'Shop invoice required',
-                description: 'Please upload the shop / VAT invoice (PDF or image) before submit.',
-            });
-            return;
+        if (!isAccidentRepairRequest) {
+            if (!completionPayload && !hasPersistedCompletionReport) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Service completion report required',
+                    description: 'Please upload a workshop / service completion report (PDF or image) before submit.',
+                });
+                return;
+            }
+            if (!shopPayload && !hasPersistedShopInvoice) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Shop invoice required',
+                    description: 'Please upload the shop / VAT invoice (PDF or image) before submit.',
+                });
+                return;
+            }
         }
         if (!assetId) return;
         try {

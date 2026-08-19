@@ -76,7 +76,7 @@ export default function VehicleHandoverAssignWorkflowPanel({
     }, [hasExternalFlowchart]);
 
     const isInspection = isInspectionHandoverDetailEntry(historyEntry, vehicle);
-    const handoverFullyApproved = isHandoverHistoryFullyApproved(historyEntry);
+    const handoverFullyApproved = isHandoverHistoryFullyApproved(historyEntry, vehicle, assetHistory);
     const handoverRejected = isHandoverHistoryRejected(historyEntry);
 
     const events = useMemo(() => {

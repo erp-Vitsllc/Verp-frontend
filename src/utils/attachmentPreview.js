@@ -1,11 +1,16 @@
 import axiosInstance from '@/utils/axios';
+import {
+    ERP_ATTACHMENT_ACCEPT,
+    ERP_ATTACHMENT_HINT,
+    guardAttachmentFileChange as guardErpAttachmentFileChange,
+    isAllowedAttachmentFile as isErpAllowedAttachmentFile,
+    validateAttachmentFile as validateErpAttachmentFile,
+} from '@/utils/uploadFileTypes';
 
-/** File picker: PDF and images (JPEG/PNG only). */
-export const ERP_ATTACHMENT_ACCEPT = '.pdf,.jpg,.jpeg,.png';
+/** File picker: PDF and JPEG only (see uploadFileTypes.js). */
+export { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT };
 
-export const ALLOWED_ATTACHMENT_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
-
-const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
+export const ALLOWED_ATTACHMENT_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/jpg']);
 
 function pickMimeFromName(fileName, fallback = 'application/pdf') {
     const n = String(fileName || '').toLowerCase();
@@ -213,35 +218,15 @@ export function resolveStorageProxyKey(attachment) {
 }
 
 export function isAllowedAttachmentFile(file) {
-    if (!file) return false;
-    const name = String(file.name || '').toLowerCase();
-    const type = String(file.type || '').toLowerCase();
-    const extOk = ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext));
-    const mimeOk = !type || ALLOWED_ATTACHMENT_MIMES.has(type);
-    return extOk || mimeOk;
+    return isErpAllowedAttachmentFile(file);
 }
 
 export function validateAttachmentFile(file) {
-    if (!file) return { ok: false, message: 'No file selected.' };
-    if (!isAllowedAttachmentFile(file)) {
-        return { ok: false, message: 'Only PDF, JPG, and PNG files are allowed.' };
-    }
-    return { ok: true };
+    return validateErpAttachmentFile(file);
 }
 
 export function guardAttachmentFileChange(event, onAllowed) {
-    const file = event?.target?.files?.[0];
-    if (!file) {
-        onAllowed?.(event, null);
-        return null;
-    }
-    const check = validateAttachmentFile(file);
-    if (!check.ok) {
-        if (event.target) event.target.value = '';
-        return { blocked: true, message: check.message };
-    }
-    onAllowed?.(event, file);
-    return null;
+    return guardErpAttachmentFileChange(event, onAllowed);
 }
 
 /**

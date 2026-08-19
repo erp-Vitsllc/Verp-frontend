@@ -6,53 +6,60 @@ import {
     normalizeHandoverPhotoIdentity,
     resolveAssessmentMediaUrl,
 } from '../utils/vehicleHandoverReceiverAssessment';
-import { fetchSignedAssessmentMediaUrl } from '../utils/vehicleHandoverImageUtils';
+import {
+    fetchSignedAssessmentMediaUrl,
+    peekCachedAssessmentMediaUrl,
+    resolveAssessmentStorageProxyKey,
+} from '../utils/vehicleHandoverImageUtils';
 
 function mediaDependencyKey(value) {
     if (!value) return '';
+    const proxyKey = resolveAssessmentStorageProxyKey(value);
+    if (proxyKey) return proxyKey;
     if (typeof value === 'string') {
         return normalizeHandoverPhotoIdentity(value) || value.trim();
     }
     return normalizeHandoverPhotoIdentity(value) || JSON.stringify(value);
 }
 
+function immediateDisplayUrl(photo) {
+    const direct = resolveAssessmentMediaUrl(photo);
+    if (direct?.startsWith('data:') || direct?.startsWith('blob:')) return direct;
+    return peekCachedAssessmentMediaUrl(photo);
+}
+
 export default function useAssessmentMediaUrl(photo) {
-    const [url, setUrl] = useState(() => {
-        const direct = resolveAssessmentMediaUrl(photo);
-        return direct?.startsWith('data:') || direct?.startsWith('blob:') ? direct : null;
-    });
+    const [url, setUrl] = useState(() => immediateDisplayUrl(photo));
     const [loading, setLoading] = useState(false);
     const [failed, setFailed] = useState(false);
     const retryCountRef = useRef(0);
+    const requestKeyRef = useRef(mediaDependencyKey(photo));
+    const photoRef = useRef(photo);
+    photoRef.current = photo;
     const depKey = mediaDependencyKey(photo);
 
     useEffect(() => {
         retryCountRef.current = 0;
+        requestKeyRef.current = depKey;
+        const currentPhoto = photoRef.current;
 
-        if (!hasStoredAssessmentPhoto(photo)) {
+        if (!hasStoredAssessmentPhoto(currentPhoto)) {
             setUrl(null);
             setFailed(false);
             setLoading(false);
             return undefined;
         }
 
-        const direct = resolveAssessmentMediaUrl(photo);
-        if (direct?.startsWith('data:') || direct?.startsWith('blob:')) {
-            setUrl(direct);
+        const ready = immediateDisplayUrl(currentPhoto);
+        if (ready) {
+            setUrl(ready);
             setFailed(false);
             setLoading(false);
             return undefined;
         }
 
-        const storageKey = normalizeHandoverPhotoIdentity(photo);
-        // Bare http/Wasabi URLs are not safe as <img src> on many networks — proxy by key only.
-        if (
-            !storageKey ||
-            storageKey.startsWith('data:') ||
-            storageKey.startsWith('blob:') ||
-            storageKey.startsWith('http://') ||
-            storageKey.startsWith('https://')
-        ) {
+        const storageKey = resolveAssessmentStorageProxyKey(currentPhoto);
+        if (!storageKey || storageKey.startsWith('data:') || storageKey.startsWith('blob:')) {
             setUrl(null);
             setFailed(true);
             setLoading(false);
@@ -60,36 +67,62 @@ export default function useAssessmentMediaUrl(photo) {
         }
 
         let cancelled = false;
+        // Drop the previous slot's blob immediately so a slow fetch cannot flash the wrong view.
+        setUrl(null);
         setLoading(true);
         setFailed(false);
-        fetchSignedAssessmentMediaUrl(photo).then((signed) => {
-            if (cancelled) return;
-            const nextUrl =
-                signed ||
-                (direct?.startsWith('data:') || direct?.startsWith('blob:') ? direct : null);
-            setUrl(nextUrl);
-            setFailed(!nextUrl);
-            setLoading(false);
-        });
+        const startedKey = depKey;
+
+        const load = (attempt) => {
+            fetchSignedAssessmentMediaUrl(currentPhoto, { skipCache: attempt > 0 })
+                .then((signed) => {
+                    if (cancelled || requestKeyRef.current !== startedKey) return;
+                    if (!signed && attempt < 2) {
+                        window.setTimeout(() => {
+                            if (cancelled || requestKeyRef.current !== startedKey) return;
+                            load(attempt + 1);
+                        }, 400 * (attempt + 1));
+                        return;
+                    }
+                    setUrl(signed || null);
+                    setFailed(!signed);
+                    setLoading(false);
+                })
+                .catch(() => {
+                    if (cancelled || requestKeyRef.current !== startedKey) return;
+                    if (attempt < 2) {
+                        load(attempt + 1);
+                        return;
+                    }
+                    setUrl(null);
+                    setFailed(true);
+                    setLoading(false);
+                });
+        };
+        load(0);
+
         return () => {
             cancelled = true;
         };
-    }, [depKey, photo]);
+    }, [depKey]);
 
     const retry = useCallback(() => {
-        if (!hasStoredAssessmentPhoto(photo)) return;
+        const currentPhoto = photoRef.current;
+        const startedKey = mediaDependencyKey(currentPhoto);
+        if (!hasStoredAssessmentPhoto(currentPhoto)) return;
         if (retryCountRef.current >= 2) {
             setFailed(true);
             return;
         }
         retryCountRef.current += 1;
         setLoading(true);
-        fetchSignedAssessmentMediaUrl(photo).then((signed) => {
+        fetchSignedAssessmentMediaUrl(currentPhoto, { skipCache: true }).then((signed) => {
+            if (requestKeyRef.current !== startedKey) return;
             setUrl(signed);
             setFailed(!signed);
             setLoading(false);
         });
-    }, [photo]);
+    }, []);
 
     return { url, loading, failed, retry };
 }

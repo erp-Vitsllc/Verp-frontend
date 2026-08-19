@@ -118,13 +118,9 @@ function ViewCellEditor({
     const hasPhoto = hasAssessmentPhoto(row?.photo);
     const hasStoredPreviousPhoto = hasAssessmentPhoto(previousRow?.photo);
     const {
-        url: photoUrl,
-        loading: photoLoading,
-    } = useAssessmentMediaUrl(row?.photo);
-    const {
         loading: previousPhotoLoading,
         failed: previousPhotoFailed,
-    } = useAssessmentMediaUrl(hasStoredPreviousPhoto ? previousRow?.photo : null);
+    } = useAssessmentMediaUrl(pickerOpen && hasStoredPreviousPhoto ? previousRow?.photo : null);
     const photoMissing = !hasPhoto;
     const skipFineFlow = inspectionHandover || isFirstInspection;
     const commentRequired =
@@ -188,7 +184,7 @@ function ViewCellEditor({
                         label={view.label}
                         photo={row?.photo}
                         missing={photoMissing && !readOnly}
-                        uploading={uploading || (hasPhoto && photoLoading && !photoUrl)}
+                        uploading={uploading}
                         readOnly={readOnly}
                         onPreview={hasPhoto ? onPhotoPreview : undefined}
                         onOpenPicker={() => !readOnly && !uploading && setPickerOpen(true)}

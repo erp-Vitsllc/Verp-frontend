@@ -19,6 +19,7 @@ import {
     handoverStageLabel,
     isHandoverHistoryFullyApproved,
 } from '../utils/vehicleHandoverAssignActions';
+import { isHandoverNoEditComplete } from '../utils/vehicleHandoverPhotoComparison';
 import { inspectionHandoverStageLabel } from '../utils/vehicleInspectionHandoverWorkflow';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import VehicleHandoverAssignActions from './VehicleHandoverAssignActions';
@@ -123,9 +124,10 @@ export default function VehicleHandoverAssignHeaderCards({
     }
 
     const isInspection = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
-    const baseStatus = getHandoverDisplayStatus(historyEntry, vehicle);
-    const status = getHandoverHistoryStatus(historyEntry, vehicle);
-    const stage = getEffectiveHandoverStage(vehicle, historyEntry);
+    const noEditApproved = isHandoverNoEditComplete(historyEntry, assetHistory, vehicle);
+    const baseStatus = getHandoverDisplayStatus(historyEntry, vehicle, { noEditApproved });
+    const status = getHandoverHistoryStatus(historyEntry, vehicle, { assetHistory, noEditApproved });
+    const stage = getEffectiveHandoverStage(vehicle, historyEntry, assetHistory);
     const dayInfo =
         !isInspection && baseStatus.key === 'pending'
             ? getHandoverEscalationDayInfo(vehicle, historyEntry, { assetHistory })
@@ -133,7 +135,7 @@ export default function VehicleHandoverAssignHeaderCards({
     const stageLabel = isInspection
         ? inspectionHandoverStageLabel(vehicle, historyEntry)
         : handoverStageLabel(stage, vehicle, historyEntry);
-    const handoverFullyApproved = isHandoverHistoryFullyApproved(historyEntry);
+    const handoverFullyApproved = isHandoverHistoryFullyApproved(historyEntry, vehicle, assetHistory);
 
     const statusBoxClass =
         baseStatus.key === 'pending'

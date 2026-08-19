@@ -17,6 +17,7 @@ import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { applyFineDiscount, validateFineDiscount } from '../utils/fineDiscount';
+import { toFineDateInputValue, toFineMonthInputValue } from '../utils/fineScheduleUtils';
 
 // Reusable searchable employee dropdown
 function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasError }) {
@@ -109,9 +110,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         fineAmount: '',
         description: '',
         remarks: '',
-        awardedDate: new Date().toISOString().split('T')[0],
+        awardedDate: toFineDateInputValue(),
         payableDuration: '1',
-        monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+        monthStart: toFineMonthInputValue(),
         responsibleFor: 'Employee',
         employeeAmount: '',
         companyAmount: '',
@@ -148,9 +149,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     ),
                     description: initialData.description || '',
                     remarks: initialData.remarks || '',
-                    awardedDate: initialData.awardedDate ? new Date(initialData.awardedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    awardedDate: initialData.awardedDate ? toFineDateInputValue(initialData.awardedDate) : toFineDateInputValue(),
                     payableDuration: String(initialData.payableDuration || '1'),
-                    monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+                    monthStart: initialData.monthStart || toFineMonthInputValue(),
                     responsibleFor: initialData.responsibleFor || 'Employee',
                     employeeAmount: initialData.employeeAmount || '',
                     companyAmount: initialData.companyAmount || '',
@@ -170,9 +171,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     fineAmount: '',
                     description: '',
                     remarks: '',
-                    awardedDate: new Date().toISOString().split('T')[0],
+                    awardedDate: toFineDateInputValue(),
                     payableDuration: '1',
-                    monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                    monthStart: toFineMonthInputValue(),
                     responsibleFor: 'Employee',
                     employeeAmount: '',
                     companyAmount: '',
@@ -478,9 +479,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             fineAmount: '',
             description: '',
             remarks: '',
-            awardedDate: new Date().toISOString().split('T')[0],
+            awardedDate: toFineDateInputValue(),
             payableDuration: '1',
-            monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+            monthStart: toFineMonthInputValue(),
             responsibleFor: 'Employee',
             employeeAmount: '',
             companyAmount: '',

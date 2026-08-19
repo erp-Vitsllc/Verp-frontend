@@ -46,6 +46,7 @@ import DashboardCheckInOutCard from '@/app/dashboard/components/DashboardCheckIn
 import DashboardEmployeeHrCards from '@/app/dashboard/components/DashboardEmployeeHrCards';
 import DashboardEmployeeAssetCards from '@/app/dashboard/components/DashboardEmployeeAssetCards';
 import DashboardMyLeaveCard from '@/app/dashboard/components/DashboardMyLeaveCard';
+import DashboardMyRequestsCard from '@/app/dashboard/components/DashboardMyRequestsCard';
 import DashboardRequestHub from '@/app/dashboard/components/DashboardRequestHub';
 import ActivityPieChart from '@/app/dashboard/components/ActivityPieChart';
 import { dashboardGrid, dashboardHover, dashboardItem, dashboardStagger } from '@/app/dashboard/components/dashboardMotion';
@@ -1637,6 +1638,7 @@ function DashboardContent() {
                         {!isExpanded ? (
                             <>
                                 <DashboardMyLeaveCard />
+                                <DashboardMyRequestsCard />
                                 <DashboardEmployeeHrCards />
                                 <DashboardEmployeeAssetCards />
                             </>

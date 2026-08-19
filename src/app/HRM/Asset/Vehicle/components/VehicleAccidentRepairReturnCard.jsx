@@ -19,6 +19,7 @@ import {
 import {
     canEditAccidentRepairReturn,
     isAccidentRepairGarageSubmitted,
+    isAccidentOtherPartyService,
     ACCIDENT_REPAIR_WORKFLOW_STAGES,
 } from '../utils/vehicleAccidentRepairWorkflow';
 import {
@@ -147,6 +148,7 @@ export default function VehicleAccidentRepairReturnCard({
     const [formData, setFormData] = useState(() => buildAccidentRepairReturnFormState(service, asset));
 
     const remark = useMemo(() => parseVehicleServiceRemark(service) || {}, [service]);
+    const otherParty = useMemo(() => isAccidentOtherPartyService(service), [service]);
     const assignmentPending = isOilServiceAssignmentPending(remark);
     const stage = String(workflowStage || '').toLowerCase();
     const isComplete =
@@ -415,7 +417,9 @@ export default function VehicleAccidentRepairReturnCard({
             !isComplete);
     const completeLockMessage = assignmentPending
         ? 'Complete Initiate Service and click Send first'
-        : 'Complete Schedule and HR Approval first';
+        : otherParty
+          ? 'Complete Schedule/Reschedule first'
+          : 'Complete Schedule and HR Approval first';
 
     return (
         <>
@@ -429,7 +433,7 @@ export default function VehicleAccidentRepairReturnCard({
                             : isComplete
                               ? 'Service record completed'
                               : canEditReturn
-                                ? 'Fill required fields — then Complete to close this service'
+                                ? 'Fill return dates and condition photos — garage report and invoice are optional'
                                 : 'Service completion — view return details below'
                     }
                     icon={ClipboardCheck}
@@ -439,7 +443,7 @@ export default function VehicleAccidentRepairReturnCard({
                 >
                     <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${gapClass}`}>
                         <VehicleAccidentRepairFormFieldCell
-                            label="Garage Report"
+                            label="Garage Report (optional)"
                             accentClass={accent(0)}
                             minHeightPx={fieldMinHeightPx}
                         >
@@ -452,7 +456,7 @@ export default function VehicleAccidentRepairReturnCard({
                             />
                         </VehicleAccidentRepairFormFieldCell>
                         <VehicleAccidentRepairFormFieldCell
-                            label="Garage Invoice"
+                            label="Garage Invoice (optional)"
                             accentClass={accent(1)}
                             minHeightPx={fieldMinHeightPx}
                         >

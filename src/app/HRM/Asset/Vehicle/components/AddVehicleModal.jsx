@@ -24,6 +24,7 @@ const emptyForm = () => ({
     plateCode: '',
     plateDigits: '',
     purchaseValue: '',
+    fuelMonthlyLimit: '',
     purchaseYearMonth: '',
     invoiceFileName: '',
     invoiceAttachment: '',
@@ -111,6 +112,10 @@ export default function AddVehicleModal({
                 plateCode: code,
                 plateDigits: digits,
                 purchaseValue: a.assetValue != null ? String(a.assetValue) : '',
+                fuelMonthlyLimit:
+                    a.fuelMonthlyLimit != null && a.fuelMonthlyLimit !== ''
+                        ? String(a.fuelMonthlyLimit)
+                        : '',
                 purchaseYearMonth: locatorFresh ? '' : pd ? pd.slice(0, 7) : '',
                 category: a.categoryId?.name || '',
                 assetValue: a.assetValue || 0,
@@ -210,6 +215,7 @@ export default function AddVehicleModal({
             invoiceFile: formData.invoiceAttachment || null,
             photo: formData.photo,
             quantity: 1,
+            fuelMonthlyLimit: Number(String(formData.fuelMonthlyLimit).replace(/[^\d.]/g, '') || 0),
         };
     };
 
@@ -224,6 +230,7 @@ export default function AddVehicleModal({
         }),
         plateEmirate: formData.plateEmirate,
         assetValue: Number(formData.purchaseValue || 0),
+        fuelMonthlyLimit: Number(String(formData.fuelMonthlyLimit).replace(/[^\d.]/g, '') || 0),
         purchaseDate: purchaseYmToDateValue(formData.purchaseYearMonth),
         ...(formData.invoiceAttachment ? { invoiceFile: formData.invoiceAttachment } : {}),
     });
@@ -266,6 +273,7 @@ export default function AddVehicleModal({
                     plateCode: formData.plateCode,
                     plateDigits: formData.plateDigits,
                     modelYear: formData.modelYear,
+                    fuelMonthlyLimit: formData.fuelMonthlyLimit,
                 };
                 const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
                     sectionId: 'basic',
@@ -474,6 +482,23 @@ export default function AddVehicleModal({
                                         className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm"
                                     />
                                 </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                        Monthly limit (AED)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={formData.fuelMonthlyLimit}
+                                        onChange={(e) => setFormData({ ...formData, fuelMonthlyLimit: e.target.value })}
+                                        placeholder="0.00"
+                                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                                         Purchase Year & Month <span className="text-red-500">*</span>

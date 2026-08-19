@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Check, Paperclip, X } from 'lucide-react';
+import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 const LEAVE_OPTIONS = [
     {
@@ -48,6 +49,14 @@ export default function AttendanceLeaveRequestModal({
         onClose?.();
     };
 
+    const handleAttachmentChange = (event) => {
+        const result = guardAttachmentFileChange(event, (_, file) => {
+            setAttachment(file);
+            if (file) setLocalError('');
+        });
+        if (result?.blocked) setLocalError(result.message);
+    };
+
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!selectedKey) {
@@ -61,6 +70,11 @@ export default function AttendanceLeaveRequestModal({
         }
         if (!attachment?.name) {
             setLocalError('Attachment is required.');
+            return;
+        }
+        const attachmentCheck = validateErpUploadFile(attachment);
+        if (!attachmentCheck.ok) {
+            setLocalError(attachmentCheck.message);
             return;
         }
         setLocalError('');
@@ -168,8 +182,9 @@ export default function AttendanceLeaveRequestModal({
                         <input
                             ref={fileRef}
                             type="file"
+                            accept={ERP_ATTACHMENT_ACCEPT}
                             className="hidden"
-                            onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+                            onChange={handleAttachmentChange}
                         />
                         <button
                             type="button"
@@ -184,7 +199,7 @@ export default function AttendanceLeaveRequestModal({
                                     {attachment ? attachment.name : 'Choose a file'}
                                 </span>
                                 <span className="block text-xs text-slate-400 mt-0.5">
-                                    {attachment ? 'Click to change' : 'Required · PDF, image, or document'}
+                                    {attachment ? 'Click to change' : `Required · ${ERP_ATTACHMENT_HINT}`}
                                 </span>
                             </span>
                         </button>

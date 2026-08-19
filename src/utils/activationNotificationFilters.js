@@ -19,6 +19,22 @@ function parseExtra3Meta(extra3) {
     }
 }
 
+function isAcceptedAssignmentOutcomeItem(item = {}) {
+    const type = String(item?.type || item?.requestType || '').trim();
+    if (type && type !== 'Asset Assignment' && type !== 'Asset') return false;
+    const meta = parseExtra3Meta(item.extra3);
+    if (meta?.isBulkAssignment === true) return false;
+    const extra1 = String(item.extra1 || '').trim();
+    const extra2 = String(item.extra2 || '').trim();
+    const outcome = String(meta?.outcome || '').toLowerCase();
+    if (meta?.assignmentOutcome === true && (outcome === 'accept' || outcome === 'accepted')) {
+        return true;
+    }
+    if (/\bassignment accepted\b/i.test(extra1) && !/^bulk assignment\b/i.test(extra1)) return true;
+    if (/^assignment accepted$/i.test(extra2)) return true;
+    return false;
+}
+
 /** Creator must see Asset Approval Rejected outcomes (resubmit / remove draft). */
 export function isSubmitterRejectedAssetCreationFollowup(item) {
     if (!item || item.type !== 'Asset Approval' || item.status !== 'Rejected') return false;
@@ -89,6 +105,7 @@ export function filterActionableDashboardItems(items) {
             if (item.status === 'Pending') return true;
             return isSubmitterRejectedLossDamageFollowup(item);
         }
+        if (isAcceptedAssignmentOutcomeItem(item)) return false;
         return item.status === 'Pending';
     });
 }

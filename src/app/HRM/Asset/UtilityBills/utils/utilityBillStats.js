@@ -1,5 +1,7 @@
 /** Aggregate bill stats for overview / amount summary cards. */
 
+import { entryRequiresMonthlyBill } from './utilityBillsStorage';
+
 export function formatBillMoney(n) {
     const num = Number(n);
     if (!Number.isFinite(num)) return '0.00';
@@ -139,10 +141,12 @@ export function filterEntriesAvailableForBillMonth(entries = [], billMonth = '')
     });
 }
 
-/** Active accounts for a month that still need billing (available + not occupied). */
+/** Active accounts for a month that still need billing (available + not occupied + rental > 0). */
 export function filterBillableEntriesForMonth(entries = [], bills = [], billMonth = '') {
     const available = filterEntriesAvailableForBillMonth(entries, billMonth);
-    return filterEntriesWithoutOccupiedBill(available, bills, billMonth);
+    return filterEntriesWithoutOccupiedBill(available, bills, billMonth).filter((entry) =>
+        entryRequiresMonthlyBill(entry),
+    );
 }
 
 /** True when every entry already has Approved / Paid for that month. */

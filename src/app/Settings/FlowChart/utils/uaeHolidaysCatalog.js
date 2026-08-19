@@ -76,7 +76,30 @@ export function getUaeHolidaysForYear(year) {
     return list.map((h) => ({
         ...h,
         month: Number(h.date.slice(5, 7)),
+        year: y,
     }));
+}
+
+/**
+ * UAE holidays from the 1st of the current month through 31 Dec this year,
+ * plus every holiday in the following year.
+ */
+export function getUaeHolidaysCurrentMonthThroughNextYear(now = new Date()) {
+    const thisYear = now.getFullYear();
+    const nextYear = thisYear + 1;
+    const fromMonth = now.getMonth() + 1;
+
+    const thisYearHolidays = getUaeHolidaysForYear(thisYear).filter(
+        (h) => h.month >= fromMonth,
+    );
+    const nextYearHolidays = getUaeHolidaysForYear(nextYear);
+
+    return {
+        thisYear,
+        nextYear,
+        fromMonth,
+        holidays: [...thisYearHolidays, ...nextYearHolidays],
+    };
 }
 
 export const MONTH_NAMES = [

@@ -3,8 +3,8 @@ export const HUB_KINDS = [
     { key: 'leave', label: 'Leave' },
     { key: 'advance', label: 'Advance' },
     { key: 'loan', label: 'Loan' },
-    { key: 'salary', label: 'Salary' },
-    { key: 'certificate', label: 'Certificate' },
+    { key: 'salary', label: 'Early Salary' },
+    { key: 'certificate', label: 'Salary Certificate' },
     { key: 'assets', label: 'Assets' },
 ];
 

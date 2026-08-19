@@ -15,6 +15,7 @@ import { Clock, Users } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import axiosInstance from '@/utils/axios';
+import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import AttendanceTeamTreeModal from './AttendanceTeamTreeModal';
 import AttendanceLeaveRequestModal from './AttendanceLeaveRequestModal';
@@ -395,8 +396,7 @@ export default function DashboardAttendanceCalendar({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [teamOpen, setTeamOpen] = useState(false);
-    const [holidayDates, setHolidayDates] = useState(() => new Set());
-    const [holidayNamesByDate, setHolidayNamesByDate] = useState({});
+    const [holidayRows, setHolidayRows] = useState([]);
 
     const [requestModal, setRequestModal] = useState(null);
     const [requestSubmitting, setRequestSubmitting] = useState(false);
@@ -420,6 +420,17 @@ export default function DashboardAttendanceCalendar({
 
     const activeEmployeeId = viewEmployeeId || selfEmployeeId;
 
+    const { holidayDates, holidayNamesByDate } = useMemo(() => {
+        const dates = new Set();
+        const names = {};
+        holidayRows.forEach((h) => {
+            if (!h?.date || !holidayAppliesToStaff(h, staffType)) return;
+            dates.add(h.date);
+            names[h.date] = h.name || h.note || 'Holiday';
+        });
+        return { holidayDates: dates, holidayNamesByDate: names };
+    }, [holidayRows, staffType]);
+
     const loadHolidays = useCallback(async () => {
         try {
             const year = Number(monthKey.slice(0, 4));
@@ -427,19 +438,9 @@ export default function DashboardAttendanceCalendar({
                 params: { year },
                 skipToast: true,
             });
-            const list = Array.isArray(res.data?.holidays) ? res.data.holidays : [];
-            const nameMap = {};
-            list.forEach((h) => {
-                if (h?.date) nameMap[h.date] = h.name || h.note || 'Holiday';
-            });
-            setHolidayNamesByDate(nameMap);
-            const dates = Array.isArray(res.data?.dates)
-                ? res.data.dates
-                : list.map((h) => h.date);
-            setHolidayDates(new Set(dates.filter(Boolean)));
+            setHolidayRows(Array.isArray(res.data?.holidays) ? res.data.holidays : []);
         } catch {
-            setHolidayDates(new Set());
-            setHolidayNamesByDate({});
+            setHolidayRows([]);
         }
     }, [monthKey]);
 

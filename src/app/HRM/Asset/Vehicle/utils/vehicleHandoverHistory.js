@@ -192,7 +192,7 @@ function isFleetHandoverHrApproved(entry) {
     return Boolean(hrStage?.date);
 }
 
-function resolveFleetHandoverLifecycle(entry, vehicle) {
+function resolveFleetHandoverLifecycle(entry, vehicle, options = {}) {
     const action = String(entry?.action || '').trim();
     const lifecycle = String(entry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
 
@@ -201,12 +201,18 @@ function resolveFleetHandoverLifecycle(entry, vehicle) {
         flow?.historyId && entry?._id && String(flow.historyId) === String(entry._id);
     const vehicleStatus = String(vehicle?.acceptanceStatus || '').trim();
 
+    if (entry?.details?.hrApprovalSkipped === true || options.noEditApproved === true) {
+        return 'approved';
+    }
+
+    // Approved wins over a leftover HR flow so no-edit handovers do not stay "Accepted".
+    if (lifecycle === 'approved') return 'approved';
+
     // Current in-flight handover: trust the live flow, not leftover HR dates.
     if (isLinked && lifecycle !== 'rejected') {
         const stage = String(flow.stage || '').toLowerCase();
         if (stage === 'hr' || stage === 'management' || stage === 'hod') return 'accepted';
         if (stage === 'target' || !stage) return 'pending';
-        if (lifecycle === 'approved') return 'approved';
         return 'pending';
     }
 
@@ -289,7 +295,7 @@ function readFrozenHandoverLabel(entry, field, fallback) {
     return fallback;
 }
 
-export function getHandoverDisplayStatus(entry, vehicle = null) {
+export function getHandoverDisplayStatus(entry, vehicle = null, options = {}) {
     const action = String(entry?.action || '').trim();
     const asset = vehicle || (entry?.isLive && entry?.details ? entry.details : null);
 
@@ -329,7 +335,7 @@ export function getHandoverDisplayStatus(entry, vehicle = null) {
         return STATUS_REJECTED;
     }
 
-    const lifecycle = resolveFleetHandoverLifecycle(entry, asset);
+    const lifecycle = resolveFleetHandoverLifecycle(entry, asset, options);
     if (lifecycle === 'rejected') return STATUS_REJECTED;
     if (lifecycle === 'approved') return STATUS_APPROVED;
     if (lifecycle === 'accepted') return STATUS_ACCEPTED;
@@ -347,7 +353,7 @@ export function getHandoverDisplayStatus(entry, vehicle = null) {
 }
 
 export function getHandoverHistoryStatus(entry, vehicle = null, options = {}) {
-    const status = getHandoverDisplayStatus(entry, vehicle);
+    const status = getHandoverDisplayStatus(entry, vehicle, options);
     if (status.key !== 'pending') return status;
 
     const dayInfo = getHandoverEscalationDayInfo(vehicle, entry, options);
@@ -618,8 +624,8 @@ export function getHandoverStartDate(entry) {
  * End date = HR / final approval date when the handover is approved.
  * Pending / incomplete / rejected / mid-flow accepted rows have no end date.
  */
-export function getHandoverEndDate(entry, vehicle = null) {
-    const status = getHandoverDisplayStatus(entry, vehicle);
+export function getHandoverEndDate(entry, vehicle = null, options = {}) {
+    const status = getHandoverDisplayStatus(entry, vehicle, options);
     if (status.key !== 'approved') return null;
 
     const start = getHandoverStartDate(entry);

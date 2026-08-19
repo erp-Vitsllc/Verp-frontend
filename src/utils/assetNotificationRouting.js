@@ -619,8 +619,15 @@ export function buildAssetNotificationPath(rawItem) {
         if (vehicleId && historyId) {
             return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/assign/${encodeURIComponent(String(historyId))}`;
         }
+        const wantsHrReview =
+            meta?.inspectionReview === true ||
+            meta?.inspectionReview === '1' ||
+            meta?.inspectionReview === 1;
         return vehicleId
-            ? buildVehicleDetailPath(vehicleId, { tab: 'handover', inspectionReview: '1' })
+            ? buildVehicleDetailPath(vehicleId, {
+                  tab: meta?.vehicleTab || 'handover',
+                  ...(wantsHrReview ? { inspectionReview: '1' } : {}),
+              })
             : '';
     }
 

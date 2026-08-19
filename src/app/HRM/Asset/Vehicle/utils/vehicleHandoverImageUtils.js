@@ -1,6 +1,10 @@
 import axiosInstance from '@/utils/axios';
 import { validateErpJpegFile } from '@/utils/uploadFileTypes';
-import { loadStorageFileBlob } from '@/utils/attachmentPreview';
+import {
+    extractStorageReference,
+    loadStorageFileBlob,
+    resolveStorageProxyKey,
+} from '@/utils/attachmentPreview';
 import {
     normalizeHandoverPhotoIdentity,
     resolveAssessmentMediaUrl,
@@ -100,20 +104,107 @@ export async function uploadHandoverAssessmentPhoto(file, itemKey, { skipToast =
     };
 }
 
+const assessmentMediaUrlCache = new Map();
+const assessmentMediaInflight = new Map();
+const MAX_PARALLEL_ASSESSMENT_MEDIA = 4;
+let assessmentMediaActive = 0;
+const assessmentMediaWaiters = [];
+
+function acquireAssessmentMediaSlot() {
+    return new Promise((resolve) => {
+        const tryAcquire = () => {
+            if (assessmentMediaActive < MAX_PARALLEL_ASSESSMENT_MEDIA) {
+                assessmentMediaActive += 1;
+                resolve();
+                return true;
+            }
+            return false;
+        };
+        if (!tryAcquire()) assessmentMediaWaiters.push(tryAcquire);
+    });
+}
+
+function releaseAssessmentMediaSlot() {
+    assessmentMediaActive = Math.max(0, assessmentMediaActive - 1);
+    while (assessmentMediaWaiters.length && assessmentMediaActive < MAX_PARALLEL_ASSESSMENT_MEDIA) {
+        const tryAcquire = assessmentMediaWaiters.shift();
+        if (tryAcquire?.()) break;
+    }
+}
+
+function isInlineMediaKey(key) {
+    return Boolean(key && (key.startsWith('data:') || key.startsWith('blob:')));
+}
+
+/** S3 key (or URL the API can normalize) for GET /storage/file. */
+export function resolveAssessmentStorageProxyKey(photo) {
+    const identity = normalizeHandoverPhotoIdentity(photo);
+    if (
+        identity &&
+        !isInlineMediaKey(identity) &&
+        !identity.startsWith('http://') &&
+        !identity.startsWith('https://')
+    ) {
+        return identity;
+    }
+
+    const proxy = resolveStorageProxyKey(photo);
+    if (proxy && !isInlineMediaKey(proxy)) {
+        if (proxy.startsWith('http://') || proxy.startsWith('https://')) {
+            const ref = extractStorageReference(photo);
+            if (ref?.key && !String(ref.key).startsWith('http')) return ref.key;
+        }
+        return proxy;
+    }
+
+    const ref = extractStorageReference(photo);
+    if (ref?.key && !isInlineMediaKey(ref.key)) return ref.key;
+    if (identity && !isInlineMediaKey(identity)) return identity;
+    return null;
+}
+
+export function peekCachedAssessmentMediaUrl(photo) {
+    const key = resolveAssessmentStorageProxyKey(photo);
+    if (!key || isInlineMediaKey(key)) return null;
+    return assessmentMediaUrlCache.get(key) || null;
+}
+
 /** Load handover/accessories photos via API proxy (avoids Wasabi DNS in the browser). */
-export async function fetchSignedAssessmentMediaUrl(photo) {
+export async function fetchSignedAssessmentMediaUrl(photo, { skipCache = false } = {}) {
     const direct = resolveAssessmentMediaUrl(photo);
     if (direct?.startsWith('data:') || direct?.startsWith('blob:')) return direct;
 
-    const key = normalizeHandoverPhotoIdentity(photo);
-    if (!key || key.startsWith('data:') || key.startsWith('blob:')) {
+    const key = resolveAssessmentStorageProxyKey(photo);
+    if (!key || isInlineMediaKey(key)) {
         return direct?.startsWith('data:') || direct?.startsWith('blob:') ? direct : null;
     }
 
-    try {
-        const blob = await loadStorageFileBlob(key);
-        return URL.createObjectURL(blob);
-    } catch {
-        return null;
+    if (skipCache) {
+        assessmentMediaUrlCache.delete(key);
+    } else {
+        const cached = assessmentMediaUrlCache.get(key);
+        if (cached) return cached;
+        const inflight = assessmentMediaInflight.get(key);
+        if (inflight) return inflight;
     }
+
+    const request = (async () => {
+        await acquireAssessmentMediaSlot();
+        try {
+            const blob = await loadStorageFileBlob(key);
+            const objectUrl = URL.createObjectURL(blob);
+            assessmentMediaUrlCache.set(key, objectUrl);
+            return objectUrl;
+        } catch {
+            return assessmentMediaUrlCache.get(key) || null;
+        } finally {
+            releaseAssessmentMediaSlot();
+            if (assessmentMediaInflight.get(key) === request) {
+                assessmentMediaInflight.delete(key);
+            }
+        }
+    })();
+
+    assessmentMediaInflight.set(key, request);
+    return request;
 }

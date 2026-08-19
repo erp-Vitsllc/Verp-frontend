@@ -7,7 +7,6 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import ErpPageHeader from '@/components/ErpPageHeader';
-import ListTableRowLink from '@/components/ListTableRowLink';
 import SortableTh, { compareSortValues, toggleSortState } from '@/components/SortableTh';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
@@ -65,6 +64,14 @@ export default function LeavePage() {
     const [sortKey, setSortKey] = useState('slNo');
     const [sortDirection, setSortDirection] = useState('asc');
     const [staffTab, setStaffTab] = useState('office');
+
+    const openProfilePage = useCallback(
+        (mongoId) => {
+            if (!mongoId) return;
+            router.push(`/HRM/Leave/${mongoId}`);
+        },
+        [router],
+    );
 
     const fetchDirectory = useCallback(async () => {
         setLoading(true);
@@ -265,19 +272,11 @@ export default function LeavePage() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            sortedRows.map((row, index) => {
-                                                const leaveHref = row._id
-                                                    ? `/HRM/Leave/${row._id}`
-                                                    : '';
-                                                return (
-                                                <ListTableRowLink
-                                                    key={row._id || row.employeeId || index}
-                                                    href={leaveHref}
-                                                    router={router}
-                                                    enabled={Boolean(leaveHref)}
-                                                >
+                                            sortedRows.map((row, index) => (
                                                 <tr
+                                                    key={row._id || row.employeeId || index}
                                                     className="hover:bg-gray-50 transition-colors cursor-pointer"
+                                                    onClick={() => openProfilePage(row._id)}
                                                 >
                                                     <td className="px-2 sm:px-4 lg:px-6 py-2 sm:py-3 whitespace-nowrap text-xs sm:text-sm text-gray-500 tabular-nums">
                                                         {index + 1}
@@ -301,9 +300,7 @@ export default function LeavePage() {
                                                         {row.annualLeaveTaken}
                                                     </td>
                                                 </tr>
-                                                </ListTableRowLink>
-                                                );
-                                            })
+                                            ))
                                         )}
                                     </tbody>
                                 </table>

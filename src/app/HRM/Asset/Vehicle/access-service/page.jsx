@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
     AlertTriangle,
+    Bell,
+    CheckCircle2,
+    Clock,
     Droplets,
     PaintBucket,
     Sparkles,
@@ -29,6 +32,7 @@ const TYPE_ICONS = {
 export default function VehicleAccessServiceTypesPage() {
     const [counts, setCounts] = useState({});
     const [totalPending, setTotalPending] = useState(0);
+    const [totalCompleted, setTotalCompleted] = useState(0);
     const [loading, setLoading] = useState(true);
 
     const load = useCallback(async () => {
@@ -43,9 +47,11 @@ export default function VehicleAccessServiceTypesPage() {
                     ? fromApi
                     : Object.values(nextCounts).reduce((sum, n) => sum + Number(n || 0), 0),
             );
+            setTotalCompleted(Number(res.data?.completedTotal) || 0);
         } catch {
             setCounts({});
             setTotalPending(0);
+            setTotalCompleted(0);
         } finally {
             setLoading(false);
         }
@@ -86,8 +92,9 @@ export default function VehicleAccessServiceTypesPage() {
                                             {type}
                                         </span>
                                         {!loading && count > 0 ? (
-                                            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-black text-red-600 tabular-nums">
-                                                {count}
+                                            <span className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-red-600">
+                                                <Bell size={10} strokeWidth={2.5} />
+                                                <span className="text-[9px] font-black tabular-nums">{count}</span>
                                             </span>
                                         ) : null}
                                     </span>
@@ -102,6 +109,58 @@ export default function VehicleAccessServiceTypesPage() {
                             </Link>
                         );
                     })}
+
+                    <div className="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                        <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white border border-slate-200 text-teal-700 shadow-sm shrink-0">
+                            <Clock size={20} />
+                        </span>
+                        <span className="min-w-0">
+                            <span className="flex items-center gap-2">
+                                <span className="block text-sm font-black uppercase tracking-wide text-slate-800">
+                                    Pending Services
+                                </span>
+                                {!loading && totalPending > 0 ? (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-red-600">
+                                        <Bell size={10} strokeWidth={2.5} />
+                                        <span className="text-[9px] font-black tabular-nums">{totalPending}</span>
+                                    </span>
+                                ) : null}
+                            </span>
+                            <span className="block text-xs text-slate-500 mt-1 tabular-nums">
+                                {loading
+                                    ? 'Loading…'
+                                    : totalPending > 0
+                                      ? `${totalPending} pending`
+                                      : 'No pending records'}
+                            </span>
+                        </span>
+                    </div>
+
+                    <div className="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                        <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white border border-slate-200 text-teal-700 shadow-sm shrink-0">
+                            <CheckCircle2 size={20} />
+                        </span>
+                        <span className="min-w-0">
+                            <span className="flex items-center gap-2">
+                                <span className="block text-sm font-black uppercase tracking-wide text-slate-800">
+                                    Completed Services
+                                </span>
+                                {!loading && totalCompleted > 0 ? (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-700">
+                                        <Bell size={10} strokeWidth={2.5} />
+                                        <span className="text-[9px] font-black tabular-nums">{totalCompleted}</span>
+                                    </span>
+                                ) : null}
+                            </span>
+                            <span className="block text-xs text-slate-500 mt-1 tabular-nums">
+                                {loading
+                                    ? 'Loading…'
+                                    : totalCompleted > 0
+                                      ? `${totalCompleted} completed`
+                                      : 'No completed records'}
+                            </span>
+                        </span>
+                    </div>
                 </div>
             </div>
         </VehicleAccessPageShell>

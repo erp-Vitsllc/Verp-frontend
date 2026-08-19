@@ -20,7 +20,7 @@ import { isVehicleInspectionHandoverEntry } from '../utils/vehicleHandoverHistor
 import { pickFlowchartAdminRow, pickFlowchartHrRow } from '../utils/vehicleHandoverAssignWorkflow';
 import { isAdmin as isPortalSuperUser } from '@/utils/permissions';
 
-export function useHandoverAssignPermissions(vehicle, historyEntry) {
+export function useHandoverAssignPermissions(vehicle, historyEntry, assetHistory = []) {
     const [currentUser, setCurrentUser] = useState(null);
     const [flowchartRows, setFlowchartRows] = useState([]);
     const [hrActiveHolder, setHrActiveHolder] = useState(null);
@@ -134,8 +134,9 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
                 currentUser,
                 flowchartAdminRow,
                 flowchartHrRow,
+                assetHistory,
             }),
-        [vehicle, historyEntry, currentUser, flowchartAdminRow, flowchartHrRow],
+        [vehicle, historyEntry, currentUser, flowchartAdminRow, flowchartHrRow, assetHistory],
     );
 
     const canReviewInspection = useMemo(() => {
@@ -192,18 +193,16 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         canApprove,
         isHandoverHrStage: useMemo(() => {
             if (isHandoverHistoryRejected(historyEntry)) return false;
-            // Prefer shared stage resolver (history-linked flow only).
-            if (resolveIsHandoverHrStage(vehicle, historyEntry)) return true;
+            if (resolveIsHandoverHrStage(vehicle, historyEntry, assetHistory)) return true;
             const stage = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage;
             if (
                 (stage === 'hr' || stage === 'management' || stage === 'hod') &&
                 !isHandoverHistoryRejected(historyEntry)
             ) {
-                // Keep legacy vehicle-flow signal only when this history is still open.
-                if (isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle)) return true;
+                if (isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle, assetHistory)) return true;
             }
-            return isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle);
-        }, [vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage, historyEntry, vehicle]),
+            return isHandoverHistoryAwaitingHrApproval(historyEntry, vehicle, assetHistory);
+        }, [vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage, historyEntry, vehicle, assetHistory]),
         canReviewInspection,
         canEditInspectionForm,
         canEditInspectionAccessories,

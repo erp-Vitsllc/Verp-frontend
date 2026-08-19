@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
+import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 export default function AttendanceYellowRequestModal({
     isOpen,
@@ -19,12 +20,27 @@ export default function AttendanceYellowRequestModal({
 
     if (!isOpen) return null;
 
+    const handleAttachmentChange = (event) => {
+        const result = guardAttachmentFileChange(event, (_, file) => {
+            setAttachment(file);
+            if (file) setLocalError('');
+        });
+        if (result?.blocked) setLocalError(result.message);
+    };
+
     const handleSubmit = (e) => {
         e.preventDefault();
         const trimmed = String(reason || '').trim();
         if (!trimmed) {
             setLocalError('Reason is required.');
             return;
+        }
+        if (attachment) {
+            const check = validateErpUploadFile(attachment);
+            if (!check.ok) {
+                setLocalError(check.message);
+                return;
+            }
         }
         setLocalError('');
         onSubmit?.({
@@ -95,8 +111,9 @@ export default function AttendanceYellowRequestModal({
                         <input
                             ref={fileRef}
                             type="file"
+                            accept={ERP_ATTACHMENT_ACCEPT}
                             className="hidden"
-                            onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+                            onChange={handleAttachmentChange}
                         />
                         <div className="flex items-center gap-2">
                             <button
@@ -108,7 +125,7 @@ export default function AttendanceYellowRequestModal({
                                 {attachment ? 'Change file' : 'Choose file'}
                             </button>
                             <span className="text-xs text-slate-500 truncate max-w-[10rem]">
-                                {attachment ? attachment.name : 'No file selected'}
+                                {attachment ? attachment.name : ERP_ATTACHMENT_HINT}
                             </span>
                         </div>
                     </div>

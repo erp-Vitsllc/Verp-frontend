@@ -23,6 +23,7 @@ import {
     getVehicleFineServiceSharePerParty,
     VEHICLE_FINE_LIMITS,
 } from '../utils/validateVehicleFine';
+import { toFineDateInputValue, toFineMonthInputValue } from '../utils/fineScheduleUtils';
 
 function isMeaningfulText(value, minLen) {
     const t = String(value || '').trim();
@@ -66,8 +67,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [fineSource, setFineSource] = useState('');
     const [zohoVendorId, setZohoVendorId] = useState('');
     const [zohoVendorName, setZohoVendorName] = useState('');
-    const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
-    const [awardedDate, setAwardedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [monthStart, setMonthStart] = useState(toFineMonthInputValue());
+    const [awardedDate, setAwardedDate] = useState(toFineDateInputValue());
     const [payableDuration, setPayableDuration] = useState('1');
     const [selectedEmployees, setSelectedEmployees] = useState([]); // Array of employee objects { employeeId, employeeName, fineAmount, duration }
     const [serviceCharge, setServiceCharge] = useState('');
@@ -180,11 +181,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setFineSource(initialData.fineSource || '');
             setZohoVendorId(initialData.zohoVendorId || '');
             setZohoVendorName(initialData.zohoVendorName || initialData.fineSource || '');
-            setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
+            setMonthStart(initialData.monthStart || toFineMonthInputValue());
             setAwardedDate(
                 initialData.awardedDate
-                    ? new Date(initialData.awardedDate).toISOString().split('T')[0]
-                    : new Date().toISOString().split('T')[0],
+                    ? toFineDateInputValue(initialData.awardedDate)
+                    : toFineDateInputValue(),
             );
             setPayableDuration(String(initialData.payableDuration || '1'));
 
@@ -249,8 +250,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setFineSource('');
             setZohoVendorId('');
             setZohoVendorName('');
-            setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
-            setAwardedDate(new Date().toISOString().split('T')[0]);
+            setMonthStart(toFineMonthInputValue());
+            setAwardedDate(toFineDateInputValue());
             setPayableDuration('1');
             setServiceCharge('');
             setDiscount('');
@@ -631,7 +632,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
-                awardedDate: awardedDate || new Date().toISOString().split('T')[0],
+                awardedDate: awardedDate || toFineDateInputValue(),
                 fineAmount: grandTotalFine, // Total = base + service charge − discount
                 totalFineAmount: grandTotalFine,
                 employeeAmount: totalEmpAmount,

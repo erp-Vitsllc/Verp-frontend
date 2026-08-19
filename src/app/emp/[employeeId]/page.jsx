@@ -345,6 +345,7 @@ function EmployeeProfilePageContent() {
     const [salaryHistoryPage, setSalaryHistoryPage] = useState(1);
     const [salaryHistoryItemsPerPage, setSalaryHistoryItemsPerPage] = useState(10);
     const [imageError, setImageError] = useState(false);
+    const [canAccessHrAttendanceProfile, setCanAccessHrAttendanceProfile] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editForm, setEditForm] = useState({
         employeeId: '',
@@ -6991,6 +6992,9 @@ function EmployeeProfilePageContent() {
         const label = String(cardLabel || '').toLowerCase();
         if (label.includes('basic')) return navigateToEmployeeTab('basic');
         if (label.includes('work')) return navigateToEmployeeTab('work-details');
+        if (label.includes('salary') || label.includes('bank')) {
+            return navigateToEmployeeTab('salary');
+        }
         if (label.includes('passport') || label.includes('visa') || label.includes('emirates') || label.includes('labour') || label.includes('medical') || label.includes('driving')) {
             return navigateToEmployeeTab('basic');
         }
@@ -8453,6 +8457,31 @@ function EmployeeProfilePageContent() {
         return false;
     }, [currentUser, employee?.primaryReportee]);
 
+    useEffect(() => {
+        const mongoId = employee?._id;
+        const isCompany = employee?.employeeId === 'VEGA-HR-0000';
+        if (!mongoId || isCompany) {
+            setCanAccessHrAttendanceProfile(false);
+            return undefined;
+        }
+
+        let cancelled = false;
+        axiosInstance
+            .get(`/Leave/employees/${mongoId}/attendance-profile/access`, { skipToast: true })
+            .then((response) => {
+                if (!cancelled) {
+                    setCanAccessHrAttendanceProfile(Boolean(response.data?.canAccess));
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setCanAccessHrAttendanceProfile(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [employee?._id, employee?.employeeId]);
+
     const canReviewProfileActivation = useMemo(() => {
         if (!currentUser) return false;
         if (viewerIsDesignatedFlowchartHr) return true;
@@ -9339,6 +9368,16 @@ function EmployeeProfilePageContent() {
                                                 fetchReportingAuthorities();
                                             }
                                         }}
+                                        extraContent={
+                                            canAccessHrAttendanceProfile && !isCompanyProfile ? (
+                                                <Link
+                                                    href={`/HRM/Leave/${employee._id}`}
+                                                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+                                                >
+                                                    HR Attendance Profile
+                                                </Link>
+                                            ) : null
+                                        }
                                     />
                                 </div>
 

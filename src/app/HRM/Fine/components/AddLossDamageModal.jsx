@@ -13,7 +13,7 @@ import {
     validateApprovedFineScheduleEdit,
     validateFineDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
-import { isEndOfServiceFineSource } from '../utils/fineScheduleUtils';
+import { isEndOfServiceFineSource, toFineDateInputValue, toFineMonthInputValue } from '../utils/fineScheduleUtils';
 import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import ZohoUpdateConfirmModal from './ZohoUpdateConfirmModal';
 import { ERP_ATTACHMENT_ACCEPT, validateErpUploadFile } from '@/utils/uploadFileTypes';
@@ -95,8 +95,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         employeeAmount: '',
         companyAmount: '',
         payableDuration: '1',
-        monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
-        awardedDate: new Date().toISOString().split('T')[0],
+        monthStart: toFineMonthInputValue(),
+        awardedDate: toFineDateInputValue(),
         description: '',
         attachment: null,
         attachmentBase64: '',
@@ -476,10 +476,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 employeeAmount: uiEmployeeAmount,
                 companyAmount: uiCompanyAmount,
                 payableDuration: String(initialData.payableDuration || '1'),
-                monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+                monthStart: initialData.monthStart || toFineMonthInputValue(),
                 awardedDate: initialData.awardedDate
-                    ? new Date(initialData.awardedDate).toISOString().split('T')[0]
-                    : new Date().toISOString().split('T')[0],
+                    ? toFineDateInputValue(initialData.awardedDate)
+                    : toFineDateInputValue(),
                 description: initialData.description || '',
                 attachment: attachmentForUi,
                 attachmentBase64: '',
@@ -566,8 +566,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             setRemovedAccessoryIds(new Set());
             setFormData({
                 fineAmount: '', responsibleFor: 'Employee', employeeAmount: '', companyAmount: '',
-                payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
-                awardedDate: new Date().toISOString().split('T')[0],
+                payableDuration: '1', monthStart: toFineMonthInputValue(),
+                awardedDate: toFineDateInputValue(),
                 description: '', attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '',
                 companyDescription: '', serviceCharge: '', discount: '', depreciationAmount: '', sourceOfIncome: 'Salary',
                 assetPurchaseDate: '', fineSource: '',
@@ -1059,7 +1059,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                       ? parseInt(formData.payableDuration, 10)
                       : null,
             monthStart: formData.sourceOfIncome === 'Salary' ? formData.monthStart : '',
-            awardedDate: formData.awardedDate || new Date().toISOString().split('T')[0],
+            awardedDate: formData.awardedDate || toFineDateInputValue(),
             serviceCharge: serviceChargeAmount,
             discount: discountAmount,
             sourceOfIncome: formData.sourceOfIncome,

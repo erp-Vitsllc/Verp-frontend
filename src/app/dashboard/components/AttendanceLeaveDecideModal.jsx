@@ -78,7 +78,9 @@ export default function AttendanceLeaveDecideModal({
     const needsPayType = kindKey === 'future_leave' || chosenKey === 'authorized_leave';
 
     const title =
-        kindKey === 'future_late'
+        kindKey === 'future_annual'
+            ? 'Annual leave request'
+            : kindKey === 'future_late'
             ? 'Late arrival request'
             : kindKey === 'future_early'
               ? 'Early go request'
@@ -90,8 +92,12 @@ export default function AttendanceLeaveDecideModal({
 
     const helpText = isYellow
         ? 'Confirm turns this day green (Present). Reject keeps the yellow status.'
+        : kindKey === 'future_annual'
+          ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Annual Leave. Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
         : kindKey === 'future_leave'
-          ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Authorized Leave (Paid or Unpaid). Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
+          ? dayPart === 'half'
+              ? `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Half day Authorized Leave (Paid or Unpaid). Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
+              : `Approve marks ${isMultiDay ? 'every working day in this range' : 'this future day'} as Authorized Leave (Paid or Unpaid). Reject keeps ${isMultiDay ? 'them' : 'it'} upcoming.`
           : kindKey === 'future_late'
             ? `Approve shows ${isMultiDay ? 'every working day in this range' : 'this future day'} green as Late arrival approved${
                   dayPart === 'half' && requestTimeIn && requestTimeOut

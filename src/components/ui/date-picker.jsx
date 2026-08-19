@@ -24,14 +24,6 @@ function isDateDisabled(checkDate, disabledDays) {
     return false
 }
 
-function mergeDateWithMonth(baseDate, monthDate) {
-    const year = monthDate.getFullYear()
-    const monthIndex = monthDate.getMonth()
-    const maxDay = new Date(year, monthIndex + 1, 0).getDate()
-    const day = Math.min(baseDate.getDate(), maxDay)
-    return new Date(year, monthIndex, day)
-}
-
 /** Resolve day/month when user types dd/MM or MM/dd (e.g. 18/11 vs 11/18). */
 function resolveDayMonth(part1, part2) {
     const first = Number(part1)
@@ -112,7 +104,16 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
 
     React.useEffect(() => {
         if (value) {
-            const parsedDate = parse(value, "yyyy-MM-dd", new Date())
+            const str = String(value).trim()
+            let parsedDate
+            if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+                parsedDate = parse(str, "yyyy-MM-dd", new Date())
+            } else {
+                const fromNative = new Date(str)
+                parsedDate = isValid(fromNative)
+                    ? new Date(fromNative.getFullYear(), fromNative.getMonth(), fromNative.getDate())
+                    : parse(str.slice(0, 10), "yyyy-MM-dd", new Date())
+            }
             if (isValid(parsedDate)) {
                 setDate(parsedDate)
                 setInputStr(format(parsedDate, "dd/MM/yyyy"))
@@ -138,13 +139,8 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
     }
 
     const handleMonthChange = (nextMonth) => {
+        // Only move the calendar view. Do not rewrite the selected issued date.
         setMonth(nextMonth)
-        if (date) {
-            const adjusted = mergeDateWithMonth(date, nextMonth)
-            if (adjusted.getTime() !== date.getTime()) {
-                applyDate(adjusted)
-            }
-        }
     }
 
     const syncCalendarFromInput = React.useCallback((val) => {

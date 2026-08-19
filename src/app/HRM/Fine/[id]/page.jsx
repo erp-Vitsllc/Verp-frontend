@@ -37,6 +37,7 @@ import {
     isApprovedFineStatus,
     isHrUser,
 } from '../utils/fineApprovedEdit';
+import { formatFineIssuedDate } from '../utils/fineScheduleUtils';
 import {
     buildGroupMembersForFine,
     buildGroupMemberDetailHref,
@@ -1388,10 +1389,7 @@ function FineDetailsPageContent() {
     };
 
     // Helper to format date
-    const formatDate = (dateStr) => {
-        if (!dateStr) return '-';
-        return new Date(dateStr).toLocaleDateString();
-    };
+    const formatDate = (dateStr) => formatFineIssuedDate(dateStr);
 
     // Derived Data moved up to satisfy Rules of Hooks
     const mainEmployee = employeeDetails || (() => {

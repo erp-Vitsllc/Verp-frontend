@@ -7,6 +7,36 @@ export function formatMoney(value) {
     });
 }
 
+/** Card heading: "Vehicle Damage Report", "Safety Fine Report", … */
+export function fineTypeReportTitle(fine) {
+    const type = String(fine?.fineType || '').trim();
+    return type ? `${type} Report` : 'Fine Report';
+}
+
+function fineTypeReportSubject(fine) {
+    const type = String(fine?.fineType || '').trim().toLowerCase();
+    if (type.includes('vehicle')) return 'Vehicle';
+    if (type.includes('loss') || type.includes('asset')) return 'Asset';
+    if (type.includes('safety')) return 'Safety';
+    if (type.includes('project')) return 'Project';
+    if (type.includes('other')) return 'Fine';
+    const raw = String(fine?.fineType || '').trim();
+    return raw || 'Fine';
+}
+
+export function fineTypeReportSubtitle(fine, { groupOverview = false } = {}) {
+    const subject = fineTypeReportSubject(fine);
+    if (groupOverview) {
+        return `Group request — ${subject.toLowerCase()} and deduction details`;
+    }
+    return `${subject} and deduction details`;
+}
+
+export function fineTypeFinancialSectionTitle(fine) {
+    const subject = fineTypeReportSubject(fine);
+    return `${subject} & Financial Details`;
+}
+
 export function FineFormCard({ icon: Icon, iconBg, iconColor, title, subtitle, children, className = '', headerAction = null }) {
     return (
         <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col w-full overflow-hidden ${className}`}>
@@ -89,7 +119,7 @@ export function formatDeductionMonth(value) {
         const month = parseInt(m, 10);
         const year = parseInt(y, 10);
         if (month >= 1 && month <= 12 && year) {
-            return `${monthNames[month - 1]} ${String(year).slice(-2)}`;
+            return `${monthNames[month - 1]} ${year}`;
         }
     }
 
@@ -98,7 +128,7 @@ export function formatDeductionMonth(value) {
         const year = parseInt(parts[0], 10);
         const month = parseInt(parts[1], 10);
         if (month >= 1 && month <= 12 && year) {
-            return `${monthNames[month - 1]} ${String(year).slice(-2)}`;
+            return `${monthNames[month - 1]} ${year}`;
         }
     }
 

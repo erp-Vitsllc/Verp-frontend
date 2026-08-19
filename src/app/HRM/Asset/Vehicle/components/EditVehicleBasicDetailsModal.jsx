@@ -74,6 +74,7 @@ export default function EditVehicleBasicDetailsModal({
         plateDigits: '',
         assetValue: '',
         currentKilometer: '',
+        fuelMonthlyLimit: '',
         vehicleDispositionStatus: 'active',
         soldValue: '',
         currentLoanAmount: '',
@@ -123,6 +124,10 @@ export default function EditVehicleBasicDetailsModal({
                 asset.currentKilometer != null && asset.currentKilometer !== ''
                     ? String(asset.currentKilometer)
                     : '0',
+            fuelMonthlyLimit:
+                asset.fuelMonthlyLimit != null && asset.fuelMonthlyLimit !== ''
+                    ? String(asset.fuelMonthlyLimit)
+                    : '',
             vehicleDispositionStatus: asset.vehicleDispositionStatus || 'active',
             soldValue:
                 asset.soldValue != null && asset.soldValue !== '' && !Number.isNaN(Number(asset.soldValue))
@@ -306,6 +311,7 @@ export default function EditVehicleBasicDetailsModal({
                 plateEmirate: form.plateEmirate,
                 assetValue: Number(String(form.assetValue).replace(/\D/g, '') || 0),
                 currentKilometer: Number(String(form.currentKilometer).replace(/\D/g, '') || 0),
+                fuelMonthlyLimit: Number(String(form.fuelMonthlyLimit).replace(/[^\d.]/g, '') || 0),
             };
 
             const assetDispSave = String(asset?.vehicleDispositionStatus || 'active').toLowerCase();
@@ -787,6 +793,25 @@ export default function EditVehicleBasicDetailsModal({
                                         }))
                                     }
                                     placeholder="0"
+                                    disabled={loading}
+                                    className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
+                                    Monthly limit (AED)
+                                </label>
+                                <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={form.fuelMonthlyLimit}
+                                    onChange={(e) =>
+                                        setForm((p) => ({
+                                            ...p,
+                                            fuelMonthlyLimit: e.target.value.replace(/[^\d.]/g, '').slice(0, 12),
+                                        }))
+                                    }
+                                    placeholder="0.00"
                                     disabled={loading}
                                     className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800"
                                 />

@@ -16,7 +16,19 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { AlertCircle, ChevronLeft, Clock, Gauge, MapPin, RefreshCw, Route, TrendingUp, XCircle } from 'lucide-react';
+import {
+    AlertCircle,
+    ChevronLeft,
+    Clock,
+    Gauge,
+    MapPin,
+    Maximize2,
+    Minimize2,
+    RefreshCw,
+    Route,
+    TrendingUp,
+    XCircle,
+} from 'lucide-react';
 import { DatePicker, MonthPicker } from '@/components/ui/date-picker';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import {
@@ -38,6 +50,9 @@ import { buildVehicleDetailPath } from '@/utils/assetNotificationRouting';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import { navHrefProps } from '@/utils/linkContextMenu';
 import { VEHICLE_SERVICE_TYPES } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
+import { vehicleDashboardFineListHref, vehicleDashboardModelYearListHref } from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetDashboardNavigation';
+import { isVehicleAccessFineVisible } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
+import { sumEmployeeOutstandingOnFines } from '@/app/HRM/Fine/utils/employeeFineFinancials';
 
 const YEAR_COLORS = FLORAL_CLASS_COLORS;
 
@@ -832,6 +847,79 @@ function shortVehicleChartName(name, max = 14) {
     return `${text.slice(0, max - 1)}…`;
 }
 
+/** Prefer plate number on axis; full plate (emirate + number) in tooltip / hover. */
+function shortPlateAxisLabel(plate, max = 10) {
+    const full = String(plate || '').trim();
+    if (!full) return '—';
+    const parts = full.split(/\s+/);
+    const numberPart = parts.length > 1 ? parts[parts.length - 1] : full;
+    return shortVehicleChartName(numberPart, max);
+}
+
+function withPlateChartNames(rows) {
+    return (rows || []).map((row) => {
+        const plate = String(row.plate || row.name || row.label || '—').trim() || '—';
+        return {
+            ...row,
+            name: plate,
+            plate,
+            chartName: shortPlateAxisLabel(plate, 10),
+        };
+    });
+}
+
+function PlateChartAxisTick({ x, y, payload, fill = '#64748b', fontSize = 9, angle = -28, textAnchor = 'end' }) {
+    const label = String(payload?.value ?? '').trim();
+    const fullPlate = String(payload?.payload?.name || payload?.payload?.plate || label).trim();
+    return (
+        <g transform={`translate(${x},${y})`}>
+            <text
+                x={0}
+                y={0}
+                dy={angle ? 12 : 16}
+                fill={fill}
+                fontSize={fontSize}
+                textAnchor={textAnchor}
+                transform={angle ? `rotate(${angle})` : undefined}
+            >
+                <title>{fullPlate}</title>
+                {label}
+            </text>
+        </g>
+    );
+}
+
+function expandSlotWidthClass(slotKey, expandedKey, totalSlots) {
+    if (!expandedKey) return 'flex-1 min-w-0';
+    if (expandedKey === slotKey) return 'w-3/4 shrink-0 min-w-0';
+    if (totalSlots <= 2) return 'w-1/4 shrink-0 min-w-0 overflow-hidden';
+    return 'w-[12.5%] shrink-0 min-w-0 overflow-hidden';
+}
+
+function DashboardExpandSlot({ slotKey, expandedKey, totalSlots, onToggle, className = '', children }) {
+    const isExpanded = expandedKey === slotKey;
+    return (
+        <div
+            className={`${expandSlotWidthClass(slotKey, expandedKey, totalSlots)} transition-all duration-300 ease-out ${className}`}
+        >
+            <div className="h-full min-h-0 flex flex-col relative">
+                <button
+                    type="button"
+                    onClick={() => onToggle(isExpanded ? null : slotKey)}
+                    className="absolute top-1 right-1 z-10 p-1 rounded-md text-slate-400 hover:text-teal-700 hover:bg-teal-50 transition-colors shrink-0"
+                    title={isExpanded ? 'Collapse panel' : 'Expand panel'}
+                    aria-label={isExpanded ? 'Collapse panel' : 'Expand panel'}
+                >
+                    {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>
+                <div className="flex-1 min-h-0 min-w-0">
+                    {children}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function formatLocatorBarValue(value, unit) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '';
@@ -1024,16 +1112,19 @@ const COMPACT_ROW_CARD_HEIGHT = 320;
 const LOWER_ROW_CHART_HEIGHT = 260;
 const LOWER_ROW_CARD_MIN = 360;
 
-function CompactChartCard({ title, subtitle, headerExtra, children }) {
+function CompactChartCard({ title, titleExtra, subtitle, headerExtra, children }) {
     return (
         <div
             className={`${compactChartPanelClass} h-full flex flex-col`}
             style={{ minHeight: COMPACT_ROW_CARD_HEIGHT }}
         >
             <div className="shrink-0">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-0.5 group-hover/chart:text-teal-800 transition-colors">
-                    {title}
-                </h3>
+                <div className="flex items-center justify-between gap-2 flex-wrap mb-0.5">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 group-hover/chart:text-teal-800 transition-colors">
+                        {title}
+                    </h3>
+                    {titleExtra || null}
+                </div>
                 {headerExtra ? <div className="mb-2">{headerExtra}</div> : null}
                 {subtitle || !headerExtra ? (
                     <p
@@ -1217,6 +1308,9 @@ export default function VehicleFleetDashboard({
     const [usageCustomFrom, setUsageCustomFrom] = useState('');
     const [usageCustomTo, setUsageCustomTo] = useState('');
     const [usageDrillVehicleId, setUsageDrillVehicleId] = useState(null);
+    const [topRowExpanded, setTopRowExpanded] = useState(null);
+    const [midRowExpanded, setMidRowExpanded] = useState(null);
+    const [bottomRowExpanded, setBottomRowExpanded] = useState(null);
 
     useEffect(() => {
         if (!loading && data) {
@@ -1277,14 +1371,15 @@ export default function VehicleFleetDashboard({
                 }
                 return {
                     vehicleId: v._id,
-                    name: v.label,
+                    plate: fleetVehiclePlate(v),
+                    name: fleetVehiclePlate(v),
                     total: Math.round(total),
                 };
             })
             .filter((v) => v.total > 0)
             .sort((a, b) => b.total - a.total)
             .slice(0, 8);
-        return withShortNames(rows);
+        return withPlateChartNames(rows);
     }, [data, serviceCostRange, serviceCostPeriod, serviceCostCustomFrom, serviceCostCustomTo]);
 
     const serviceCostDrillVehicle = useMemo(() => {
@@ -1335,35 +1430,46 @@ export default function VehicleFleetDashboard({
         return (data?.finesByVehicle || [])
             .map((row) => {
                 const allFines = Array.isArray(row.fines) ? row.fines : [];
-                const fines = customIncomplete
+                const inPeriod = customIncomplete
                     ? allFines
                     : allFines.filter((fine) => serviceEventInRange(fine.awardedDate, start, end));
-                const total = fines.reduce((sum, fine) => sum + (Number(fine.amount) || 0), 0);
+                const fines = inPeriod.filter(isVehicleAccessFineVisible);
+                const total = sumEmployeeOutstandingOnFines(fines);
                 return {
                     ...row,
                     fines,
-                    name: row.label || row.plate || '—',
-                    total: Math.round(total),
+                    plate: row.plate || row.label || '—',
+                    name: row.plate || row.label || '—',
+                    total: Number(total.toFixed(2)),
                 };
             })
-            .filter((row) => row.total > 0);
+            .filter((row) => row.fines.length > 0);
     }, [data?.finesByVehicle, vehicleFineRange, vehicleFinePeriod, vehicleFineCustomFrom, vehicleFineCustomTo]);
 
     const vehicleFinesChartData = useMemo(
-        () => withShortNames(vehicleFinesByVehicle.filter((row) => row.total > 0)),
+        () => withPlateChartNames(vehicleFinesByVehicle.filter((row) => row.total > 0)),
         [vehicleFinesByVehicle],
     );
+
+    const vehicleFinesSummary = useMemo(() => {
+        const fines = vehicleFinesByVehicle.flatMap((row) => row.fines || []);
+        return {
+            count: fines.length,
+            unpaid: sumEmployeeOutstandingOnFines(fines),
+        };
+    }, [vehicleFinesByVehicle]);
 
     const vehicleValueBars = useMemo(() => {
         if (!data?.vehicles?.length) return [];
         const rows = [...data.vehicles]
             .map((v) => ({
                 vehicleId: v._id,
-                name: v.label,
+                plate: fleetVehiclePlate(v),
+                name: fleetVehiclePlate(v),
                 value: Math.round(Number(v.assetValue) || 0),
             }))
             .sort((a, b) => b.value - a.value);
-        return withShortNames(rows);
+        return withPlateChartNames(rows);
     }, [data]);
 
     const pieData = useMemo(() => {
@@ -1692,9 +1798,15 @@ export default function VehicleFleetDashboard({
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col xl:flex-row gap-6 mb-2 min-h-[320px]">
-                {/* Card 1 — Oil / Registration + Document Expiry (company-list style) */}
-                <ScrollReveal delayMs={0} durationMs={600} className="xl:flex-[2] flex-1 min-w-0">
+            <div className="flex gap-4 mb-2 min-h-[320px] transition-all duration-300 ease-out">
+                <DashboardExpandSlot
+                    slotKey="summary"
+                    expandedKey={topRowExpanded}
+                    totalSlots={3}
+                    onToggle={setTopRowExpanded}
+                    className="min-w-0"
+                >
+                <ScrollReveal delayMs={0} durationMs={600} className="h-full min-w-0">
                     <div className="h-full min-h-[320px] bg-white rounded-xl shadow-sm border border-gray-100 flex p-6 gap-6 overflow-hidden">
                         <div className="w-[150px] shrink-0 flex flex-col gap-4">
                             {[
@@ -1812,9 +1924,16 @@ export default function VehicleFleetDashboard({
                         </div>
                     </div>
                 </ScrollReveal>
+                </DashboardExpandSlot>
 
-                {/* Card 2 — 2x2 status grid */}
-                <ScrollReveal delayMs={80} durationMs={600} className="flex-1 min-w-0">
+                <DashboardExpandSlot
+                    slotKey="status"
+                    expandedKey={topRowExpanded}
+                    totalSlots={3}
+                    onToggle={setTopRowExpanded}
+                    className="min-w-0"
+                >
+                <ScrollReveal delayMs={80} durationMs={600} className="h-full min-w-0">
                     <div className="h-full min-h-[320px] bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                         <div className="h-full grid grid-cols-2 gap-3 content-stretch">
                             {[
@@ -1879,21 +1998,220 @@ export default function VehicleFleetDashboard({
                         </div>
                     </div>
                 </ScrollReveal>
+                </DashboardExpandSlot>
 
-                {/* Card 3 — upcoming events */}
-                <ScrollReveal delayMs={140} durationMs={600} className="flex-1 min-w-0">
+                <DashboardExpandSlot
+                    slotKey="modelYear"
+                    expandedKey={topRowExpanded}
+                    totalSlots={3}
+                    onToggle={setTopRowExpanded}
+                    className="min-w-0"
+                >
+                <ScrollReveal delayMs={140} durationMs={600} className="h-full min-w-0">
                     <div className="h-full min-h-[320px] max-h-[360px] bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex flex-col">
-                        <div className="flex items-baseline justify-between gap-2">
-                            <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em]">
-                                Upcoming Events
-                            </h3>
-                            <span className="text-xs font-black text-gray-500 tabular-nums">
-                                {upcomingOilServiceRows.length}
-                            </span>
-                        </div>
+                        <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em]">
+                            Vehicle model year
+                        </h3>
                         <p className="text-[10px] text-gray-400 mt-1 mb-3">
-                            Next oil service by vehicle · soonest first
+                            Hover a slice for the year. Click to open that year in the vehicle list.
                         </p>
+                        <ModelYearDonutPanel
+                            pieData={pieData}
+                            chartAnim={chartAnim}
+                            onSliceClick={(entry) => {
+                                const year = String(entry?.name || '').trim();
+                                if (!year) return;
+                                navigateFromList(
+                                    router,
+                                    vehicleDashboardModelYearListHref(year),
+                                    FLEET_DASHBOARD_LIST_RETURN,
+                                );
+                            }}
+                        />
+                    </div>
+                </ScrollReveal>
+                </DashboardExpandSlot>
+            </div>
+
+            <FleetDashboardDetailModal
+                open={detailModalOpen}
+                bucket={detailModalBucket}
+                onClose={closeDetailModal}
+                onRowClick={handleDetailRowClick}
+            />
+
+            <div className="flex gap-4 items-stretch transition-all duration-300 ease-out">
+                <DashboardExpandSlot
+                    slotKey="fines"
+                    expandedKey={midRowExpanded}
+                    totalSlots={2}
+                    onToggle={setMidRowExpanded}
+                    className="min-w-0 h-full"
+                >
+                <ScrollReveal delayMs={0} durationMs={700} className="h-full min-w-0">
+                    <CompactChartCard
+                        title="Vehicle fines"
+                        titleExtra={
+                            <span
+                                className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-rose-700 tabular-nums"
+                                title="Finished-workflow fines in this period. Amount is employee share still to pay (unpaid and partial), excluding company-only."
+                            >
+                                {vehicleFinesSummary.count}{' '}
+                                {vehicleFinesSummary.count === 1 ? 'fine' : 'fines'}
+                                <span className="font-black text-rose-300">·</span>
+                                {formatFleetModalAmount(vehicleFinesSummary.unpaid)} unpaid
+                            </span>
+                        }
+                        subtitle="Employee unpaid by plate. Click a bar to open Access Vehicle Fine for that vehicle."
+                        headerExtra={
+                            <div className="space-y-1.5">
+                                <CompactPeriodTabBar
+                                    options={SERVICE_COST_PERIOD_TABS}
+                                    value={vehicleFinePeriod}
+                                    onChange={setVehicleFinePeriod}
+                                />
+                                {vehicleFinePeriod === 'custom' ? (
+                                    <DateRangePicker
+                                        startValue={vehicleFineCustomFrom}
+                                        endValue={vehicleFineCustomTo}
+                                        onStartChange={setVehicleFineCustomFrom}
+                                        onEndChange={setVehicleFineCustomTo}
+                                        placeholder="Select date range"
+                                        className="h-8 min-w-0 w-full max-w-full text-[10px] px-2"
+                                    />
+                                ) : null}
+                            </div>
+                        }
+                    >
+                        {vehicleFinesChartData.length === 0 ? (
+                            <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
+                                {vehicleFinesSummary.count > 0
+                                    ? 'All finished fines in this period are fully paid.'
+                                    : 'No vehicle fines in this period.'}
+                            </p>
+                        ) : (
+                            <RechartsBox
+                                height={COMPACT_ROW_CHART_HEIGHT}
+                                minHeight={COMPACT_ROW_CHART_MIN}
+                                className="h-full"
+                                fillParent
+                            >
+                                <BarChart
+                                    data={vehicleFinesChartData}
+                                    margin={{ top: 18, right: 8, left: 0, bottom: vehicleFinesChartData.length > 4 ? 36 : 8 }}
+                                    barCategoryGap="18%"
+                                >
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                                    <XAxis
+                                        dataKey="chartName"
+                                        tick={
+                                            <PlateChartAxisTick
+                                                angle={vehicleFinesChartData.length > 4 ? -28 : 0}
+                                                textAnchor={
+                                                    vehicleFinesChartData.length > 4 ? 'end' : 'middle'
+                                                }
+                                            />
+                                        }
+                                        interval={0}
+                                        height={vehicleFinesChartData.length > 4 ? 42 : 24}
+                                        axisLine={false}
+                                        tickLine={false}
+                                    />
+                                    <YAxis
+                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        width={40}
+                                        tickFormatter={formatCostAxisTick}
+                                    />
+                                    <RechartsTooltip
+                                        formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Employee unpaid']}
+                                        labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
+                                        contentStyle={tooltipStyle}
+                                    />
+                                    <Bar
+                                        dataKey="total"
+                                        fill="#e11d48"
+                                        radius={[6, 6, 0, 0]}
+                                        maxBarSize={36}
+                                        className="cursor-pointer"
+                                        animationDuration={chartAnim}
+                                        animationEasing="ease-out"
+                                        onClick={(entry, index) => {
+                                            const rows = vehicleFinesChartData || [];
+                                            const row =
+                                                (entry && entry.payload) ||
+                                                (typeof index === 'number' && rows[index] ? rows[index] : null) ||
+                                                entry;
+                                            if (!row || (!row.fines && !row.name && !row.vehicleId)) return;
+                                            const fines = Array.isArray(row.fines) ? row.fines : [];
+                                            const fineIds = fines
+                                                .map((fine) => fine?._id || fine?.fineRecordId)
+                                                .filter(Boolean);
+                                            const customIncomplete =
+                                                vehicleFinePeriod === 'custom' &&
+                                                !vehicleFineCustomFrom &&
+                                                !vehicleFineCustomTo;
+                                            const from =
+                                                !customIncomplete && vehicleFineRange?.start
+                                                    ? format(vehicleFineRange.start, 'yyyy-MM-dd')
+                                                    : '';
+                                            const to =
+                                                !customIncomplete && vehicleFineRange?.end
+                                                    ? format(vehicleFineRange.end, 'yyyy-MM-dd')
+                                                    : '';
+                                            navigateFromList(
+                                                router,
+                                                vehicleDashboardFineListHref({
+                                                    vehicleId: row.vehicleId || '',
+                                                    plate: row.plate || row.name || row.label || '',
+                                                    fineIds,
+                                                    from,
+                                                    to,
+                                                }),
+                                                FLEET_DASHBOARD_LIST_RETURN,
+                                            );
+                                        }}
+                                    >
+                                        <LabelList
+                                            dataKey="total"
+                                            position="top"
+                                            formatter={(v) => `AED ${Number(v).toLocaleString()}`}
+                                            style={{ fontSize: 9, fill: '#475569', fontWeight: 600 }}
+                                        />
+                                    </Bar>
+                                </BarChart>
+                            </RechartsBox>
+                        )}
+                    </CompactChartCard>
+                </ScrollReveal>
+                </DashboardExpandSlot>
+
+                <DashboardExpandSlot
+                    slotKey="upcoming"
+                    expandedKey={midRowExpanded}
+                    totalSlots={2}
+                    onToggle={setMidRowExpanded}
+                    className="min-w-0 h-full"
+                >
+                <ScrollReveal delayMs={80} durationMs={700} className="h-full min-w-0">
+                    <div
+                        className={`${compactChartPanelClass} h-full flex flex-col`}
+                        style={{ minHeight: COMPACT_ROW_CARD_HEIGHT }}
+                    >
+                        <div className="shrink-0">
+                            <div className="flex items-baseline justify-between gap-2">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                    Upcoming Events
+                                </h3>
+                                <span className="text-xs font-black text-gray-500 tabular-nums">
+                                    {upcomingOilServiceRows.length}
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 mb-2">
+                                Next oil service by vehicle · soonest first
+                            </p>
+                        </div>
                         {upcomingOilServiceRows.length === 0 ? (
                             <div className="flex-1 flex items-center justify-center text-center text-xs font-semibold text-gray-400 px-2">
                                 No upcoming oil service dates.
@@ -1917,7 +2235,10 @@ export default function VehicleFleetDashboard({
                                             className="w-full flex items-center justify-between gap-3 bg-gray-50 rounded-lg border border-gray-100 p-2.5 text-left hover:bg-white hover:shadow-md transition-all duration-300 cursor-pointer active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
                                         >
                                             <span className="min-w-0">
-                                                <span className="block text-sm font-bold text-gray-800 truncate">
+                                                <span
+                                                    className="block text-sm font-bold text-gray-800 truncate"
+                                                    title={row.plate || row.assetId || '—'}
+                                                >
                                                     {row.plate || row.assetId || '—'}
                                                 </span>
                                                 <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide truncate">
@@ -1941,129 +2262,114 @@ export default function VehicleFleetDashboard({
                         )}
                     </div>
                 </ScrollReveal>
+                </DashboardExpandSlot>
             </div>
 
-            <FleetDashboardDetailModal
-                open={detailModalOpen}
-                bucket={detailModalBucket}
-                onClose={closeDetailModal}
-                onRowClick={handleDetailRowClick}
-            />
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-                <ScrollReveal delayMs={0} durationMs={700} className="h-full">
-                    <CompactChartCard
-                        title="Vehicle fines"
-                        subtitle="Total fine amounts by vehicle. Click a bar for the fine list."
-                        headerExtra={
-                            <div className="space-y-1.5">
-                                <CompactPeriodTabBar
-                                    options={SERVICE_COST_PERIOD_TABS}
-                                    value={vehicleFinePeriod}
-                                    onChange={setVehicleFinePeriod}
-                                />
-                                {vehicleFinePeriod === 'custom' ? (
-                                    <DateRangePicker
-                                        startValue={vehicleFineCustomFrom}
-                                        endValue={vehicleFineCustomTo}
-                                        onStartChange={setVehicleFineCustomFrom}
-                                        onEndChange={setVehicleFineCustomTo}
-                                        placeholder="Select date range"
-                                        className="h-8 min-w-0 w-full max-w-full text-[10px] px-2"
-                                    />
-                                ) : null}
-                            </div>
-                        }
+            <div className="flex gap-4 items-stretch transition-all duration-300 ease-out">
+                <DashboardExpandSlot
+                    slotKey="value"
+                    expandedKey={bottomRowExpanded}
+                    totalSlots={3}
+                    onToggle={setBottomRowExpanded}
+                    className="min-w-0 h-full"
+                >
+                <ScrollReveal delayMs={100} durationMs={750} className="h-full min-w-0">
+                    <LowerChartCard
+                        title="Vehicle value by asset"
+                        subtitle="All vehicles. No recorded value shows as 0."
                     >
-                        {vehicleFinesChartData.length === 0 ? (
+                        {vehicleValueBars.length === 0 ? (
                             <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
-                                No vehicle fines in this period.
+                                No vehicles on record.
                             </p>
                         ) : (
                             <RechartsBox
-                                height={COMPACT_ROW_CHART_HEIGHT}
-                                minHeight={COMPACT_ROW_CHART_MIN}
+                                height={LOWER_ROW_CHART_HEIGHT}
+                                minHeight={LOWER_ROW_CHART_HEIGHT}
                                 className="h-full"
                                 fillParent
                             >
                                 <BarChart
-                                    data={vehicleFinesChartData}
-                                    margin={{ top: 18, right: 8, left: 0, bottom: vehicleFinesChartData.length > 4 ? 36 : 8 }}
+                                    data={vehicleValueBars}
+                                    margin={{
+                                        top: 8,
+                                        right: 8,
+                                        left: 0,
+                                        bottom: vehicleValueBars.length > 4 ? 36 : 8,
+                                    }}
                                     barCategoryGap="18%"
                                 >
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                     <XAxis
                                         dataKey="chartName"
-                                        tick={{ fontSize: 9, fill: '#64748b' }}
+                                        tick={
+                                            <PlateChartAxisTick
+                                                angle={vehicleValueBars.length > 4 ? -28 : 0}
+                                                textAnchor={vehicleValueBars.length > 4 ? 'end' : 'middle'}
+                                                fill="#94a3b8"
+                                            />
+                                        }
                                         interval={0}
-                                        angle={vehicleFinesChartData.length > 4 ? -28 : 0}
-                                        textAnchor={vehicleFinesChartData.length > 4 ? 'end' : 'middle'}
-                                        height={vehicleFinesChartData.length > 4 ? 42 : 24}
+                                        height={vehicleValueBars.length > 4 ? 52 : 24}
                                         axisLine={false}
                                         tickLine={false}
                                     />
-                                    <YAxis
-                                        tick={{ fontSize: 10, fill: '#94a3b8' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        width={40}
-                                        tickFormatter={formatCostAxisTick}
-                                    />
+                                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} />
                                     <RechartsTooltip
-                                        formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Fines']}
+                                        formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Value']}
                                         labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
                                         contentStyle={tooltipStyle}
                                     />
                                     <Bar
-                                        dataKey="total"
-                                        fill="#e11d48"
-                                        radius={[6, 6, 0, 0]}
-                                        maxBarSize={36}
-                                        className="cursor-pointer"
+                                        dataKey="value"
+                                        fill="#7c3aed"
+                                        radius={[8, 8, 0, 0]}
+                                        maxBarSize={48}
                                         animationDuration={chartAnim}
                                         animationEasing="ease-out"
-                                        onClick={(entry, index) => {
-                                            const rows = vehicleFinesChartData || [];
-                                            const row =
-                                                (entry && entry.payload) ||
-                                                (typeof index === 'number' && rows[index] ? rows[index] : null) ||
-                                                entry;
-                                            if (!row || (!row.fines && !row.name)) return;
-                                            if (row.vehicleId) setUsageDrillVehicleId(String(row.vehicleId));
-                                            const fines = row.fines || [];
-                                            openDetailModal({
-                                                name: row.name || row.label,
-                                                title: `Vehicle fines: ${row.plate || row.name || row.label || 'Vehicle'}`,
-                                                subtitle: `${fines.length} fine${fines.length === 1 ? '' : 's'} · ${formatFleetModalAmount(row.total)}`,
-                                                modalKind: 'vehicleFines',
-                                                docs: fines,
-                                            });
-                                        }}
-                                    >
-                                        <LabelList
-                                            dataKey="total"
-                                            position="top"
-                                            formatter={(v) => `AED ${Number(v).toLocaleString()}`}
-                                            style={{ fontSize: 9, fill: '#475569', fontWeight: 600 }}
-                                        />
-                                    </Bar>
+                                    />
                                 </BarChart>
                             </RechartsBox>
                         )}
-                    </CompactChartCard>
+                    </LowerChartCard>
                 </ScrollReveal>
+                </DashboardExpandSlot>
 
-                <ScrollReveal delayMs={80} durationMs={700} className="h-full">
-                    <CompactChartCard
+                <DashboardExpandSlot
+                    slotKey="usage"
+                    expandedKey={bottomRowExpanded}
+                    totalSlots={3}
+                    onToggle={setBottomRowExpanded}
+                    className="min-w-0 h-full"
+                >
+                <ScrollReveal delayMs={180} durationMs={750} className="h-full min-w-0">
+                    <LowerChartCard subtitle="">
+                        <div className="h-full min-h-[200px] flex flex-col items-center justify-center text-center px-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/80">
+                            <p className="text-sm font-semibold text-gray-400">Coming soon</p>
+                            <p className="text-xs text-gray-400 mt-1">Will add soon</p>
+                        </div>
+                    </LowerChartCard>
+                </ScrollReveal>
+                </DashboardExpandSlot>
+
+                <DashboardExpandSlot
+                    slotKey="serviceCost"
+                    expandedKey={bottomRowExpanded}
+                    totalSlots={3}
+                    onToggle={setBottomRowExpanded}
+                    className="min-w-0 h-full"
+                >
+                <ScrollReveal delayMs={240} durationMs={750} className="h-full min-w-0">
+                    <LowerChartCard
                         title={
                             serviceCostDrillVehicle
-                                ? `Service cost · ${serviceCostDrillVehicle.label || 'Vehicle'}`
+                                ? `Service cost · ${fleetVehiclePlate(serviceCostDrillVehicle) || 'Vehicle'}`
                                 : 'Service cost by vehicle'
                         }
                         subtitle={
                             serviceCostDrillVehicle
                                 ? 'Each bar is a service type for this vehicle. Click Back for all vehicles.'
-                                : 'Click a vehicle bar to see cost by service type.'
+                                : 'Plate numbers on axis · hover for full plate. Click a bar for service types.'
                         }
                         headerExtra={
                             <div className="space-y-1.5">
@@ -2103,8 +2409,8 @@ export default function VehicleFleetDashboard({
                             </p>
                         ) : (
                             <RechartsBox
-                                height={COMPACT_ROW_CHART_HEIGHT}
-                                minHeight={COMPACT_ROW_CHART_MIN}
+                                height={LOWER_ROW_CHART_HEIGHT}
+                                minHeight={LOWER_ROW_CHART_HEIGHT}
                                 className="h-full"
                                 fillParent
                             >
@@ -2121,10 +2427,15 @@ export default function VehicleFleetDashboard({
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                     <XAxis
                                         dataKey="chartName"
-                                        tick={{ fontSize: 9, fill: '#64748b' }}
+                                        tick={
+                                            <PlateChartAxisTick
+                                                angle={serviceCostChartData.length > 4 ? -28 : 0}
+                                                textAnchor={
+                                                    serviceCostChartData.length > 4 ? 'end' : 'middle'
+                                                }
+                                            />
+                                        }
                                         interval={0}
-                                        angle={serviceCostChartData.length > 4 ? -28 : 0}
-                                        textAnchor={serviceCostChartData.length > 4 ? 'end' : 'middle'}
                                         height={serviceCostChartData.length > 4 ? 42 : 24}
                                         axisLine={false}
                                         tickLine={false}
@@ -2159,7 +2470,6 @@ export default function VehicleFleetDashboard({
                                             const vehicleId = row?.vehicleId;
                                             if (!vehicleId) return;
                                             setServiceCostDrillVehicleId(String(vehicleId));
-                                            setUsageDrillVehicleId(String(vehicleId));
                                         }}
                                     >
                                         {serviceCostDrillVehicle
@@ -2184,169 +2494,9 @@ export default function VehicleFleetDashboard({
                                 </BarChart>
                             </RechartsBox>
                         )}
-                    </CompactChartCard>
-                </ScrollReveal>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-stretch">
-                <ScrollReveal delayMs={100} durationMs={750} className="h-full">
-                    <LowerChartCard
-                        title="Vehicle value by asset"
-                        subtitle="All vehicles. No recorded value shows as 0."
-                    >
-                        {vehicleValueBars.length === 0 ? (
-                            <p className="text-sm text-slate-400 h-full flex items-center justify-center text-center">
-                                No vehicles on record.
-                            </p>
-                        ) : (
-                            <RechartsBox
-                                height={LOWER_ROW_CHART_HEIGHT}
-                                minHeight={LOWER_ROW_CHART_HEIGHT}
-                                className="h-full"
-                                fillParent
-                            >
-                                <BarChart
-                                    data={vehicleValueBars}
-                                    margin={{
-                                        top: 8,
-                                        right: 8,
-                                        left: 0,
-                                        bottom: vehicleValueBars.length > 4 ? 36 : 8,
-                                    }}
-                                    barCategoryGap="18%"
-                                >
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                                    <XAxis
-                                        dataKey="chartName"
-                                        tick={{ fontSize: 9, fill: '#94a3b8' }}
-                                        interval={0}
-                                        angle={vehicleValueBars.length > 4 ? -28 : 0}
-                                        textAnchor={vehicleValueBars.length > 4 ? 'end' : 'middle'}
-                                        height={vehicleValueBars.length > 4 ? 52 : 24}
-                                        axisLine={false}
-                                        tickLine={false}
-                                    />
-                                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} />
-                                    <RechartsTooltip
-                                        formatter={(v) => [`AED ${Number(v).toLocaleString()}`, 'Value']}
-                                        labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
-                                        contentStyle={tooltipStyle}
-                                    />
-                                    <Bar
-                                        dataKey="value"
-                                        fill="#7c3aed"
-                                        radius={[8, 8, 0, 0]}
-                                        maxBarSize={48}
-                                        className="cursor-pointer"
-                                        animationDuration={chartAnim}
-                                        animationEasing="ease-out"
-                                        onClick={(entry, index) => {
-                                            const rows = vehicleValueBars || [];
-                                            const row =
-                                                (entry && entry.payload) ||
-                                                (typeof index === 'number' && rows[index] ? rows[index] : null) ||
-                                                entry;
-                                            const vehicleId = row?.vehicleId;
-                                            if (!vehicleId) return;
-                                            setUsageDrillVehicleId(String(vehicleId));
-                                        }}
-                                    />
-                                </BarChart>
-                            </RechartsBox>
-                        )}
                     </LowerChartCard>
                 </ScrollReveal>
-
-                <ScrollReveal delayMs={180} durationMs={750} className="h-full">
-                    <LowerChartCard
-                        title={
-                            usageDrillVehicle
-                                ? `Vehicle usage · ${usageDrillVehicle.label || 'Vehicle'}`
-                                : 'Vehicle usage (service events)'
-                        }
-                        subtitle={
-                            usageDrillVehicle
-                                ? 'This vehicle: one week of days, including 0.'
-                                : 'All vehicles by week. Click a vehicle bar for that vehicle week of days.'
-                        }
-                        headerExtra={
-                            <div className="space-y-1.5">
-                                {usageDrillVehicle ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setUsageDrillVehicleId(null)}
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wide text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-100"
-                                    >
-                                        <ChevronLeft size={12} />
-                                        All vehicles
-                                    </button>
-                                ) : null}
-                                <CompactPeriodTabBar
-                                    options={SERVICE_COST_PERIOD_TABS}
-                                    value={usagePeriod}
-                                    onChange={setUsagePeriod}
-                                />
-                                {usagePeriod === 'custom' ? (
-                                    <DateRangePicker
-                                        startValue={usageCustomFrom}
-                                        endValue={usageCustomTo}
-                                        onStartChange={setUsageCustomFrom}
-                                        onEndChange={setUsageCustomTo}
-                                        placeholder="Select date range"
-                                        className="h-8 min-w-0 w-full max-w-full text-[10px] px-2"
-                                    />
-                                ) : null}
-                            </div>
-                        }
-                    >
-                        <RechartsBox
-                            height={LOWER_ROW_CHART_HEIGHT}
-                            minHeight={LOWER_ROW_CHART_HEIGHT}
-                            className="h-full"
-                            fillParent
-                        >
-                            <BarChart data={usageChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} allowDecimals={false} axisLine={false} tickLine={false} width={36} />
-                                <RechartsTooltip contentStyle={tooltipStyle} />
-                                <Bar
-                                    dataKey="count"
-                                    fill="#14b8a6"
-                                    radius={[6, 6, 0, 0]}
-                                    name="Service records"
-                                    maxBarSize={40}
-                                    animationDuration={chartAnim}
-                                    animationEasing="ease-out"
-                                />
-                            </BarChart>
-                        </RechartsBox>
-                    </LowerChartCard>
-                </ScrollReveal>
-
-                <ScrollReveal delayMs={240} durationMs={750} className="h-full">
-                    <LowerChartCard
-                        title="Vehicle model year"
-                        subtitle="Hover a slice for the year. Click to open the list."
-                    >
-                        <ModelYearDonutPanel
-                            pieData={pieData}
-                            chartAnim={chartAnim}
-                            onSliceClick={(entry) => {
-                                if (!entry?.name) return;
-                                openDetailModal({
-                                    name: entry.name,
-                                    title: `Model year ${entry.name}`,
-                                    subtitle: `${Number(entry.value) || 0} vehicle${
-                                        Number(entry.value) === 1 ? '' : 's'
-                                    }`,
-                                    modalKind: 'modelYear',
-                                    docs: entry.docs || [],
-                                });
-                            }}
-                        />
-                    </LowerChartCard>
-                </ScrollReveal>
+                </DashboardExpandSlot>
             </div>
 
             <div className="space-y-4">

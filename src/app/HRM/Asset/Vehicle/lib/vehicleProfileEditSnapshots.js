@@ -26,6 +26,13 @@ export function buildBasicProposedRows(form, asset) {
                 }) || '—',
         },
         { label: 'Model year', value: form.modelYear ?? '—' },
+        {
+            label: 'Monthly limit',
+            value:
+                form.fuelMonthlyLimit != null && String(form.fuelMonthlyLimit).trim() !== ''
+                    ? `AED ${Number(form.fuelMonthlyLimit).toLocaleString()}`
+                    : '—',
+        },
     ];
 }
 

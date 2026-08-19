@@ -13,6 +13,9 @@ export const ERP_PDF_ACCEPT = '.pdf,application/pdf';
 /** Mixed PDF + JPEG pickers */
 export const ERP_ATTACHMENT_ACCEPT = '.pdf,.jpg,.jpeg,application/pdf,image/jpeg';
 
+/** Short helper for attachment field labels and placeholders */
+export const ERP_ATTACHMENT_HINT = 'PDF (max 5 MB) or JPEG (max 2 MB)';
+
 /** @deprecated Use ERP_ATTACHMENT_ACCEPT — kept for older imports */
 export const ALLOWED_ATTACHMENT_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/jpg']);
 

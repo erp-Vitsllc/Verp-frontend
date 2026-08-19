@@ -1,7 +1,40 @@
 'use client';
 
+import { useCallback, useMemo, useState } from 'react';
 import { ChevronRight, ClipboardList, Trash2 } from 'lucide-react';
-import { formatNextChangeMonthDisplay, serviceAmountStatusBadgeClass } from './vehicleServiceUtils';
+import ListTableRowLink from '@/components/ListTableRowLink';
+import { buildVehicleServiceListRowHref, formatNextChangeMonthDisplay, serviceAmountStatusBadgeClass } from './vehicleServiceUtils';import VehicleServiceRequestSortHeader from './VehicleServiceRequestSortHeader';
+import {
+    dateSortValue,
+    numberSortValue,
+    sortServiceTableRows,
+    textSortValue,
+} from './vehicleServiceRequestTableSort';
+
+const CAR_WASH_COLUMNS = [
+    { key: 'slNo', label: 'SL', type: 'number' },
+    { key: 'serviceReqNo', label: 'VSR-No', type: 'text' },
+    { key: 'vehicleAssetNo', label: 'Vehicle asset no', type: 'text' },
+    { key: 'vehicleNo', label: 'Vehicle no', type: 'text' },
+    { key: 'carWashMonth', label: 'Car Wash Month', type: 'date' },
+    { key: 'carWashType', label: 'Car Wash Type', type: 'text' },
+    { key: 'amount', label: 'Amount', type: 'number' },
+    { key: 'amountType', label: 'Amount type', type: 'text' },
+    { key: 'amountStatus', label: 'Amount status', type: 'text' },
+    { key: 'status', label: 'Status', type: 'text' },
+];
+
+function carWashSortValue(row, key) {
+    switch (key) {
+        case 'slNo':
+        case 'amount':
+            return numberSortValue(row?.[key]);
+        case 'carWashMonth':
+            return dateSortValue(row?.carWashMonth ? `${row.carWashMonth}-01` : null);
+        default:
+            return textSortValue(row?.[key]);
+    }
+}
 
 function formatAmount(value) {
     if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) return '—';
@@ -23,11 +56,36 @@ export default function VehicleCarWashRequestTable({
     emptyMessage = 'No car wash requests yet',
     emptyHint = 'Use Request Car Wash to add the first entry.',
     onRowClick,
+    getRowHref,
+    router,
+    listReturnHref,
     canDelete = false,
     onDelete,
     deletingServiceId = '',
 }) {
-    const showActions = Boolean(onRowClick || (canDelete && onDelete));
+    const [sortKey, setSortKey] = useState('carWashMonth');
+    const [sortDirection, setSortDirection] = useState('desc');
+    const showActions = Boolean(onRowClick || router || (canDelete && onDelete));
+
+    const handleSort = useCallback(
+        (key) => {
+            const column = CAR_WASH_COLUMNS.find((c) => c.key === key);
+            if (!column) return;
+            if (sortKey === key) {
+                setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                return;
+            }
+            setSortKey(key);
+            setSortDirection(column.type === 'date' || column.type === 'number' ? 'desc' : 'asc');
+        },
+        [sortKey],
+    );
+
+    const sortedRows = useMemo(() => {
+        const column = CAR_WASH_COLUMNS.find((c) => c.key === sortKey) || CAR_WASH_COLUMNS[0];
+        return sortServiceTableRows(rows, carWashSortValue, sortKey, sortDirection, column.type);
+    }, [rows, sortKey, sortDirection]);
+
     if (!rows.length) {
         return (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
@@ -43,80 +101,86 @@ export default function VehicleCarWashRequestTable({
             <table className="w-full text-sm border-collapse min-w-[1040px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
-                        <th className="px-4 py-3 whitespace-nowrap">SL</th>
-                        <th className="px-4 py-3 whitespace-nowrap">VSR-No</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Vehicle asset no</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Vehicle no</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Car Wash Month</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Car Wash Type</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Amount</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Amount type</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Amount status</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Status</th>
+                        {CAR_WASH_COLUMNS.map((column) => (
+                            <VehicleServiceRequestSortHeader
+                                key={column.key}
+                                label={column.label}
+                                columnKey={column.key}
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleSort}
+                            />
+                        ))}
                         {showActions ? (
                             <th className="px-4 py-3 whitespace-nowrap text-right w-24">Actions</th>
                         ) : null}
                     </tr>
                 </thead>
                 <tbody>
-                    {rows.map((row) => {
-                        const serviceId = String(row.serviceId || row.id || '');
+                    {sortedRows.map((entry) => {
+                        const serviceId = String(entry.serviceId || entry.id || '');
                         const isDeleting = deletingServiceId && deletingServiceId === serviceId;
-                        return (
+                        const rowHref =
+                            (typeof getRowHref === 'function' ? getRowHref(entry) : '') ||
+                            (onRowClick || router
+                                ? buildVehicleServiceListRowHref({ ...entry, serviceType: 'Car Wash' })
+                                : '');
+                        const isNavigable = Boolean(rowHref && router);
+                        const rowElement = (
                         <tr
-                            key={row.id}
-                            role={onRowClick ? 'button' : undefined}
-                            tabIndex={onRowClick ? 0 : undefined}
-                            onClick={onRowClick ? () => onRowClick(row) : undefined}
+                            key={entry.id}
+                            role={!isNavigable && onRowClick ? 'button' : undefined}
+                            tabIndex={!isNavigable && onRowClick ? 0 : undefined}
+                            onClick={!isNavigable && onRowClick ? () => onRowClick(entry) : undefined}
                             onKeyDown={
-                                onRowClick
+                                !isNavigable && onRowClick
                                     ? (e) => {
                                           if (e.key === 'Enter' || e.key === ' ') {
                                               e.preventDefault();
-                                              onRowClick(row);
+                                              onRowClick(entry);
                                           }
                                       }
                                     : undefined
                             }
                             className={`bg-white hover:bg-blue-50/60 border-b border-slate-100 transition-colors ${
-                                onRowClick
+                                isNavigable || onRowClick
                                     ? 'cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500 group'
                                     : ''
                             }`}
-                            title={onRowClick ? 'Click to open car wash request' : undefined}
+                            title={isNavigable || onRowClick ? 'Click to open car wash request' : undefined}
                         >
                             <td className="px-4 py-2.5 text-slate-600 tabular-nums font-semibold">
-                                {row.slNo ?? '—'}
+                                {entry.slNo ?? '—'}
                             </td>
                             <td className="px-4 py-2.5 font-mono text-xs text-slate-700">
-                                {row.serviceReqNo || '—'}
+                                {entry.serviceReqNo || '—'}
                             </td>
                             <td className="px-4 py-2.5 font-mono text-xs text-slate-700">
-                                {row.vehicleAssetNo || '—'}
+                                {entry.vehicleAssetNo || '—'}
                             </td>
-                            <td className="px-4 py-2.5 text-slate-700">{row.vehicleNo || '—'}</td>
+                            <td className="px-4 py-2.5 text-slate-700">{entry.vehicleNo || '—'}</td>
                             <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap">
-                                {formatNextChangeMonthDisplay(row.carWashMonth) || '—'}
+                                {formatNextChangeMonthDisplay(entry.carWashMonth) || '—'}
                             </td>
-                            <td className="px-4 py-2.5 text-slate-700">{row.carWashType || '—'}</td>
+                            <td className="px-4 py-2.5 text-slate-700">{entry.carWashType || '—'}</td>
                             <td className="px-4 py-2.5 text-slate-700 tabular-nums">
-                                {formatAmount(row.amount)}
+                                {formatAmount(entry.amount)}
                             </td>
                             <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-xs">
-                                {row.amountType || '—'}
+                                {entry.amountType || '—'}
                             </td>
                             <td className="px-4 py-2.5">
                                 <span
-                                    className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${serviceAmountStatusBadgeClass(row.amountStatusTone)}`}
+                                    className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${serviceAmountStatusBadgeClass(entry.amountStatusTone)}`}
                                 >
-                                    {row.amountStatus || '—'}
+                                    {entry.amountStatus || '—'}
                                 </span>
                             </td>
                             <td className="px-4 py-2.5">
                                 <span
-                                    className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(row.statusTone)}`}
+                                    className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(entry.statusTone)}`}
                                 >
-                                    {row.status || 'Pending'}
+                                    {entry.status || 'Pending'}
                                 </span>
                             </td>
                             {showActions ? (
@@ -127,7 +191,7 @@ export default function VehicleCarWashRequestTable({
                                                 type="button"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    onDelete(row);
+                                                    onDelete(entry);
                                                 }}
                                                 disabled={isDeleting}
                                                 className="inline-flex items-center justify-center p-1.5 rounded-lg text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 disabled:opacity-50"
@@ -136,7 +200,7 @@ export default function VehicleCarWashRequestTable({
                                                 <Trash2 size={14} />
                                             </button>
                                         ) : null}
-                                        {onRowClick ? (
+                                        {isNavigable || onRowClick ? (
                                             <ChevronRight
                                                 size={16}
                                                 className="inline-block text-slate-300 transition-colors group-hover:text-blue-500"
@@ -148,6 +212,21 @@ export default function VehicleCarWashRequestTable({
                             ) : null}
                         </tr>
                         );
+
+                        if (isNavigable) {
+                            return (
+                                <ListTableRowLink
+                                    key={entry.id}
+                                    href={rowHref}
+                                    router={router}
+                                    listReturnHref={listReturnHref}
+                                >
+                                    {rowElement}
+                                </ListTableRowLink>
+                            );
+                        }
+
+                        return rowElement;
                     })}
                 </tbody>
             </table>

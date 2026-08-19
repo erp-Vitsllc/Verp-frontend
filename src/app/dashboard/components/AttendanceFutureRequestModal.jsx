@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
+import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
 
 const SLOT_STEP_MINUTES = 30;
 const DEFAULT_START_MINUTES = 9 * 60;
@@ -13,6 +14,36 @@ const DAY_PART_OPTIONS = [
     { key: 'full', label: 'Full day' },
     { key: 'half', label: 'Half day' },
 ];
+
+function nextDateKey(dateKey) {
+    const [year, month, day] = String(dateKey).split('-').map(Number);
+    const dt = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0));
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatDisplayDate(dateKey) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return dateKey || '';
+    const [year, month, day] = dateKey.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: 'UTC',
+    });
+}
+
+function countLeaveDays(fromDate, toDate, holidayDates, offWeekdays) {
+    if (!fromDate || !toDate || toDate < fromDate) return 0;
+    let count = 0;
+    for (let cursor = fromDate; cursor <= toDate; cursor = nextDateKey(cursor)) {
+        if (holidayDates instanceof Set && offWeekdays instanceof Set) {
+            const weekday = weekdayKeyFromDateKey(cursor);
+            if (holidayDates.has(cursor) || offWeekdays.has(weekday)) continue;
+        }
+        count += 1;
+    }
+    return count;
+}
 
 function weekdayKeyFromDateKey(dateKey) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
@@ -68,6 +99,9 @@ export default function AttendanceFutureRequestModal({
     dateKey,
     earliestDate = '',
     scheduleWeek = null,
+    variant = 'authorized',
+    holidayDates = null,
+    offWeekdays = null,
     submitting = false,
     error = '',
     heading = 'Request for a future day',
@@ -116,13 +150,37 @@ export default function AttendanceFutureRequestModal({
         setTimeOut(minutesToClock(shift.endMinutes));
     }, [isOpen, shift.startMinutes, shift.endMinutes]);
 
+    const isAnnualLeave = variant === 'annual';
+    const isMultiDay = Boolean(fromDate && toDate && fromDate !== toDate);
+    const leaveDayCount = useMemo(
+        () => countLeaveDays(fromDate, toDate, holidayDates, offWeekdays),
+        [fromDate, toDate, holidayDates, offWeekdays],
+    );
+
+    useEffect(() => {
+        if (isMultiDay && dayPart !== 'full') setDayPart('full');
+    }, [isMultiDay, dayPart]);
+
+    useEffect(() => {
+        if (isAnnualLeave && dayPart !== 'full') setDayPart('full');
+    }, [isAnnualLeave, dayPart]);
+
     if (!isOpen) return null;
 
     const timeInMinutes = clockToMinutes(timeIn);
-    const isHalfDay = dayPart === 'half';
-    // Half day means part of a working day is missed, which the calendar tracks as a late arrival.
-    const requestKind = isHalfDay ? 'late_arrived' : 'leave';
-    const requestTypeLabel = isHalfDay ? 'Late arrival' : 'Authorized Leave';
+    const isHalfDay = !isAnnualLeave && !isMultiDay && dayPart === 'half';
+    const requestKind = isAnnualLeave ? 'annual_leave' : 'leave';
+    const requestTypeLabel = isAnnualLeave
+        ? 'Annual Leave'
+        : isHalfDay
+          ? 'Half day leave'
+          : 'Authorized Leave';
+    const durationLabel =
+        fromDate && toDate && toDate >= fromDate && leaveDayCount > 0
+            ? fromDate === toDate
+                ? `Leave request for ${formatDisplayDate(fromDate)} · ${leaveDayCount} day${leaveDayCount === 1 ? '' : 's'}`
+                : `Leave request for ${formatDisplayDate(fromDate)} to ${formatDisplayDate(toDate)} · ${leaveDayCount} day${leaveDayCount === 1 ? '' : 's'}`
+            : '';
 
     const handleClose = () => {
         if (submitting) return;
@@ -133,6 +191,7 @@ export default function AttendanceFutureRequestModal({
         setFromDate(value);
         setLocalError('');
         if (value && toDate && value > toDate) setToDate(value);
+        if (value && toDate && value !== toDate) setDayPart('full');
     };
 
     const handleTimeInChange = (value) => {
@@ -144,6 +203,14 @@ export default function AttendanceFutureRequestModal({
             const nextSlot = slots.find((slot) => slot.minutes > nextIn);
             setTimeOut(nextSlot ? nextSlot.value : '');
         }
+    };
+
+    const handleAttachmentChange = (event) => {
+        const result = guardAttachmentFileChange(event, (_, file) => {
+            setAttachment(file);
+            if (file) setLocalError('');
+        });
+        if (result?.blocked) setLocalError(result.message);
     };
 
     const handleSubmit = (e) => {
@@ -173,24 +240,24 @@ export default function AttendanceFutureRequestModal({
             }
         }
         const trimmed = String(reason || '').trim();
-        if (!trimmed) {
-            setLocalError('Description is required.');
-            return;
-        }
-        if (!attachment?.name) {
-            setLocalError('Attachment is required.');
-            return;
+        const effectiveDayPart = isMultiDay ? 'full' : dayPart;
+        if (attachment) {
+            const check = validateErpUploadFile(attachment);
+            if (!check.ok) {
+                setLocalError(check.message);
+                return;
+            }
         }
         setLocalError('');
         onSubmit?.({
             kind: requestKind,
             fromDate,
             toDate,
-            dayPart,
+            dayPart: effectiveDayPart,
             timeIn: isHalfDay ? timeIn : '',
             timeOut: isHalfDay ? timeOut : '',
             reason: trimmed,
-            attachmentName: attachment.name,
+            attachmentName: attachment?.name || '',
         });
     };
 
@@ -248,12 +315,23 @@ export default function AttendanceFutureRequestModal({
                         <div className="flex items-center h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-100/70 text-sm font-semibold text-slate-700">
                             {requestTypeLabel}
                         </div>
-                        {isHalfDay ? (
+                        {isMultiDay && !isAnnualLeave ? (
                             <p className="mt-1.5 text-[11px] text-slate-500">
-                                A half day is requested as a late arrival — pick Full day for authorized leave.
+                                Multi-day requests are full day only.
                             </p>
                         ) : null}
                     </div>
+
+                    {durationLabel ? (
+                        <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3.5 py-2.5">
+                            <p className="text-sm font-semibold text-sky-900">{durationLabel}</p>
+                            {holidayDates instanceof Set && offWeekdays instanceof Set ? (
+                                <p className="text-[11px] text-sky-700/80 mt-1">
+                                    Working days only — holidays and weekly offs are excluded.
+                                </p>
+                            ) : null}
+                        </div>
+                    ) : null}
 
                     <div className="grid grid-cols-2 gap-3">
                         <label className="block">
@@ -274,8 +352,10 @@ export default function AttendanceFutureRequestModal({
                                 value={toDate}
                                 min={fromDate || earliestDate || undefined}
                                 onChange={(e) => {
-                                    setToDate(e.target.value);
+                                    const value = e.target.value;
+                                    setToDate(value);
                                     setLocalError('');
+                                    if (fromDate && value && fromDate !== value) setDayPart('full');
                                 }}
                                 disabled={submitting}
                                 className={fieldClass}
@@ -283,24 +363,26 @@ export default function AttendanceFutureRequestModal({
                         </label>
                     </div>
 
-                    <label className="block">
-                        <span className={labelClass}>Time</span>
-                        <select
-                            value={dayPart}
-                            onChange={(e) => {
-                                setDayPart(e.target.value);
-                                setLocalError('');
-                            }}
-                            disabled={submitting}
-                            className={fieldClass}
-                        >
-                            {DAY_PART_OPTIONS.map((opt) => (
-                                <option key={opt.key} value={opt.key}>
-                                    {opt.label}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                    {!isAnnualLeave && !isMultiDay ? (
+                        <label className="block">
+                            <span className={labelClass}>Time</span>
+                            <select
+                                value={dayPart}
+                                onChange={(e) => {
+                                    setDayPart(e.target.value);
+                                    setLocalError('');
+                                }}
+                                disabled={submitting}
+                                className={fieldClass}
+                            >
+                                {DAY_PART_OPTIONS.map((opt) => (
+                                    <option key={opt.key} value={opt.key}>
+                                        {opt.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    ) : null}
 
                     {isHalfDay ? (
                         <div className="grid grid-cols-2 gap-3">
@@ -351,24 +433,24 @@ export default function AttendanceFutureRequestModal({
                     ) : null}
 
                     <label className="block">
-                        <span className={labelClass}>Description</span>
+                        <span className={labelClass}>Description (optional)</span>
                         <textarea
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
                             rows={3}
-                            required
                             placeholder="Briefly explain this request…"
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/80 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 resize-y min-h-[88px]"
                         />
                     </label>
 
                     <div>
-                        <span className={labelClass}>Attachment</span>
+                        <span className={labelClass}>Attachment (optional)</span>
                         <input
                             ref={fileRef}
                             type="file"
+                            accept={ERP_ATTACHMENT_ACCEPT}
                             className="hidden"
-                            onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+                            onChange={handleAttachmentChange}
                         />
                         <button
                             type="button"
@@ -383,7 +465,7 @@ export default function AttendanceFutureRequestModal({
                                     {attachment ? attachment.name : 'Choose a file'}
                                 </span>
                                 <span className="block text-xs text-slate-400 mt-0.5">
-                                    {attachment ? 'Click to change' : 'Required · PDF, image, or document'}
+                                    {attachment ? 'Click to change' : ERP_ATTACHMENT_HINT}
                                 </span>
                             </span>
                         </button>

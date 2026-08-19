@@ -304,8 +304,20 @@ export function buildUnderstandableNotificationTitle(item = {}) {
     switch (type) {
         case 'Utility Contract Expiry':
             return 'Utility Contract Expiry — Renew or Deactivate';
-        case 'Utility Bill Payment Reminder':
-            return 'Utility Payment Day — Clear This Month’s Bill';
+        case 'Utility Bill Payment Reminder': {
+            const meta = parseExtra3(item.extra3);
+            const billMonth = String(meta?.billMonth || meta?.yearMonth || '').trim();
+            if (/^\d{4}-\d{2}$/.test(billMonth)) {
+                const [y, m] = billMonth.split('-');
+                const probe = new Date(Number(y), Number(m) - 1, 1);
+                const monthLabel = probe.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+                const nowYm = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+                return billMonth === nowYm
+                    ? 'Utility Payment Day — Clear This Month’s Bill'
+                    : `Utility Payment Day — Clear ${monthLabel} Bill`;
+            }
+            return 'Utility Payment Day — Clear Bill';
+        }
         case 'Utility Bill Payment':
             return 'Utility Bill Payment — Review / Pay';
         case 'Utility Entry Status Change':

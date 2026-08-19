@@ -3,6 +3,7 @@
 import { AnimatedCounter } from '@/app/HRM/Asset/components/ListPageSummaryCards';
 import { formatBillMoney } from '../utils/utilityBillStats';
 import { ALL_MONTHS, MONTH_OPTIONS } from '../utils/utilityOverviewStats';
+import UtilityTypeDistributionChart from './UtilityTypeDistributionChart';
 
 const SELECT_CLASS =
     'h-8 min-w-[7.5rem] rounded-md border border-gray-200 bg-white px-2 text-[11px] font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400';
@@ -27,6 +28,8 @@ export default function UtilityTypeOverviewCard({
     yearOptions = [],
     onMonthChange,
     onYearChange,
+    typeDistribution = [],
+    deductionTotal = 0,
 }) {
     const years =
         Array.isArray(yearOptions) && yearOptions.length
@@ -80,70 +83,80 @@ export default function UtilityTypeOverviewCard({
                     </p>
                 </div>
             ) : (
-                <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
-                    <div className="flex h-full min-h-0 gap-2.5 pb-0.5">
-                        {cards.map((item) => {
-                            const isActive =
-                                String(activeType || '').toLowerCase() ===
-                                String(item.type || '').toLowerCase();
-                            const hasBills = (Number(item.count) || 0) > 0;
-                            return (
-                                <div
-                                    key={item.type}
-                                    className="flex w-[7.75rem] sm:w-[8.5rem] shrink-0 flex-col gap-2 min-h-0"
-                                >
-                                    <button
-                                        type="button"
-                                        onClick={() => onSelectType?.(item.type)}
-                                        className={`px-1.5 py-2 rounded-xl flex flex-col items-center justify-center text-center transition-all border shrink-0 ${
-                                            isActive
-                                                ? 'bg-blue-50 border-blue-300 shadow-sm ring-1 ring-blue-200'
-                                                : 'bg-white border-gray-100 hover:border-gray-200 hover:shadow-sm'
-                                        }`}
-                                        title={`${item.label}: ${item.count} bill${item.count === 1 ? '' : 's'} · ${periodLabel(month, year)}`}
-                                    >
-                                        <span className="text-[8px] font-bold text-gray-400 uppercase tracking-wider break-words leading-tight line-clamp-2">
-                                            {item.label}
-                                        </span>
-                                        <span className="text-base font-black tabular-nums leading-none mt-1 text-red-600">
-                                            <AnimatedCounter value={item.count} />
-                                        </span>
-                                        <span className="mt-1 text-[9px] font-bold uppercase tracking-wide text-gray-400">
-                                            {item.count === 1 ? 'Bill' : 'Bills'}
-                                        </span>
-                                    </button>
-
+                <div className="flex min-h-0 flex-1 gap-3">
+                    <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+                        <div className="flex h-full min-h-0 gap-2.5 pb-0.5">
+                            {cards.map((item) => {
+                                const isActive =
+                                    String(activeType || '').toLowerCase() ===
+                                    String(item.type || '').toLowerCase();
+                                const hasBills = (Number(item.count) || 0) > 0;
+                                return (
                                     <div
-                                        className={`rounded-xl border px-2 py-2.5 flex items-center justify-center text-center ${
-                                            isActive
-                                                ? 'border-blue-200 bg-blue-50/40'
-                                                : 'border-gray-100 bg-gray-50/50'
-                                        }`}
-                                        title={
-                                            hasBills && Number(item.difference) > 0
-                                                ? `Difference ${formatBillMoney(item.difference)} / Contract ${formatBillMoney(item.contractAmount || 0)}`
-                                                : `Contract ${formatBillMoney(item.contractAmount || 0)}`
-                                        }
+                                        key={item.type}
+                                        className="flex w-[7.75rem] shrink-0 flex-col gap-2 min-h-0 sm:w-[8.5rem]"
                                     >
-                                        {hasBills && Number(item.difference) > 0 ? (
-                                            <span className="text-[11px] font-black tabular-nums leading-tight">
-                                                <span className="text-rose-600">
-                                                    {formatBillMoney(item.difference || 0)}
+                                        <button
+                                            type="button"
+                                            onClick={() => onSelectType?.(item.type)}
+                                            className={`flex shrink-0 flex-col items-center justify-center rounded-xl border px-1.5 py-2 text-center transition-all ${
+                                                isActive
+                                                    ? 'border-blue-300 bg-blue-50 shadow-sm ring-1 ring-blue-200'
+                                                    : 'border-gray-100 bg-white hover:border-gray-200 hover:shadow-sm'
+                                            }`}
+                                            title={`${item.label}: ${item.count} bill${item.count === 1 ? '' : 's'} · ${periodLabel(month, year)}`}
+                                        >
+                                            <span className="line-clamp-2 break-words text-[8px] font-bold uppercase leading-tight tracking-wider text-gray-400">
+                                                {item.label}
+                                            </span>
+                                            <span className="mt-1 text-base font-black tabular-nums leading-none text-red-600">
+                                                <AnimatedCounter value={item.count} />
+                                            </span>
+                                            <span className="mt-1 text-[9px] font-bold uppercase tracking-wide text-gray-400">
+                                                {item.count === 1 ? 'Bill' : 'Bills'}
+                                            </span>
+                                        </button>
+
+                                        <div
+                                            className={`flex items-center justify-center rounded-xl border px-2 py-2.5 text-center ${
+                                                isActive
+                                                    ? 'border-blue-200 bg-blue-50/40'
+                                                    : 'border-gray-100 bg-gray-50/50'
+                                            }`}
+                                            title={
+                                                hasBills && Number(item.difference) > 0
+                                                    ? `Difference ${formatBillMoney(item.difference)} / Contract ${formatBillMoney(item.contractAmount || 0)}`
+                                                    : `Contract ${formatBillMoney(item.contractAmount || 0)}`
+                                            }
+                                        >
+                                            {hasBills && Number(item.difference) > 0 ? (
+                                                <span className="text-[11px] font-black tabular-nums leading-tight">
+                                                    <span className="text-rose-600">
+                                                        {formatBillMoney(item.difference || 0)}
+                                                    </span>
+                                                    <span className="font-bold text-gray-400"> / </span>
+                                                    <span className="text-gray-700">
+                                                        {formatBillMoney(item.contractAmount || 0)}
+                                                    </span>
                                                 </span>
-                                                <span className="text-gray-400 font-bold"> / </span>
-                                                <span className="text-gray-700">
+                                            ) : (
+                                                <span className="text-[11px] font-black tabular-nums text-gray-700">
                                                     {formatBillMoney(item.contractAmount || 0)}
                                                 </span>
-                                            </span>
-                                        ) : (
-                                            <span className="text-[11px] font-black tabular-nums text-gray-700">
-                                                {formatBillMoney(item.contractAmount || 0)}
-                                            </span>
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    <div className="flex w-[9.5rem] shrink-0 flex-col min-h-0 sm:w-[10.5rem] lg:w-[11.5rem]">
+                        <UtilityTypeDistributionChart
+                            slices={typeDistribution}
+                            centerTotal={deductionTotal}
+                            minHeight={100}
+                        />
                     </div>
                 </div>
             )}
