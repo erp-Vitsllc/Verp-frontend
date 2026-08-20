@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -379,7 +379,7 @@ function readFleetListTabFromUrl() {
     return view === SOLD_TOTAL_LOSS_VIEW ? 'sold_total_loss' : 'active';
 }
 
-export default function VehicleAssetPage() {
+function VehicleAssetPageContent() {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -1680,5 +1680,19 @@ export default function VehicleAssetPage() {
                 </AlertDialogContent>
             </AlertDialog>
         </PermissionGuard>
+    );
+}
+
+export default function VehicleAssetPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen w-full bg-[#F2F6F9] items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+            }
+        >
+            <VehicleAssetPageContent />
+        </Suspense>
     );
 }

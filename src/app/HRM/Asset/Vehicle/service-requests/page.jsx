@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
@@ -27,7 +27,7 @@ function serviceRowKey(row) {
     return vehicleServiceRowKey(row);
 }
 
-export default function VehicleServiceRequestsPage() {
+function VehicleServiceRequestsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const vehicleIdFilter = String(searchParams?.get('vehicleId') || '').trim();
@@ -262,5 +262,19 @@ export default function VehicleServiceRequestsPage() {
             onConfirm={executeDelete}
         />
         </>
+    );
+}
+
+export default function VehicleServiceRequestsPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen w-full bg-[#F2F6F9] items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+            }
+        >
+            <VehicleServiceRequestsPageContent />
+        </Suspense>
     );
 }
