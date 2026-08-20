@@ -2,26 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-    AlertTriangle,
-    Bell,
-    CheckCircle2,
-    CircleDot,
-    Clock,
-    Droplets,
-    LayoutGrid,
-    PaintBucket,
-    RotateCcw,
-    Sparkles,
-    Wrench,
-    X,
-} from 'lucide-react';
+import { Bell, RotateCcw, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { navigateFromList } from '@/utils/listReturnNavigation';
-import VehicleOilServiceRequestTable from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceRequestTable';
-import VehicleCarWashRequestTable from '@/app/HRM/Asset/Vehicle/components/VehicleCarWashRequestTable';
-import VehicleServiceTabRequestTable from '@/app/HRM/Asset/Vehicle/components/VehicleServiceTabRequestTable';
+import VehicleAccessServiceListTable from '@/app/HRM/Asset/Vehicle/components/VehicleAccessServiceListTable';
 import {
     buildVehicleAccessServiceRowsFromAsset,
     buildVehicleServiceListRowHref,
@@ -33,37 +18,11 @@ import {
     VEHICLE_ACCESS_SERVICE_TYPES,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
 
-const ALL_SERVICES = 'All';
-
-/** First Access Service row — shop workflow types. */
-const ACCESS_SERVICE_TYPE_CARDS = [
-    'Oil Service',
-    'Mechanical Work',
-    'Body Work',
-    'Tire Change',
-    'Accident Repair',
-];
-
-/** Second row starts with Car Wash, then All / Pending / Completed. */
-const ACCESS_SERVICE_FILTER_TYPE = 'Car Wash';
-
-const ACCESS_SERVICE_TABLE_ORDER = [...ACCESS_SERVICE_TYPE_CARDS, ACCESS_SERVICE_FILTER_TYPE];
-
 function isAccessServiceRowCompleted(row) {
     return isVehicleServiceListCompletedStatus({
         label: row?.status,
         tone: row?.statusTone,
     });
-}
-
-function filterAccessServiceRows(rows, selectedType) {
-    if (selectedType === VEHICLE_ACCESS_SERVICE_PENDING) {
-        return (rows || []).filter((row) => !isAccessServiceRowCompleted(row));
-    }
-    if (selectedType === VEHICLE_ACCESS_SERVICE_COMPLETED) {
-        return (rows || []).filter((row) => isAccessServiceRowCompleted(row));
-    }
-    return rows || [];
 }
 
 function CountBellBadge({ count, tone = 'pending', title }) {
@@ -84,66 +43,14 @@ function CountBellBadge({ count, tone = 'pending', title }) {
     );
 }
 
-const TYPE_ICONS = {
-    [ALL_SERVICES]: LayoutGrid,
-    'Oil Service': Droplets,
-    'Tire Change': CircleDot,
-    'Mechanical Work': Wrench,
-    'Body Work': PaintBucket,
-    'Accident Repair': AlertTriangle,
-    'Car Wash': Sparkles,
-};
-
-const TYPE_CARD =
-    'group flex items-center gap-2 rounded-xl border p-2 text-left transition-colors min-h-[3.25rem]';
-const TYPE_CARD_ACTIVE = 'border-teal-500 bg-teal-50 ring-1 ring-teal-200';
-const TYPE_CARD_IDLE = 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60';
-const TYPE_ICON_WRAP =
-    'inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm shrink-0';
-
 function emptyVehiclesByType() {
     return Object.fromEntries(VEHICLE_ACCESS_SERVICE_TYPES.map((type) => [type, []]));
 }
 
 const VEHICLE_LIST_RETURN = '/HRM/Asset/Vehicle';
 
-function ServiceTypeTable({ type, rows, onRowClick, router, listReturnHref = VEHICLE_LIST_RETURN }) {
-    const tableProps = {
-        rows,
-        router,
-        listReturnHref,
-        onRowClick,
-        getRowHref: (row) => buildVehicleServiceListRowHref({ ...row, serviceType: type }),
-    };
-    if (type === 'Oil Service') {
-        return (
-            <VehicleOilServiceRequestTable
-                key={type}
-                {...tableProps}
-                emptyHint="No oil service records on the fleet yet."
-            />
-        );
-    }
-    if (type === 'Car Wash') {
-        return (
-            <VehicleCarWashRequestTable
-                key={type}
-                {...tableProps}
-                emptyHint="No car wash records on the fleet yet."
-            />
-        );
-    }
-    return (
-        <VehicleServiceTabRequestTable
-            key={type}
-            {...tableProps}
-            emptyHint={`No ${type.toLowerCase()} records on the fleet yet.`}
-        />
-    );
-}
-
 export default function VehicleAccessServicePanel({
-    selectedType = ALL_SERVICES,
+    selectedType = 'All',
     onSelectType,
     onClose,
     listReturnHref = VEHICLE_LIST_RETURN,
@@ -151,34 +58,25 @@ export default function VehicleAccessServicePanel({
     const router = useRouter();
     const { toast } = useToast();
 
-    const [counts, setCounts] = useState({});
     const [countsLoading, setCountsLoading] = useState(true);
     const [apiPendingTotal, setApiPendingTotal] = useState(0);
     const [apiCompletedTotal, setApiCompletedTotal] = useState(0);
     const [vehiclesByType, setVehiclesByType] = useState(emptyVehiclesByType);
     const [listLoading, setListLoading] = useState(false);
 
-    const isStatusFilter =
+    const statusFilter =
         selectedType === VEHICLE_ACCESS_SERVICE_PENDING ||
-        selectedType === VEHICLE_ACCESS_SERVICE_COMPLETED;
-    const showAllTypes = !selectedType || selectedType === ALL_SERVICES;
-    const loadAllTypes = showAllTypes || isStatusFilter;
-    const visibleTypes = loadAllTypes ? VEHICLE_ACCESS_SERVICE_TYPES : [selectedType];
+        selectedType === VEHICLE_ACCESS_SERVICE_COMPLETED
+            ? selectedType
+            : 'All';
 
     const loadCounts = useCallback(async () => {
         setCountsLoading(true);
         try {
             const res = await axiosInstance.get('/AssetItem/vehicle-access-services', { skipToast: true });
-            const nextCounts = res.data?.counts && typeof res.data.counts === 'object' ? res.data.counts : {};
-            setCounts(nextCounts);
-            setApiPendingTotal(
-                Number.isFinite(Number(res.data?.pendingTotal))
-                    ? Number(res.data.pendingTotal)
-                    : Object.values(nextCounts).reduce((sum, n) => sum + Number(n || 0), 0),
-            );
+            setApiPendingTotal(Number(res.data?.pendingTotal) || 0);
             setApiCompletedTotal(Number(res.data?.completedTotal) || 0);
         } catch {
-            setCounts({});
             setApiPendingTotal(0);
             setApiCompletedTotal(0);
         } finally {
@@ -187,11 +85,10 @@ export default function VehicleAccessServicePanel({
     }, []);
 
     const loadServiceList = useCallback(async () => {
-        const typesToLoad = loadAllTypes ? VEHICLE_ACCESS_SERVICE_TYPES : [selectedType];
         setListLoading(true);
         try {
             const results = await Promise.all(
-                typesToLoad.map(async (type) => {
+                VEHICLE_ACCESS_SERVICE_TYPES.map(async (type) => {
                     const res = await axiosInstance.get('/AssetItem/vehicle-access-services', {
                         params: { type },
                         skipToast: true,
@@ -199,10 +96,7 @@ export default function VehicleAccessServicePanel({
                     return [type, Array.isArray(res.data?.items) ? res.data.items : []];
                 }),
             );
-            setVehiclesByType((prev) => ({
-                ...prev,
-                ...Object.fromEntries(results),
-            }));
+            setVehiclesByType(Object.fromEntries(results));
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -213,7 +107,7 @@ export default function VehicleAccessServicePanel({
         } finally {
             setListLoading(false);
         }
-    }, [loadAllTypes, selectedType, toast]);
+    }, [toast]);
 
     useEffect(() => {
         loadCounts();
@@ -223,55 +117,35 @@ export default function VehicleAccessServicePanel({
         loadServiceList();
     }, [loadServiceList]);
 
-    const rowsByType = useMemo(() => {
-        const next = {};
-        for (const type of VEHICLE_ACCESS_SERVICE_TYPES) {
-            next[type] = (vehiclesByType[type] || []).flatMap((asset) =>
+    const allRows = useMemo(() => {
+        return VEHICLE_ACCESS_SERVICE_TYPES.flatMap((type) =>
+            (vehiclesByType[type] || []).flatMap((asset) =>
                 buildVehicleAccessServiceRowsFromAsset(asset, type),
-            );
-        }
-        return next;
+            ),
+        );
     }, [vehiclesByType]);
 
-    const filteredRowsByType = useMemo(() => {
-        const next = {};
-        for (const type of VEHICLE_ACCESS_SERVICE_TYPES) {
-            next[type] = filterAccessServiceRows(rowsByType[type] || [], selectedType);
+    const visibleRows = useMemo(() => {
+        if (statusFilter === VEHICLE_ACCESS_SERVICE_PENDING) {
+            return allRows.filter((row) => !isAccessServiceRowCompleted(row));
         }
-        return next;
-    }, [rowsByType, selectedType]);
-
-    const visibleRowCount = useMemo(
-        () => visibleTypes.reduce((sum, type) => sum + (filteredRowsByType[type]?.length || 0), 0),
-        [visibleTypes, filteredRowsByType],
-    );
+        if (statusFilter === VEHICLE_ACCESS_SERVICE_COMPLETED) {
+            return allRows.filter((row) => isAccessServiceRowCompleted(row));
+        }
+        return allRows;
+    }, [allRows, statusFilter]);
 
     const pendingCount = useMemo(
-        () =>
-            VEHICLE_ACCESS_SERVICE_TYPES.reduce(
-                (sum, type) =>
-                    sum + (rowsByType[type] || []).filter((row) => !isAccessServiceRowCompleted(row)).length,
-                0,
-            ),
-        [rowsByType],
+        () => allRows.filter((row) => !isAccessServiceRowCompleted(row)).length,
+        [allRows],
     );
-
     const completedCount = useMemo(
-        () =>
-            VEHICLE_ACCESS_SERVICE_TYPES.reduce(
-                (sum, type) =>
-                    sum + (rowsByType[type] || []).filter((row) => isAccessServiceRowCompleted(row)).length,
-                0,
-            ),
-        [rowsByType],
+        () => allRows.filter((row) => isAccessServiceRowCompleted(row)).length,
+        [allRows],
     );
 
     const displayPendingCount = listLoading ? apiPendingTotal : pendingCount;
     const displayCompletedCount = listLoading ? apiCompletedTotal : completedCount;
-
-    const tableTypes = useMemo(() => {
-        return ACCESS_SERVICE_TABLE_ORDER.filter((type) => listLoading || (rowsByType[type] || []).length > 0);
-    }, [rowsByType, listLoading]);
 
     const openRow = (row) => {
         const href = buildVehicleServiceListRowHref(row);
@@ -284,59 +158,8 @@ export default function VehicleAccessServicePanel({
         loadServiceList();
     };
 
-    const handleTypeSelect = (type) => {
-        if (type === ALL_SERVICES) {
-            onSelectType(ALL_SERVICES);
-            return;
-        }
-        if (selectedType === type) {
-            onSelectType(ALL_SERVICES);
-            return;
-        }
-        onSelectType(type);
-    };
-
-    const renderTypeCard = (type) => {
-        const Icon = TYPE_ICONS[type] || Wrench;
-        const count = Number(counts[type] || 0);
-        const isActive = selectedType === type;
-        return (
-            <button
-                key={type}
-                type="button"
-                onClick={() => handleTypeSelect(type)}
-                className={`${TYPE_CARD} ${isActive ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
-            >
-                <span
-                    className={`${TYPE_ICON_WRAP} ${isActive
-                            ? 'bg-teal-600 border-teal-600 text-white'
-                            : 'bg-white border-slate-200 text-teal-700'
-                        }`}
-                >
-                    <Icon size={16} />
-                </span>
-                <span className="min-w-0">
-                    <span className="flex items-center gap-1">
-                        <span
-                            className={`block text-[10px] font-black uppercase tracking-wide leading-tight ${isActive ? 'text-teal-900' : 'text-slate-800 group-hover:text-teal-800'
-                                }`}
-                        >
-                            {type}
-                        </span>
-                        {!countsLoading && count > 0 ? (
-                            <CountBellBadge count={count} tone="pending" />
-                        ) : null}
-                    </span>
-                    <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
-                        {countsLoading
-                            ? 'Loading…'
-                            : count > 0
-                                ? `${count} pending`
-                                : 'No pending'}
-                    </span>
-                </span>
-            </button>
-        );
+    const handleStatusSelect = (next) => {
+        onSelectType?.(next);
     };
 
     const refreshing = countsLoading || listLoading;
@@ -365,7 +188,7 @@ export default function VehicleAccessServicePanel({
                         ) : null}
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
-                        Click a type or pending / completed to filter fleet service records
+                        All fleet service records in one list
                     </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -389,159 +212,55 @@ export default function VehicleAccessServicePanel({
                 </div>
             </div>
 
-            <div className="p-3 sm:p-4 space-y-3">
-                <div>
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
-                        Vehicle service types
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                        {ACCESS_SERVICE_TYPE_CARDS.map(renderTypeCard)}
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {renderTypeCard(ACCESS_SERVICE_FILTER_TYPE)}
-
-                    <button
-                        type="button"
-                        onClick={() => handleTypeSelect(ALL_SERVICES)}
-                        className={`${TYPE_CARD} ${showAllTypes ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
-                    >
-                        <span
-                            className={`${TYPE_ICON_WRAP} ${showAllTypes
-                                    ? 'bg-teal-600 border-teal-600 text-white'
-                                    : 'bg-white border-slate-200 text-teal-700'
-                                }`}
-                        >
-                            <LayoutGrid size={16} />
-                        </span>
-                        <span className="min-w-0">
-                            <span className="block text-[10px] font-black uppercase tracking-wide text-slate-800 group-hover:text-teal-800 leading-tight">
-                                All Services
-                            </span>
-                            <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
-                                {countsLoading ? 'Loading…' : 'All types'}
-                            </span>
-                        </span>
-                    </button>
-
-                    {[
-                        {
-                            key: VEHICLE_ACCESS_SERVICE_PENDING,
-                            label: 'Pending Services',
-                            hint: displayPendingCount > 0
-                                ? `${displayPendingCount} pending`
-                                : 'No pending',
-                            count: displayPendingCount,
-                            tone: 'pending',
-                            Icon: Clock,
-                        },
-                        {
-                            key: VEHICLE_ACCESS_SERVICE_COMPLETED,
-                            label: 'Completed Services',
-                            hint: displayCompletedCount > 0
-                                ? `${displayCompletedCount} completed`
-                                : 'No completed',
-                            count: displayCompletedCount,
-                            tone: 'complete',
-                            Icon: CheckCircle2,
-                        },
-                    ].map((box) => {
-                        const Icon = box.Icon;
-                        const isActive = selectedType === box.key;
-                        return (
-                            <button
-                                key={box.key}
-                                type="button"
-                                onClick={() => handleTypeSelect(box.key)}
-                                className={`${TYPE_CARD} ${isActive ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
-                            >
-                                <span
-                                    className={`${TYPE_ICON_WRAP} ${isActive
-                                            ? 'bg-teal-600 border-teal-600 text-white'
-                                            : 'bg-white border-slate-200 text-teal-700'
-                                        }`}
-                                >
-                                    <Icon size={16} />
-                                </span>
-                                <span className="min-w-0">
-                                    <span className="flex items-center gap-1">
-                                        <span
-                                            className={`block text-[10px] font-black uppercase tracking-wide leading-tight ${isActive ? 'text-teal-900' : 'text-slate-800 group-hover:text-teal-800'
-                                                }`}
-                                        >
-                                            {box.label}
-                                        </span>
-                                        {!countsLoading && Number(box.count || 0) > 0 ? (
-                                            <CountBellBadge count={box.count} tone={box.tone} />
-                                        ) : null}
-                                    </span>
-                                    <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
-                                        {countsLoading ? 'Loading…' : box.hint}
-                                    </span>
-                                </span>
-                            </button>
-                        );
-                    })}
-                    </div>
-            </div>
-
             <div className="border-t border-slate-100">
-                <div className="px-4 sm:px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-2">
+                <div className="px-4 sm:px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
-                        {showAllTypes
-                            ? 'All service records'
-                            : isStatusFilter
-                                ? `${selectedType}`
-                                : `${selectedType} records`}
+                        {statusFilter === 'All' ? 'All service records' : statusFilter}
                         {!listLoading ? (
-                            <span className="ml-2 text-teal-700 tabular-nums">({visibleRowCount})</span>
+                            <span className="ml-2 text-teal-700 tabular-nums">({visibleRows.length})</span>
                         ) : null}
                     </h3>
+                    <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                        {[
+                            { key: 'All', label: 'All' },
+                            { key: VEHICLE_ACCESS_SERVICE_PENDING, label: 'Pending' },
+                            { key: VEHICLE_ACCESS_SERVICE_COMPLETED, label: 'Completed' },
+                        ].map((tab) => {
+                            const isActive = statusFilter === tab.key;
+                            return (
+                                <button
+                                    key={tab.key}
+                                    type="button"
+                                    onClick={() => handleStatusSelect(tab.key)}
+                                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                                        isActive
+                                            ? 'bg-teal-600 text-white'
+                                            : 'text-slate-600 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
                 <div className="overflow-hidden">
                     {listLoading ? (
                         <div className="py-16 text-center text-sm text-slate-500">Loading service lists…</div>
-                    ) : loadAllTypes ? (
-                        <div className="divide-y divide-slate-100">
-                            {tableTypes.map((type) => {
-                                const rows = filteredRowsByType[type] || [];
-                                if (!rows.length) return null;
-                                return (
-                                    <div key={type}>
-                                        <div className="px-4 sm:px-6 py-2.5 bg-white border-b border-slate-100">
-                                            <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                                                {type}
-                                                <span className="ml-2 text-teal-700 tabular-nums">({rows.length})</span>
-                                            </h4>
-                                        </div>
-                                        <ServiceTypeTable
-                                            type={type}
-                                            rows={rows}
-                                            onRowClick={openRow}
-                                            router={router}
-                                            listReturnHref={listReturnHref}
-                                        />
-                                    </div>
-                                );
-                            })}
-                            {visibleRowCount === 0 ? (
-                                <div className="py-16 text-center text-sm text-slate-500">
-                                    {selectedType === VEHICLE_ACCESS_SERVICE_PENDING
-                                        ? 'No pending services found.'
-                                        : selectedType === VEHICLE_ACCESS_SERVICE_COMPLETED
-                                            ? 'No completed services found.'
-                                            : 'No service records found.'}
-                                </div>
-                            ) : null}
-                        </div>
                     ) : (
-                        <ServiceTypeTable
-                            type={selectedType}
-                            rows={filteredRowsByType[selectedType] || []}
+                        <VehicleAccessServiceListTable
+                            rows={visibleRows}
                             onRowClick={openRow}
+                            getRowHref={(row) => buildVehicleServiceListRowHref(row)}
                             router={router}
                             listReturnHref={listReturnHref}
+                            emptyMessage={
+                                statusFilter === VEHICLE_ACCESS_SERVICE_PENDING
+                                    ? 'No pending services found.'
+                                    : statusFilter === VEHICLE_ACCESS_SERVICE_COMPLETED
+                                      ? 'No completed services found.'
+                                      : 'No service records found.'
+                            }
                         />
                     )}
                 </div>

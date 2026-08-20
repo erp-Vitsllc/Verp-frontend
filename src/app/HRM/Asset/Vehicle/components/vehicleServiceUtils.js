@@ -571,6 +571,7 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
         serviceReqNo: String(service?.serviceReqNo || '').trim() || '—',
         vehicleAssetNo: asset?.assetId || '—',
         vehicleNo,
+        currentKm: requestMeta?.currentKm ?? asset?.currentKilometer ?? lastOilServiceKm ?? '—',
         lastOilServiceKm,
         lastOilServiceDate:
             service?.date || service?.createdAt || asset?.oilChangeDate || latestCompleted?.date || null,
@@ -713,6 +714,7 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
         serviceReqNo: String(service?.serviceReqNo || '').trim() || '—',
         vehicleAssetNo: asset?.assetId || '—',
         vehicleNo,
+        currentKm: remark?.currentKm ?? service?.currentKm ?? asset?.currentKilometer ?? '—',
         carWashMonth: remark?.carWashMonth || '',
         carWashType: remark?.carWashType || '—',
         amount: service?.value != null ? Number(service.value) : null,
