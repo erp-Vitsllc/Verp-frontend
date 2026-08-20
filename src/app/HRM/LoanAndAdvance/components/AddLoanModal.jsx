@@ -13,13 +13,11 @@ import {
     getDefaultLoanAdvanceType,
 } from '../utils/loanPermissionAccess';
 import { getStoredUser, isActiveFlowchartHrUser } from '../utils/isFlowchartHrUser';
-
-const VISA_LT_3_MONTHS_BLOCK_MSG =
-    'Visa expires in less than 3 months. Cannot apply for a Loan.';
-const VISA_LT_3_MONTHS_CONFIRM_MSG =
-    'Visa expires in less than 3 months. Do you want to proceed?';
-const VISA_REPAYMENT_LIMIT_MSG =
-    'Repayment period exceeds visa expiry limit (Expiry - 2 months). Please reduce duration or change start date.';
+import {
+    collectLoanEligibilityIssues,
+    formatOverrideConfirmDescription,
+    VISA_REPAYMENT_LIMIT_MSG,
+} from '../utils/loanEligibilityWarnings';
 
 export default function AddLoanModal({
     isOpen,
@@ -55,8 +53,8 @@ export default function AddLoanModal({
     const [selectedEmployee, setSelectedEmployee] = useState(null);
     const [errors, setErrors] = useState({});
     const [eligibilityWarning, setEligibilityWarning] = useState('');
-    /** Soft visa warning — hard-blocks non-flowchart-HR; flowchart HR confirms via dialog. */
-    const [visaEligibilityWarning, setVisaEligibilityWarning] = useState('');
+    /** Soft warnings — hard-block others; flowchart HR confirms via dialog. */
+    const [overrideWarnings, setOverrideWarnings] = useState([]);
     const [submitting, setSubmitting] = useState(false);
     const [dateWarning, setDateWarning] = useState('');
     const [maxDuration, setMaxDuration] = useState(6);
@@ -64,9 +62,10 @@ export default function AddLoanModal({
     const [flowchartHrResolved, setFlowchartHrResolved] = useState(false);
     const isFlowchartHrRef = useRef(false);
     const flowchartHrResolvedRef = useRef(false);
-    const [visaConfirmOpen, setVisaConfirmOpen] = useState(false);
-    const [visaConfirmMessages, setVisaConfirmMessages] = useState([]);
+    const [eligibilityConfirmOpen, setEligibilityConfirmOpen] = useState(false);
+    const [eligibilityConfirmMessages, setEligibilityConfirmMessages] = useState([]);
     const [pendingForcedStatus, setPendingForcedStatus] = useState(null);
+    const [hrEligibilityOverride, setHrEligibilityOverride] = useState(false);
 
     // Reset or Populate when modal opens/closes
     useEffect(() => {
@@ -142,11 +141,12 @@ export default function AddLoanModal({
                 setSelectedEmployee(lockedEmp);
                 setErrors({});
                 setEligibilityWarning('');
-                setVisaEligibilityWarning('');
+                setOverrideWarnings([]);
                 setDateWarning('');
-                setVisaConfirmOpen(false);
-                setVisaConfirmMessages([]);
+                setEligibilityConfirmOpen(false);
+                setEligibilityConfirmMessages([]);
                 setPendingForcedStatus(null);
+                setHrEligibilityOverride(false);
                 if (lockedEmp) {
                     checkEligibility(lockedEmp, nextType);
                 }
@@ -299,7 +299,8 @@ export default function AddLoanModal({
         setSelectedEmployee(employee);
         setErrors({});
         setEligibilityWarning('');
-        setVisaEligibilityWarning('');
+        setOverrideWarnings([]);
+        setHrEligibilityOverride(false);
         setMaxDuration(6);
 
         if (!employee) return;
@@ -346,9 +347,12 @@ export default function AddLoanModal({
         }
     }, [formData.monthStart, formData.duration, selectedEmployee, formData.type]);
 
+    const canOverrideEligibility = () => isFlowchartHrRef.current && !selfService;
+
     const checkEligibility = (employee, type) => {
         setEligibilityWarning('');
-        setVisaEligibilityWarning('');
+        setOverrideWarnings([]);
+        setHrEligibilityOverride(false);
         setErrors(prev => {
             const newErrs = { ...prev };
             if (newErrs.employeeId && newErrs.employeeId.includes('active or pending')) {
@@ -356,103 +360,59 @@ export default function AddLoanModal({
             }
             return newErrs;
         });
-        let newMaxDuration = 12;
-        const flowchartHr = isFlowchartHrRef.current;
+
+        const { hardBlocks, overrideable, maxDuration: nextMax } = collectLoanEligibilityIssues(
+            employee,
+            type,
+            { existingLoans, initialData },
+        );
+        const flowchartHr = canOverrideEligibility();
         const hrResolved = flowchartHrResolvedRef.current;
 
-        // Check if employee already has an active or pending loan/advance of the SAME type
-        if (existingLoans && existingLoans.length > 0) {
-            const hasActiveOfType = existingLoans.some(l =>
-                l.employeeId === employee.employeeId &&
-                l.type === type &&
-                l.activeStatus !== 'Closed' &&
-                l.applicationStatus !== 'Rejected' &&
-                (!initialData || (l.id !== initialData.id && l._id !== initialData._id)) // Exclude current if editing
-            );
+        if (hardBlocks.length) {
+            const message = hardBlocks[0];
+            setEligibilityWarning(message);
+            setErrors(prev => ({ ...prev, employeeId: message }));
+            return;
+        }
 
-            if (hasActiveOfType) {
-                const message = `Employee already has an active or pending ${type}.`;
-                setEligibilityWarning(message);
-                setErrors(prev => ({ ...prev, employeeId: message }));
+        if (overrideable.length) {
+            if (selfService) {
+                setEligibilityWarning(overrideable.join('\n'));
+                return;
+            }
+            // Flowchart HR: amber warning → confirm on submit. Others: hard block.
+            // Until HR status resolves, keep soft so we don't flash a false hard-block.
+            if (flowchartHr || !hrResolved) {
+                setOverrideWarnings(overrideable);
+            } else {
+                setEligibilityWarning(overrideable.join('\n'));
                 return;
             }
         }
 
-        // Common Check: Status (Notice)
-        if (employee.status?.toLowerCase() === 'notice') {
-            setEligibilityWarning(`Employee is in 'Notice' period and cannot apply for a loan/advance.`);
-            return;
-        }
-
-        // Check: Probation (Block Loan only, Allow Advance)
-        if (employee.status?.toLowerCase() === 'probation' && type === 'Loan') {
-            setEligibilityWarning(`Employee is in 'Probation' period and cannot apply for a loan.`);
-            return;
-        }
-
-        // Advance Specific Checks
-        if (type === 'Advance') {
-            newMaxDuration = 1; // Force 1 month for Advance as requested
-
-            // 1. Check if Visit Visa
-            if (employee.visaType === 'Visit') {
-                setEligibilityWarning('Employees on Visit Visa cannot apply for an Advance.');
-                return;
-            }
-
-            // Note: Visa Expiry Check removed for Advance as requested
-        }
-        // Loan Specific Checks
-        else {
-            // 2. Check Visa Expiry (> 3 months required for Loan)
-            if (employee.visaExpiry) {
-                const expiryDate = new Date(employee.visaExpiry);
-                const today = new Date();
-                const monthsUntilExpiry = (expiryDate.getFullYear() - today.getFullYear()) * 12 + (expiryDate.getMonth() - today.getMonth());
-
-                if (monthsUntilExpiry < 3) {
-                    // Flowchart HR: soft warning → confirm on submit. Others: hard block.
-                    // Until HR status resolves, keep soft so we don't flash a false hard-block.
-                    if (flowchartHr || !hrResolved) {
-                        setVisaEligibilityWarning(VISA_LT_3_MONTHS_CONFIRM_MSG);
-                    } else {
-                        setEligibilityWarning(VISA_LT_3_MONTHS_BLOCK_MSG);
-                        return;
-                    }
-                }
-
-                // 3. Set Max Duration based on Visa Expiry
-                // Max duration is (Visa Expiry Months - 2), capped at 6.
-                // Flowchart HR may select beyond this; confirmation covers the waiver.
-                const adjustedMax = monthsUntilExpiry - 2;
-                newMaxDuration = Math.min(6, Math.max(1, adjustedMax));
-            }
-        }
-
-        setMaxDuration(newMaxDuration);
+        setMaxDuration(nextMax);
     };
 
-    const collectVisaConfirmMessages = () => {
-        const messages = [];
-        if (visaEligibilityWarning) messages.push(visaEligibilityWarning);
+    const collectOverrideConfirmMessages = () => {
+        const messages = [...overrideWarnings];
         if (dateWarning) messages.push(dateWarning);
         return messages;
     };
 
-    const validateForm = ({ bypassVisa = false } = {}) => {
+    const validateForm = ({ bypassEligibility = false } = {}) => {
         const newErrors = {};
-        const canVisaOverride = isFlowchartHrRef.current;
+        const canOverride = canOverrideEligibility();
 
         if (scheduleOnlyEdit) {
             if (formData.type !== 'Advance' && !formData.duration) {
                 newErrors.duration = 'Duration is required';
             }
             if (!formData.monthStart) newErrors.monthStart = 'Deduction start is required';
-            if (dateWarning && !(bypassVisa && canVisaOverride)) {
-                if (canVisaOverride) {
-                    // Handled by confirmation dialog in handleSubmit
+            if (dateWarning && !(bypassEligibility && canOverride)) {
+                if (canOverride) {
                     setErrors(newErrors);
-                    return Object.keys(newErrors).length === 0 ? 'needs_visa_confirm' : false;
+                    return Object.keys(newErrors).length === 0 ? 'needs_eligibility_confirm' : false;
                 }
                 toast({
                     variant: 'destructive',
@@ -484,10 +444,8 @@ export default function AddLoanModal({
                 let maxAmount = 0;
 
                 if (formData.type === 'Advance') {
-                    // Max: 50% of Salary
                     maxAmount = salary / 2;
                 } else {
-                    // Max: Salary * 3
                     maxAmount = salary * 3;
                 }
 
@@ -510,8 +468,8 @@ export default function AddLoanModal({
             return false;
         }
 
-        const visaMessages = collectVisaConfirmMessages();
-        if (visaMessages.length > 0 && !(bypassVisa && canVisaOverride)) {
+        const overrideMessages = collectOverrideConfirmMessages();
+        if (overrideMessages.length > 0 && !(bypassEligibility && canOverride)) {
             if (!flowchartHrResolvedRef.current) {
                 toast({
                     title: 'Please wait',
@@ -519,15 +477,15 @@ export default function AddLoanModal({
                 });
                 return false;
             }
-            if (canVisaOverride) {
+            if (canOverride) {
                 setErrors(newErrors);
                 if (Object.keys(newErrors).length > 0) return false;
-                return 'needs_visa_confirm';
+                return 'needs_eligibility_confirm';
             }
             toast({
                 variant: "destructive",
-                title: visaEligibilityWarning ? "Ineligible Request" : "Invalid Dates",
-                description: visaMessages[0],
+                title: overrideWarnings.length ? "Ineligible Request" : "Invalid Dates",
+                description: overrideMessages[0],
             });
             return false;
         }
@@ -536,7 +494,7 @@ export default function AddLoanModal({
         return Object.keys(newErrors).length === 0;
     };
 
-    const submitLoanRequest = async (forcedStatus = null) => {
+    const submitLoanRequest = async (forcedStatus = null, eligibilityOverride = false) => {
         try {
             setSubmitting(true);
 
@@ -546,6 +504,7 @@ export default function AddLoanModal({
                     duration: parseInt(formData.duration, 10) || 1,
                     monthStart: formData.monthStart,
                     scheduleOnlyEdit: true,
+                    ...(eligibilityOverride && canOverrideEligibility() ? { hrEligibilityOverride: true } : {}),
                 });
                 toast({
                     title: 'Success',
@@ -571,8 +530,11 @@ export default function AddLoanModal({
                 reason: formData.reason,
                 monthStart: formData.monthStart,
                 status: targetStatus,
-                resubmit: isResubmitting
+                resubmit: isResubmitting,
             };
+            if (eligibilityOverride && canOverrideEligibility()) {
+                payload.hrEligibilityOverride = true;
+            }
 
             if (initialData && (initialData.id || initialData._id)) {
                 // Edit Mode - Update Existing
@@ -620,24 +582,25 @@ export default function AddLoanModal({
         const result = validateForm();
         if (result === false) return;
 
-        if (result === 'needs_visa_confirm') {
-            setVisaConfirmMessages(collectVisaConfirmMessages());
+        if (result === 'needs_eligibility_confirm') {
+            setEligibilityConfirmMessages(collectOverrideConfirmMessages());
             setPendingForcedStatus(forcedStatus);
-            setVisaConfirmOpen(true);
+            setEligibilityConfirmOpen(true);
             return;
         }
 
-        await submitLoanRequest(forcedStatus);
+        await submitLoanRequest(forcedStatus, hrEligibilityOverride);
     };
 
-    const handleVisaConfirmOk = async () => {
-        setVisaConfirmOpen(false);
+    const handleEligibilityConfirmOk = async () => {
+        setEligibilityConfirmOpen(false);
         const forcedStatus = pendingForcedStatus;
         setPendingForcedStatus(null);
-        setVisaConfirmMessages([]);
-        const result = validateForm({ bypassVisa: true });
+        setEligibilityConfirmMessages([]);
+        setHrEligibilityOverride(true);
+        const result = validateForm({ bypassEligibility: true });
         if (result === false) return;
-        await submitLoanRequest(forcedStatus);
+        await submitLoanRequest(forcedStatus, true);
     };
 
     if (!isOpen) return null;
@@ -738,22 +701,26 @@ export default function AddLoanModal({
                     {eligibilityWarning && (
                         <div className="flex items-start gap-2 bg-red-50 text-red-600 p-3 rounded-xl text-sm border border-red-100">
                             <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                            <p>{eligibilityWarning}</p>
+                            <p className="whitespace-pre-line">{eligibilityWarning}</p>
                         </div>
                     )}
 
-                    {/* Visa soft warning for flowchart HR (confirmed on submit) */}
-                    {!eligibilityWarning && visaEligibilityWarning && (
+                    {/* Soft warnings for flowchart HR (confirmed on submit) */}
+                    {!eligibilityWarning && overrideWarnings.length > 0 && (
                         <div className="flex items-start gap-2 bg-amber-50 text-amber-800 p-3 rounded-xl text-sm border border-amber-100">
                             <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                            <p>
-                                {visaEligibilityWarning}
-                                {isFlowchartHr
-                                    ? ' Click Save to confirm.'
-                                    : !flowchartHrResolved
-                                      ? ' Checking HR permissions…'
-                                      : ''}
-                            </p>
+                            <div className="space-y-1">
+                                {overrideWarnings.map((msg) => (
+                                    <p key={msg}>{msg}</p>
+                                ))}
+                                <p className="text-amber-700/80">
+                                    {isFlowchartHr && !selfService
+                                        ? 'Save to confirm if you want to continue the process.'
+                                        : !flowchartHrResolved
+                                          ? 'Checking HR permissions…'
+                                          : ''}
+                                </p>
+                            </div>
                         </div>
                     )}
 
@@ -794,7 +761,7 @@ export default function AddLoanModal({
                                 >
                                     <option value="">Select Duration</option>
                                     {Array.from({ length: 6 }, (_, i) => i + 1).map(month => {
-                                        const overVisaLimit = month > maxDuration && !isFlowchartHr;
+                                        const overVisaLimit = month > maxDuration && !(isFlowchartHr && !selfService);
                                         return (
                                         <option
                                             key={month}
@@ -811,7 +778,7 @@ export default function AddLoanModal({
                                 {maxDuration < 6 && (
                                     <p className="text-[10px] text-amber-600 mt-1">
                                         * Max duration limited to {maxDuration} months due to visa expiry.
-                                        {isFlowchartHr ? ' Flowchart HR may override after confirmation.' : ''}
+                                        {isFlowchartHr && !selfService ? ' Flowchart HR may override after confirmation.' : ''}
                                     </p>
                                 )}
                             </div>
@@ -832,14 +799,14 @@ export default function AddLoanModal({
                             />
                             {dateWarning && (
                                 <div className={`flex items-center gap-1.5 text-[10px] mt-1.5 font-medium p-1.5 rounded-lg border ${
-                                    isFlowchartHr
+                                    isFlowchartHr && !selfService
                                         ? 'text-amber-700 bg-amber-50/50 border-amber-100'
                                         : 'text-red-500 bg-red-50/50 border-red-100'
                                 }`}>
                                     <AlertCircle size={10} className="shrink-0" />
                                     <p className="leading-tight">
                                         {dateWarning}
-                                        {isFlowchartHr ? ' Confirm on save to proceed.' : ''}
+                                        {isFlowchartHr && !selfService ? ' Confirm on save to proceed.' : ''}
                                     </p>
                                 </div>
                             )}
@@ -912,23 +879,19 @@ export default function AddLoanModal({
             </div>
 
             <ConfirmAlertDialog
-                open={visaConfirmOpen}
+                open={eligibilityConfirmOpen}
                 onOpenChange={(open) => {
-                    setVisaConfirmOpen(open);
+                    setEligibilityConfirmOpen(open);
                     if (!open) {
                         setPendingForcedStatus(null);
-                        setVisaConfirmMessages([]);
+                        setEligibilityConfirmMessages([]);
                     }
                 }}
-                title="Visa expiry warning"
-                description={
-                    visaConfirmMessages.length
-                        ? `${visaConfirmMessages.join('\n\n')}\n\nDo you want to proceed?`
-                        : 'Visa expires in less than 3 months. Do you want to proceed?'
-                }
-                confirmLabel="OK"
+                title="Eligibility warning"
+                description={formatOverrideConfirmDescription(eligibilityConfirmMessages)}
+                confirmLabel="Yes, continue"
                 cancelLabel="Cancel"
-                onConfirm={handleVisaConfirmOk}
+                onConfirm={handleEligibilityConfirmOk}
             />
         </div>
     );

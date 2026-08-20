@@ -29,6 +29,7 @@ const VEHICLE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_asset_vehicle_sold_fleet: E_ONLY_VIEW,
     hrm_asset_vehicle_add: E_ALL,
     hrm_asset_vehicle_create_service: E_ALL,
+    hrm_asset_vehicle_add_fuel: E_ALL,
 };
 
 export function getVehicleBranchDisabledPermTypes(module) {

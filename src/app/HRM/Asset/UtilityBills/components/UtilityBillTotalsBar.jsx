@@ -353,11 +353,12 @@ export function summarizeSelectedBillRows(rows = []) {
         .filter((r) => r.selected)
         .forEach((r) => {
             const contract = Number(r.contractAmount) || 0;
+            contractTotal += contract;
+
             const actualRaw = r.actualAmount;
             const actual = Number(actualRaw);
-            if (actualRaw === '' || !Number.isFinite(actual) || actual < 0) return;
+            if (actualRaw === '' || actualRaw == null || !Number.isFinite(actual) || actual < 0) return;
 
-            contractTotal += contract;
             actualTotal += actual;
 
             const pay = computeRowPayTotals(r);

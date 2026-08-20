@@ -1,9 +1,13 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { RotateCcw } from 'lucide-react';
+import { vehicleAccessMenuHref } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
 
 export default function VehicleAccessPageShell({
     title,
@@ -13,8 +17,12 @@ export default function VehicleAccessPageShell({
     refreshing = false,
     children,
 }) {
+    const router = useRouter();
+    const handleBack = useListReturnBack(() => router.push(vehicleAccessMenuHref()));
+
     return (
         <PermissionGuard moduleId="hrm_asset_vehicle" redirectTo="/dashboard">
+            <ListReturnBackButton onNavigate={handleBack} />
             <div className="flex min-h-screen w-full max-w-full overflow-x-hidden bg-[#f2f6f9]">
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">

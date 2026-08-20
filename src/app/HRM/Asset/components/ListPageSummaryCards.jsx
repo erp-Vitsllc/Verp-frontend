@@ -30,21 +30,33 @@ export function AnimatedCounter({ value, duration = 600 }) {
         return () => cancelAnimationFrame(animationFrame);
     }, [value, duration]);
 
-    return <>{count}</>;
+    return <>{count.toLocaleString('en-US')}</>;
 }
 
-function SummaryMiniCard({ label, value, suffix, onClick, isActive, empty, href }) {
+function valueFontSize(n, hasSuffix) {
+    const digits = String(Math.abs(Math.round(Number(n) || 0))).length;
+    if (hasSuffix || digits >= 7) return 'clamp(0.75rem, 1.6vw, 1.05rem)';
+    if (digits >= 5) return 'clamp(0.9rem, 1.9vw, 1.25rem)';
+    return 'clamp(1.05rem, 2.2vw, 1.5rem)';
+}
+
+function SummaryMiniCard({ label, value, suffix, onClick, isActive, empty, href, fillHeight = true }) {
+    const tileSize = fillHeight
+        ? 'h-full min-h-[56px] sm:min-h-[64px] p-2 sm:p-2.5'
+        : 'min-h-[56px] sm:min-h-[64px] p-2 sm:p-2.5';
+
     if (empty) {
         return (
             <div
-                className="rounded-lg border border-dashed border-gray-200 bg-gray-50/80 h-full min-h-[56px] sm:min-h-[64px] p-2 sm:p-3"
+                className={`rounded-lg border border-dashed border-gray-200 bg-gray-50/80 min-w-0 w-full ${tileSize}`}
                 aria-hidden="true"
             />
         );
     }
 
     const n = Math.round(Number(value) || 0);
-    const sharedClass = `rounded-lg border flex flex-col items-center justify-center text-center h-full min-h-[56px] sm:min-h-[64px] p-2 sm:p-3 overflow-hidden transition-all ${
+    const hasSuffix = Boolean(suffix);
+    const sharedClass = `min-w-0 w-full rounded-lg border flex flex-col items-center justify-center text-center ${tileSize} overflow-hidden transition-all ${
         isActive
             ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-200 shadow-sm'
             : 'bg-gray-100 border-gray-100'
@@ -56,15 +68,24 @@ function SummaryMiniCard({ label, value, suffix, onClick, isActive, empty, href 
 
     const content = (
         <>
-            <span className="text-[8px] sm:text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-0.5 sm:mb-1 leading-tight text-center block w-full px-0.5 break-words hyphens-auto">
+            <span className="text-[8px] sm:text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-0.5 leading-tight text-center block w-full px-0.5 break-words hyphens-auto">
                 {label}
             </span>
             <div
-                className="text-lg sm:text-xl lg:text-2xl font-black tabular-nums flex flex-wrap items-baseline justify-center gap-x-1 gap-y-0 leading-none"
+                className="w-full min-w-0 flex flex-col items-center justify-center gap-y-0.5"
                 style={{ color: '#dc2626' }}
             >
-                <AnimatedCounter value={n} />
-                {suffix ? <span className="text-[10px] sm:text-xs font-black tracking-tight">{suffix}</span> : null}
+                <span
+                    className="font-black tabular-nums leading-none whitespace-nowrap max-w-full"
+                    style={{ fontSize: valueFontSize(n, hasSuffix) }}
+                >
+                    <AnimatedCounter value={n} />
+                </span>
+                {hasSuffix ? (
+                    <span className="text-[9px] sm:text-[10px] font-black tracking-tight leading-none">
+                        {suffix}
+                    </span>
+                ) : null}
             </div>
         </>
     );
@@ -89,7 +110,7 @@ function SummaryMiniCard({ label, value, suffix, onClick, isActive, empty, href 
 const summaryGridClass =
     'grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4 w-full auto-rows-fr';
 
-export function AssetListSummaryPanels({ leftCards, rightCards, onCardClick, isCardActive }) {
+export function AssetListSummaryPanels({ leftCards, rightCards, onCardClick, isCardActive, compact = false }) {
     const renderCard = (c, i, prefix) => (
         <SummaryMiniCard
             key={`${prefix}-${c.filterKey || i}`}
@@ -98,19 +119,39 @@ export function AssetListSummaryPanels({ leftCards, rightCards, onCardClick, isC
             suffix={c.suffix}
             empty={c.empty}
             href={c.href}
+            fillHeight={!compact}
             onClick={c.filterKey && onCardClick ? () => onCardClick(c.filterKey) : undefined}
             isActive={c.filterKey && isCardActive ? isCardActive(c.filterKey) : false}
         />
     );
 
+    const padClass = compact ? 'p-3 sm:p-4' : 'p-3 sm:p-4 lg:p-5';
+
+    if (compact) {
+        return (
+            <div className="grid w-full max-w-full grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6 mb-4 sm:mb-6 items-start">
+                <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${padClass} h-fit self-start`}>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 w-full">
+                        {leftCards.map((c, i) => renderCard(c, i, 'l'))}
+                    </div>
+                </div>
+                <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${padClass} h-fit self-start`}>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 w-full">
+                        {rightCards.map((c, i) => renderCard(c, i, 'r'))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className={`${HEADER_PAIR_GRID} xl:grid-cols-2`}>
-            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 lg:p-5 flex flex-col ${HEADER_PAIR_CARD_DASHBOARD}`}>
+            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${padClass} ${HEADER_PAIR_CARD_DASHBOARD}`}>
                 <div className={summaryGridClass}>
                     {leftCards.map((c, i) => renderCard(c, i, 'l'))}
                 </div>
             </div>
-            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 lg:p-5 flex flex-col ${HEADER_PAIR_CARD_DASHBOARD}`}>
+            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${padClass} ${HEADER_PAIR_CARD_DASHBOARD}`}>
                 <div className={summaryGridClass}>
                     {rightCards.map((c, i) => renderCard(c, i, 'r'))}
                 </div>

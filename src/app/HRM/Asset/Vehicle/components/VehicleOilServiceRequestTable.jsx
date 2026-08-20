@@ -9,6 +9,7 @@ import {
 } from './vehicleServiceUtils';
 import VehicleServiceRequestSortHeader from './VehicleServiceRequestSortHeader';
 import {
+    codeSortValue,
     dateSortValue,
     numberSortValue,
     sortServiceTableRows,
@@ -39,6 +40,10 @@ function oilServiceSortValue(row, key) {
         case 'lastOilServiceDate':
         case 'nextOilServiceDate':
             return dateSortValue(row?.[key]);
+        case 'serviceReqNo':
+        case 'vehicleAssetNo':
+        case 'vehicleNo':
+            return codeSortValue(row?.[key]);
         default:
             return textSortValue(row?.[key]);
     }

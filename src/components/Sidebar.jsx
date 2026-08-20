@@ -13,7 +13,6 @@ import {
     CalendarClock,
     CalendarX2,
     Banknote,
-    Coins,
     ClipboardList,
     FileWarning,
     HandCoins,
@@ -119,7 +118,6 @@ const menuItems = [
                     { label: 'Attendance', icon: CalendarClock, permissionModule: 'hrm_attendance' },
                     { label: 'Leave', icon: CalendarX2, permissionModule: 'hrm_leave' },
                     { label: 'Salary', icon: Banknote, permissionModule: 'hrm_salary' },
-                    { label: 'Leave Salary', icon: Coins, permissionModule: 'hrm_leave_salary' },
                 ],
             },
             { label: 'NCR', icon: ClipboardList, permissionModule: 'hrm_ncr' },
@@ -214,7 +212,6 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Attendance') return '/HRM/Attendance';
         if (label === 'Leave') return '/HRM/Leave';
         if (label === 'Salary') return '/HRM/Salary';
-        if (label === 'Leave Salary') return '/HRM/LeaveSalary';
         if (label === 'Reward') return '/HRM/Reward';
         if (label === 'Fine') return '/HRM/Fine';
         if (label === 'Loan and Advance' || label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
@@ -574,15 +571,9 @@ export default function Sidebar() {
                 pathname.startsWith('/HRM/Attendance') ||
                 pathname === '/HRM/Leave' ||
                 pathname.startsWith('/HRM/Leave/') ||
-                pathname.startsWith('/HRM/LeaveSalary') ||
                 pathname.startsWith('/HRM/Salary')
             ) {
-                // Keep Payroll open; open Salary nest when on Leave Salary.
-                setOpenSubmenu(
-                    pathname.startsWith('/HRM/LeaveSalary')
-                        ? 'HRM-Payroll-Salary'
-                        : 'HRM-Payroll',
-                );
+                setOpenSubmenu('HRM-Payroll');
             }
         }
         // CRM Detection
@@ -680,8 +671,6 @@ export default function Sidebar() {
             router.push('/HRM/Leave');
         } else if (parentId === 'HRM' && subItem.label === 'Salary') {
             router.push('/HRM/Salary');
-        } else if (parentId === 'HRM' && subItem.label === 'Leave Salary') {
-            router.push('/HRM/LeaveSalary');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             router.push('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -736,8 +725,6 @@ export default function Sidebar() {
             return pathname === '/HRM/Leave' || pathname?.startsWith('/HRM/Leave/');
         } else if (parentId === 'HRM' && subItem.label === 'Salary') {
             return pathname?.startsWith('/HRM/Salary');
-        } else if (parentId === 'HRM' && subItem.label === 'Leave Salary') {
-            return pathname?.startsWith('/HRM/LeaveSalary');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             return pathname?.startsWith('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {

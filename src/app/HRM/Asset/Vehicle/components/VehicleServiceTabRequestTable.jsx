@@ -6,6 +6,7 @@ import ListTableRowLink from '@/components/ListTableRowLink';
 import { buildVehicleServiceListRowHref, serviceAmountStatusBadgeClass } from './vehicleServiceUtils';
 import VehicleServiceRequestSortHeader from './VehicleServiceRequestSortHeader';
 import {
+    codeSortValue,
     dateSortValue,
     numberSortValue,
     sortServiceTableRows,
@@ -31,6 +32,10 @@ function serviceTabSortValue(row, key) {
             return numberSortValue(row?.[key]);
         case 'requestDate':
             return dateSortValue(row?.requestDate || row?.sortDate || row?.createdAt);
+        case 'serviceReqNo':
+        case 'vehicleAssetNo':
+        case 'vehicleNo':
+            return codeSortValue(row?.[key]);
         default:
             return textSortValue(row?.[key]);
     }

@@ -11,7 +11,7 @@ import { isAdmin, hasPermission } from '@/utils/permissions';
 import {
     isVehicleProfileActivationActive,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAdminDeleteAccess';
-import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canEditVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import { canAccessAddVehicle, canAccessActiveFleet, canAccessSoldFleet, canAccessAddFuel, canEditVehicleAsset } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 
 import {
     AlertDialog,
@@ -23,8 +23,9 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useRouter, usePathname } from 'next/navigation';
-import { navigateFromList, rememberListFilterStep, replaceNavigationUrl } from '@/utils/listReturnNavigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { rememberListFilterStep, rememberListFilterStepFrom, replaceNavigationUrl, tryNavigateListReturn } from '@/utils/listReturnNavigation';
+import { useRegisterErpBackHandler } from '@/contexts/ErpBackHandlerContext';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import Link from 'next/link';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
@@ -41,8 +42,8 @@ import VehicleListServiceStatusCell from '@/app/HRM/Asset/Vehicle/components/Veh
 import VehicleAccessServicePanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccessServicePanel';
 import VehicleAccessHandoverPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccessHandoverPanel';
 import VehicleAccessFinePanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccessFinePanel';
+import VehicleAccessFuelPanel from '@/app/HRM/Asset/Vehicle/components/VehicleAccessFuelPanel';
 import VehicleAccessMenuModal from '@/app/HRM/Asset/Vehicle/components/VehicleAccessMenuModal';
-import VehicleFuelModal from '@/app/HRM/Asset/Vehicle/components/VehicleFuelModal';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
@@ -72,6 +73,14 @@ import {
     isVehicleServiceDueSoon,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleReminderMatch';
 import { applyVehicleAccessFineQuery, vehicleDashboardKpiHref, vehicleMatchesModelYearFilter } from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetDashboardNavigation';
+import {
+    vehicleAccessMenuHref,
+    vehicleAccessPath,
+    vehicleAccessServiceTypeFromSlug,
+    vehicleAccessHandoverStatusFromSlug,
+    VEHICLE_ACCESS_MENU_PARAM,
+    VEHICLE_ACCESS_PANEL_KEYS,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
 
 const VEHICLE_STATUS_FILTERS = [
     'All',
@@ -188,6 +197,7 @@ function buildVehicleListHref({
     fleetListTab = 'active',
     modelYearFilter = '',
     includeFineAccess = false,
+    accessPanel = '',
     fineFocus = null,
 } = {}) {
     const params = new URLSearchParams();
@@ -195,7 +205,8 @@ function buildVehicleListHref({
     if (statusFilter && statusFilter !== 'All') params.set('status', statusFilter);
     if (fleetListTab === 'sold_total_loss') params.set('view', SOLD_TOTAL_LOSS_VIEW);
     if (modelYearFilter) params.set('modelYear', String(modelYearFilter));
-    if (includeFineAccess) {
+    const panel = includeFineAccess ? 'fine' : String(accessPanel || '').trim().toLowerCase();
+    if (panel === 'fine') {
         applyVehicleAccessFineQuery(params, {
             access: 'fine',
             vehicleId: fineFocus?.vehicleId,
@@ -204,6 +215,8 @@ function buildVehicleListHref({
             to: fineFocus?.to,
             plate: fineFocus?.plate,
         });
+    } else if (panel === 'service' || panel === 'handover' || panel === 'fuel') {
+        params.set('access', panel);
     }
     const qs = params.toString();
     return qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle';
@@ -369,6 +382,7 @@ function readFleetListTabFromUrl() {
 export default function VehicleAssetPage() {
     const router = useRouter();
     const pathname = usePathname();
+    const searchParams = useSearchParams();
     const [mounted, setMounted] = useState(false);
     // Start empty on server + first client paint so SSR HTML matches hydration.
     // Session cache is applied in useEffect after mount (avoids 0 vs N mismatch).
@@ -389,11 +403,10 @@ export default function VehicleAssetPage() {
     const [accessServiceOpen, setAccessServiceOpen] = useState(false);
     const [selectedAccessServiceType, setSelectedAccessServiceType] = useState('All');
     const [accessHandoverOpen, setAccessHandoverOpen] = useState(false);
-    const [selectedHandoverCategory, setSelectedHandoverCategory] = useState('all');
+    const [selectedHandoverCategory, setSelectedHandoverCategory] = useState('all-handover');
     const [accessFineOpen, setAccessFineOpen] = useState(false);
+    const [accessFuelOpen, setAccessFuelOpen] = useState(false);
     const [accessMenuOpen, setAccessMenuOpen] = useState(false);
-    const [fuelModalOpen, setFuelModalOpen] = useState(false);
-    const [fuelVehicles, setFuelVehicles] = useState([]);
     const [canManageFuel, setCanManageFuel] = useState(false);
     const [selectedFineType, setSelectedFineType] = useState('all');
     const [fineFocus, setFineFocus] = useState({
@@ -404,78 +417,145 @@ export default function VehicleAssetPage() {
         plate: '',
     });
     const [fleetListTab, setFleetListTab] = useState('active');
-    const accessPanelOpen = accessServiceOpen || accessHandoverOpen || accessFineOpen;
+    const accessPanelOpen = accessServiceOpen || accessHandoverOpen || accessFineOpen || accessFuelOpen;
 
-    const vehicleListHref = useMemo(
+    const vehicleListHref = useMemo(() => {
+        const href = buildVehicleListHref({
+            searchQuery,
+            statusFilter,
+            fleetListTab,
+            modelYearFilter,
+            includeFineAccess: accessFineOpen,
+            accessPanel: accessServiceOpen
+                ? 'service'
+                : accessHandoverOpen
+                  ? 'handover'
+                  : accessFuelOpen
+                    ? 'fuel'
+                    : '',
+            fineFocus,
+        });
+        return accessMenuOpen ? vehicleAccessMenuHref(href) : href;
+    }, [
+        searchQuery,
+        statusFilter,
+        fleetListTab,
+        modelYearFilter,
+        accessFineOpen,
+        accessServiceOpen,
+        accessHandoverOpen,
+        accessFuelOpen,
+        fineFocus,
+        accessMenuOpen,
+    ]);
+
+    const vehicleDetailsMenuHref = useMemo(
         () =>
-            buildVehicleListHref({
+            vehicleAccessMenuHref(
+                buildVehicleListHref({
+                    searchQuery,
+                    statusFilter,
+                    fleetListTab,
+                    modelYearFilter,
+                }),
+            ),
+        [searchQuery, statusFilter, fleetListTab, modelYearFilter],
+    );
+
+    const closeAccessMenu = useCallback(() => {
+        setAccessMenuOpen(false);
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get(VEHICLE_ACCESS_MENU_PARAM) === '1') {
+            if (!tryNavigateListReturn(router)) {
+                replaceNavigationUrl(
+                    buildVehicleListHref({
+                        searchQuery,
+                        statusFilter,
+                        fleetListTab,
+                        modelYearFilter,
+                    }),
+                );
+            }
+        }
+    }, [router, searchQuery, statusFilter, fleetListTab, modelYearFilter]);
+
+    const prefetchFuelAccess = useCallback(() => {
+        axiosInstance
+            .get('/VehicleFuel/vehicles', { skipToast: true })
+            .then((res) => {
+                setCanManageFuel(Boolean(res.data?.canManage));
+            })
+            .catch(() => {
+                setCanManageFuel(false);
+            });
+    }, []);
+
+    const openAccessMenu = useCallback(() => {
+        rememberListFilterStep(vehicleDetailsMenuHref);
+        setAccessMenuOpen(true);
+        prefetchFuelAccess();
+    }, [vehicleDetailsMenuHref, prefetchFuelAccess]);
+
+    const openAccessPath = useCallback(
+        (panel) => {
+            const listBase = buildVehicleListHref({
                 searchQuery,
                 statusFilter,
                 fleetListTab,
                 modelYearFilter,
-                includeFineAccess: accessFineOpen,
-                fineFocus,
-            }),
-        [searchQuery, statusFilter, fleetListTab, modelYearFilter, accessFineOpen, fineFocus],
+            });
+            const path = vehicleAccessPath(panel, listBase);
+            if (!path) return;
+            rememberListFilterStepFrom(vehicleDetailsMenuHref, path);
+            setAccessMenuOpen(false);
+            setAccessServiceOpen(panel === 'service');
+            setAccessHandoverOpen(panel === 'handover');
+            setAccessFineOpen(panel === 'fine');
+            setAccessFuelOpen(panel === 'fuel');
+            if (panel === 'service') setSelectedAccessServiceType('All');
+            if (panel === 'handover') setSelectedHandoverCategory('all-handover');
+            if (panel === 'fine') {
+                setSelectedFineType('all');
+                setFineFocus({ vehicleId: '', fineIds: '', from: '', to: '', plate: '' });
+            }
+        },
+        [searchQuery, statusFilter, fleetListTab, modelYearFilter, vehicleDetailsMenuHref],
     );
 
-    const toggleAccessPanel = useCallback((panel) => {
-        const isOpen =
-            panel === 'service'
-                ? accessServiceOpen
-                : panel === 'handover'
-                  ? accessHandoverOpen
-                  : accessFineOpen;
-        const emptyFocus = { vehicleId: '', fineIds: '', from: '', to: '', plate: '' };
-        const syncListUrl = (includeFineAccess, nextFocus = emptyFocus) => {
+    const handleAccessOverlayBack = useCallback(() => {
+        if (accessMenuOpen && !accessPanelOpen) {
+            closeAccessMenu();
+            return;
+        }
+        if (accessPanelOpen) {
+            setAccessMenuOpen(false);
+            setAccessServiceOpen(false);
+            setAccessHandoverOpen(false);
+            setAccessFineOpen(false);
+            setAccessFuelOpen(false);
             replaceNavigationUrl(
                 buildVehicleListHref({
                     searchQuery,
                     statusFilter,
                     fleetListTab,
                     modelYearFilter,
-                    includeFineAccess,
-                    fineFocus: nextFocus,
                 }),
             );
-        };
-
-        if (isOpen) {
-            setAccessServiceOpen(false);
-            setAccessHandoverOpen(false);
-            setAccessFineOpen(false);
-            setFineFocus(emptyFocus);
-            syncListUrl(false);
-            return;
         }
+    }, [
+        accessMenuOpen,
+        accessPanelOpen,
+        closeAccessMenu,
+        searchQuery,
+        statusFilter,
+        fleetListTab,
+        modelYearFilter,
+    ]);
 
-        setAccessServiceOpen(panel === 'service');
-        setAccessHandoverOpen(panel === 'handover');
-        setAccessFineOpen(panel === 'fine');
-        if (panel === 'service') setSelectedAccessServiceType('All');
-        if (panel === 'handover') setSelectedHandoverCategory('all');
-        if (panel === 'fine') {
-            setSelectedFineType('all');
-            setFineFocus(emptyFocus);
-            syncListUrl(true, emptyFocus);
-            return;
-        }
-        setFineFocus(emptyFocus);
-        syncListUrl(false);
-    }, [accessServiceOpen, accessHandoverOpen, accessFineOpen, searchQuery, statusFilter, fleetListTab, modelYearFilter]);
-
-    const openFuelModal = useCallback(async () => {
-        setAccessMenuOpen(false);
-        setFuelModalOpen(true);
-        try {
-            const res = await axiosInstance.get('/VehicleFuel/vehicles', { skipToast: true });
-            setFuelVehicles(Array.isArray(res.data?.data) ? res.data.data : []);
-            setCanManageFuel(Boolean(res.data?.canManage));
-        } catch {
-            setFuelVehicles([]);
-            setCanManageFuel(false);
-        }
-    }, []);
+    useRegisterErpBackHandler(
+        accessMenuOpen || accessPanelOpen ? handleAccessOverlayBack : null,
+    );
 
     const vehicleInboxWarmRef = useRef(false);
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, vehicle: null });
@@ -667,20 +747,51 @@ export default function VehicleAssetPage() {
             setModelYearFilter(yearFromUrl);
             setShowFilters(true);
         }
-        if (String(q.get('access') || '').trim().toLowerCase() === 'fine') {
+
+        const access = String(q.get('access') || '').trim().toLowerCase();
+        if (q.get(VEHICLE_ACCESS_MENU_PARAM) === '1') {
+            setAccessMenuOpen(true);
             setAccessServiceOpen(false);
             setAccessHandoverOpen(false);
-            setAccessFineOpen(true);
-            setSelectedFineType('all');
-            setFineFocus({
-                vehicleId: String(q.get('vehicleId') || '').trim(),
-                fineIds: String(q.get('fineIds') || '').trim(),
-                from: String(q.get('from') || '').trim(),
-                to: String(q.get('to') || '').trim(),
-                plate: String(q.get('plate') || '').trim(),
-            });
+            setAccessFineOpen(false);
+            setAccessFuelOpen(false);
+            prefetchFuelAccess();
+            return;
         }
-    }, [mounted, pathname]);
+
+        if (VEHICLE_ACCESS_PANEL_KEYS.includes(access)) {
+            setAccessMenuOpen(false);
+            setAccessServiceOpen(access === 'service');
+            setAccessHandoverOpen(access === 'handover');
+            setAccessFineOpen(access === 'fine');
+            setAccessFuelOpen(access === 'fuel');
+            if (access === 'service') {
+                const type = vehicleAccessServiceTypeFromSlug(q.get('serviceType'));
+                if (type) setSelectedAccessServiceType(type);
+            }
+            if (access === 'handover') {
+                const status = vehicleAccessHandoverStatusFromSlug(q.get('handover'));
+                setSelectedHandoverCategory(status?.key || 'all-handover');
+            }
+            if (access === 'fine') {
+                setSelectedFineType('all');
+                setFineFocus({
+                    vehicleId: String(q.get('vehicleId') || '').trim(),
+                    fineIds: String(q.get('fineIds') || '').trim(),
+                    from: String(q.get('from') || '').trim(),
+                    to: String(q.get('to') || '').trim(),
+                    plate: String(q.get('plate') || '').trim(),
+                });
+            }
+            return;
+        }
+
+        setAccessMenuOpen(false);
+        setAccessServiceOpen(false);
+        setAccessHandoverOpen(false);
+        setAccessFineOpen(false);
+        setAccessFuelOpen(false);
+    }, [mounted, pathname, searchParams, prefetchFuelAccess]);
 
     useEffect(() => {
         if (!mounted) return;
@@ -947,18 +1058,16 @@ export default function VehicleAssetPage() {
                             rightCards={vehicleSummaryRightCards}
                             onCardClick={handleSummaryCardClick}
                             isCardActive={isSummaryCardActive}
+                            compact
                         />
 
                         {/* Header */}
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
-                            <div>
-                                <div className="flex items-center gap-2 mb-1">
-                                    <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800">Vehicle Assets</h1>
-                                    <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
-                                        {vehicles.length}
-                                    </span>
-                                </div>
-                                <p className="text-gray-500 text-xs sm:text-sm">Manage company fleet and transport assets</p>
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-4">
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-lg sm:text-xl font-bold text-gray-800">Vehicle Assets</h1>
+                                <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold">
+                                    {vehicles.length}
+                                </span>
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -967,7 +1076,7 @@ export default function VehicleAssetPage() {
                                     onClick={() => setVehicleInboxOpen(true)}
                                     onMouseEnter={warmVehicleInboxBadge}
                                     onFocus={warmVehicleInboxBadge}
-                                    className="relative inline-flex items-center justify-center p-2 rounded-lg bg-white border border-teal-200 text-teal-800 hover:bg-teal-50 shadow-sm transition-colors"
+                                    className="relative inline-flex items-center justify-center p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 shadow-sm transition-colors"
                                     title="Vehicle service workflow — pending inbox"
                                 >
                                     <Bell size={20} />
@@ -980,24 +1089,24 @@ export default function VehicleAssetPage() {
 
                                 <Link
                                     href="/HRM/Asset/Vehicle/dashboard"
-                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-white border border-gray-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors whitespace-nowrap"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-white border border-gray-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-gray-50 shadow-sm transition-colors whitespace-nowrap"
                                 >
                                     <LayoutDashboard size={18} />
                                     Fleet dashboard
                                 </Link>
                                 <button
                                     type="button"
-                                    onClick={() => setAccessMenuOpen(true)}
+                                    onClick={openAccessMenu}
                                     className={`inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition-colors whitespace-nowrap ${
-                                        accessPanelOpen
-                                            ? 'bg-teal-800 text-white hover:bg-teal-900'
+                                        accessPanelOpen || accessMenuOpen
+                                            ? 'bg-teal-700 text-white hover:bg-teal-800'
                                             : 'bg-teal-600 text-white hover:bg-teal-700'
                                     }`}
                                 >
                                     <Car size={16} />
                                     Vehicle Details
                                     {pendingServiceStatusCount > 0 ? (
-                                        <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-white px-1.5 py-0.5 text-[9px] font-black text-red-600 tabular-nums">
+                                        <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-teal-800 px-1.5 text-[9px] font-black text-white tabular-nums">
                                             {pendingServiceStatusCount}
                                         </span>
                                     ) : null}
@@ -1005,7 +1114,7 @@ export default function VehicleAssetPage() {
 
                                 <button
                                     onClick={fetchVehicles}
-                                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
+                                    className="p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 shadow-sm transition-colors"
                                     title="Refresh list"
                                 >
                                     <RotateCcw size={18} />
@@ -1017,10 +1126,10 @@ export default function VehicleAssetPage() {
                                         setAddVehicleEditId(null);
                                         setIsAddVehicleModalOpen(true);
                                     }}
-                                    className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap"
+                                    className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors shadow-sm text-xs sm:text-sm font-semibold whitespace-nowrap"
                                 >
                                     <Plus size={18} />
-                                    <span className="text-sm font-medium">Add Vehicle</span>
+                                    <span>Add Vehicle</span>
                                 </button>
                                 )}
 
@@ -1031,16 +1140,16 @@ export default function VehicleAssetPage() {
                                         placeholder="Search vehicles..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="pl-9 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-full min-w-[140px] sm:w-64 max-w-md shadow-sm"
+                                        className="pl-9 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 border border-gray-200 rounded-lg text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-full min-w-[140px] sm:w-64 max-w-md shadow-sm"
                                     />
                                 </div>
 
                                 <button
                                     onClick={() => setShowFilters((s) => !s)}
-                                    className={`relative p-2 rounded-lg transition-colors border bg-white shadow-sm ${
+                                    className={`relative p-2 rounded-lg bg-white border shadow-sm transition-colors ${
                                         statusFilter !== 'All' || fleetListTab === 'sold_total_loss' || modelYearFilter
                                             ? 'text-blue-600 border-blue-200 hover:bg-blue-50'
-                                            : 'text-gray-500 border-gray-200 hover:text-blue-600 hover:bg-blue-50'
+                                            : 'text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-gray-700'
                                     }`}
                                     title="Filter vehicles by status"
                                 >
@@ -1056,7 +1165,7 @@ export default function VehicleAssetPage() {
                             <VehicleAccessServicePanel
                                 selectedType={selectedAccessServiceType}
                                 onSelectType={setSelectedAccessServiceType}
-                                onClose={() => toggleAccessPanel('service')}
+                                onClose={handleAccessOverlayBack}
                                 listReturnHref={vehicleListHref}
                             />
                         ) : null}
@@ -1065,7 +1174,7 @@ export default function VehicleAssetPage() {
                             <VehicleAccessHandoverPanel
                                 selectedCategory={selectedHandoverCategory}
                                 onSelectCategory={setSelectedHandoverCategory}
-                                onClose={() => toggleAccessPanel('handover')}
+                                onClose={handleAccessOverlayBack}
                                 listReturnHref={vehicleListHref}
                             />
                         ) : null}
@@ -1074,7 +1183,7 @@ export default function VehicleAssetPage() {
                             <VehicleAccessFinePanel
                                 selectedType={selectedFineType}
                                 onSelectType={setSelectedFineType}
-                                onClose={() => toggleAccessPanel('fine')}
+                                onClose={handleAccessOverlayBack}
                                 focusVehicleId={fineFocus.vehicleId}
                                 focusFineIds={fineFocus.fineIds}
                                 focusFrom={fineFocus.from}
@@ -1084,11 +1193,18 @@ export default function VehicleAssetPage() {
                             />
                         ) : null}
 
+                        {accessFuelOpen ? (
+                            <VehicleAccessFuelPanel
+                                onClose={handleAccessOverlayBack}
+                                listReturnHref={vehicleListHref}
+                            />
+                        ) : null}
+
                         {showFilters && !accessPanelOpen && (
-                            <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
+                            <div className="bg-white rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
                                 <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-wrap">
                                     <div
-                                        className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 shadow-sm"
+                                        className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5"
                                         role="tablist"
                                         aria-label="Fleet list scope"
                                     >
@@ -1101,7 +1217,7 @@ export default function VehicleAssetPage() {
                                             className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wide transition-colors ${
                                                 fleetListTab === 'active'
                                                     ? 'bg-blue-600 text-white shadow-sm'
-                                                    : 'text-gray-600 hover:text-gray-900'
+                                                    : 'text-gray-500 hover:text-gray-800'
                                             }`}
                                         >
                                             Active fleet
@@ -1130,7 +1246,7 @@ export default function VehicleAssetPage() {
                                                 <select
                                                     value={statusFilter}
                                                     onChange={(e) => setStatusFilter(e.target.value)}
-                                                    className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
+                                                    className="px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-xs sm:text-sm bg-white appearance-none pr-8 cursor-pointer min-w-0 max-w-full"
                                                 >
                                                     {VEHICLE_STATUS_FILTERS.map((value) => (
                                                         <option key={value} value={value}>
@@ -1457,31 +1573,27 @@ export default function VehicleAssetPage() {
             </div>
             <VehicleAccessMenuModal
                 open={accessMenuOpen}
-                onClose={() => setAccessMenuOpen(false)}
+                onClose={closeAccessMenu}
+                showFuel={canAccessAddFuel() || canManageFuel}
                 activePanel={
-                    accessServiceOpen ? 'service' : accessHandoverOpen ? 'handover' : accessFineOpen ? 'fine' : null
+                    accessServiceOpen
+                        ? 'service'
+                        : accessHandoverOpen
+                          ? 'handover'
+                          : accessFineOpen
+                            ? 'fine'
+                            : accessFuelOpen
+                              ? 'fuel'
+                              : null
                 }
                 pendingServiceCount={pendingServiceStatusCount}
-                onSelect={(panel) => {
-                    if (panel === 'fuel') {
-                        openFuelModal();
-                        return;
-                    }
-                    setAccessMenuOpen(false);
-                    const alreadyOpen =
-                        (panel === 'service' && accessServiceOpen) ||
-                        (panel === 'handover' && accessHandoverOpen) ||
-                        (panel === 'fine' && accessFineOpen);
-                    if (alreadyOpen) return;
-                    toggleAccessPanel(panel);
-                }}
-            />
-            <VehicleFuelModal
-                isOpen={fuelModalOpen}
-                onClose={() => setFuelModalOpen(false)}
-                onSaved={() => setFuelModalOpen(false)}
-                vehicles={fuelVehicles}
-                canManage={canManageFuel}
+                listHref={buildVehicleListHref({
+                    searchQuery,
+                    statusFilter,
+                    fleetListTab,
+                    modelYearFilter,
+                })}
+                onSelect={openAccessPath}
             />
             <PendingAssetRequestsModal
                 isOpen={vehicleInboxOpen}

@@ -86,6 +86,18 @@ export function canAccessAddVehicle() {
     );
 }
 
+/** Add Fuel row on the Vehicle permission group. */
+export function canAccessAddFuel() {
+    return (
+        isAdmin() ||
+        hasModuleFlag('hrm_asset_vehicle_add_fuel', 'isView') ||
+        hasModuleFlag('hrm_asset_vehicle_add_fuel', 'isCreate') ||
+        hasModuleFlag('hrm_asset_vehicle_add_fuel', 'isEdit') ||
+        hasModuleFlag('hrm_asset_vehicle_add_fuel', 'isDelete') ||
+        hasModuleFlag('hrm_asset_vehicle_add_fuel', 'isDownload')
+    );
+}
+
 /** Edit existing vehicle assets (list + profile cards) — uses Add Vehicle Edit. */
 export function canEditVehicleAsset() {
     return (

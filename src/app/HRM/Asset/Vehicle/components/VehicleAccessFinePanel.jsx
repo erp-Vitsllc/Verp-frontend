@@ -8,7 +8,6 @@ import {
     ChevronDown,
     LayoutGrid,
     RotateCcw,
-    ShieldAlert,
     X,
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -18,6 +17,7 @@ import { navHrefProps } from '@/utils/linkContextMenu';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import EmployeeNameLink from '@/components/EmployeeNameLink';
 import {
+    isVehicleAccessFineTypeIncluded,
     isVehicleAccessFineVisible,
     matchesVehicleAccessFineType,
     resolveVehicleAccessFineHref,
@@ -28,15 +28,18 @@ import {
 import { formatFineVendorBillPaymentLabel } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import { resolveFineNetTotal } from '@/utils/finePayableAmount';
 import { sumEmployeeOutstandingOnFines } from '@/app/HRM/Fine/utils/employeeFineFinancials';
+import VehicleServiceRequestSortHeader from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRequestSortHeader';
+import {
+    codeSortValue,
+    dateSortValue,
+    numberSortValue,
+    sortServiceTableRows,
+    textSortValue,
+} from '@/app/HRM/Asset/Vehicle/components/vehicleServiceRequestTableSort';
 
-const ALL_FINES = 'all';
-
-const TYPE_ICONS = {
-    [ALL_FINES]: LayoutGrid,
-    'vehicle-fine': Car,
-    'vehicle-damage': ShieldAlert,
-    'loss-damage': AlertTriangle,
-};
+function isAccessFineRow(fine) {
+    return isVehicleAccessFineVisible(fine) && isVehicleAccessFineTypeIncluded(fine);
+}
 
 function vehicleLabel(fine) {
     return fine?.assetName || fine?.assetId || fine?.vehicleId || '—';
@@ -134,9 +137,9 @@ function applyVehicleFineFocus(list, { vehicleId, fineIds, from, to } = {}) {
     const ids = parseFocusFineIds(fineIds);
     if (ids.length) {
         const idSet = new Set(ids);
-        return next.filter((fine) => idSet.has(String(fine?._id || '')));
+        return next.filter((fine) => idSet.has(String(fine?._id || ''))).filter(isVehicleAccessFineTypeIncluded);
     }
-    next = next.filter(isVehicleAccessFineVisible);
+    next = next.filter(isAccessFineRow);
     if (vehicleId) next = next.filter((fine) => fineMatchesFocusVehicle(fine, vehicleId));
     if (from || to) next = next.filter((fine) => awardedDateInRange(fine?.awardedDate, from, to));
     return next;
@@ -167,7 +170,57 @@ function fineStatusBadgeClass(status) {
 
 const VEHICLE_LIST_RETURN = '/HRM/Asset/Vehicle';
 
+const TYPE_CARD =
+    'group flex items-center gap-2 rounded-xl border p-2 text-left transition-colors min-h-[3.25rem]';
+const TYPE_CARD_ACTIVE = 'border-teal-500 bg-teal-50 ring-1 ring-teal-200';
+const TYPE_CARD_IDLE = 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60';
+const TYPE_ICON_WRAP =
+    'inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm shrink-0';
+
+const FINE_TYPE_ICONS = {
+    all: LayoutGrid,
+    'vehicle-fine': Car,
+    'vehicle-damage': AlertTriangle,
+};
+
 const CELL_LINK_CLASS = 'relative z-[3] font-bold text-blue-600 hover:text-blue-800 hover:underline underline-offset-2';
+
+const FINE_COLUMNS = [
+    { key: 'fineId', label: 'Fine ID', type: 'text' },
+    { key: 'fineType', label: 'Type', type: 'text' },
+    { key: 'vehicle', label: 'Vehicle', type: 'text' },
+    { key: 'plateNo', label: 'Plate No.', type: 'text' },
+    { key: 'offender', label: 'Offender', type: 'text' },
+    { key: 'amount', label: 'Amount', type: 'number' },
+    { key: 'awardedDate', label: 'Date', type: 'date' },
+    { key: 'fineStatus', label: 'Status', type: 'text' },
+    { key: 'vendorPaid', label: 'Paid to Vendor', type: 'text' },
+];
+
+function fineSortValue(fine, key) {
+    switch (key) {
+        case 'fineId':
+            return codeSortValue(fine?.fineId);
+        case 'fineType':
+            return textSortValue(fine?.fineType);
+        case 'vehicle':
+            return codeSortValue(vehicleLabel(fine) === '—' ? '' : vehicleLabel(fine));
+        case 'plateNo':
+            return codeSortValue(vehiclePlateNo(fine) === '—' ? '' : vehiclePlateNo(fine));
+        case 'offender':
+            return textSortValue(resolveVehicleAccessOffender(fine)?.employeeName);
+        case 'amount':
+            return numberSortValue(fineRowAmount(fine));
+        case 'awardedDate':
+            return dateSortValue(fine?.awardedDate);
+        case 'fineStatus':
+            return textSortValue(fine?.fineStatus);
+        case 'vendorPaid':
+            return textSortValue(formatFineVendorBillPaymentLabel(fine));
+        default:
+            return null;
+    }
+}
 
 function CellNavLink({ href, router, listReturnHref, title, children }) {
     if (!href) {
@@ -192,34 +245,58 @@ function CellNavLink({ href, router, listReturnHref, title, children }) {
 }
 
 function FineTable({ rows, onOpenFine, router, listReturnHref = VEHICLE_LIST_RETURN }) {
+    const [sortKey, setSortKey] = useState('awardedDate');
+    const [sortDirection, setSortDirection] = useState('desc');
+
+    const handleSort = useCallback(
+        (key) => {
+            const column = FINE_COLUMNS.find((c) => c.key === key);
+            if (!column) return;
+            if (sortKey === key) {
+                setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                return;
+            }
+            setSortKey(key);
+            setSortDirection(column.type === 'date' || column.type === 'number' ? 'desc' : 'asc');
+        },
+        [sortKey],
+    );
+
+    const sortedRows = useMemo(() => {
+        const column = FINE_COLUMNS.find((c) => c.key === sortKey) || FINE_COLUMNS[0];
+        return sortServiceTableRows(rows, fineSortValue, sortKey, sortDirection, column.type);
+    }, [rows, sortKey, sortDirection]);
+
+    const unpaidTotal = useMemo(() => sumUnpaidFines(rows), [rows]);
+
     if (!rows.length) {
         return (
             <div className="py-10 text-center text-sm text-slate-500">
-                No approved, Zoho-entered, or completed records in this type.
+                No approved, Zoho-entered, or completed vehicle fines or vehicle damage.
             </div>
         );
     }
-
-    const unpaidTotal = sumUnpaidFines(rows);
 
     return (
         <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[1120px]">
                 <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     <tr>
-                        <th className="px-6 py-4">Fine ID</th>
-                        <th className="px-6 py-4">Type</th>
-                        <th className="px-6 py-4">Vehicle</th>
-                        <th className="px-6 py-4">Plate No.</th>
-                        <th className="px-6 py-4">Offender</th>
-                        <th className="px-6 py-4">Amount</th>
-                        <th className="px-6 py-4">Date</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Paid to Vendor</th>
+                        {FINE_COLUMNS.map((column) => (
+                            <VehicleServiceRequestSortHeader
+                                key={column.key}
+                                label={column.label}
+                                columnKey={column.key}
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleSort}
+                                className="px-6 py-4"
+                            />
+                        ))}
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                    {rows.map((fine) => {
+                    {sortedRows.map((fine) => {
                         const fineHref = resolveVehicleAccessFineHref(fine);
                         const vehicleHref = resolveVehicleAccessVehicleHref(fine);
                         const offender = resolveVehicleAccessOffender(fine);
@@ -356,7 +433,7 @@ function FineTable({ rows, onOpenFine, router, listReturnHref = VEHICLE_LIST_RET
 }
 
 export default function VehicleAccessFinePanel({
-    selectedType = ALL_FINES,
+    selectedType = 'all',
     onSelectType,
     onClose,
     focusVehicleId = '',
@@ -379,9 +456,6 @@ export default function VehicleAccessFinePanel({
     );
     const focusLabel = String(focusPlate || '').trim();
 
-    const normalizedType = String(selectedType || ALL_FINES).trim().toLowerCase();
-    const showAllTypes = !normalizedType || normalizedType === ALL_FINES;
-
     const loadFines = useCallback(async () => {
         setLoading(true);
         try {
@@ -401,7 +475,7 @@ export default function VehicleAccessFinePanel({
                           from: focusFrom,
                           to: focusTo,
                       })
-                    : list.filter(isVehicleAccessFineVisible),
+                    : list.filter(isAccessFineRow),
             );
         } catch (error) {
             toast({
@@ -447,44 +521,43 @@ export default function VehicleAccessFinePanel({
         [fines, vehicleNumberFilter],
     );
 
+    const activeFineType =
+        VEHICLE_ACCESS_FINE_TYPES.find((row) => row.key === String(selectedType || 'all').trim().toLowerCase())
+            ?.key || 'all';
+
+    const typeCounts = useMemo(() => {
+        const next = { all: vehicleFilteredFines.length };
+        for (const row of VEHICLE_ACCESS_FINE_TYPES) {
+            if (row.key === 'all') continue;
+            next[row.key] = vehicleFilteredFines.filter((fine) => matchesVehicleAccessFineType(fine, row.key)).length;
+        }
+        return next;
+    }, [vehicleFilteredFines]);
+
+    const visibleFines = useMemo(
+        () => vehicleFilteredFines.filter((fine) => matchesVehicleAccessFineType(fine, activeFineType)),
+        [vehicleFilteredFines, activeFineType],
+    );
+
+    const handleTypeSelect = (typeKey) => {
+        if (!onSelectType) return;
+        if (typeKey === activeFineType && typeKey !== 'all') {
+            onSelectType('all');
+            return;
+        }
+        onSelectType(typeKey);
+    };
+
     const selectedVehicleLabel = useMemo(
         () => vehicleNumberOptions.find((row) => row.key === vehicleNumberFilter)?.label || '',
         [vehicleNumberOptions, vehicleNumberFilter],
     );
 
-    const finesByType = useMemo(() => {
-        const next = { all: vehicleFilteredFines };
-        for (const type of VEHICLE_ACCESS_FINE_TYPES) {
-            if (type.key === ALL_FINES) continue;
-            next[type.key] = vehicleFilteredFines.filter((fine) => matchesVehicleAccessFineType(fine, type.key));
-        }
-        return next;
-    }, [vehicleFilteredFines]);
-
-    const typeCounts = useMemo(() => {
-        const next = {};
-        for (const type of VEHICLE_ACCESS_FINE_TYPES) {
-            next[type.key] = finesByType[type.key]?.length || 0;
-        }
-        return next;
-    }, [finesByType]);
-
-    const visibleRowCount = useMemo(() => {
-        if (showAllTypes) return typeCounts.all || 0;
-        return finesByType[normalizedType]?.length || 0;
-    }, [showAllTypes, typeCounts.all, finesByType, normalizedType]);
-
-    const unpaidByType = useMemo(() => {
-        const next = {};
-        for (const type of VEHICLE_ACCESS_FINE_TYPES) {
-            next[type.key] = sumUnpaidFines(finesByType[type.key] || []);
-        }
-        return next;
-    }, [finesByType]);
-
-    const visibleUnpaidTotal = showAllTypes
-        ? unpaidByType.all || 0
-        : unpaidByType[normalizedType] || 0;
+    const visibleRowCount = visibleFines.length;
+    const visibleUnpaidTotal = useMemo(
+        () => sumUnpaidFines(visibleFines),
+        [visibleFines],
+    );
 
     const openFine = useCallback(
         (fine) => {
@@ -494,18 +567,6 @@ export default function VehicleAccessFinePanel({
         },
         [router, listReturnHref],
     );
-
-    const handleTypeSelect = (typeKey) => {
-        if (typeKey === ALL_FINES) {
-            onSelectType(ALL_FINES);
-            return;
-        }
-        if (normalizedType === typeKey) {
-            onSelectType(ALL_FINES);
-            return;
-        }
-        onSelectType(typeKey);
-    };
 
     return (
         <div
@@ -536,10 +597,10 @@ export default function VehicleAccessFinePanel({
                             : selectedVehicleLabel
                               ? `Fines for ${selectedVehicleLabel}${
                                     !loading
-                                        ? ` — ${vehicleFilteredFines.length} record${vehicleFilteredFines.length === 1 ? '' : 's'}`
+                                        ? ` — ${visibleFines.length} record${visibleFines.length === 1 ? '' : 's'}`
                                         : ''
                                 }`
-                              : 'Approved, Zoho-entered, and completed fines — click a type to filter'}
+                              : 'Approved, Zoho-entered, and completed vehicle fines and vehicle damage'}
                     </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -563,7 +624,65 @@ export default function VehicleAccessFinePanel({
                 </div>
             </div>
 
-            <div className="px-4 sm:px-6 py-3 border-b border-slate-100 bg-white flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="p-3 sm:p-4 space-y-3">
+                <div>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                        Fine types
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {VEHICLE_ACCESS_FINE_TYPES.map((row) => {
+                            const Icon = FINE_TYPE_ICONS[row.key] || LayoutGrid;
+                            const count = Number(typeCounts[row.key] || 0);
+                            const isActive = activeFineType === row.key;
+                            return (
+                                <button
+                                    key={row.key}
+                                    type="button"
+                                    onClick={() => handleTypeSelect(row.key)}
+                                    className={`${TYPE_CARD} ${isActive ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
+                                >
+                                    <span
+                                        className={`${TYPE_ICON_WRAP} ${
+                                            isActive
+                                                ? 'bg-teal-600 border-teal-600 text-white'
+                                                : 'bg-white border-slate-200 text-teal-700'
+                                        }`}
+                                    >
+                                        <Icon size={16} />
+                                    </span>
+                                    <span className="min-w-0">
+                                        <span className="flex items-center gap-1">
+                                            <span
+                                                className={`block text-[10px] font-black uppercase tracking-wide leading-tight ${
+                                                    isActive
+                                                        ? 'text-teal-900'
+                                                        : 'text-slate-800 group-hover:text-teal-800'
+                                                }`}
+                                            >
+                                                {row.label}
+                                            </span>
+                                            {!loading && count > 0 ? (
+                                                <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-700 tabular-nums">
+                                                    {count}
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                        <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
+                                            {loading
+                                                ? 'Loading…'
+                                                : count > 0
+                                                  ? `${count} record${count === 1 ? '' : 's'}`
+                                                  : row.hint}
+                                        </span>
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
+            <div className="px-4 sm:px-6 py-3 border-t border-slate-100 bg-white flex flex-wrap items-center gap-2 sm:gap-3">
                 <label
                     htmlFor="access-fine-vehicle-number"
                     className="text-xs font-black uppercase tracking-widest text-slate-500"
@@ -597,78 +716,10 @@ export default function VehicleAccessFinePanel({
                 ) : null}
             </div>
 
-            <div className="p-4 sm:p-6">
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">
-                    Fine &amp; damage types
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                    {VEHICLE_ACCESS_FINE_TYPES.map((type) => {
-                        const Icon = TYPE_ICONS[type.key] || LayoutGrid;
-                        const count = Number(typeCounts[type.key] || 0);
-                        const unpaidTotal = Number(unpaidByType[type.key] || 0);
-                        const isActive = type.key === ALL_FINES ? showAllTypes : normalizedType === type.key;
-                        return (
-                            <button
-                                key={type.key}
-                                type="button"
-                                onClick={() => handleTypeSelect(type.key)}
-                                className={`group flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors ${
-                                    isActive
-                                        ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200'
-                                        : 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60'
-                                }`}
-                            >
-                                <span
-                                    className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm shrink-0 ${
-                                        isActive
-                                            ? 'bg-teal-600 border-teal-600 text-white'
-                                            : 'bg-white border-slate-200 text-teal-700'
-                                    }`}
-                                >
-                                    <Icon size={20} />
-                                </span>
-                                <span className="min-w-0">
-                                    <span className="flex items-center gap-2">
-                                        <span
-                                            className={`block text-sm font-black uppercase tracking-wide ${
-                                                isActive ? 'text-teal-900' : 'text-slate-800 group-hover:text-teal-800'
-                                            }`}
-                                        >
-                                            {type.label}
-                                        </span>
-                                        {!loading && count > 0 && type.key !== ALL_FINES ? (
-                                            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-700 tabular-nums">
-                                                {count}
-                                            </span>
-                                        ) : null}
-                                    </span>
-                                    <span className="block text-xs text-slate-500 mt-1 tabular-nums">
-                                        {loading
-                                            ? 'Loading…'
-                                            : type.key === ALL_FINES
-                                              ? `${count} total records`
-                                              : count > 0
-                                                ? `${count} record${count === 1 ? '' : 's'}`
-                                                : type.hint}
-                                    </span>
-                                    {!loading && unpaidTotal > 0 ? (
-                                        <span className="mt-1 block text-[11px] font-black text-rose-700 tabular-nums">
-                                            {formatAed(unpaidTotal)} employee unpaid
-                                        </span>
-                                    ) : null}
-                                </span>
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
-
             <div className="border-t border-slate-100">
                 <div className="px-4 sm:px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-2">
                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
-                        {showAllTypes
-                            ? 'All fines & damage records'
-                            : `${VEHICLE_ACCESS_FINE_TYPES.find((row) => row.key === normalizedType)?.label || 'Fine'} records`}
+                        Fine records
                         {!loading ? (
                             <span className="ml-2 text-teal-700 tabular-nums">({visibleRowCount})</span>
                         ) : null}
@@ -685,45 +736,9 @@ export default function VehicleAccessFinePanel({
                 <div className="overflow-hidden">
                     {loading ? (
                         <div className="py-16 text-center text-sm text-slate-500">Loading vehicle fines…</div>
-                    ) : showAllTypes ? (
-                        <div className="divide-y divide-slate-100">
-                            {VEHICLE_ACCESS_FINE_TYPES.filter((type) => type.key !== ALL_FINES).map((type) => {
-                                const rows = finesByType[type.key] || [];
-                                if (!rows.length) return null;
-                                return (
-                                    <div key={type.key}>
-                                        <div className="px-4 sm:px-6 py-2.5 bg-white border-b border-slate-100 flex items-center justify-between gap-2">
-                                            <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                                                {type.label}
-                                                <span className="ml-2 text-teal-700 tabular-nums">({rows.length})</span>
-                                            </h4>
-                                            <span
-                                                className="text-[11px] font-black uppercase tracking-widest text-rose-700 tabular-nums whitespace-nowrap"
-                                                title="Employee share still to pay, including partial balances"
-                                            >
-                                                Employee unpaid {formatAed(unpaidByType[type.key] || 0)}
-                                            </span>
-                                        </div>
-                                        <FineTable
-                                            rows={rows}
-                                            onOpenFine={openFine}
-                                            router={router}
-                                            listReturnHref={listReturnHref}
-                                        />
-                                    </div>
-                                );
-                            })}
-                            {!visibleRowCount ? (
-                                <div className="py-16 text-center text-sm text-slate-500">
-                                    {selectedVehicleLabel
-                                        ? `No approved, Zoho-entered, or completed fines for ${selectedVehicleLabel}.`
-                                        : 'No approved, Zoho-entered, or completed vehicle fines found.'}
-                                </div>
-                            ) : null}
-                        </div>
                     ) : (
                         <FineTable
-                            rows={finesByType[normalizedType] || []}
+                            rows={visibleFines}
                             onOpenFine={openFine}
                             router={router}
                             listReturnHref={listReturnHref}

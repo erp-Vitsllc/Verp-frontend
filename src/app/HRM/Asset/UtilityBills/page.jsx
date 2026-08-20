@@ -7,16 +7,14 @@ import Navbar from '@/components/Navbar';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import EmployeeNameLink from '@/components/EmployeeNameLink';
 import { Bell, ChevronDown, Pencil, Plus, Search, Trash2, UserPlus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
-import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_CARD_DASHBOARD_FILTER, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import AddUtilityModal, { UTILITY_TOGGLE_FIELDS } from './components/AddUtilityModal';
 import CreateUtilityEntryModal from './components/CreateUtilityEntryModal';
 import AssignUtilityEntryModal from './components/AssignUtilityEntryModal';
 import AddBillModal from './components/AddBillModal';
 import UtilityBillReviewModal from './components/UtilityBillReviewModal';
 import UtilityStatusChangeReviewModal from './components/UtilityStatusChangeReviewModal';
-import UtilityBillStatsCards from './components/UtilityBillStatsCards';
 import UtilityTypeOverviewCard from './components/UtilityTypeOverviewCard';
-import UtilityContractExpiryCard from './components/UtilityContractExpiryCard';
+import UtilityBillPendingCard from './components/UtilityBillPendingCard';
 import FieldViewModal from './components/FieldViewModal';
 import PendingAssetRequestsModal from '../components/PendingAssetRequestsModal';
 import axiosInstance from '@/utils/axios';
@@ -54,9 +52,9 @@ import {
 } from './utils/utilityBillsApi';
 import { openUtilityAttachment } from './utils/openUtilityAttachment';
 import {
-    buildPaidBillRows,
+    buildMonthWiseAmountQty,
+    buildPendingBillOverview,
     buildTypeOverviewCards,
-    buildUnpaidBillRows,
     currentPeriod,
     utilityBillYears,
 } from './utils/utilityOverviewStats';
@@ -662,45 +660,29 @@ function UtilityBillsPageContent() {
 
     const overviewYearOptions = useMemo(() => utilityBillYears(allTypeBills), [allTypeBills]);
 
-    /** Sum of |contract − actual| across all types for the selected period. */
-    const deductionTotal = useMemo(
-        () => typeOverviewCards.reduce((sum, card) => sum + (Number(card.difference) || 0), 0),
+    const overviewTypeNames = useMemo(
+        () => typeOverviewCards.map((card) => String(card.type || '')).filter(Boolean),
         [typeOverviewCards],
     );
 
-    const paidBillRows = useMemo(
+    const monthWiseChart = useMemo(
         () =>
-            buildPaidBillRows({
+            buildMonthWiseAmountQty({
                 bills: allTypeBills,
+                typeNames: overviewTypeNames,
+                year: overviewYear,
             }),
-        [allTypeBills],
+        [allTypeBills, overviewTypeNames, overviewYear],
     );
 
-    const unpaidBillRows = useMemo(
+    const pendingOverview = useMemo(
         () =>
-            buildUnpaidBillRows({
+            buildPendingBillOverview({
                 bills: allTypeBills,
                 entries,
             }),
         [allTypeBills, entries],
     );
-
-    /** Pie slices = one per utility type, sized by period deduction amount. */
-    const typeDistribution = useMemo(() => {
-        const slices = typeOverviewCards.map((card) => {
-            const deduction = Number(card.difference) || 0;
-            return {
-                name: String(card.label || card.type || ''),
-                deduction,
-                // Keep a positive pie weight so types with 0 deduction still appear.
-                value: deduction > 0 ? deduction : 0,
-            };
-        });
-        const hasDeduction = slices.some((s) => s.value > 0);
-        if (hasDeduction) return slices.filter((s) => s.value > 0);
-        // No deductions yet: equal slices for every known type.
-        return slices.map((s) => ({ ...s, value: 1 }));
-    }, [typeOverviewCards]);
 
     const openAddUtility = () => {
         setEditingUtility(null);
@@ -1111,7 +1093,7 @@ function UtilityBillsPageContent() {
                 <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
                         <div className="min-w-0">
-                            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">
+                            <h1 className="mb-1 text-xl font-bold text-[#1A2B48] sm:mb-2 sm:text-2xl lg:text-3xl">
                                 Utility Bills
                             </h1>
                             <p className="text-sm sm:text-base text-gray-600">
@@ -1144,10 +1126,8 @@ function UtilityBillsPageContent() {
                         </div>
                     </div>
 
-                    <div className={HEADER_PAIR_GRID}>
-                        <div
-                            className={`bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD_FILTER}`}
-                        >
+                    <div className="mb-4 grid w-full max-w-full grid-cols-1 items-stretch gap-3 sm:mb-6 sm:gap-4 lg:mb-8 lg:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)] lg:gap-5">
+                        <div className="relative z-10 flex h-auto min-h-[420px] w-full min-w-0 flex-col overflow-visible rounded-2xl border border-[#EEF0F4] bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.04)] sm:p-5 lg:h-[560px] lg:p-6">
                             <UtilityTypeOverviewCard
                                 cards={typeOverviewCards}
                                 activeType={activeTypeTab}
@@ -1161,17 +1141,15 @@ function UtilityBillsPageContent() {
                                 yearOptions={overviewYearOptions}
                                 onMonthChange={setOverviewMonth}
                                 onYearChange={setOverviewYear}
-                                typeDistribution={typeDistribution}
-                                deductionTotal={deductionTotal}
+                                chartRows={monthWiseChart.rows}
+                                chartTypes={monthWiseChart.types}
                             />
                         </div>
 
-                        <div
-                            className={`bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
-                        >
-                            <UtilityContractExpiryCard
-                                paidRows={paidBillRows}
-                                unpaidRows={unpaidBillRows}
+                        <div className="flex h-auto min-h-[420px] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-[#EEF0F4] bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.04)] sm:p-5 lg:h-[560px] lg:p-6">
+                            <UtilityBillPendingCard
+                                pending={pendingOverview}
+                                typeNames={overviewTypeNames}
                             />
                         </div>
                     </div>

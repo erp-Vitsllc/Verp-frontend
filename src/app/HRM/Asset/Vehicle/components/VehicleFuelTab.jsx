@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import VehicleFuelModal from './VehicleFuelModal';
+import { canAccessAddFuel } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 
 function formatAmount(value) {
     const n = Number(value);
@@ -68,7 +69,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
         loadVehicles();
     }, [loadBills, loadVehicles]);
 
-    const allowHrActions = isFlowchartHr || canManage;
+    const allowHrActions = isFlowchartHr || canManage || canAccessAddFuel();
 
     const openAdd = () => {
         setEditingBill(null);
@@ -131,6 +132,8 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
             assetId: asset.assetId,
             name: asset.name,
             plate: [asset.plateEmirate, asset.plateNumber].filter(Boolean).join(' '),
+            fuelMonthlyLimit: Number(asset.fuelMonthlyLimit) || 0,
+            documents: asset.documents,
             owner:
                 asset.assignedToType === 'Company'
                     ? asset.assignedCompany?.name || 'Company'
@@ -192,15 +195,33 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {rows.map((row, idx) => (
+                                {rows.map((row, idx) => {
+                                    const limitTone = row.limitExceeded
+                                        ? 'red'
+                                        : row.limitWarning80
+                                          ? 'amber'
+                                          : null;
+                                    const tone = {
+                                        sl: limitTone === 'red' ? 'text-red-600' : limitTone === 'amber' ? 'text-amber-600' : 'text-slate-500',
+                                        strong: limitTone === 'red' ? 'text-red-700' : limitTone === 'amber' ? 'text-amber-800' : 'text-slate-800',
+                                        muted: limitTone === 'red' ? 'text-red-600' : limitTone === 'amber' ? 'text-amber-700' : 'text-slate-600',
+                                        body: limitTone === 'red' ? 'text-red-700' : limitTone === 'amber' ? 'text-amber-800' : 'text-slate-700',
+                                    };
+                                    return (
                                     <tr
                                         key={row._id}
-                                        className={row.limitExceeded ? 'bg-red-50 hover:bg-red-100/70' : 'hover:bg-slate-50/60'}
+                                        className={
+                                            limitTone === 'red'
+                                                ? 'bg-red-50 hover:bg-red-100/70'
+                                                : limitTone === 'amber'
+                                                  ? 'bg-amber-50 hover:bg-amber-100/70'
+                                                  : 'hover:bg-slate-50/60'
+                                        }
                                     >
-                                        <td className={`px-4 py-3 text-sm font-semibold ${row.limitExceeded ? 'text-red-600' : 'text-slate-500'}`}>{idx + 1}</td>
-                                        <td className={`px-4 py-3 text-sm font-bold whitespace-nowrap ${row.limitExceeded ? 'text-red-700' : 'text-slate-800'}`}>{row.vehicleNumber}</td>
-                                        <td className={`px-4 py-3 text-sm ${row.limitExceeded ? 'text-red-600' : 'text-slate-600'}`}>{row.vehicleOwner}</td>
-                                        <td className={`px-4 py-3 text-sm font-semibold ${row.limitExceeded ? 'text-red-700' : 'text-slate-700'}`}>
+                                        <td className={`px-4 py-3 text-sm font-semibold ${tone.sl}`}>{idx + 1}</td>
+                                        <td className={`px-4 py-3 text-sm font-bold whitespace-nowrap ${tone.strong}`}>{row.vehicleNumber}</td>
+                                        <td className={`px-4 py-3 text-sm ${tone.muted}`}>{row.vehicleOwner}</td>
+                                        <td className={`px-4 py-3 text-sm font-semibold ${tone.body}`}>
                                             <span>{row.monthLabel}</span>
                                             {row.status === 'closed' && (
                                                 <span className="ml-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
@@ -209,20 +230,25 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                             )}
                                             {row.limitExceeded && (
                                                 <span className="ml-2 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-red-700">
-                                                    Monthly limit exceeded
+                                                    100% of monthly limit
+                                                </span>
+                                            )}
+                                            {row.limitWarning80 && (
+                                                <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-800">
+                                                    80% of monthly limit
                                                 </span>
                                             )}
                                         </td>
-                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${row.limitExceeded ? 'text-red-700' : 'text-slate-700'}`}>
+                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${tone.body}`}>
                                             {formatAmount(row.monthlyLimit)}
                                         </td>
-                                        <td className={`px-4 py-3 text-sm font-black tabular-nums whitespace-nowrap ${row.limitExceeded ? 'text-red-700' : 'text-slate-800'}`}>
+                                        <td className={`px-4 py-3 text-sm font-black tabular-nums whitespace-nowrap ${tone.strong}`}>
                                             {formatAmount(row.amountUsed)}
                                         </td>
-                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${row.limitExceeded ? 'text-red-700' : 'text-slate-700'}`}>
+                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${tone.body}`}>
                                             {formatKm(row.kmRun)}
                                         </td>
-                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${row.limitExceeded ? 'text-red-700' : 'text-slate-700'}`}>
+                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${tone.body}`}>
                                             {row.idleTimeLabel || '—'}
                                         </td>
                                         <td className="px-4 py-3">
@@ -260,7 +286,8 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

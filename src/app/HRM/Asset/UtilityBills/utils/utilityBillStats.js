@@ -8,6 +8,13 @@ export function formatBillMoney(n) {
     return num.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Dashboard amounts with AED prefix (whole numbers when there are no fils). */
+export function formatAed(n) {
+    const num = Number(n);
+    const safe = Number.isFinite(num) ? num : 0;
+    return `AED ${Math.round(safe).toLocaleString('en-US')}`;
+}
+
 export function summarizeUtilityBills(bills = []) {
     const list = Array.isArray(bills) ? bills : [];
     const buckets = {

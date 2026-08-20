@@ -211,6 +211,7 @@ export default function LoanRequestDetails() {
         cancelText: 'Cancel',
         variant: 'default' // 'default' | 'destructive'
     });
+    const [rejectionReason, setRejectionReason] = useState('');
     const { toast } = useToast();
 
     useEffect(() => {
@@ -602,16 +603,19 @@ export default function LoanRequestDetails() {
                 let visaExpiry = null;
                 let visaType = null;
 
+                const hasVisaSlot = (slot) =>
+                    Boolean(slot?.expiryDate || slot?.number || slot?.issueDate);
+
                 if (rawEmp.visaDetails) {
-                    if (rawEmp.visaDetails.employment?.expiryDate) {
+                    if (hasVisaSlot(rawEmp.visaDetails.employment)) {
                         visaType = 'Employment';
-                        visaExpiry = rawEmp.visaDetails.employment.expiryDate;
-                    } else if (rawEmp.visaDetails.spouse?.expiryDate) {
+                        visaExpiry = rawEmp.visaDetails.employment.expiryDate || null;
+                    } else if (hasVisaSlot(rawEmp.visaDetails.spouse)) {
                         visaType = 'Spouse';
-                        visaExpiry = rawEmp.visaDetails.spouse.expiryDate;
-                    } else if (rawEmp.visaDetails.visit?.expiryDate) {
+                        visaExpiry = rawEmp.visaDetails.spouse.expiryDate || null;
+                    } else if (hasVisaSlot(rawEmp.visaDetails.visit)) {
                         visaType = 'Visit';
-                        visaExpiry = rawEmp.visaDetails.visit.expiryDate;
+                        visaExpiry = rawEmp.visaDetails.visit.expiryDate || null;
                     }
                 }
 
@@ -637,6 +641,7 @@ export default function LoanRequestDetails() {
     };
 
     const openConfirmation = (action) => {
+        setRejectionReason('');
         if (action === 'approve') {
             setConfirmConfig({
                 action: 'approve',
@@ -662,8 +667,16 @@ export default function LoanRequestDetails() {
 
 
     const handleConfirmAction = async () => {
-        setConfirmOpen(false);
         const { action, status: forcedStatus } = confirmConfig;
+        if (action === 'reject' && (!rejectionReason || rejectionReason.trim().length === 0)) {
+            toast({
+                title: 'Reason Required',
+                description: 'Please enter a reason for rejection.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        setConfirmOpen(false);
 
         // Determine status based on action or use forced status
         let targetStatus = forcedStatus;
@@ -750,6 +763,9 @@ export default function LoanRequestDetails() {
         try {
             const { data } = await axiosInstance.put(`/Employee/loans/${id}/status`, {
                 status: targetStatus,
+                ...(action === 'reject' || targetStatus === 'Rejected'
+                    ? { rejectionReason: rejectionReason.trim() }
+                    : {}),
             });
 
             if (data?.loan) {
@@ -1324,6 +1340,20 @@ export default function LoanRequestDetails() {
                         <AlertDialogDescription>
                             {confirmConfig.description}
                         </AlertDialogDescription>
+                        {confirmConfig.action === 'reject' && (
+                            <div className="mt-4 space-y-2 text-left">
+                                <label className="text-sm font-semibold text-gray-700">
+                                    Rejection Reason <span className="text-red-500">*</span>
+                                </label>
+                                <textarea
+                                    value={rejectionReason}
+                                    onChange={(e) => setRejectionReason(e.target.value)}
+                                    placeholder="Please provide a reason for rejection..."
+                                    className="w-full min-h-[100px] p-3 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none transition-all"
+                                    required
+                                />
+                            </div>
+                        )}
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={isProcessing}>{confirmConfig.cancelText}</AlertDialogCancel>

@@ -5,6 +5,7 @@ import { ChevronRight, ClipboardList, Trash2 } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import { buildVehicleServiceListRowHref, formatNextChangeMonthDisplay, serviceAmountStatusBadgeClass } from './vehicleServiceUtils';import VehicleServiceRequestSortHeader from './VehicleServiceRequestSortHeader';
 import {
+    codeSortValue,
     dateSortValue,
     numberSortValue,
     sortServiceTableRows,
@@ -31,6 +32,10 @@ function carWashSortValue(row, key) {
             return numberSortValue(row?.[key]);
         case 'carWashMonth':
             return dateSortValue(row?.carWashMonth ? `${row.carWashMonth}-01` : null);
+        case 'serviceReqNo':
+        case 'vehicleAssetNo':
+        case 'vehicleNo':
+            return codeSortValue(row?.[key]);
         default:
             return textSortValue(row?.[key]);
     }

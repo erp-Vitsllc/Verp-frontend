@@ -116,10 +116,10 @@ export default function FineApprovedAttachmentsTab({
             pdfBlobRef.current = null;
 
             try {
-                // Prefer Mongo _id (group overview URL uses base fineId which has no DB row)
                 const targetId = fine?._id || fineRouteId || fine?.fineId;
                 const params = {
                     ...(employeeId ? { employeeId } : {}),
+                    fresh: 1,
                     t: fine?.updatedAt || fine?.awardedDate || '',
                 };
                 const response = await axiosInstance.get(
@@ -180,6 +180,7 @@ export default function FineApprovedAttachmentsTab({
                 const targetId = fine?._id || fineRouteId || fine?.fineId;
                 const params = {
                     ...(employeeId ? { employeeId } : {}),
+                    fresh: 1,
                     t: fine?.updatedAt || fine?.awardedDate || '',
                 };
                 const response = await axiosInstance.get(

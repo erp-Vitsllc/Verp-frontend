@@ -1,6 +1,8 @@
 'use client';
 
 import { Fuel, Handshake, Receipt, Wrench, X } from 'lucide-react';
+import { navHrefProps } from '@/utils/linkContextMenu';
+import { vehicleAccessPath } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
 
 const ACCESS_ACTIONS = [
     {
@@ -23,8 +25,8 @@ const ACCESS_ACTIONS = [
     },
     {
         id: 'fuel',
-        label: 'Add Fuel',
-        hint: 'Record the monthly petrol bill',
+        label: 'Access Fuel',
+        hint: 'Fleet fuel bills for the current month',
         Icon: Fuel,
     },
 ];
@@ -35,8 +37,12 @@ export default function VehicleAccessMenuModal({
     onSelect,
     activePanel = null,
     pendingServiceCount = 0,
+    listHref = '/HRM/Asset/Vehicle',
+    showFuel = true,
 }) {
     if (!open) return null;
+
+    const actions = showFuel ? ACCESS_ACTIONS : ACCESS_ACTIONS.filter((row) => row.id !== 'fuel');
 
     return (
         <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -60,18 +66,26 @@ export default function VehicleAccessMenuModal({
                 </div>
 
                 <div className="p-5 grid grid-cols-1 gap-3">
-                    {ACCESS_ACTIONS.map(({ id, label, hint, Icon }) => {
+                    {actions.map(({ id, label, hint, Icon }) => {
                         const isActive = activePanel === id;
+                        const href = vehicleAccessPath(id, listHref);
                         return (
-                            <button
+                            <a
                                 key={id}
-                                type="button"
-                                onClick={() => onSelect(id)}
-                                className={`group flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors ${
+                                href={href}
+                                onClick={(event) => {
+                                    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+                                        return;
+                                    }
+                                    event.preventDefault();
+                                    onSelect(id);
+                                }}
+                                className={`group flex items-start gap-3 rounded-2xl border p-4 text-left no-underline transition-colors ${
                                     isActive
                                         ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200'
                                         : 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60'
                                 }`}
+                                {...navHrefProps(href)}
                             >
                                 <span
                                     className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm shrink-0 ${
@@ -99,7 +113,7 @@ export default function VehicleAccessMenuModal({
                                     </span>
                                     <span className="block text-xs text-slate-500 mt-1">{hint}</span>
                                 </span>
-                            </button>
+                            </a>
                         );
                     })}
                 </div>

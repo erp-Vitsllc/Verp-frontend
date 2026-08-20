@@ -393,12 +393,92 @@ export function buildTypeDistribution(entries = []) {
 }
 
 export const UTILITY_TYPE_COLORS = [
-    '#0ea5e9',
-    '#14b8a6',
-    '#f97316',
-    '#8b5cf6',
+    '#00B5A3',
+    '#3B82F6',
+    '#F58220',
+    '#8A5CF5',
     '#22c55e',
     '#ec4899',
     '#eab308',
     '#6366f1',
 ];
+
+export const CHART_QTY_KEY = 'billQty';
+
+export function typeChartKey(typeName) {
+    return `type:${String(typeName || '')}`;
+}
+
+/**
+ * Jan–Dec series for the selected year: billed amount per utility type + bill quantity.
+ */
+export function buildMonthWiseAmountQty({ bills = [], typeNames = [], year } = {}) {
+    const types = (Array.isArray(typeNames) ? typeNames : [])
+        .map((name) => String(name || '').trim())
+        .filter(Boolean);
+    const yearStr = String(year || currentPeriod().year);
+
+    const rows = MONTH_OPTIONS.map((month) => {
+        const row = {
+            month: month.label.slice(0, 3),
+            monthKey: month.value,
+            [CHART_QTY_KEY]: 0,
+        };
+        types.forEach((type) => {
+            row[typeChartKey(type)] = 0;
+        });
+        return row;
+    });
+    const byMonth = new Map(rows.map((row) => [row.monthKey, row]));
+
+    for (const bill of Array.isArray(bills) ? bills : []) {
+        const parsed = parseBillMonth(bill?.billMonth);
+        if (!parsed || parsed.year !== yearStr) continue;
+        const row = byMonth.get(parsed.month);
+        if (!row) continue;
+        const matched = types.find((type) => sameName(type, bill?.utilityType));
+        if (!matched) continue;
+        row[typeChartKey(matched)] += Number(bill.amount) || 0;
+        row[CHART_QTY_KEY] += 1;
+    }
+
+    return { rows, types };
+}
+
+function sumOverviewRows(rows = []) {
+    return {
+        count: rows.length,
+        amount: rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0),
+    };
+}
+
+/**
+ * Unpaid / missing bills split into current vs previous calendar month (header pending panel).
+ */
+export function buildPendingBillOverview({ bills = [], entries = [], refDate = new Date() } = {}) {
+    const unpaid = buildUnpaidBillRows({ bills, entries, refDate });
+    const currentYm = calendarCurrentMonthKey(refDate);
+    const previousYm = calendarPreviousMonthKey(refDate);
+
+    const withPeriod = unpaid.map((row) => {
+        const ym = String(row.billMonth || '');
+        let period = 'earlier';
+        if (ym === currentYm) period = 'current';
+        else if (ym === previousYm) period = 'previous';
+        return { ...row, period };
+    });
+
+    const currentRows = withPeriod.filter((row) => row.period === 'current');
+    const previousRows = withPeriod.filter((row) => row.period === 'previous');
+    const windowRows = [...currentRows, ...previousRows].sort(sortOverviewBillRows);
+    const windowTotals = sumOverviewRows(windowRows);
+
+    return {
+        current: { ...sumOverviewRows(currentRows), rows: currentRows },
+        previous: { ...sumOverviewRows(previousRows), rows: previousRows },
+        windowRows,
+        allRows: withPeriod,
+        totalCount: windowTotals.count,
+        totalAmount: windowTotals.amount,
+    };
+}

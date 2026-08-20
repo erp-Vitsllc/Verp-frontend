@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     Area,
     AreaChart,
@@ -16,19 +16,21 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { Clock, HardHat, MoreVertical, User, Wallet } from 'lucide-react';
+import { Banknote, Clock, HardHat, Loader2, MoreVertical, Settings, User, Wallet } from 'lucide-react';
 import RechartsBox from '@/components/charts/RechartsBox';
+import axiosInstance from '@/utils/axios';
+import EmployeePayrollDashboard from './EmployeePayrollDashboard';
+import PayrollSettingsPanel from './PayrollSettingsPanel';
 import {
-    DEDUCTIONS_BY_CATEGORY,
-    LEAVE_BY_CATEGORY,
-    MONTH_WISE_SALARY,
-    OFFICE_VS_SITE_MONTHLY,
-    OVERTIME_MONTHLY,
+    EMPTY_PAYROLL_SUMMARY,
     PAYROLL_COLORS,
-    PAYROLL_SUMMARY,
-    PAYROLL_YEARS,
-    SALARY_RATIO,
-} from '../utils/payrollDashboardSampleData';
+    emptyMonthSeries,
+    emptyOfficeVsSiteMonthly,
+    formatK,
+    niceAxis,
+    withDeductionColors,
+    withLeaveColors,
+} from '../utils/payrollDashboardChartUtils';
 
 const tooltipStyle = {
     borderRadius: '10px',
@@ -42,11 +44,10 @@ const tooltipStyle = {
 const chartCardClass =
     'bg-white rounded-2xl border border-[#EEF0F4] shadow-[0_1px_3px_rgba(15,23,42,0.04)] p-5 flex flex-col min-h-[340px]';
 
-function formatK(value) {
-    return `${value}K`;
-}
+const headerIconBtnClass =
+    'inline-flex items-center justify-center w-10 h-10 rounded-xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:scale-105 active:scale-95';
 
-function ChartCard({ title, children, legend }) {
+function ChartCard({ title, children }) {
     return (
         <div className={chartCardClass}>
             <div className="flex items-start justify-between gap-3 mb-3">
@@ -59,7 +60,6 @@ function ChartCard({ title, children, legend }) {
                     <MoreVertical size={16} />
                 </button>
             </div>
-            {legend || null}
             <div className="flex-1 min-h-0 min-w-0">{children}</div>
         </div>
     );
@@ -82,20 +82,149 @@ function SummaryCard({ title, value, icon: Icon, iconBg, iconColor }) {
     );
 }
 
+function currentYear() {
+    return new Date().getFullYear();
+}
+
 export default function PayrollDashboard() {
-    const [year, setYear] = useState(2026);
+    const [year, setYear] = useState(currentYear);
     const [employeeId, setEmployeeId] = useState('all');
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [payload, setPayload] = useState(null);
+    const [employees, setEmployees] = useState([]);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        let cancelled = false;
+
+        async function loadDashboard() {
+            setLoading(true);
+            setError(null);
+            try {
+                const res = await axiosInstance.get('/Employee/payroll-dashboard', {
+                    params: {
+                        year,
+                        employeeId: employeeId || 'all',
+                    },
+                    skipToast: true,
+                    signal: controller.signal,
+                });
+                if (!cancelled) {
+                    setPayload(res.data || null);
+                    if (Array.isArray(res.data?.employees)) setEmployees(res.data.employees);
+                }
+            } catch (err) {
+                if (cancelled || err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
+                if (!cancelled) {
+                    setError(err?.response?.data?.message || 'Failed to load payroll dashboard.');
+                }
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        }
+
+        loadDashboard();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+    }, [year, employeeId]);
+
+    const years = payload?.years?.length ? payload.years : [year - 2, year - 1, year];
+    const orgPayload = payload?.view === 'employee' ? null : payload;
+    const summary = orgPayload?.summary || EMPTY_PAYROLL_SUMMARY;
+    const monthWiseSalary = orgPayload?.monthWiseSalary || emptyMonthSeries('total');
+    const officeVsSiteMonthly = orgPayload?.officeVsSiteMonthly || emptyOfficeVsSiteMonthly();
+    const overtimeMonthly = orgPayload?.overtimeMonthly || emptyMonthSeries('ot');
+    const salaryRatio = orgPayload?.salaryRatio || [
+        { name: 'Office Staff', value: 0 },
+        { name: 'Site Staff', value: 0 },
+    ];
+    const leaveByCategory = withLeaveColors(orgPayload?.leaveByCategory || [
+        { name: 'Sick', value: 0 },
+        { name: 'Authorized', value: 0 },
+        { name: 'Unauthorized', value: 0 },
+    ]);
+    const deductionsByCategory = withDeductionColors(orgPayload?.deductionsByCategory || [
+        { name: 'Loss of Pay', value: 0 },
+        { name: 'Loan', value: 0 },
+        { name: 'Advance', value: 0 },
+        { name: 'Fine', value: 0 },
+    ]);
+
+    const monthAxis = useMemo(
+        () => niceAxis(monthWiseSalary.map((row) => row.total), 3, 10),
+        [monthWiseSalary],
+    );
+    const officeSiteAxis = useMemo(
+        () => niceAxis(officeVsSiteMonthly.flatMap((row) => [row.office, row.site]), 4, 10),
+        [officeVsSiteMonthly],
+    );
+    const leaveAxis = useMemo(
+        () => niceAxis(leaveByCategory.map((row) => row.value), 4, 10),
+        [leaveByCategory],
+    );
+    const overtimeAxis = useMemo(
+        () => niceAxis(overtimeMonthly.map((row) => row.ot), 5, 5),
+        [overtimeMonthly],
+    );
+    const deductionAxis = useMemo(
+        () => niceAxis(deductionsByCategory.map((row) => row.value), 4, 10),
+        [deductionsByCategory],
+    );
+
+    const pieHasData = salaryRatio.some((row) => Number(row.value) > 0);
+    const pieData = pieHasData ? salaryRatio : [{ name: 'No data', value: 1, empty: true }];
 
     return (
-        <div className="w-full max-w-[1600px] mx-auto">
+        <div className="w-full max-w-[1600px] mx-auto relative">
+            {loading ? (
+                <div className="absolute inset-0 z-10 bg-[#F5F7FB]/60 rounded-2xl flex items-start justify-center pt-40">
+                    <div className="flex items-center gap-2 bg-white border border-[#EEF0F4] rounded-full px-4 py-2 shadow-sm">
+                        <Loader2 size={16} className="animate-spin text-[#1D5FDB]" />
+                        <span className="text-sm font-medium text-[#475569]">Loading payroll…</span>
+                    </div>
+                </div>
+            ) : null}
+
             <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
                 <div>
                     <h1 className="text-[28px] md:text-[32px] font-bold text-[#0F172A] tracking-tight">
-                        Payroll Dashboard
+                        {employeeId !== 'all' ? 'Employee Payroll Dashboard' : 'Payroll Dashboard'}
                     </h1>
-                    <p className="text-sm text-[#94A3B8] mt-1">Sample Data • Jan-Dec {year}</p>
+                    <p className="text-sm text-[#94A3B8] mt-1">
+                        {employeeId !== 'all'
+                            ? `${payload?.employee?.name || employeeId} • Jan–${year === currentYear() ? new Date().toLocaleString('en-US', { month: 'short' }) : 'Dec'} ${year}`
+                            : `Jan–${year === currentYear() ? new Date().toLocaleString('en-US', { month: 'short' }) : 'Dec'} ${year} • All employees`}
+                    </p>
+                    {error ? <p className="text-sm text-red-500 mt-1">{error}</p> : null}
                 </div>
                 <div className="flex flex-wrap items-end gap-3">
+                    <div className="flex items-center gap-2 pb-[1px]">
+                        <button
+                            type="button"
+                            onClick={() => setSettingsOpen(true)}
+                            className={`${headerIconBtnClass} ${
+                                settingsOpen
+                                    ? 'border-[#1D5FDB]/30 text-[#1D5FDB] bg-[#E8F1FE]'
+                                    : 'border-[#E8EDF3] text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'
+                            }`}
+                            title="Payroll settings"
+                            aria-label="Payroll settings"
+                        >
+                            <Settings size={20} />
+                        </button>
+                        <button
+                            type="button"
+                            className={`${headerIconBtnClass} border-[#1D5FDB]/30 text-[#1D5FDB] bg-[#E8F1FE] hover:bg-[#dbeafe]`}
+                            title="Payroll"
+                            aria-label="Payroll"
+                        >
+                            <Banknote size={20} />
+                        </button>
+                    </div>
                     <label className="flex flex-col gap-1">
                         <span className="text-[11px] font-medium text-[#94A3B8]">Year</span>
                         <select
@@ -103,7 +232,7 @@ export default function PayrollDashboard() {
                             onChange={(e) => setYear(Number(e.target.value))}
                             className="h-10 min-w-[108px] rounded-xl border border-[#E8EDF3] bg-white px-3 text-sm font-semibold text-[#1E293B] shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none focus:ring-2 focus:ring-[#4C8EF5]/20"
                         >
-                            {PAYROLL_YEARS.map((y) => (
+                            {years.map((y) => (
                                 <option key={y} value={y}>
                                     {y}
                                 </option>
@@ -111,43 +240,52 @@ export default function PayrollDashboard() {
                         </select>
                     </label>
                     <label className="flex flex-col gap-1">
-                        <span className="text-[11px] font-medium text-transparent select-none">Employee</span>
+                        <span className="text-[11px] font-medium text-[#94A3B8]">Employee</span>
                         <select
                             value={employeeId}
                             onChange={(e) => setEmployeeId(e.target.value)}
-                            className="h-10 min-w-[168px] rounded-xl border border-[#E8EDF3] bg-white px-3 text-sm font-semibold text-[#1E293B] shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none focus:ring-2 focus:ring-[#4C8EF5]/20"
+                            className="h-10 min-w-[168px] max-w-[260px] rounded-xl border border-[#E8EDF3] bg-white px-3 text-sm font-semibold text-[#1E293B] shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none focus:ring-2 focus:ring-[#4C8EF5]/20"
                         >
                             <option value="all">All Employees</option>
+                            {employees.map((emp) => (
+                                <option key={emp.employeeId} value={emp.employeeId}>
+                                    {emp.name} ({emp.employeeId})
+                                </option>
+                            ))}
                         </select>
                     </label>
                 </div>
             </div>
 
+            {employeeId !== 'all' ? (
+                <EmployeePayrollDashboard data={payload?.view === 'employee' ? payload : null} />
+            ) : (
+            <>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
                 <SummaryCard
-                    title="Annual Payroll"
-                    value={PAYROLL_SUMMARY.annualPayroll}
+                    title={year === currentYear() ? 'YTD Payroll' : 'Annual Payroll'}
+                    value={summary.annualPayroll}
                     icon={Wallet}
                     iconBg="#E8F1FE"
                     iconColor={PAYROLL_COLORS.blue}
                 />
                 <SummaryCard
-                    title="Office Staff"
-                    value={PAYROLL_SUMMARY.officeStaff}
+                    title="Office Staff (Salary)"
+                    value={summary.officeStaff}
                     icon={User}
                     iconBg="#E6F9F6"
                     iconColor={PAYROLL_COLORS.teal}
                 />
                 <SummaryCard
-                    title="Site Staff"
-                    value={PAYROLL_SUMMARY.siteStaff}
+                    title="Site Staff (Salary)"
+                    value={summary.siteStaff}
                     icon={HardHat}
                     iconBg="#E8F1FE"
                     iconColor={PAYROLL_COLORS.blue}
                 />
                 <SummaryCard
                     title="Overtime Paid"
-                    value={PAYROLL_SUMMARY.overtimePaid}
+                    value={summary.overtimePaid}
                     icon={Clock}
                     iconBg="#FEF6E4"
                     iconColor={PAYROLL_COLORS.orange}
@@ -157,7 +295,7 @@ export default function PayrollDashboard() {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
                 <ChartCard title="1) Month-wise Salary">
                     <RechartsBox height={260} minHeight={240}>
-                        <BarChart data={MONTH_WISE_SALARY} margin={{ top: 22, right: 8, left: 4, bottom: 4 }}>
+                        <BarChart data={monthWiseSalary} margin={{ top: 22, right: 8, left: 4, bottom: 4 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} vertical={false} />
                             <XAxis
                                 dataKey="month"
@@ -166,8 +304,8 @@ export default function PayrollDashboard() {
                                 tickLine={false}
                             />
                             <YAxis
-                                domain={[0, 300]}
-                                ticks={[0, 100, 200, 300]}
+                                domain={monthAxis.domain}
+                                ticks={monthAxis.ticks}
                                 tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
                                 axisLine={false}
                                 tickLine={false}
@@ -202,30 +340,40 @@ export default function PayrollDashboard() {
                             <RechartsBox height={240} minHeight={240}>
                                 <PieChart>
                                     <Pie
-                                        data={SALARY_RATIO}
+                                        data={pieData}
                                         dataKey="value"
                                         nameKey="name"
                                         cx="50%"
                                         cy="50%"
-                                        innerRadius={68}
-                                        outerRadius={96}
+                                        innerRadius={48}
+                                        outerRadius={102}
                                         startAngle={90}
                                         endAngle={-270}
                                         stroke="#fff"
                                         strokeWidth={3}
                                     >
-                                        <Cell fill={PAYROLL_COLORS.teal} />
-                                        <Cell fill={PAYROLL_COLORS.blue} />
+                                        {pieData.map((row) => (
+                                            <Cell
+                                                key={row.name}
+                                                fill={
+                                                    row.empty
+                                                        ? '#CBD5E1'
+                                                        : row.name === 'Office Staff'
+                                                          ? PAYROLL_COLORS.teal
+                                                          : PAYROLL_COLORS.blue
+                                                }
+                                            />
+                                        ))}
                                     </Pie>
                                     <RechartsTooltip
                                         contentStyle={tooltipStyle}
-                                        formatter={(value, name) => [`${value}%`, name]}
+                                        formatter={(value, name) => [`${pieHasData ? value : 0}%`, name]}
                                     />
                                 </PieChart>
                             </RechartsBox>
                             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                                 <p className="text-[15px] font-bold text-[#0F172A] tabular-nums">
-                                    {PAYROLL_SUMMARY.annualPayrollShort}
+                                    {summary.annualPayrollShort}
                                 </p>
                             </div>
                         </div>
@@ -235,14 +383,14 @@ export default function PayrollDashboard() {
                                     className="w-2.5 h-2.5 rounded-[3px] shrink-0"
                                     style={{ backgroundColor: PAYROLL_COLORS.teal }}
                                 />
-                                <span>Office Staff {PAYROLL_SUMMARY.officePct}%</span>
+                                <span>Office Staff {summary.officePct}%</span>
                             </div>
                             <div className="flex items-center gap-2 text-[13px] text-[#334155]">
                                 <span
                                     className="w-2.5 h-2.5 rounded-[3px] shrink-0"
                                     style={{ backgroundColor: PAYROLL_COLORS.blue }}
                                 />
-                                <span>Site Staff {PAYROLL_SUMMARY.sitePct}%</span>
+                                <span>Site Staff {summary.sitePct}%</span>
                             </div>
                         </div>
                     </div>
@@ -251,7 +399,7 @@ export default function PayrollDashboard() {
                 <ChartCard title="3) Office vs Site Salary — Monthly">
                     <RechartsBox height={260} minHeight={240}>
                         <BarChart
-                            data={OFFICE_VS_SITE_MONTHLY}
+                            data={officeVsSiteMonthly}
                             margin={{ top: 28, right: 8, left: 4, bottom: 4 }}
                             barGap={2}
                             barCategoryGap="22%"
@@ -264,8 +412,8 @@ export default function PayrollDashboard() {
                                 tickLine={false}
                             />
                             <YAxis
-                                domain={[0, 200]}
-                                ticks={[0, 50, 100, 150, 200]}
+                                domain={officeSiteAxis.domain}
+                                ticks={officeSiteAxis.ticks}
                                 tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
                                 axisLine={false}
                                 tickLine={false}
@@ -327,14 +475,14 @@ export default function PayrollDashboard() {
                     <RechartsBox height={260} minHeight={240}>
                         <BarChart
                             layout="vertical"
-                            data={LEAVE_BY_CATEGORY}
+                            data={leaveByCategory}
                             margin={{ top: 8, right: 36, left: 8, bottom: 18 }}
                         >
                             <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} horizontal={false} />
                             <XAxis
                                 type="number"
-                                domain={[0, 80]}
-                                ticks={[0, 20, 40, 60, 80]}
+                                domain={leaveAxis.domain}
+                                ticks={leaveAxis.ticks}
                                 tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
                                 axisLine={false}
                                 tickLine={false}
@@ -359,7 +507,7 @@ export default function PayrollDashboard() {
                                 cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
                             />
                             <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={22} background={{ fill: '#F8FAFC' }}>
-                                {LEAVE_BY_CATEGORY.map((row) => (
+                                {leaveByCategory.map((row) => (
                                     <Cell key={row.name} fill={row.color} />
                                 ))}
                                 <LabelList
@@ -374,7 +522,7 @@ export default function PayrollDashboard() {
 
                 <ChartCard title="5) Overtime Paid — Monthly">
                     <RechartsBox height={260} minHeight={240}>
-                        <AreaChart data={OVERTIME_MONTHLY} margin={{ top: 22, right: 12, left: 4, bottom: 4 }}>
+                        <AreaChart data={overtimeMonthly} margin={{ top: 22, right: 12, left: 4, bottom: 4 }}>
                             <defs>
                                 <linearGradient id="payrollOtFill" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="0%" stopColor={PAYROLL_COLORS.orange} stopOpacity={0.28} />
@@ -389,8 +537,8 @@ export default function PayrollDashboard() {
                                 tickLine={false}
                             />
                             <YAxis
-                                domain={[0, 25]}
-                                ticks={[0, 5, 10, 15, 20, 25]}
+                                domain={overtimeAxis.domain}
+                                ticks={overtimeAxis.ticks}
                                 tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
                                 axisLine={false}
                                 tickLine={false}
@@ -433,7 +581,7 @@ export default function PayrollDashboard() {
 
                 <ChartCard title="6) Total Deductions by Category">
                     <RechartsBox height={260} minHeight={240}>
-                        <BarChart data={DEDUCTIONS_BY_CATEGORY} margin={{ top: 22, right: 8, left: 4, bottom: 4 }}>
+                        <BarChart data={deductionsByCategory} margin={{ top: 22, right: 8, left: 4, bottom: 4 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} vertical={false} />
                             <XAxis
                                 dataKey="name"
@@ -443,8 +591,8 @@ export default function PayrollDashboard() {
                                 interval={0}
                             />
                             <YAxis
-                                domain={[0, 60]}
-                                ticks={[0, 15, 30, 45, 60]}
+                                domain={deductionAxis.domain}
+                                ticks={deductionAxis.ticks}
                                 tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
                                 axisLine={false}
                                 tickLine={false}
@@ -462,7 +610,7 @@ export default function PayrollDashboard() {
                                 cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
                             />
                             <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={48}>
-                                {DEDUCTIONS_BY_CATEGORY.map((row) => (
+                                {deductionsByCategory.map((row) => (
                                     <Cell key={row.name} fill={row.color} />
                                 ))}
                                 <LabelList
@@ -476,6 +624,9 @@ export default function PayrollDashboard() {
                     </RechartsBox>
                 </ChartCard>
             </div>
+            </>
+            )}
+            <PayrollSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </div>
     );
 }

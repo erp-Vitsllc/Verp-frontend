@@ -35,6 +35,20 @@ import {
 
 const ALL_SERVICES = 'All';
 
+/** First Access Service row — shop workflow types. */
+const ACCESS_SERVICE_TYPE_CARDS = [
+    'Oil Service',
+    'Mechanical Work',
+    'Body Work',
+    'Tire Change',
+    'Accident Repair',
+];
+
+/** Second row starts with Car Wash, then All / Pending / Completed. */
+const ACCESS_SERVICE_FILTER_TYPE = 'Car Wash';
+
+const ACCESS_SERVICE_TABLE_ORDER = [...ACCESS_SERVICE_TYPE_CARDS, ACCESS_SERVICE_FILTER_TYPE];
+
 function isAccessServiceRowCompleted(row) {
     return isVehicleServiceListCompletedStatus({
         label: row?.status,
@@ -79,6 +93,13 @@ const TYPE_ICONS = {
     'Accident Repair': AlertTriangle,
     'Car Wash': Sparkles,
 };
+
+const TYPE_CARD =
+    'group flex items-center gap-2 rounded-xl border p-2 text-left transition-colors min-h-[3.25rem]';
+const TYPE_CARD_ACTIVE = 'border-teal-500 bg-teal-50 ring-1 ring-teal-200';
+const TYPE_CARD_IDLE = 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60';
+const TYPE_ICON_WRAP =
+    'inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm shrink-0';
 
 function emptyVehiclesByType() {
     return Object.fromEntries(VEHICLE_ACCESS_SERVICE_TYPES.map((type) => [type, []]));
@@ -248,6 +269,10 @@ export default function VehicleAccessServicePanel({
     const displayPendingCount = listLoading ? apiPendingTotal : pendingCount;
     const displayCompletedCount = listLoading ? apiCompletedTotal : completedCount;
 
+    const tableTypes = useMemo(() => {
+        return ACCESS_SERVICE_TABLE_ORDER.filter((type) => listLoading || (rowsByType[type] || []).length > 0);
+    }, [rowsByType, listLoading]);
+
     const openRow = (row) => {
         const href = buildVehicleServiceListRowHref(row);
         if (!href) return;
@@ -269,6 +294,49 @@ export default function VehicleAccessServicePanel({
             return;
         }
         onSelectType(type);
+    };
+
+    const renderTypeCard = (type) => {
+        const Icon = TYPE_ICONS[type] || Wrench;
+        const count = Number(counts[type] || 0);
+        const isActive = selectedType === type;
+        return (
+            <button
+                key={type}
+                type="button"
+                onClick={() => handleTypeSelect(type)}
+                className={`${TYPE_CARD} ${isActive ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
+            >
+                <span
+                    className={`${TYPE_ICON_WRAP} ${isActive
+                            ? 'bg-teal-600 border-teal-600 text-white'
+                            : 'bg-white border-slate-200 text-teal-700'
+                        }`}
+                >
+                    <Icon size={16} />
+                </span>
+                <span className="min-w-0">
+                    <span className="flex items-center gap-1">
+                        <span
+                            className={`block text-[10px] font-black uppercase tracking-wide leading-tight ${isActive ? 'text-teal-900' : 'text-slate-800 group-hover:text-teal-800'
+                                }`}
+                        >
+                            {type}
+                        </span>
+                        {!countsLoading && count > 0 ? (
+                            <CountBellBadge count={count} tone="pending" />
+                        ) : null}
+                    </span>
+                    <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
+                        {countsLoading
+                            ? 'Loading…'
+                            : count > 0
+                                ? `${count} pending`
+                                : 'No pending'}
+                    </span>
+                </span>
+            </button>
+        );
     };
 
     const refreshing = countsLoading || listLoading;
@@ -321,87 +389,41 @@ export default function VehicleAccessServicePanel({
                 </div>
             </div>
 
-            <div className="p-4 sm:p-6">
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">
-                    Vehicle service types
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            <div className="p-3 sm:p-4 space-y-3">
+                <div>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                        Vehicle service types
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                        {ACCESS_SERVICE_TYPE_CARDS.map(renderTypeCard)}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {renderTypeCard(ACCESS_SERVICE_FILTER_TYPE)}
+
                     <button
                         type="button"
                         onClick={() => handleTypeSelect(ALL_SERVICES)}
-                        className={`group flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors ${
-                            showAllTypes
-                                ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200'
-                                : 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60'
-                        }`}
+                        className={`${TYPE_CARD} ${showAllTypes ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
                     >
                         <span
-                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm shrink-0 ${
-                                showAllTypes
+                            className={`${TYPE_ICON_WRAP} ${showAllTypes
                                     ? 'bg-teal-600 border-teal-600 text-white'
                                     : 'bg-white border-slate-200 text-teal-700'
-                            }`}
+                                }`}
                         >
-                            <LayoutGrid size={20} />
+                            <LayoutGrid size={16} />
                         </span>
                         <span className="min-w-0">
-                            <span className="block text-sm font-black uppercase tracking-wide text-slate-800 group-hover:text-teal-800">
+                            <span className="block text-[10px] font-black uppercase tracking-wide text-slate-800 group-hover:text-teal-800 leading-tight">
                                 All Services
                             </span>
-                            <span className="block text-xs text-slate-500 mt-1 tabular-nums">
-                                {countsLoading ? 'Loading…' : 'Show every service type'}
+                            <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
+                                {countsLoading ? 'Loading…' : 'All types'}
                             </span>
                         </span>
                     </button>
-
-                    {VEHICLE_ACCESS_SERVICE_TYPES.map((type) => {
-                        const Icon = TYPE_ICONS[type] || Wrench;
-                        const count = Number(counts[type] || 0);
-                        const isActive = selectedType === type;
-                        return (
-                            <button
-                                key={type}
-                                type="button"
-                                onClick={() => handleTypeSelect(type)}
-                                className={`group flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors ${
-                                    isActive
-                                        ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200'
-                                        : 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60'
-                                }`}
-                            >
-                                <span
-                                    className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm shrink-0 ${
-                                        isActive
-                                            ? 'bg-teal-600 border-teal-600 text-white'
-                                            : 'bg-white border-slate-200 text-teal-700'
-                                    }`}
-                                >
-                                    <Icon size={20} />
-                                </span>
-                                <span className="min-w-0">
-                                    <span className="flex items-center gap-2">
-                                        <span
-                                            className={`block text-sm font-black uppercase tracking-wide ${
-                                                isActive ? 'text-teal-900' : 'text-slate-800 group-hover:text-teal-800'
-                                            }`}
-                                        >
-                                            {type}
-                                        </span>
-                                        {!countsLoading && count > 0 ? (
-                                            <CountBellBadge count={count} tone="pending" />
-                                        ) : null}
-                                    </span>
-                                    <span className="block text-xs text-slate-500 mt-1 tabular-nums">
-                                        {countsLoading
-                                            ? 'Loading…'
-                                            : count > 0
-                                              ? `${count} pending`
-                                              : 'No pending records'}
-                                    </span>
-                                </span>
-                            </button>
-                        );
-                    })}
 
                     {[
                         {
@@ -409,7 +431,7 @@ export default function VehicleAccessServicePanel({
                             label: 'Pending Services',
                             hint: displayPendingCount > 0
                                 ? `${displayPendingCount} pending`
-                                : 'No pending records',
+                                : 'No pending',
                             count: displayPendingCount,
                             tone: 'pending',
                             Icon: Clock,
@@ -419,7 +441,7 @@ export default function VehicleAccessServicePanel({
                             label: 'Completed Services',
                             hint: displayCompletedCount > 0
                                 ? `${displayCompletedCount} completed`
-                                : 'No completed records',
+                                : 'No completed',
                             count: displayCompletedCount,
                             tone: 'complete',
                             Icon: CheckCircle2,
@@ -432,42 +454,36 @@ export default function VehicleAccessServicePanel({
                                 key={box.key}
                                 type="button"
                                 onClick={() => handleTypeSelect(box.key)}
-                                className={`group flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors ${
-                                    isActive
-                                        ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200'
-                                        : 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60'
-                                }`}
+                                className={`${TYPE_CARD} ${isActive ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
                             >
                                 <span
-                                    className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm shrink-0 ${
-                                        isActive
+                                    className={`${TYPE_ICON_WRAP} ${isActive
                                             ? 'bg-teal-600 border-teal-600 text-white'
                                             : 'bg-white border-slate-200 text-teal-700'
-                                    }`}
+                                        }`}
                                 >
-                                    <Icon size={20} />
+                                    <Icon size={16} />
                                 </span>
                                 <span className="min-w-0">
-                                    <span className="flex items-center gap-2">
+                                    <span className="flex items-center gap-1">
                                         <span
-                                            className={`block text-sm font-black uppercase tracking-wide ${
-                                                isActive ? 'text-teal-900' : 'text-slate-800 group-hover:text-teal-800'
-                                            }`}
+                                            className={`block text-[10px] font-black uppercase tracking-wide leading-tight ${isActive ? 'text-teal-900' : 'text-slate-800 group-hover:text-teal-800'
+                                                }`}
                                         >
                                             {box.label}
                                         </span>
-                                        {!countsLoading ? (
+                                        {!countsLoading && Number(box.count || 0) > 0 ? (
                                             <CountBellBadge count={box.count} tone={box.tone} />
                                         ) : null}
                                     </span>
-                                    <span className="block text-xs text-slate-500 mt-1 tabular-nums">
+                                    <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
                                         {countsLoading ? 'Loading…' : box.hint}
                                     </span>
                                 </span>
                             </button>
                         );
                     })}
-                </div>
+                    </div>
             </div>
 
             <div className="border-t border-slate-100">
@@ -476,8 +492,8 @@ export default function VehicleAccessServicePanel({
                         {showAllTypes
                             ? 'All service records'
                             : isStatusFilter
-                              ? `${selectedType}`
-                              : `${selectedType} records`}
+                                ? `${selectedType}`
+                                : `${selectedType} records`}
                         {!listLoading ? (
                             <span className="ml-2 text-teal-700 tabular-nums">({visibleRowCount})</span>
                         ) : null}
@@ -488,9 +504,9 @@ export default function VehicleAccessServicePanel({
                         <div className="py-16 text-center text-sm text-slate-500">Loading service lists…</div>
                     ) : loadAllTypes ? (
                         <div className="divide-y divide-slate-100">
-                            {VEHICLE_ACCESS_SERVICE_TYPES.map((type) => {
+                            {tableTypes.map((type) => {
                                 const rows = filteredRowsByType[type] || [];
-                                if (isStatusFilter && !rows.length) return null;
+                                if (!rows.length) return null;
                                 return (
                                     <div key={type}>
                                         <div className="px-4 sm:px-6 py-2.5 bg-white border-b border-slate-100">
@@ -509,11 +525,13 @@ export default function VehicleAccessServicePanel({
                                     </div>
                                 );
                             })}
-                            {isStatusFilter && visibleRowCount === 0 ? (
+                            {visibleRowCount === 0 ? (
                                 <div className="py-16 text-center text-sm text-slate-500">
                                     {selectedType === VEHICLE_ACCESS_SERVICE_PENDING
                                         ? 'No pending services found.'
-                                        : 'No completed services found.'}
+                                        : selectedType === VEHICLE_ACCESS_SERVICE_COMPLETED
+                                            ? 'No completed services found.'
+                                            : 'No service records found.'}
                                 </div>
                             ) : null}
                         </div>

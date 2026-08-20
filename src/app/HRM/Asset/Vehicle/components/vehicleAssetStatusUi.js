@@ -312,3 +312,10 @@ export function resolveVehicleListServiceStatusLabel(vehicle) {
 
     return '';
 }
+
+/** Total pending services for this vehicle (list badge count). */
+export function resolveVehicleListPendingServiceCount(vehicle) {
+    const n = Number(vehicle?.pendingServiceCount);
+    if (Number.isFinite(n) && n > 0) return n;
+    return resolveVehicleListServiceStatusLabel(vehicle) === 'Pending' ? 1 : 0;
+}

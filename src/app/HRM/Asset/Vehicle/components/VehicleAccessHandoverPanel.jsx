@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     Car,
-    ClipboardCheck,
     ClipboardList,
     Handshake,
     LayoutGrid,
+    List,
     RotateCcw,
     UserCheck,
     UserPlus,
@@ -25,36 +25,37 @@ import {
     getHandoverStartDate,
     getHandoverToLabel,
     getHandoverTypeLabel,
-    isVehicleInspectionHandoverEntry,
     resolveHandoverDeleteHistoryId,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleHandoverHistory';
 import { VEHICLE_ACCESS_HANDOVER_STATUSES } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
+import VehicleServiceRequestSortHeader from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRequestSortHeader';
+import {
+    codeSortValue,
+    dateSortValue,
+    numberSortValue,
+    sortServiceTableRows,
+    textSortValue,
+} from '@/app/HRM/Asset/Vehicle/components/vehicleServiceRequestTableSort';
 
-const ALL_HANDOVERS = 'all';
+const ALL_HANDOVERS = 'all-handover';
 
 const STATUS_ICONS = {
-    [ALL_HANDOVERS]: LayoutGrid,
-    'pending-hr': UserCheck,
     'pending-inspection': ClipboardList,
-    'completed-inspection': ClipboardCheck,
-    'pending-assignee': UserPlus,
-    'completed-handover': Handshake,
+    'all-handover': Handshake,
+    'pending-handover': UserPlus,
+    'assigned-vehicle': UserCheck,
     'unassigned-vehicle': Car,
+    'list-vehicle': LayoutGrid,
 };
 
-const FILTER_BOXES = [
-    {
-        key: ALL_HANDOVERS,
-        label: 'All Handovers',
-        hint: 'Every handover status',
-        pending: false,
-    },
-    ...VEHICLE_ACCESS_HANDOVER_STATUSES,
-];
+const FILTER_BOXES = VEHICLE_ACCESS_HANDOVER_STATUSES;
 
-function emptyItemsByStatus() {
-    return Object.fromEntries(VEHICLE_ACCESS_HANDOVER_STATUSES.map((row) => [row.key, []]));
-}
+const TYPE_CARD =
+    'group flex items-center gap-2 rounded-xl border p-2 text-left transition-colors min-h-[3.25rem]';
+const TYPE_CARD_ACTIVE = 'border-teal-500 bg-teal-50 ring-1 ring-teal-200';
+const TYPE_CARD_IDLE = 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60';
+const TYPE_ICON_WRAP =
+    'inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm shrink-0';
 
 function formatHandoverDate(value) {
     if (!value) return '—';
@@ -83,46 +84,129 @@ function latestHandoverEntry(vehicle, history) {
     return history || null;
 }
 
-function unassignedStatus() {
+function formatNameFirstLastInitial(person) {
+    if (!person || typeof person !== 'object') return '';
+    const first = String(person.firstName || '').trim();
+    const last = String(person.lastName || '').trim();
+    if (first && last) return `${first} ${last.charAt(0).toUpperCase()}`;
+    return first || last || String(person.employeeId || '').trim();
+}
+
+function formatPendingWithLabel(vehicle) {
+    const personName = formatNameFirstLastInitial(vehicle?.actionRequiredBy) || formatNameFirstLastInitial(vehicle?.assignedTo);
+    if (personName) return `Pending with ${personName}`;
+    const company =
+        vehicle?.assignedCompany && typeof vehicle.assignedCompany === 'object'
+            ? vehicle.assignedCompany.nickName || vehicle.assignedCompany.name || ''
+            : '';
+    if (company) return `Pending with ${company}`;
+    return '';
+}
+
+function fallbackRowStatus(vehicle) {
+    const status = String(vehicle?.status || '').trim().toLowerCase();
+    if (
+        status === 'unassigned' ||
+        status === 'available' ||
+        status === 'returned' ||
+        (!vehicle?.assignedTo && !vehicle?.assignedCompany)
+    ) {
+        return {
+            key: 'unassigned',
+            label: 'Unassigned',
+            className: 'bg-slate-100 text-slate-700 border border-slate-200',
+        };
+    }
     return {
-        key: 'unassigned',
-        label: 'Unassigned',
-        className: 'bg-slate-100 text-slate-700 border border-slate-200',
+        key: 'assigned',
+        label: 'Assigned',
+        className: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
     };
 }
 
-function dedupeHandoverRows(rows) {
-    const seen = new Map();
-    for (const row of rows) {
-        const id = String(row?.vehicle?._id || '');
-        if (!id) continue;
-        if (!seen.has(id)) seen.set(id, row);
-    }
-    return [...seen.values()];
-}
-
-function handoverRowBelongsInStatusBucket(statusKey, vehicle, entry) {
-    if (statusKey === 'unassigned-vehicle') return true;
-    if (!entry) return false;
+function accessHandoverStatusBadge(vehicle, entry) {
+    if (!entry) return fallbackRowStatus(vehicle);
     const status = getHandoverHistoryStatus(entry, vehicle);
-    if (statusKey === 'pending-hr' || statusKey === 'pending-assignee') {
-        return status.key !== 'approved';
-    }
-    if (statusKey === 'completed-handover') {
-        return status.key === 'approved' && !isVehicleInspectionHandoverEntry(entry, vehicle);
-    }
-    if (statusKey === 'completed-inspection') {
-        return status.key === 'approved' && isVehicleInspectionHandoverEntry(entry, vehicle);
-    }
-    return true;
+    if (status.key !== 'pending') return status;
+    const pendingLabel = formatPendingWithLabel(vehicle);
+    if (!pendingLabel) return status;
+    return {
+        ...status,
+        label: pendingLabel,
+        className: 'bg-red-50 text-red-700 border border-red-200',
+    };
 }
 
 const VEHICLE_LIST_RETURN = '/HRM/Asset/Vehicle';
 
+const HANDOVER_COLUMNS = [
+    { key: 'slNo', label: 'Sl No.', type: 'number' },
+    { key: 'assetId', label: 'Vehicle asset no', type: 'text' },
+    { key: 'vehicleNo', label: 'Vehicle no', type: 'text' },
+    { key: 'type', label: 'Type', type: 'text' },
+    { key: 'startDate', label: 'Start Date', type: 'date' },
+    { key: 'endDate', label: 'End Date', type: 'date' },
+    { key: 'from', label: 'From', type: 'text' },
+    { key: 'to', label: 'To', type: 'text' },
+    { key: 'status', label: 'Status', type: 'text' },
+];
+
+function handoverSortValue(row, key) {
+    const vehicle = row?.vehicle;
+    const entry = row?.entry;
+    switch (key) {
+        case 'slNo':
+            return numberSortValue(row?.slNo);
+        case 'assetId':
+            return codeSortValue(vehicle?.assetId);
+        case 'vehicleNo': {
+            const plate = [vehicle?.plateEmirate, vehicle?.plateNumber].filter(Boolean).join(' ').trim();
+            return codeSortValue(plate);
+        }
+        case 'type':
+            return textSortValue(entry ? getHandoverTypeLabel(entry, vehicle) : '');
+        case 'startDate':
+            return dateSortValue(entry ? getHandoverStartDate(entry) : null);
+        case 'endDate':
+            return dateSortValue(entry ? getHandoverEndDate(entry) : null);
+        case 'from':
+            return textSortValue(entry ? getHandoverByLabel(entry) : '');
+        case 'to':
+            return textSortValue(entry ? getHandoverToLabel(entry) : '');
+        case 'status':
+            return textSortValue(accessHandoverStatusBadge(vehicle, entry)?.label);
+        default:
+            return null;
+    }
+}
+
 function HandoverTable({ rows, onOpenRow, router, listReturnHref = VEHICLE_LIST_RETURN }) {
+    const [sortKey, setSortKey] = useState('startDate');
+    const [sortDirection, setSortDirection] = useState('desc');
+
+    const handleSort = useCallback(
+        (key) => {
+            const column = HANDOVER_COLUMNS.find((c) => c.key === key);
+            if (!column) return;
+            if (sortKey === key) {
+                setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                return;
+            }
+            setSortKey(key);
+            setSortDirection(column.type === 'date' || column.type === 'number' ? 'desc' : 'asc');
+        },
+        [sortKey],
+    );
+
+    const sortedRows = useMemo(() => {
+        const column = HANDOVER_COLUMNS.find((c) => c.key === sortKey) || HANDOVER_COLUMNS[0];
+        const withSl = (rows || []).map((row, index) => ({ ...row, slNo: index + 1 }));
+        return sortServiceTableRows(withSl, handoverSortValue, sortKey, sortDirection, column.type);
+    }, [rows, sortKey, sortDirection]);
+
     if (!rows.length) {
         return (
-            <div className="py-10 text-center text-sm text-slate-500">No handover records found.</div>
+            <div className="py-10 text-center text-sm text-slate-500">No vehicles found.</div>
         );
     }
 
@@ -131,27 +215,28 @@ function HandoverTable({ rows, onOpenRow, router, listReturnHref = VEHICLE_LIST_
             <table className="w-full text-sm border-collapse min-w-[980px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr className="text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
-                        <th className="px-4 py-3 whitespace-nowrap">Sl No.</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Vehicle asset no</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Vehicle no</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Type</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Start Date</th>
-                        <th className="px-4 py-3 whitespace-nowrap">End Date</th>
-                        <th className="px-4 py-3 min-w-[140px]">From</th>
-                        <th className="px-4 py-3 min-w-[140px]">To</th>
-                        <th className="px-4 py-3 whitespace-nowrap">Status</th>
+                        {HANDOVER_COLUMNS.map((column) => (
+                            <VehicleServiceRequestSortHeader
+                                key={column.key}
+                                label={column.label}
+                                columnKey={column.key}
+                                sortKey={sortKey}
+                                sortDirection={sortDirection}
+                                onSort={handleSort}
+                                className={column.key === 'from' || column.key === 'to' ? 'min-w-[140px]' : ''}
+                            />
+                        ))}
                     </tr>
                 </thead>
                 <tbody>
-                    {rows.map(({ vehicle, entry }, index) => {
-                        const statusBadge = entry
-                            ? getHandoverHistoryStatus(entry, vehicle)
-                            : unassignedStatus();
+                    {sortedRows.map(({ vehicle, entry, slNo }, index) => {
+                        const statusBadge = accessHandoverStatusBadge(vehicle, entry);
                         const href = onOpenRow.href(vehicle, entry);
                         const isNavigable = Boolean(href && router);
+                        const rowKey = String(entry?._id || `${vehicle._id}-${index}`);
                         const rowElement = (
                             <tr
-                                key={String(entry?._id || `${vehicle._id}-${index}`)}
+                                key={rowKey}
                                 role={!isNavigable ? 'button' : undefined}
                                 tabIndex={!isNavigable ? 0 : undefined}
                                 onClick={!isNavigable ? () => onOpenRow.open(vehicle, entry) : undefined}
@@ -166,15 +251,15 @@ function HandoverTable({ rows, onOpenRow, router, listReturnHref = VEHICLE_LIST_
                                         : undefined
                                 }
                                 className="cursor-pointer hover:bg-slate-50/70 transition-colors border-b border-slate-100"
-                                title="Open handover details"
+                                title="Open vehicle details"
                             >
-                                <td className="px-4 py-3 text-slate-600 font-semibold">{index + 1}</td>
+                                <td className="px-4 py-3 text-slate-600 font-semibold tabular-nums">{slNo}</td>
                                 <td className="px-4 py-3 font-mono text-xs text-slate-700">
                                     {vehicle.assetId || '—'}
                                 </td>
                                 <td className="px-4 py-3 text-slate-800">{vehicleNo(vehicle)}</td>
                                 <td className="px-4 py-3 text-slate-800 whitespace-nowrap font-medium">
-                                    {entry ? getHandoverTypeLabel(entry, vehicle) : 'Unassigned'}
+                                    {entry ? getHandoverTypeLabel(entry, vehicle) : '—'}
                                 </td>
                                 <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
                                     {formatHandoverDate(entry ? getHandoverStartDate(entry) : null)}
@@ -201,7 +286,7 @@ function HandoverTable({ rows, onOpenRow, router, listReturnHref = VEHICLE_LIST_
                         if (isNavigable) {
                             return (
                                 <ListTableRowLink
-                                    key={String(entry?._id || `${vehicle._id}-${index}`)}
+                                    key={rowKey}
                                     href={href}
                                     router={router}
                                     listReturnHref={listReturnHref}
@@ -232,11 +317,12 @@ export default function VehicleAccessHandoverPanel({
 
     const [counts, setCounts] = useState({});
     const [countsLoading, setCountsLoading] = useState(true);
-    const [itemsByStatus, setItemsByStatus] = useState(emptyItemsByStatus);
+    const [items, setItems] = useState([]);
     const [listLoading, setListLoading] = useState(false);
 
     const normalizedStatus = String(selectedStatus || selectedCategory || ALL_HANDOVERS).trim().toLowerCase();
-    const showAllStatuses = !normalizedStatus || normalizedStatus === ALL_HANDOVERS;
+    const activeStatus =
+        FILTER_BOXES.find((row) => row.key === normalizedStatus)?.key || ALL_HANDOVERS;
 
     const loadCounts = useCallback(async () => {
         setCountsLoading(true);
@@ -251,26 +337,21 @@ export default function VehicleAccessHandoverPanel({
         }
     }, []);
 
-    const loadHandoverList = useCallback(async () => {
+    const loadHandoverList = useCallback(async (statusKey) => {
         setListLoading(true);
         try {
-            const results = await Promise.all(
-                VEHICLE_ACCESS_HANDOVER_STATUSES.map(async (status) => {
-                    const res = await axiosInstance.get('/AssetItem/vehicle-access-handovers', {
-                        params: { status: status.key },
-                        skipToast: true,
-                    });
-                    return [status.key, Array.isArray(res.data?.items) ? res.data.items : []];
-                }),
-            );
-            setItemsByStatus(Object.fromEntries(results));
+            const res = await axiosInstance.get('/AssetItem/vehicle-access-handovers', {
+                params: { status: statusKey },
+                skipToast: true,
+            });
+            setItems(Array.isArray(res.data?.items) ? res.data.items : []);
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Could not load handovers',
                 description: error?.response?.data?.message || 'Try again in a moment.',
             });
-            setItemsByStatus(emptyItemsByStatus());
+            setItems([]);
         } finally {
             setListLoading(false);
         }
@@ -281,45 +362,31 @@ export default function VehicleAccessHandoverPanel({
     }, [loadCounts]);
 
     useEffect(() => {
-        loadHandoverList();
-    }, [loadHandoverList]);
+        loadHandoverList(activeStatus);
+    }, [loadHandoverList, activeStatus]);
 
-    const rowsByStatus = useMemo(() => {
-        const next = {};
-        for (const status of VEHICLE_ACCESS_HANDOVER_STATUSES) {
-            next[status.key] = (itemsByStatus[status.key] || [])
-                .map((item) => {
-                    const vehicle = item.vehicle || {};
-                    return { vehicle, entry: latestHandoverEntry(vehicle, item.history) };
-                })
-                .filter(({ vehicle, entry }) =>
-                    handoverRowBelongsInStatusBucket(status.key, vehicle, entry),
-                );
-        }
-        return next;
-    }, [itemsByStatus]);
-
-    const allRows = useMemo(
-        () => dedupeHandoverRows(VEHICLE_ACCESS_HANDOVER_STATUSES.flatMap((status) => rowsByStatus[status.key] || [])),
-        [rowsByStatus],
+    const visibleRows = useMemo(
+        () =>
+            items.map((item) => {
+                const vehicle = item.vehicle || {};
+                return { vehicle, entry: latestHandoverEntry(vehicle, item.history) };
+            }),
+        [items],
     );
-
-    const visibleRows = showAllStatuses ? allRows : rowsByStatus[normalizedStatus] || [];
     const visibleRowCount = visibleRows.length;
 
     const boxCounts = useMemo(() => {
-        const next = { [ALL_HANDOVERS]: allRows.length };
-        for (const status of VEHICLE_ACCESS_HANDOVER_STATUSES) {
-            next[status.key] = listLoading
-                ? Number(counts[status.key] || 0)
-                : (rowsByStatus[status.key]?.length || 0);
+        const next = {};
+        for (const status of FILTER_BOXES) {
+            next[status.key] = Number(counts[status.key] || 0);
         }
+        next[activeStatus] = listLoading ? Number(counts[activeStatus] || 0) : visibleRowCount;
         return next;
-    }, [counts, allRows.length, rowsByStatus, listLoading]);
+    }, [counts, activeStatus, listLoading, visibleRowCount]);
 
     const totalPending = useMemo(
         () =>
-            VEHICLE_ACCESS_HANDOVER_STATUSES.filter((row) => row.pending).reduce(
+            FILTER_BOXES.filter((row) => row.pending).reduce(
                 (sum, row) => sum + Number(counts[row.key] || 0),
                 0,
             ),
@@ -345,19 +412,16 @@ export default function VehicleAccessHandoverPanel({
 
     const handleRefresh = () => {
         loadCounts();
-        loadHandoverList();
+        loadHandoverList(activeStatus);
     };
 
     const handleStatusSelect = (statusKey) => {
         if (!onSelectStatus) return;
-        if (statusKey === ALL_HANDOVERS || normalizedStatus === statusKey) {
-            onSelectStatus(ALL_HANDOVERS);
-            return;
-        }
         onSelectStatus(statusKey);
     };
 
     const refreshing = countsLoading || listLoading;
+    const activeBox = FILTER_BOXES.find((row) => row.key === activeStatus);
 
     return (
         <div className="bg-white rounded-2xl border border-teal-200 shadow-sm mb-4 sm:mb-6 overflow-hidden">
@@ -374,7 +438,7 @@ export default function VehicleAccessHandoverPanel({
                         ) : null}
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
-                        Click a status to filter. Pending Assignee is the assignment target waiting to accept.
+                        Click a status to filter. Lists are not grouped by category.
                     </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -398,48 +462,41 @@ export default function VehicleAccessHandoverPanel({
                 </div>
             </div>
 
-            <div className="p-4 sm:p-6">
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">
+            <div className="p-3 sm:p-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
                     Handover statuses
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                     {FILTER_BOXES.map((status) => {
-                        const Icon = STATUS_ICONS[status.key] || Handshake;
+                        const Icon = STATUS_ICONS[status.key] || List;
                         const count = Number(boxCounts[status.key] || 0);
-                        const isActive =
-                            status.key === ALL_HANDOVERS
-                                ? showAllStatuses
-                                : normalizedStatus === status.key;
+                        const isActive = activeStatus === status.key;
                         return (
                             <button
                                 key={status.key}
                                 type="button"
                                 onClick={() => handleStatusSelect(status.key)}
-                                className={`group flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors ${
-                                    isActive
-                                        ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200'
-                                        : 'border-slate-200 bg-slate-50/70 hover:border-teal-300 hover:bg-teal-50/60'
-                                }`}
+                                className={`${TYPE_CARD} ${isActive ? TYPE_CARD_ACTIVE : TYPE_CARD_IDLE}`}
                             >
                                 <span
-                                    className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm shrink-0 ${
+                                    className={`${TYPE_ICON_WRAP} ${
                                         isActive
                                             ? 'bg-teal-600 border-teal-600 text-white'
                                             : 'bg-white border-slate-200 text-teal-700'
                                     }`}
                                 >
-                                    <Icon size={20} />
+                                    <Icon size={16} />
                                 </span>
                                 <span className="min-w-0">
-                                    <span className="flex items-center gap-2">
+                                    <span className="flex items-center gap-1">
                                         <span
-                                            className={`block text-sm font-black uppercase tracking-wide ${
+                                            className={`block text-[10px] font-black uppercase tracking-wide leading-tight ${
                                                 isActive ? 'text-teal-900' : 'text-slate-800 group-hover:text-teal-800'
                                             }`}
                                         >
                                             {status.label}
                                         </span>
-                                        {!countsLoading && !listLoading && count > 0 && status.key !== ALL_HANDOVERS ? (
+                                        {!countsLoading && count > 0 ? (
                                             <span
                                                 className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-black tabular-nums ${
                                                     status.pending
@@ -451,14 +508,12 @@ export default function VehicleAccessHandoverPanel({
                                             </span>
                                         ) : null}
                                     </span>
-                                    <span className="block text-xs text-slate-500 mt-1 tabular-nums">
-                                        {countsLoading || listLoading
+                                    <span className="block text-[10px] text-slate-500 mt-0.5 tabular-nums leading-tight">
+                                        {countsLoading
                                             ? 'Loading…'
-                                            : status.key === ALL_HANDOVERS
-                                              ? `${count} total records`
-                                              : count > 0
-                                                ? `${count} record${count === 1 ? '' : 's'}`
-                                                : status.hint}
+                                            : count > 0
+                                              ? `${count} record${count === 1 ? '' : 's'}`
+                                              : status.hint}
                                     </span>
                                 </span>
                             </button>
@@ -470,9 +525,7 @@ export default function VehicleAccessHandoverPanel({
             <div className="border-t border-slate-100">
                 <div className="px-4 sm:px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-2">
                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
-                        {showAllStatuses
-                            ? 'All handover records'
-                            : `${FILTER_BOXES.find((row) => row.key === normalizedStatus)?.label || 'Handover'} records`}
+                        {activeBox?.label || 'Handover'} records
                         {!listLoading ? (
                             <span className="ml-2 text-teal-700 tabular-nums">({visibleRowCount})</span>
                         ) : null}
@@ -481,37 +534,6 @@ export default function VehicleAccessHandoverPanel({
                 <div className="overflow-hidden">
                     {listLoading ? (
                         <div className="py-16 text-center text-sm text-slate-500">Loading handover lists…</div>
-                    ) : showAllStatuses ? (
-                        <div className="divide-y divide-slate-100">
-                            {VEHICLE_ACCESS_HANDOVER_STATUSES.map((status) => {
-                                const rows = rowsByStatus[status.key] || [];
-                                if (!rows.length) return null;
-                                return (
-                                    <div key={status.key}>
-                                        <div className="px-4 sm:px-6 py-2.5 bg-white border-b border-slate-100">
-                                            <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                                                {status.label}
-                                                <span className="ml-2 text-teal-700 tabular-nums">({rows.length})</span>
-                                            </h4>
-                                        </div>
-                                        <HandoverTable
-                                            rows={rows}
-                                            router={router}
-                                            listReturnHref={listReturnHref}
-                                            onOpenRow={{
-                                                href: handoverHref,
-                                                open: openRow,
-                                            }}
-                                        />
-                                    </div>
-                                );
-                            })}
-                            {!visibleRowCount ? (
-                                <div className="py-16 text-center text-sm text-slate-500">
-                                    No handover records found.
-                                </div>
-                            ) : null}
-                        </div>
                     ) : (
                         <HandoverTable
                             rows={visibleRows}

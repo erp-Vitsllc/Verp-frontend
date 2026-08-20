@@ -45,3 +45,14 @@ export function textSortValue(value) {
     const text = String(value ?? '').trim();
     return text || null;
 }
+
+/** Sort VEGA-ASSET-056 above VEGA-VHCL-014 when descending, by the trailing number. */
+export function codeSortValue(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return null;
+    const match = text.match(/(\d+)\s*$/);
+    if (!match) return text.toLowerCase();
+    const n = Number(match[1]);
+    if (!Number.isFinite(n)) return text.toLowerCase();
+    return `${String(n).padStart(12, '0')}|${text.toLowerCase()}`;
+}

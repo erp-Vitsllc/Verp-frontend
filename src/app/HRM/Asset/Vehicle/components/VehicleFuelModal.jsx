@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Fuel, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { MonthPicker } from '@/components/ui/date-picker';
@@ -17,9 +17,36 @@ function vehicleLabel(vehicle) {
     return [vehicle.plate, vehicle.name].filter(Boolean).join(' — ') || vehicle.assetId || '';
 }
 
+function positiveLimit(value) {
+    const n = Number(String(value ?? '').replace(/[^\d.]/g, ''));
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function petrolCardLimit(source) {
+    const docs = Array.isArray(source?.documents) ? source.documents : [];
+    const petrol = docs.find((d) => String(d.type || '').toLowerCase() === 'petrol');
+    if (!petrol?.description) return null;
+    try {
+        const parsed =
+            typeof petrol.description === 'string' ? JSON.parse(petrol.description) : petrol.description;
+        return positiveLimit(parsed?.limit);
+    } catch {
+        return null;
+    }
+}
+
 function defaultMonthlyLimit(asset, vehicle) {
-    const n = Number(vehicle?.fuelMonthlyLimit ?? asset?.fuelMonthlyLimit);
-    return Number.isFinite(n) && n > 0 ? String(n) : '';
+    const n =
+        positiveLimit(vehicle?.fuelMonthlyLimit) ||
+        positiveLimit(asset?.fuelMonthlyLimit) ||
+        petrolCardLimit(vehicle) ||
+        petrolCardLimit(asset);
+    return n != null ? String(n) : '';
+}
+
+function billPositiveLimit(bill) {
+    const n = positiveLimit(bill?.monthlyLimit);
+    return n != null ? String(n) : '';
 }
 
 function billIdOf(bill) {
@@ -43,6 +70,7 @@ export default function VehicleFuelModal({
     knownBills = [],
     canManage = false,
     lockVehicle = false,
+    variant = 'modal',
 }) {
     const { toast } = useToast();
     const [saving, setSaving] = useState(false);
@@ -79,42 +107,52 @@ export default function VehicleFuelModal({
         return name || '';
     }, [selectedVehicle, asset]);
 
+    const formSession = useRef(0);
+
     useEffect(() => {
         if (!isOpen) return;
+        formSession.current += 1;
         const defaultVehicleId = vehicleLocked
             ? asset?._id || asset?.id || vehicleIdOf(existingBill)
-            : vehicleIdOf(existingBill) || asset?._id || asset?.id || vehicles[0]?._id || '';
+            : vehicleIdOf(existingBill) || asset?._id || asset?.id || '';
         setVehicleId(String(defaultVehicleId || ''));
         setMonthKey(existingBill?.monthKey || currentMonthKey());
         setAmount(existingBill?.amountUsed != null ? String(existingBill.amountUsed) : '');
-        setMonthlyLimit(
-            existingBill?.monthlyLimit != null
-                ? String(existingBill.monthlyLimit)
-                : defaultMonthlyLimit(
-                      asset,
-                      vehicles.find((v) => String(v._id) === String(defaultVehicleId)),
-                  ),
-        );
+        setMonthlyLimit(billPositiveLimit(existingBill) || '');
         setFileName(existingBill?.entries?.find((e) => e.hasAttachment)?.attachmentName || '');
         setAttachment(null);
-        setMatchedBill(existingBill || null);
+        setMatchedBill(existingBill?._id ? existingBill : null);
         setErrors({});
         setConfirmClose(false);
-    }, [isOpen, existingBill, asset, vehicles]);
+    }, [isOpen, existingBill]);
+
+    useEffect(() => {
+        if (!isOpen || vehicleId || existingBill?._id) return;
+        const first = vehicles[0]?._id;
+        if (first) setVehicleId(String(first));
+    }, [isOpen, vehicleId, vehicles, existingBill]);
+
+    useEffect(() => {
+        if (!isOpen || existingBill?._id) return;
+        const next = defaultMonthlyLimit(asset, selectedVehicle);
+        if (next) setMonthlyLimit(next);
+    }, [isOpen, existingBill, selectedVehicle, asset]);
 
     useEffect(() => {
         if (!isOpen || existingBill?._id || !vehicleId || !monthKey) return;
+        const session = formSession.current;
         const local = (knownBills || []).find(
-            (bill) => vehicleIdOf(bill) === String(vehicleId) && String(bill.monthKey) === String(monthKey),
+            (bill) =>
+                Boolean(bill?._id) &&
+                !bill?.noFuel &&
+                vehicleIdOf(bill) === String(vehicleId) &&
+                String(bill.monthKey) === String(monthKey),
         );
+        const vehicleDefault = defaultMonthlyLimit(asset, selectedVehicle);
         if (local) {
             setMatchedBill(local);
             setAmount(local.amountUsed != null ? String(local.amountUsed) : '');
-            setMonthlyLimit(
-                local.monthlyLimit != null
-                    ? String(local.monthlyLimit)
-                    : defaultMonthlyLimit(asset, vehicles.find((v) => String(v._id) === String(vehicleId))),
-            );
+            setMonthlyLimit(billPositiveLimit(local) || vehicleDefault);
             setFileName(local.entries?.find((e) => e.hasAttachment)?.attachmentName || '');
             return;
         }
@@ -123,33 +161,27 @@ export default function VehicleFuelModal({
         axiosInstance
             .get('/VehicleFuel/lookup', { params: { vehicleId, monthKey }, skipToast: true })
             .then((res) => {
-                if (cancelled) return;
+                if (cancelled || session !== formSession.current) return;
                 const bill = res.data?.data || null;
                 setMatchedBill(bill);
                 if (bill) {
                     setAmount(bill.amountUsed != null ? String(bill.amountUsed) : '');
-                    setMonthlyLimit(
-                        bill.monthlyLimit != null
-                            ? String(bill.monthlyLimit)
-                            : defaultMonthlyLimit(asset, vehicles.find((v) => String(v._id) === String(vehicleId))),
-                    );
+                    setMonthlyLimit(billPositiveLimit(bill) || vehicleDefault);
                     setFileName(bill.entries?.find((e) => e.hasAttachment)?.attachmentName || '');
-                } else {
-                    setAmount('');
-                    setMonthlyLimit(
-                        defaultMonthlyLimit(asset, vehicles.find((v) => String(v._id) === String(vehicleId))),
-                    );
-                    setFileName('');
-                    setAttachment(null);
+                    return;
                 }
+                if (vehicleDefault) setMonthlyLimit(vehicleDefault);
             })
             .catch(() => {
-                if (!cancelled) setMatchedBill(null);
+                if (!cancelled && session === formSession.current && vehicleDefault) {
+                    setMatchedBill(null);
+                    setMonthlyLimit(vehicleDefault);
+                }
             });
         return () => {
             cancelled = true;
         };
-    }, [isOpen, existingBill, vehicleId, monthKey, knownBills, asset, vehicles]);
+    }, [isOpen, existingBill, vehicleId, monthKey, knownBills, asset, selectedVehicle]);
 
     if (!isOpen) return null;
 
@@ -202,7 +234,7 @@ export default function VehicleFuelModal({
                 vehicleId,
                 monthKey,
                 amount: Number(amount),
-                ...(isUpdate ? {} : { monthlyLimit: Number(monthlyLimit) }),
+                ...(isUpdate ? {} : { monthlyLimit: Number(monthlyLimit) || Number(defaultMonthlyLimit(asset, selectedVehicle)) || undefined }),
                 ...(attachment ? { attachment } : {}),
             };
             const res = isUpdate
@@ -245,9 +277,24 @@ export default function VehicleFuelModal({
         }
     };
 
+    const isInline = variant === 'inline';
+
     return (
-        <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-[28px] shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+        <div
+            className={
+                isInline
+                    ? ''
+                    : 'fixed inset-0 z-[190] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm'
+            }
+        >
+            <div
+                className={
+                    isInline
+                        ? 'px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-100'
+                        : 'bg-white rounded-[28px] shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100'
+                }
+            >
+                {isInline ? null : (
                 <div className="flex items-center justify-between px-6 py-5 border-b border-slate-50 bg-slate-50/40">
                     <div className="flex items-center gap-3">
                         <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center">
@@ -270,8 +317,9 @@ export default function VehicleFuelModal({
                         <X size={20} />
                     </button>
                 </div>
+                )}
 
-                <div className="px-6 py-5 space-y-4">
+                <div className={isInline ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' : 'px-6 py-5 space-y-4'}>
                     <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                             Vehicle
@@ -338,7 +386,7 @@ export default function VehicleFuelModal({
                         {isUpdate ? (
                             <p className="text-[11px] text-slate-400 mt-1">Monthly limit cannot be changed after create.</p>
                         ) : defaultMonthlyLimit(asset, selectedVehicle) ? (
-                            <p className="text-[11px] text-slate-400 mt-1">Filled from this vehicle. Change it in Basic Details.</p>
+                            <p className="text-[11px] text-slate-400 mt-1">Filled automatically from this vehicle.</p>
                         ) : null}
                         {errors.monthlyLimit && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.monthlyLimit}</p>}
                     </div>
@@ -371,7 +419,22 @@ export default function VehicleFuelModal({
                     </div>
                 </div>
 
-                <div className="px-6 py-4 border-t border-slate-50 flex items-center justify-between gap-3 bg-slate-50/30">
+                <div
+                    className={
+                        isInline
+                            ? 'mt-3 flex items-center justify-end gap-2'
+                            : 'px-6 py-4 border-t border-slate-50 flex items-center justify-between gap-3 bg-slate-50/30'
+                    }
+                >
+                    {isInline ? (
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-4 py-2.5 rounded-xl border border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-white"
+                        >
+                            Cancel
+                        </button>
+                    ) : (
                     <button
                         type="button"
                         disabled={!canManage || !isUpdate || closing || monthClosed}
@@ -380,6 +443,7 @@ export default function VehicleFuelModal({
                     >
                         Close
                     </button>
+                    )}
                     <button
                         type="button"
                         disabled={!canManage || saving || monthClosed}
@@ -391,7 +455,7 @@ export default function VehicleFuelModal({
                 </div>
             </div>
 
-            {confirmClose && (
+            {confirmClose && !isInline && (
                 <div className="absolute inset-0 z-[10] flex items-center justify-center bg-black/40 p-4">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
                         <h3 className="text-base font-black text-slate-800 uppercase tracking-widest">Close bill?</h3>

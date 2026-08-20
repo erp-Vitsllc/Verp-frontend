@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { ChevronDown, ChevronLeft, ChevronRight, Eye, Plus, Upload, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -1199,12 +1200,12 @@ export default function AddBillModal({
         // Only accounts created on/before this month, and not already billed.
         const unbilled = filterUnbilledEntries(entries, bills, ym);
         billMonthRef.current = ym;
-        setBillMonth(ym);
-        setPickerYear(yearFromBillMonth(ym));
-        if (closePicker) setMonthPickerOpen(false);
-        setError('');
 
         if (!entries.length) {
+            setBillMonth(ym);
+            setPickerYear(yearFromBillMonth(ym));
+            if (closePicker) setMonthPickerOpen(false);
+            setError('');
             setInfo('');
             return;
         }
@@ -1213,14 +1214,12 @@ export default function AddBillModal({
         const scopedDraft = preserveDraft
             ? (draftRows || []).filter((r) => unbilledIds.has(String(r.entryId || '')))
             : [];
-        setRows(buildRowsFromEntries(unbilled, scopedDraft));
 
         const occupiedCount = available.length - unbilled.length;
         const skippedNew = entries.length - available.length;
+        let nextInfo = '';
         if (unbilled.length === 0) {
-            setInfo(
-                `No billable accounts for ${titleFromBillMonth(ym)} (none left unbilled, or none created yet for this month).`,
-            );
+            nextInfo = `No billable accounts for ${titleFromBillMonth(ym)} (none left unbilled, or none created yet for this month).`;
         } else if (occupiedCount > 0 || skippedNew > 0) {
             const parts = [
                 `Showing ${unbilled.length} account${unbilled.length === 1 ? '' : 's'} for ${titleFromBillMonth(ym)}.`,
@@ -1233,10 +1232,20 @@ export default function AddBillModal({
             if (occupiedCount > 0) {
                 parts.push(`${occupiedCount} already billed ${occupiedCount === 1 ? 'is' : 'are'} excluded.`);
             }
-            setInfo(parts.join(' '));
-        } else {
-            setInfo('');
+            nextInfo = parts.join(' ');
         }
+
+        const commit = () => {
+            setBillMonth(ym);
+            setPickerYear(yearFromBillMonth(ym));
+            if (closePicker) setMonthPickerOpen(false);
+            setError('');
+            setRows(buildRowsFromEntries(unbilled, scopedDraft));
+            setInfo(nextInfo);
+        };
+        // Paint the filtered month on the same click — don't wait for later effects.
+        if (closePicker) flushSync(commit);
+        else commit();
     }, []);
 
     useEffect(() => {

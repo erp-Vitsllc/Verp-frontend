@@ -1,24 +1,41 @@
 'use client';
 
-import { AnimatedCounter } from '@/app/HRM/Asset/components/ListPageSummaryCards';
-import { formatBillMoney } from '../utils/utilityBillStats';
+import { ChevronDown } from 'lucide-react';
+import { formatAed } from '../utils/utilityBillStats';
 import { ALL_MONTHS, MONTH_OPTIONS } from '../utils/utilityOverviewStats';
-import UtilityTypeDistributionChart from './UtilityTypeDistributionChart';
+import { hexToRgba, utilityTypeColor, utilityTypeIcon } from '../utils/utilityTypeVisuals';
+import UtilityTypeMonthChart from './UtilityTypeMonthChart';
 
+const SELECT_WRAP = 'relative shrink-0';
 const SELECT_CLASS =
-    'h-8 min-w-[7.5rem] rounded-md border border-gray-200 bg-white px-2 text-[11px] font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400';
+    'h-9 appearance-none rounded-lg border border-[#E5EAF0] bg-white pl-3 pr-8 text-[13px] font-medium text-[#334155] shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400';
 
 function periodLabel(month, year) {
-    if (month === ALL_MONTHS) return `All months · ${year || '—'}`;
+    if (month === ALL_MONTHS) return String(year || '');
     const opt = MONTH_OPTIONS.find((m) => m.value === String(month));
     return `${opt?.label || month} ${year || ''}`.trim();
 }
 
-/**
- * Top row: every utility type + bill count for the selected period.
- * Bottom row: matching type amount cards (difference + actual) for that month,
- * or the full year when "All months" is selected.
- */
+function typeAmount(item) {
+    const billed = Number(item.actualAmount) || 0;
+    if ((Number(item.count) || 0) > 0) return billed;
+    return Number(item.contractAmount) || 0;
+}
+
+function TypeSelect({ value, onChange, ariaLabel, className, children }) {
+    return (
+        <div className={SELECT_WRAP}>
+            <select value={value} onChange={onChange} className={`${SELECT_CLASS} ${className || ''}`} aria-label={ariaLabel}>
+                {children}
+            </select>
+            <ChevronDown
+                size={14}
+                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#94A3B8]"
+            />
+        </div>
+    );
+}
+
 export default function UtilityTypeOverviewCard({
     cards = [],
     activeType = '',
@@ -28,8 +45,8 @@ export default function UtilityTypeOverviewCard({
     yearOptions = [],
     onMonthChange,
     onYearChange,
-    typeDistribution = [],
-    deductionTotal = 0,
+    chartRows = [],
+    chartTypes = [],
 }) {
     const years =
         Array.isArray(yearOptions) && yearOptions.length
@@ -37,17 +54,23 @@ export default function UtilityTypeOverviewCard({
             : [year || String(new Date().getFullYear())].filter(Boolean);
 
     return (
-        <div className="h-full flex flex-col min-h-0 overflow-visible">
-            <div className="relative z-20 flex items-center justify-between gap-2 mb-2 sm:mb-3 shrink-0">
-                <h3 className="text-[10px] sm:text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em]">
-                    Utility Overview
-                </h3>
-                <div className="flex items-center gap-1.5 shrink-0">
-                    <select
+        <div className="flex h-full min-h-0 flex-col overflow-visible">
+            <div className="relative z-20 mb-4 flex shrink-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <h3 className="text-[12px] font-bold uppercase tracking-[0.16em] text-[#1A2B48]">
+                        Utility Overview
+                    </h3>
+                    <p className="mt-1 text-[12px] font-medium text-[#94A3B8]">
+                        Monthly amount and bill quantity
+                        {periodLabel(month, year) ? ` • ${periodLabel(month, year)}` : ''}
+                    </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                    <TypeSelect
                         value={month}
                         onChange={(e) => onMonthChange?.(e.target.value)}
-                        className={SELECT_CLASS}
-                        aria-label="Filter by month"
+                        ariaLabel="Filter by month"
+                        className="min-w-[8.25rem]"
                     >
                         <option value={ALL_MONTHS}>All months</option>
                         {MONTH_OPTIONS.map((opt) => (
@@ -55,110 +78,86 @@ export default function UtilityTypeOverviewCard({
                                 {opt.label}
                             </option>
                         ))}
-                    </select>
-                    <select
+                    </TypeSelect>
+                    <TypeSelect
                         value={year}
                         onChange={(e) => onYearChange?.(e.target.value)}
-                        className={`${SELECT_CLASS} min-w-[4.75rem]`}
-                        aria-label="Filter by year"
+                        ariaLabel="Filter by year"
+                        className="min-w-[5.25rem]"
                     >
                         {years.map((y) => (
                             <option key={y} value={y}>
                                 {y}
                             </option>
                         ))}
-                    </select>
+                    </TypeSelect>
                 </div>
             </div>
 
-            <p className="mb-2 text-[10px] font-semibold text-gray-400 shrink-0">
-                Showing {month === ALL_MONTHS ? 'full year' : 'month'} totals for{' '}
-                {periodLabel(month, year)}
-            </p>
-
             {cards.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-3 min-h-0">
-                    <p className="text-xs sm:text-sm text-gray-500 text-center">
-                        No utility types yet.
-                    </p>
+                <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed border-[#E5EAF0] bg-[#F8FAFC] px-3">
+                    <p className="text-center text-sm text-[#94A3B8]">No utility types yet.</p>
                 </div>
             ) : (
-                <div className="flex min-h-0 flex-1 gap-3">
-                    <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-                        <div className="flex h-full min-h-0 gap-2.5 pb-0.5">
-                            {cards.map((item) => {
-                                const isActive =
-                                    String(activeType || '').toLowerCase() ===
-                                    String(item.type || '').toLowerCase();
-                                const hasBills = (Number(item.count) || 0) > 0;
-                                return (
-                                    <div
-                                        key={item.type}
-                                        className="flex w-[7.75rem] shrink-0 flex-col gap-2 min-h-0 sm:w-[8.5rem]"
-                                    >
-                                        <button
-                                            type="button"
-                                            onClick={() => onSelectType?.(item.type)}
-                                            className={`flex shrink-0 flex-col items-center justify-center rounded-xl border px-1.5 py-2 text-center transition-all ${
-                                                isActive
-                                                    ? 'border-blue-300 bg-blue-50 shadow-sm ring-1 ring-blue-200'
-                                                    : 'border-gray-100 bg-white hover:border-gray-200 hover:shadow-sm'
-                                            }`}
-                                            title={`${item.label}: ${item.count} bill${item.count === 1 ? '' : 's'} · ${periodLabel(month, year)}`}
+                <>
+                    <div
+                        className={`mb-4 grid shrink-0 gap-2.5 sm:gap-3 ${
+                            cards.length === 1
+                                ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+                                : 'grid-cols-2 lg:grid-cols-4'
+                        }`}
+                    >
+                        {cards.map((item, index) => {
+                            const color = utilityTypeColor(index);
+                            const Icon = utilityTypeIcon(item.type, index);
+                            const isActive =
+                                String(activeType || '').toLowerCase() ===
+                                String(item.type || '').toLowerCase();
+                            const count = Number(item.count) || 0;
+                            return (
+                                <button
+                                    key={item.type}
+                                    type="button"
+                                    onClick={() => onSelectType?.(item.type)}
+                                    className="rounded-2xl border px-3 py-3 text-left transition-shadow hover:shadow-sm"
+                                    style={{
+                                        borderColor: isActive ? color : hexToRgba(color, 0.38),
+                                        background: hexToRgba(color, isActive ? 0.12 : 0.07),
+                                        boxShadow: isActive ? `0 0 0 1px ${hexToRgba(color, 0.28)}` : undefined,
+                                    }}
+                                    title={`${item.label}: ${count} bill${count === 1 ? '' : 's'} · ${periodLabel(month, year)}`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span
+                                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white shadow-sm"
+                                            style={{ backgroundColor: color }}
                                         >
-                                            <span className="line-clamp-2 break-words text-[8px] font-bold uppercase leading-tight tracking-wider text-gray-400">
+                                            <Icon size={18} strokeWidth={2.2} />
+                                        </span>
+                                        <div className="min-w-0">
+                                            <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-[#94A3B8]">
                                                 {item.label}
-                                            </span>
-                                            <span className="mt-1 text-base font-black tabular-nums leading-none text-red-600">
-                                                <AnimatedCounter value={item.count} />
-                                            </span>
-                                            <span className="mt-1 text-[9px] font-bold uppercase tracking-wide text-gray-400">
-                                                {item.count === 1 ? 'Bill' : 'Bills'}
-                                            </span>
-                                        </button>
-
-                                        <div
-                                            className={`flex items-center justify-center rounded-xl border px-2 py-2.5 text-center ${
-                                                isActive
-                                                    ? 'border-blue-200 bg-blue-50/40'
-                                                    : 'border-gray-100 bg-gray-50/50'
-                                            }`}
-                                            title={
-                                                hasBills && Number(item.difference) > 0
-                                                    ? `Difference ${formatBillMoney(item.difference)} / Contract ${formatBillMoney(item.contractAmount || 0)}`
-                                                    : `Contract ${formatBillMoney(item.contractAmount || 0)}`
-                                            }
-                                        >
-                                            {hasBills && Number(item.difference) > 0 ? (
-                                                <span className="text-[11px] font-black tabular-nums leading-tight">
-                                                    <span className="text-rose-600">
-                                                        {formatBillMoney(item.difference || 0)}
-                                                    </span>
-                                                    <span className="font-bold text-gray-400"> / </span>
-                                                    <span className="text-gray-700">
-                                                        {formatBillMoney(item.contractAmount || 0)}
-                                                    </span>
-                                                </span>
-                                            ) : (
-                                                <span className="text-[11px] font-black tabular-nums text-gray-700">
-                                                    {formatBillMoney(item.contractAmount || 0)}
-                                                </span>
-                                            )}
+                                            </p>
+                                            <p
+                                                className="mt-0.5 truncate text-[16px] font-extrabold tabular-nums leading-tight sm:text-[17px]"
+                                                style={{ color }}
+                                            >
+                                                {formatAed(typeAmount(item))}
+                                            </p>
+                                            <p className="mt-0.5 text-[12px] font-medium text-[#64748B]">
+                                                {count} {count === 1 ? 'Bill' : 'Bills'}
+                                            </p>
                                         </div>
                                     </div>
-                                );
-                            })}
-                        </div>
+                                </button>
+                            );
+                        })}
                     </div>
 
-                    <div className="flex w-[9.5rem] shrink-0 flex-col min-h-0 sm:w-[10.5rem] lg:w-[11.5rem]">
-                        <UtilityTypeDistributionChart
-                            slices={typeDistribution}
-                            centerTotal={deductionTotal}
-                            minHeight={100}
-                        />
+                    <div className="min-h-0 flex-1">
+                        <UtilityTypeMonthChart rows={chartRows} types={chartTypes} minHeight={220} />
                     </div>
-                </div>
+                </>
             )}
         </div>
     );

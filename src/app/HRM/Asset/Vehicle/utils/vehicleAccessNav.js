@@ -14,9 +14,97 @@ export function vehicleAccessServiceTypeFromSlug(slug) {
     return VEHICLE_ACCESS_SERVICE_TYPES.find((type) => vehicleAccessServiceSlug(type) === key) || '';
 }
 
+export const VEHICLE_ACCESS_MENU_PARAM = 'accessMenu';
+export const VEHICLE_ACCESS_PANEL_PARAM = 'access';
+export const VEHICLE_ACCESS_PANEL_KEYS = ['service', 'handover', 'fine', 'fuel'];
+
+/** Old standalone routes — they now redirect onto the vehicle list. */
+export const VEHICLE_ACCESS_LEGACY_PATHS = {
+    service: '/HRM/Asset/Vehicle/access-service',
+    handover: '/HRM/Asset/Vehicle/access-handover',
+    fine: '/HRM/Asset/Vehicle/access-fine',
+    fuel: '/HRM/Asset/Vehicle/access-fuel',
+};
+
+export const VEHICLE_ACCESS_PATHS = {
+    service: '/HRM/Asset/Vehicle?access=service',
+    handover: '/HRM/Asset/Vehicle?access=handover',
+    fine: '/HRM/Asset/Vehicle?access=fine',
+    fuel: '/HRM/Asset/Vehicle?access=fuel',
+};
+
+/** Vehicle list URL that opens an access panel in place (not a separate page). */
+export function vehicleAccessPath(panel, listHref = '/HRM/Asset/Vehicle') {
+    const key = String(panel || '').trim().toLowerCase();
+    if (!VEHICLE_ACCESS_PANEL_KEYS.includes(key)) return '';
+    try {
+        const url = new URL(String(listHref || '/HRM/Asset/Vehicle'), 'http://local');
+        if (!url.pathname || url.pathname === '/') {
+            url.pathname = '/HRM/Asset/Vehicle';
+        }
+        url.searchParams.delete(VEHICLE_ACCESS_MENU_PARAM);
+        url.searchParams.set(VEHICLE_ACCESS_PANEL_PARAM, key);
+        if (key !== 'fine') {
+            url.searchParams.delete('vehicleId');
+            url.searchParams.delete('fineIds');
+            url.searchParams.delete('from');
+            url.searchParams.delete('to');
+            url.searchParams.delete('plate');
+        }
+        const qs = url.searchParams.toString();
+        return qs ? `${url.pathname}?${qs}` : `${url.pathname}?${VEHICLE_ACCESS_PANEL_PARAM}=${key}`;
+    } catch {
+        return `/HRM/Asset/Vehicle?${VEHICLE_ACCESS_PANEL_PARAM}=${key}`;
+    }
+}
+
+/** Vehicle list URL that reopens the Vehicle Details menu. */
+export function vehicleAccessMenuHref(listHref = '/HRM/Asset/Vehicle') {
+    try {
+        const url = new URL(String(listHref || '/HRM/Asset/Vehicle'), 'http://local');
+        if (!url.pathname || url.pathname === '/') {
+            url.pathname = '/HRM/Asset/Vehicle';
+        }
+        url.searchParams.delete('access');
+        url.searchParams.delete('serviceType');
+        url.searchParams.delete('handover');
+        url.searchParams.delete('vehicleId');
+        url.searchParams.delete('fineIds');
+        url.searchParams.delete('from');
+        url.searchParams.delete('to');
+        url.searchParams.delete('plate');
+        url.searchParams.set(VEHICLE_ACCESS_MENU_PARAM, '1');
+        const qs = url.searchParams.toString();
+        return qs ? `${url.pathname}?${qs}` : `${url.pathname}?${VEHICLE_ACCESS_MENU_PARAM}=1`;
+    } catch {
+        return `/HRM/Asset/Vehicle?${VEHICLE_ACCESS_MENU_PARAM}=1`;
+    }
+}
+
+export function isVehicleAccessMenuHref(hrefOrSearch) {
+    const raw = String(hrefOrSearch || '').trim();
+    if (!raw) return false;
+    try {
+        const url = raw.startsWith('/') || raw.startsWith('http')
+            ? new URL(raw, 'http://local')
+            : new URL(`http://local/?${raw.replace(/^\?/, '')}`);
+        return url.searchParams.get(VEHICLE_ACCESS_MENU_PARAM) === '1';
+    } catch {
+        return false;
+    }
+}
+
 export function vehicleAccessServiceListPath(type) {
     const slug = vehicleAccessServiceSlug(type);
-    return slug ? `/HRM/Asset/Vehicle/access-service/${encodeURIComponent(slug)}` : '/HRM/Asset/Vehicle/access-service';
+    const href = vehicleAccessPath('service');
+    if (!slug) return href;
+    try {
+        const url = new URL(href, 'http://local');
+        url.searchParams.set('serviceType', slug);
+        return `${url.pathname}?${url.searchParams.toString()}`;
+    } catch {
+        return `${href}&serviceType=${encodeURIComponent(slug)}`;
+    }
 }
 
 export const VEHICLE_ACCESS_SERVICE_PENDING = 'Pending Services';
@@ -25,53 +113,68 @@ export const VEHICLE_ACCESS_SERVICE_COMPLETED = 'Completed Services';
 /** Access Handover filter boxes, in display order. */
 export const VEHICLE_ACCESS_HANDOVER_STATUSES = [
     {
-        key: 'pending-hr',
-        label: 'Pending HR',
-        hint: 'Waiting on HR approval',
-        pending: true,
-    },
-    {
         key: 'pending-inspection',
         label: 'Pending Inspection',
-        hint: 'Inspection handover still in draft',
+        hint: 'Created vehicles with no completed inspection yet',
         pending: true,
     },
     {
-        key: 'completed-inspection',
-        label: 'Completed Inspection',
-        hint: 'Inspection approved by HR',
+        key: 'all-handover',
+        label: 'All Handover',
+        hint: 'Latest handover or inspection per vehicle',
         pending: false,
     },
     {
-        key: 'pending-assignee',
-        label: 'Pending Assignee',
-        hint: 'Waiting for the assignment target to accept',
+        key: 'pending-handover',
+        label: 'Pending Handover',
+        hint: 'Handover waiting on the next person',
         pending: true,
     },
     {
-        key: 'completed-handover',
-        label: 'Completed Handover',
-        hint: 'Approved assignment handovers',
+        key: 'assigned-vehicle',
+        label: 'Assigned Vehicle',
+        hint: 'Vehicles currently assigned',
         pending: false,
     },
     {
         key: 'unassigned-vehicle',
         label: 'Unassigned Vehicle',
         hint: 'Vehicles currently in the unassigned pool',
-        pending: true,
+        pending: false,
+    },
+    {
+        key: 'list-vehicle',
+        label: 'List Vehicle',
+        hint: 'All vehicles in one list',
+        pending: false,
     },
 ];
 
+const VEHICLE_ACCESS_HANDOVER_STATUS_ALIASES = {
+    all: 'all-handover',
+    'pending-hr': 'pending-handover',
+    'pending-assignee': 'pending-handover',
+    'completed-inspection': 'all-handover',
+    'completed-handover': 'all-handover',
+};
+
 export function vehicleAccessHandoverStatusFromSlug(slug) {
-    const key = String(slug || '').trim().toLowerCase();
+    const raw = String(slug || '').trim().toLowerCase();
+    const key = VEHICLE_ACCESS_HANDOVER_STATUS_ALIASES[raw] || raw;
     return VEHICLE_ACCESS_HANDOVER_STATUSES.find((row) => row.key === key) || null;
 }
 
 export function vehicleAccessHandoverListPath(statusKey) {
     const key = String(statusKey || '').trim().toLowerCase();
-    return key
-        ? `/HRM/Asset/Vehicle/access-handover/${encodeURIComponent(key)}`
-        : '/HRM/Asset/Vehicle/access-handover';
+    const href = vehicleAccessPath('handover');
+    if (!key) return href;
+    try {
+        const url = new URL(href, 'http://local');
+        url.searchParams.set('handover', key);
+        return `${url.pathname}?${url.searchParams.toString()}`;
+    } catch {
+        return `${href}&handover=${encodeURIComponent(key)}`;
+    }
 }
 
 export const VEHICLE_ACCESS_FINE_TYPES = [
@@ -93,12 +196,6 @@ export const VEHICLE_ACCESS_FINE_TYPES = [
         hint: 'Vehicle damage claims',
         pending: false,
     },
-    {
-        key: 'loss-damage',
-        label: 'Loss & Damage',
-        hint: 'Loss and damage on fleet assets',
-        pending: false,
-    },
 ];
 
 export function resolveVehicleAccessFineTypeKey(fine) {
@@ -111,8 +208,13 @@ export function resolveVehicleAccessFineTypeKey(fine) {
     return 'other';
 }
 
+export function isVehicleAccessFineTypeIncluded(fine) {
+    return resolveVehicleAccessFineTypeKey(fine) !== 'loss-damage';
+}
+
 export function matchesVehicleAccessFineType(fine, typeKey) {
     const key = String(typeKey || 'all').trim().toLowerCase();
+    if (!isVehicleAccessFineTypeIncluded(fine)) return false;
     if (key === 'all') return true;
     return resolveVehicleAccessFineTypeKey(fine) === key;
 }

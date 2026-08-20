@@ -288,6 +288,39 @@ export function buildExpiryReminderTitle(item = {}) {
 }
 
 /**
+ * Pull the approval stage so Vehicle pending headers can show it at a glance.
+ * New copy: "Current stage: Ready to Service". Older rows: garage / created / HR / Accounts.
+ */
+function vehicleServiceStageFromInboxItem(item = {}) {
+    const e2 = sanitizeNotificationText(item.extra2 || '');
+    const fromCurrent = e2.match(/Current stage:\s*([^.,]+)/i);
+    if (fromCurrent?.[1]) return fromCurrent[1].trim();
+    const youHave = e2.match(/You have\s+(.+?)\s+pending/i);
+    if (youHave?.[1] && !/^complete service$/i.test(youHave[1].trim())) {
+        return youHave[1].trim();
+    }
+    const t = `${item.extra1 || ''} ${e2}`.toLowerCase();
+    if (/\bmake payment\b/.test(t) || /accounts billing/.test(t) || /zoho bill/.test(t)) return 'Make Payment';
+    if (/zoho expense/.test(t)) return 'Zoho Expense';
+    if (/accounts approve|awaiting accounts/.test(t)) return 'Accounts Approve';
+    if (/ready to service/.test(t)) return 'Ready to Service';
+    if (/\bon service\b/.test(t)) return 'On Service';
+    if (/hr approval|awaiting hr/.test(t)) return 'HR Approval';
+    if (/schedule|garage|reschedule/.test(t)) return 'Schedule';
+    if (/created by|please complete/.test(t)) return 'Created';
+    return '';
+}
+
+function appendVehicleServiceStageToTitle(title, item = {}) {
+    const stage = vehicleServiceStageFromInboxItem(item);
+    if (!stage) return title;
+    const head = String(title || '').trim();
+    if (!head) return stage;
+    if (head.toLowerCase().includes(stage.toLowerCase())) return head;
+    return `${head} — ${stage}`;
+}
+
+/**
  * Clear task title for utility (and other) inbox rows so the action is obvious.
  */
 export function buildUnderstandableNotificationTitle(item = {}) {
@@ -322,6 +355,11 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             return 'Utility Bill Payment — Review / Pay';
         case 'Utility Entry Status Change':
             return 'Utility Activate / Deactivate Request';
+        case 'Vehicle Service Request': {
+            const e1 = sanitizeNotificationText(item.extra1 || '');
+            const title = e1 || 'Vehicle Service Request';
+            return appendVehicleServiceStageToTitle(title, item);
+        }
         default:
             return expiryTitle || type || 'Request';
     }
@@ -352,34 +390,34 @@ function baseRow(item = {}, index = 0) {
         title: buildUnderstandableNotificationTitle(item) || type || 'Request',
         source: String(
             item.subjectName ||
-                item.requestedByName ||
-                item.requestedBy ||
-                item.source ||
-                '',
+            item.requestedByName ||
+            item.requestedBy ||
+            item.source ||
+            '',
         ).trim(),
         category: String(item.extra2 || item.extra1 || '').trim() || 'Pending task',
         highlight: '',
         entityName: String(
             item.entityName ||
-                item.asset?.name ||
-                meta?.utilityType ||
-                meta?.entityName ||
-                '',
+            item.asset?.name ||
+            meta?.utilityType ||
+            meta?.entityName ||
+            '',
         ).trim(),
         entityId: String(
             item.entityDisplayId ||
-                item.asset?.assetId ||
-                item.primaryAssetId ||
-                meta?.entryId ||
-                meta?.batchId ||
-                '',
+            item.asset?.assetId ||
+            item.primaryAssetId ||
+            meta?.entryId ||
+            meta?.batchId ||
+            '',
         ).trim(),
         status: String(
             item.status ||
-                item.approvalStatus ||
-                item.loan?.approvalStatus ||
-                item.loan?.status ||
-                'Pending',
+            item.approvalStatus ||
+            item.loan?.approvalStatus ||
+            item.loan?.status ||
+            'Pending',
         ).trim() || 'Pending',
         requestedDate,
         href: '',
@@ -404,6 +442,9 @@ function buildUtilityCategoryLine(item = {}) {
     const type = String(item.type || item.requestType || '').trim();
     const e1 = sanitizeNotificationText(item.extra1 || '');
     const e2 = sanitizeNotificationText(item.extra2 || '');
+    if (type === 'Vehicle Service Request') {
+        return e2 || e1 || 'Pending task';
+    }
     const isUtility =
         type === 'Utility Contract Expiry' ||
         type === 'Utility Bill Payment Reminder' ||

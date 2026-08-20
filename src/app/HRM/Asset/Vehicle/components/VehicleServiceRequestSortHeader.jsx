@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function VehicleServiceRequestSortHeader({
     label,
@@ -13,7 +14,7 @@ export default function VehicleServiceRequestSortHeader({
     const isActive = sortKey === columnKey;
 
     return (
-        <th className={`px-4 py-3 whitespace-nowrap ${className}`}>
+        <th className={cn('px-4 py-3 whitespace-nowrap', className)}>
             <button
                 type="button"
                 onClick={() => onSort(columnKey)}

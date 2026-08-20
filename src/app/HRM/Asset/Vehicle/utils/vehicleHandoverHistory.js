@@ -208,11 +208,19 @@ function resolveFleetHandoverLifecycle(entry, vehicle, options = {}) {
     // Approved wins over a leftover HR flow so no-edit handovers do not stay "Accepted".
     if (lifecycle === 'approved') return 'approved';
 
+    const linkedStage = isLinked ? String(flow.stage || '').toLowerCase() : '';
+    const liveHrFlow =
+        linkedStage === 'hr' || linkedStage === 'management' || linkedStage === 'hod';
+
+    // Target already accepted and HR is not in play — finalize as Approved.
+    if (vehicleStatus === 'Accepted' && !liveHrFlow && lifecycle !== 'rejected') {
+        return 'approved';
+    }
+
     // Current in-flight handover: trust the live flow, not leftover HR dates.
     if (isLinked && lifecycle !== 'rejected') {
-        const stage = String(flow.stage || '').toLowerCase();
-        if (stage === 'hr' || stage === 'management' || stage === 'hod') return 'accepted';
-        if (stage === 'target' || !stage) return 'pending';
+        if (liveHrFlow) return 'accepted';
+        if (linkedStage === 'target' || !linkedStage) return 'pending';
         return 'pending';
     }
 
@@ -550,6 +558,16 @@ export function getHandoverTargetActorLabel(entry) {
     return getHandoverToLabel(entry);
 }
 
+function isHandoverAcceptOnBehalfComment(value) {
+    const text = String(value || '').trim().toLowerCase();
+    if (!text) return false;
+    return (
+        text.startsWith('accepted by manager on behalf') ||
+        text.startsWith('accepted by admin officer on behalf') ||
+        text.startsWith('accepted by hr on behalf')
+    );
+}
+
 export function getHandoverReason(entry, vehicle = null) {
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
         if (entry?.details?.reinspection === true) return 'Reinspection';
@@ -565,7 +583,7 @@ export function getHandoverReason(entry, vehicle = null) {
 
     const candidates = [
         entry?.details?.assignmentReason,
-        entry?.comments,
+        isHandoverAcceptOnBehalfComment(entry?.comments) ? '' : entry?.comments,
         isLinkedHandover ? vehicle?.pendingActionDetails?.assignmentReason : '',
         entry?.details?.reason,
         entry?.details?.rejectionReason,
