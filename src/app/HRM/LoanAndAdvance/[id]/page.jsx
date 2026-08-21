@@ -1104,16 +1104,16 @@ export default function LoanRequestDetails() {
                                                         let waitingForName = '';
                                                         if (s === 'Pending' || s === 'Pending HR') {
                                                             role = 'HR';
-                                                            waitingForName = loan.hrHODName || loan.hodName;
+                                                            waitingForName = loan.hrHODName && loan.hrHODName !== 'Unknown' ? loan.hrHODName : '';
                                                         } else if (s === 'Pending Accounts') {
                                                             role = 'Accounts';
-                                                            waitingForName = loan.accountsHODName;
+                                                            waitingForName = loan.accountsHODName && loan.accountsHODName !== 'Unknown' ? loan.accountsHODName : '';
                                                         } else if (s === 'Pending Authorization') {
                                                             role = 'Management';
-                                                            waitingForName = loan.ceoName;
+                                                            waitingForName = loan.ceoName && loan.ceoName !== 'Unknown' ? loan.ceoName : '';
                                                         }
                                                         let label = '';
-                                                        if (s === 'Draft') label = 'Waiting for Requester';
+                                                        if (s === 'Draft') label = 'Waiting for Creator';
                                                         else if (s === 'Rejected') label = 'Rejected';
                                                         else if (s === 'Cancelled') label = 'Cancelled';
                                                         else if (waitingForName) label = `Waiting for ${role}: ${waitingForName}`;

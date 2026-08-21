@@ -390,10 +390,10 @@ export default function UtilityBillReviewModal({
     const [reloadKey, setReloadKey] = useState(0);
     const [editOpen, setEditOpen] = useState(false);
     const [editSaving, setEditSaving] = useState(false);
-    const { employeeOptions, companyOptions } = usePayByPartyOptions(isOpen);
+    const { employeeOptions, companyOptions } = usePayByPartyOptions(isOpen && Boolean(batch));
 
-    // Only re-fetch when the batch opens / changes — not when parent entry lists reload
-    // (that was re-hitting /UtilityBill/batch and spamming 404s for stale links).
+    // Open as soon as the batch returns. Extra entry/bill fetches run in the background
+    // so a notification click is not stuck on "Loading…" waiting for occupancy lists.
     useEffect(() => {
         if (!isOpen || !batchId) return;
         let cancelled = false;
@@ -413,100 +413,91 @@ export default function UtilityBillReviewModal({
                 setBatch(data);
 
                 const utilityType = String(data?.utilityType || '').trim();
-                let allEntries =
-                    Array.isArray(entriesProp) && entriesProp.length ? entriesProp : [];
-                if (!allEntries.length) {
-                    try {
-                        allEntries = await fetchUtilityEntries(
-                            utilityType ? { type: utilityType } : {},
-                        );
-                    } catch {
-                        allEntries = [];
-                    }
-                }
-                const typeEntries = allEntries.filter(
-                    (e) =>
-                        String(e?.type || '')
-                            .trim()
-                            .toLowerCase() === utilityType.toLowerCase(),
+                const parentEntries = Array.isArray(entriesProp) ? entriesProp : [];
+                const parentBills = Array.isArray(existingBillsProp) ? existingBillsProp : [];
+                const typeKey = utilityType.toLowerCase();
+                const typeEntriesNow = parentEntries.filter(
+                    (e) => String(e?.type || '').trim().toLowerCase() === typeKey,
                 );
 
-                let typeAttachment = utilityAttachmentProp;
-                if (!typeAttachment?.name) {
-                    try {
-                        const utilities = await fetchUtilityConfigs();
-                        const util = utilities.find(
-                            (u) =>
-                                String(u?.type || '')
-                                    .trim()
-                                    .toLowerCase() === utilityType.toLowerCase(),
-                        );
-                        typeAttachment = util?.attachment || null;
-                    } catch {
-                        typeAttachment = null;
-                    }
-                }
-                setUtilityAttachment(typeAttachment?.name ? typeAttachment : null);
-                setReviewEntries(typeEntries);
-
-                let billsForType = [];
-                if (utilityType) {
-                    try {
-                        const billsRes = await axiosInstance.get('/UtilityBill', {
-                            params: { utilityType },
-                            skipToast: true,
-                        });
-                        billsForType = Array.isArray(billsRes.data?.bills)
-                            ? billsRes.data.bills
-                            : [];
-                    } catch {
-                        billsForType = Array.isArray(existingBillsProp)
-                            ? existingBillsProp
-                            : [];
-                    }
-                } else if (Array.isArray(existingBillsProp)) {
-                    billsForType = existingBillsProp;
-                }
-                // billsForType used for occupied-month checks below
-
-                const batchBillIds = (data?.bills || [])
-                    .map((b) => b?._id)
-                    .filter(Boolean)
-                    .map(String);
-                const blockedEntryIds = entryIdsWithOccupiedBillForMonth(
-                    billsForType,
-                    data?.billMonth,
-                    { excludeBillIds: batchBillIds },
-                );
-
-                const built = buildReviewRows(typeEntries, data?.bills || []);
-                const withBlocks = built.map((r) => {
-                    const blocked = blockedEntryIds.has(String(r.entryId || ''));
-                    if (!blocked) return { ...r, blockedByExisting: false };
-                    return {
-                        ...r,
-                        blockedByExisting: true,
-                        selected: false,
-                    };
-                });
-                // Move blocked / unchecked rows to the end (same as Add Bills uncheck)
-                const active = withBlocks.filter((r) => r.selected);
-                const rest = withBlocks.filter((r) => !r.selected);
-                setRows([...active, ...rest]);
-
-                if (blockedEntryIds.size > 0) {
-                    const payStage =
-                        String(data?.status || '') === 'Approved' ||
-                        Boolean(data?.canPay);
-                    setError(
-                        payStage
-                            ? `${blockedEntryIds.size} other account(s) already have Approved / Paid for ${
-                                  data?.billMonth || 'this month'
-                              } — shown grayed out (not part of this Pay batch).`
-                            : `${blockedEntryIds.size} account(s) already have Approved / Paid for ${
-                                  data?.billMonth || 'this month'
-                              } — unchecked and excluded from Approve.`,
+                const paint = (typeEntries, billsForType) => {
+                    const batchBillIds = (data?.bills || [])
+                        .map((b) => b?._id)
+                        .filter(Boolean)
+                        .map(String);
+                    const blockedEntryIds = entryIdsWithOccupiedBillForMonth(
+                        billsForType,
+                        data?.billMonth,
+                        { excludeBillIds: batchBillIds },
                     );
+                    const built = buildReviewRows(typeEntries, data?.bills || []);
+                    const withBlocks = built.map((r) => {
+                        const blocked = blockedEntryIds.has(String(r.entryId || ''));
+                        if (!blocked) return { ...r, blockedByExisting: false };
+                        return {
+                            ...r,
+                            blockedByExisting: true,
+                            selected: false,
+                        };
+                    });
+                    const active = withBlocks.filter((r) => r.selected);
+                    const rest = withBlocks.filter((r) => !r.selected);
+                    setReviewEntries(typeEntries);
+                    setRows([...active, ...rest]);
+                    if (blockedEntryIds.size > 0) {
+                        const payStage =
+                            String(data?.status || '') === 'Approved' || Boolean(data?.canPay);
+                        setError(
+                            payStage
+                                ? `${blockedEntryIds.size} other account(s) already have Approved / Paid for ${
+                                      data?.billMonth || 'this month'
+                                  } — shown grayed out (not part of this Pay batch).`
+                                : `${blockedEntryIds.size} account(s) already have Approved / Paid for ${
+                                      data?.billMonth || 'this month'
+                                  } — unchecked and excluded from Approve.`,
+                        );
+                    }
+                };
+
+                paint(typeEntriesNow, parentBills);
+                if (utilityAttachmentProp?.name) {
+                    setUtilityAttachment(utilityAttachmentProp);
+                }
+                setLoading(false);
+
+                const needEntries = typeEntriesNow.length === 0;
+                const needBills = parentBills.length === 0;
+                const needAttach = !utilityAttachmentProp?.name;
+                if (!needEntries && !needBills && !needAttach) return;
+
+                const [fetchedEntries, fetchedBills, utilities] = await Promise.all([
+                    needEntries
+                        ? fetchUtilityEntries(utilityType ? { type: utilityType } : {}).catch(() => [])
+                        : Promise.resolve(typeEntriesNow),
+                    needBills && utilityType
+                        ? axiosInstance
+                              .get('/UtilityBill', { params: { utilityType }, skipToast: true })
+                              .then((r) => (Array.isArray(r.data?.bills) ? r.data.bills : []))
+                              .catch(() => parentBills)
+                        : Promise.resolve(parentBills),
+                    needAttach
+                        ? fetchUtilityConfigs().catch(() => [])
+                        : Promise.resolve([]),
+                ]);
+                if (cancelled) return;
+
+                const typeEntries = (Array.isArray(fetchedEntries) ? fetchedEntries : []).filter(
+                    (e) => String(e?.type || '').trim().toLowerCase() === typeKey,
+                );
+                paint(typeEntries.length ? typeEntries : typeEntriesNow, fetchedBills);
+                if (needAttach) {
+                    const util = (Array.isArray(utilities) ? utilities : []).find(
+                        (u) =>
+                            String(u?.type || '')
+                                .trim()
+                                .toLowerCase() === typeKey,
+                    );
+                    setUtilityAttachment(util?.attachment?.name ? util.attachment : null);
                 }
             } catch (err) {
                 if (!cancelled) {

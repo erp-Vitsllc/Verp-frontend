@@ -1,15 +1,15 @@
 /** Shared payroll dashboard colors, formatters, and empty chart fallbacks. */
 
 export const PAYROLL_COLORS = {
-    blue: '#1D5FDB',
-    teal: '#0B8A80',
-    orange: '#C98A0A',
-    coral: '#D13E38',
-    slate: '#4F6B82',
-    grid: '#EEF2F6',
-    axis: '#94A3B8',
-    title: '#1E293B',
-    muted: '#94A3B8',
+    blue: '#0877EF',
+    teal: '#16B8A5',
+    orange: '#F5A000',
+    coral: '#FF4949',
+    slate: '#778292',
+    grid: '#ECEEF2',
+    axis: '#4D535D',
+    title: '#111318',
+    muted: '#8B9099',
 };
 
 export const PAYROLL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -72,19 +72,19 @@ export function niceAxis(values, tickCount = 4, fallbackMax = 10) {
 
 export function withLeaveColors(rows = []) {
     const colors = {
-        Sick: PAYROLL_COLORS.coral,
-        Authorized: PAYROLL_COLORS.teal,
-        Unauthorized: PAYROLL_COLORS.orange,
+        Sick: '#FF4949',
+        Authorized: '#19B8A7',
+        Unauthorized: '#FFA30B',
     };
     return rows.map((row) => ({ ...row, color: colors[row.name] || PAYROLL_COLORS.slate }));
 }
 
 export function withDeductionColors(rows = []) {
     const colors = {
-        'Loss of Pay': PAYROLL_COLORS.coral,
-        Loan: PAYROLL_COLORS.teal,
-        Advance: PAYROLL_COLORS.orange,
-        Fine: PAYROLL_COLORS.slate,
+        'Loss of Pay': '#FF4949',
+        Loan: '#18B7A7',
+        Advance: '#FFA20B',
+        Fine: '#778292',
     };
     return rows.map((row) => ({ ...row, color: colors[row.name] || PAYROLL_COLORS.slate }));
 }

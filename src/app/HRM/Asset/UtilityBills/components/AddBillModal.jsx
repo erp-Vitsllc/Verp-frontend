@@ -11,13 +11,12 @@ import {
     isEntryActive,
     loadUtilityBillDraft,
     saveUtilityBillDraft,
+    entryRequiresMonthlyBill,
 } from '../utils/utilityBillsStorage';
 import {
-    entryIdsWithOccupiedBillForMonth,
-    filterBillableEntriesForMonth,
     filterEntriesAvailableForBillMonth,
-    isBillMonthSelectable,
-    isMonthFullyOccupied,
+    normalizeBillMonthKey,
+    entryAvailableFromMonth,
 } from '../utils/utilityBillStats';
 import { openUtilityAttachment } from '../utils/openUtilityAttachment';
 import { ERP_PDF_ACCEPT, validateErpPdfFile } from '@/utils/uploadFileTypes';
@@ -206,8 +205,36 @@ function titleFromBillMonth(billMonth) {
     return currentMonthTitle(new Date(y, m - 1, 1));
 }
 
+function occupiesBillMonth(status) {
+    const s = String(status || '').trim();
+    return Boolean(s) && s !== 'Rejected';
+}
+
+function billedIdsByMonthMap(bills = []) {
+    const map = new Map();
+    (bills || []).forEach((bill) => {
+        if (!occupiesBillMonth(bill?.status)) return;
+        const ym = normalizeBillMonthKey(bill?.billMonth);
+        const id = String(bill?.entryId || '');
+        if (!ym || !id) return;
+        if (!map.has(ym)) map.set(ym, new Set());
+        map.get(ym).add(id);
+    });
+    return map;
+}
+
+function billedIdsForMonth(bills, billMonth) {
+    const ym = normalizeBillMonthKey(billMonth);
+    if (!ym) return new Set();
+    return billedIdsByMonthMap(bills).get(ym) || new Set();
+}
+
 function filterUnbilledEntries(entries, existingBills, billMonth) {
-    return filterBillableEntriesForMonth(entries, existingBills, billMonth);
+    const occupied = billedIdsForMonth(existingBills, billMonth);
+    return filterEntriesAvailableForBillMonth(entries, billMonth).filter((entry) => {
+        if (!entryRequiresMonthlyBill(entry)) return false;
+        return !occupied.has(String(entry?.id || ''));
+    });
 }
 
 function isMonthBeforeCurrent(ym, currentYm = currentBillMonthValue()) {
@@ -215,6 +242,17 @@ function isMonthBeforeCurrent(ym, currentYm = currentBillMonthValue()) {
     const b = String(currentYm || '');
     if (!/^\d{4}-\d{2}$/.test(a) || !/^\d{4}-\d{2}$/.test(b)) return false;
     return a < b;
+}
+
+function monthHasUnbilled(entries, billedMap, ym) {
+    if (!/^\d{4}-\d{2}$/.test(String(ym || ''))) return false;
+    const occupied = billedMap.get(ym) || new Set();
+    return (entries || []).some((entry) => {
+        if (!entryRequiresMonthlyBill(entry)) return false;
+        const from = entryAvailableFromMonth(entry);
+        if (from && from > ym) return false;
+        return !occupied.has(String(entry?.id || ''));
+    });
 }
 
 /**
@@ -229,9 +267,10 @@ function findFirstOpenMonth(entries, bills, preferredMonth) {
             : currentYm;
     }
 
+    const billedMap = billedIdsByMonthMap(bills);
     let ym = currentYm;
     for (let i = 0; i < 48; i++) {
-        if (isBillMonthSelectable(entries, bills, ym)) return ym;
+        if (monthHasUnbilled(entries, billedMap, ym)) return ym;
         ym = nextBillMonthValue(ym);
     }
     return currentYm;
@@ -242,7 +281,7 @@ function findFirstOpenMonth(entries, bills, preferredMonth) {
  * that is still unbilled. Months with no eligible rows (or fully billed) are disabled.
  */
 function isMonthSelectable(ym, entries, bills) {
-    return isBillMonthSelectable(entries, bills, ym);
+    return monthHasUnbilled(entries, billedIdsByMonthMap(bills), ym);
 }
 
 /**
@@ -1008,6 +1047,7 @@ export default function AddBillModal({
     const [draftLoaded, setDraftLoaded] = useState(false);
     /** Bills submitted in this modal session (entryId+month) until parent prop refreshes. */
     const [sessionBilled, setSessionBilled] = useState([]);
+    const [freshBills, setFreshBills] = useState(null);
     const [monthPickerOpen, setMonthPickerOpen] = useState(false);
     const [pickerYear, setPickerYear] = useState(() => yearFromBillMonth(currentBillMonthValue()));
     const [expenseAccounts, setExpenseAccounts] = useState([]);
@@ -1021,6 +1061,7 @@ export default function AddBillModal({
     const billMonthRef = useRef(billMonth);
     const rowsRef = useRef([]);
     const didInitMonthRef = useRef(false);
+    const occupancyFpRef = useRef('');
     const { toast } = useToast();
     const { employeeOptions, companyOptions } = usePayByPartyOptions(isOpen);
 
@@ -1087,33 +1128,36 @@ export default function AddBillModal({
         if (!isOpen) {
             setExpenseAccounts([]);
             setExpenseAccountId('');
-            return;
+            return undefined;
         }
 
         let cancelled = false;
-        (async () => {
-            try {
-                const response = await axiosInstance.get('/zoho/bills/support', {
-                    skipToast: true,
-                    timeout: 45000,
-                });
-                if (cancelled) return;
-                const mapped = mapZohoPaymentAccounts(response?.data?.data?.accounts);
-                setExpenseAccounts(mapped);
-                if (mapped.length) {
-                    setExpenseAccountId(
-                        (prev) => prev || pickDefaultExpenseAccount(mapped)?.id || '',
-                    );
+        const timer = window.setTimeout(() => {
+            (async () => {
+                try {
+                    const response = await axiosInstance.get('/zoho/bills/support', {
+                        skipToast: true,
+                        timeout: 45000,
+                    });
+                    if (cancelled) return;
+                    const mapped = mapZohoPaymentAccounts(response?.data?.data?.accounts);
+                    setExpenseAccounts(mapped);
+                    if (mapped.length) {
+                        setExpenseAccountId(
+                            (prev) => prev || pickDefaultExpenseAccount(mapped)?.id || '',
+                        );
+                    }
+                } catch {
+                    if (!cancelled) {
+                        setExpenseAccounts([]);
+                    }
                 }
-            } catch {
-                if (!cancelled) {
-                    setExpenseAccounts([]);
-                }
-            }
-        })();
+            })();
+        }, 0);
 
         return () => {
             cancelled = true;
+            window.clearTimeout(timer);
         };
     }, [isOpen]);
 
@@ -1123,9 +1167,15 @@ export default function AddBillModal({
         return entries.filter((e) => isEntryActive(e));
     }, [entries]);
 
+    const occupancyBills = useMemo(() => {
+        const fresh = Array.isArray(freshBills) ? freshBills : [];
+        const fromParent = Array.isArray(existingBills) ? existingBills : [];
+        return fresh.length >= fromParent.length ? fresh : fromParent;
+    }, [freshBills, existingBills]);
+
     const mergedBills = useMemo(
-        () => [...(existingBills || []), ...(sessionBilled || [])],
-        [existingBills, sessionBilled],
+        () => [...occupancyBills, ...(sessionBilled || [])],
+        [occupancyBills, sessionBilled],
     );
 
     listEntriesRef.current = listEntries;
@@ -1151,12 +1201,15 @@ export default function AddBillModal({
 
     const currentYm = useMemo(() => currentBillMonthValue(), []);
 
+    const billedByMonth = useMemo(() => billedIdsByMonthMap(mergedBills), [mergedBills]);
+
     const monthOccupancy = useMemo(() => {
         const map = new Map();
+        if (!monthPickerOpen) return map;
         for (let m = 0; m < 12; m++) {
             const ym = monthKeyForYearMonth(pickerYear, m);
             const available = filterEntriesAvailableForBillMonth(listEntries, ym);
-            const occupied = entryIdsWithOccupiedBillForMonth(mergedBills, ym);
+            const occupied = billedByMonth.get(ym) || new Set();
             const unbilledCount = available.filter(
                 (e) => !occupied.has(String(e?.id || '')),
             ).length;
@@ -1178,22 +1231,23 @@ export default function AddBillModal({
             });
         }
         return map;
-    }, [pickerYear, listEntries, mergedBills, currentYm]);
+    }, [pickerYear, listEntries, billedByMonth, currentYm, monthPickerOpen]);
 
     const applyBillMonth = useCallback((ym, { preserveDraft = false, draftRows = [], closePicker = true } = {}) => {
         if (!/^\d{4}-\d{2}$/.test(String(ym || ''))) return;
         const entries = listEntriesRef.current;
         const bills = mergedBillsRef.current;
         const available = filterEntriesAvailableForBillMonth(entries, ym);
+        const occupied = billedIdsForMonth(bills, ym);
         if (!available.length) {
             setError(
                 `${titleFromBillMonth(ym)} has no accounts — none were created on or before this month.`,
             );
             return;
         }
-        if (isMonthFullyOccupied(available, bills, ym)) {
+        if (available.length > 0 && available.every((e) => occupied.has(String(e?.id || '')))) {
             setError(
-                `${titleFromBillMonth(ym)} is complete — every eligible account already has an Approved / Paid bill.`,
+                `${titleFromBillMonth(ym)} is complete — every eligible account already has a bill.`,
             );
             return;
         }
@@ -1243,7 +1297,7 @@ export default function AddBillModal({
             setRows(buildRowsFromEntries(unbilled, scopedDraft));
             setInfo(nextInfo);
         };
-        // Paint the filtered month on the same click — don't wait for later effects.
+        occupancyFpRef.current = `${ym}:${entries.length}:${[...occupied].sort().join(',')}`;
         if (closePicker) flushSync(commit);
         else commit();
     }, []);
@@ -1262,15 +1316,37 @@ export default function AddBillModal({
     }, [monthPickerOpen]);
 
     useEffect(() => {
+        if (!isOpen || !utilityType || isViewMode || isEditMode) return undefined;
+        let cancelled = false;
+        axiosInstance
+            .get('/UtilityBill', { params: { utilityType, occupancy: 1 }, skipToast: true })
+            .then((res) => {
+                if (cancelled) return;
+                const bills = Array.isArray(res.data?.bills) ? res.data.bills : [];
+                setFreshBills(bills);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, utilityType, isViewMode, isEditMode]);
+
+    useEffect(() => {
         if (!isOpen) {
             didInitMonthRef.current = false;
+            occupancyFpRef.current = '';
             setMonthPickerOpen(false);
+            setFreshBills(null);
             return;
         }
 
         if (didInitMonthRef.current) {
             if (viewBill && !isEditMode) return;
             if (isEditMode) return;
+            const occupied = billedIdsForMonth(mergedBills, billMonthRef.current);
+            const fp = `${billMonthRef.current}:${listEntries.length}:${[...occupied].sort().join(',')}`;
+            if (fp === occupancyFpRef.current) return;
+            occupancyFpRef.current = fp;
             applyBillMonth(billMonthRef.current, {
                 preserveDraft: true,
                 draftRows: rowsRef.current,
@@ -1421,9 +1497,9 @@ export default function AddBillModal({
                 setInfo('');
             }
         }
-        // Re-filter when bills/entries arrive so the first month click is not stale.
+        // Re-filter only when occupancy actually changes (billed ids for this month).
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, listEntries, existingBills, monthlyRental, utilityType, viewBill, editBills, isEditMode, initialBillMonth, applyBillMonth]);
+    }, [isOpen, listEntries, occupancyBills, monthlyRental, utilityType, viewBill, editBills, isEditMode, initialBillMonth, applyBillMonth]);
 
     const allSelected = rows.length > 0 && rows.every((r) => r.selected);
     const someSelected = rows.some((r) => r.selected);
@@ -1717,7 +1793,26 @@ export default function AddBillModal({
             return;
         }
 
+        const selectedEntryIds = rows
+            .filter((r) => r.selected)
+            .map((r) => String(r.entryId || ''))
+            .filter(Boolean);
+
         try {
+            if (selectedEntryIds.length) {
+                setSessionBilled((prev) => [
+                    ...(prev || []),
+                    ...selectedEntryIds.map((entryId) => ({
+                        entryId,
+                        billMonth: snapshotMonth,
+                        status: 'Pending Accounts',
+                    })),
+                ]);
+                setRows((prev) =>
+                    prev.filter((row) => !selectedEntryIds.includes(String(row.entryId || ''))),
+                );
+            }
+
             const result = await onSubmit?.({
                 billMonth: snapshotMonth,
                 billMonthLabel: titleFromBillMonth(snapshotMonth),
@@ -1743,7 +1838,21 @@ export default function AddBillModal({
                 editBatchId: isEditMode ? String(editBatchId || '') : '',
                 isEdit: isEditMode,
             });
-            if (result === false || result?.ok === false) return;
+            if (result === false || result?.ok === false) {
+                if (selectedEntryIds.length) {
+                    setRows(rows);
+                    setSessionBilled((prev) =>
+                        (prev || []).filter(
+                            (bill) =>
+                                !(
+                                    String(bill?.billMonth || '') === snapshotMonth &&
+                                    selectedEntryIds.includes(String(bill?.entryId || ''))
+                                ),
+                        ),
+                    );
+                }
+                return;
+            }
 
             toast({
                 title: isEditMode ? 'Saved' : 'Completed',
@@ -1753,6 +1862,18 @@ export default function AddBillModal({
             });
             onClose?.();
         } catch {
+            if (selectedEntryIds.length) {
+                setRows(rows);
+                setSessionBilled((prev) =>
+                    (prev || []).filter(
+                        (bill) =>
+                            !(
+                                String(bill?.billMonth || '') === snapshotMonth &&
+                                selectedEntryIds.includes(String(bill?.entryId || ''))
+                            ),
+                    ),
+                );
+            }
             // Parent toasts errors
         }
     };

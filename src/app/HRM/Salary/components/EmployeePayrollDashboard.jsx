@@ -91,7 +91,7 @@ function SummaryCard({ title, value, icon: Icon, iconBg, iconColor }) {
 function MonthlyBarChart({ data, color, axis }) {
     return (
         <RechartsBox height={240} minHeight={220}>
-            <BarChart data={data} margin={{ top: 22, right: 8, left: 4, bottom: 4 }}>
+            <BarChart data={data} margin={{ top: 22, right: 8, left: 4, bottom: 4 }} barCategoryGap="8%">
                 <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} vertical={false} />
                 <XAxis
                     dataKey="month"
@@ -113,7 +113,7 @@ function MonthlyBarChart({ data, color, axis }) {
                     formatter={(value) => [`AED ${Math.round(Number(value) || 0).toLocaleString('en-US')}`, 'Amount']}
                     cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
                 />
-                <Bar dataKey="value" fill={color} radius={[6, 6, 0, 0]} maxBarSize={22}>
+                <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]} maxBarSize={36} minPointSize={7}>
                     <LabelList
                         dataKey="value"
                         position="top"
@@ -202,7 +202,7 @@ export default function EmployeePayrollDashboard({ data }) {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
                 <ChartCard title="1) Employee Monthly Salary — Year Comparison">
                     <RechartsBox height={240} minHeight={220}>
-                        <BarChart data={salaryYearComparison} margin={{ top: 28, right: 8, left: 4, bottom: 4 }} barGap={1} barCategoryGap="18%">
+                        <BarChart data={salaryYearComparison} margin={{ top: 28, right: 8, left: 4, bottom: 4 }} barGap={2} barCategoryGap="10%">
                             <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} vertical={false} />
                             <XAxis
                                 dataKey="month"
@@ -243,7 +243,8 @@ export default function EmployeePayrollDashboard({ data }) {
                                     name={String(y)}
                                     fill={YEAR_COLORS[idx] || PAYROLL_COLORS.blue}
                                     radius={[3, 3, 0, 0]}
-                                    maxBarSize={12}
+                                    maxBarSize={20}
+                                    minPointSize={6}
                                 />
                             ))}
                         </BarChart>

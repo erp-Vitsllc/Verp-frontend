@@ -79,6 +79,20 @@ export function buildUtilityPaymentDayAddBillPath(entryId, billMonth = '') {
     });
 }
 
+/** Bill details page for an approval notification (no review modal). */
+export function buildUtilityBillDetailsPath(entryId, { billId } = {}) {
+    const id = String(entryId || '').trim();
+    if (!id) return '';
+    return appendAssetQueryParams(`/HRM/Asset/UtilityBills/details/${encodeURIComponent(id)}`, {
+        ...(billId ? { billId: String(billId) } : {}),
+    });
+}
+
+function preferUtilityBillDetailsPath(rawPath) {
+    const path = normalizeNotificationDestinationPath(rawPath);
+    return path.includes('/HRM/Asset/UtilityBills/details/') ? path : '';
+}
+
 /** Bulk AC assignment group id from a dashboard / pending-inbox row, or ''. */
 export function resolveBulkAssignmentGroupId(rawItem = {}) {
     const item = normalizeAssetNotificationItem(rawItem);
@@ -479,22 +493,29 @@ export function buildAssetNotificationPath(rawItem) {
                 });
             }
         }
+        const isBillPaymentApproval =
+            type.includes('utility bill payment') &&
+            !type.includes('reminder') &&
+            !type.includes('contract');
+        if (isBillPaymentApproval) {
+            const fromMeta = buildUtilityBillDetailsPath(meta?.entryId, { billId: meta?.billId });
+            if (fromMeta) return fromMeta;
+            const fromDetails = preferUtilityBillDetailsPath(meta?.detailsPath);
+            if (fromDetails) return fromDetails;
+            const fromReview = preferUtilityBillDetailsPath(meta?.reviewPath);
+            if (fromReview) return fromReview;
+            const batchId = String(meta?.batchId || item.id || '').trim();
+            if (batchId) {
+                return `/HRM/Asset/UtilityBills?batchId=${encodeURIComponent(batchId)}`;
+            }
+        }
         if (meta?.reviewPath) return normalizeNotificationDestinationPath(meta.reviewPath);
         if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
         if (meta?.statusChangeId) {
             return `/HRM/Asset/UtilityBills?statusChangeId=${encodeURIComponent(String(meta.statusChangeId))}&review=1`;
         }
-        // requestId on DashboardAction is the batchId for Utility Bill Payment
-        const batchId = String(meta?.batchId || item.id || '').trim();
-        if (batchId && type.includes('utility bill payment') && !type.includes('reminder') && !type.includes('contract')) {
-            const q = new URLSearchParams({ batchId, review: '1' });
-            if (meta?.utilityType) q.set('type', String(meta.utilityType));
-            if (meta?.billMonth) q.set('billMonth', String(meta.billMonth));
-            return `/HRM/Asset/UtilityBills?${q.toString()}`;
-        }
         if (meta?.entryId) {
-            const billQ = meta.billId ? `?billId=${encodeURIComponent(String(meta.billId))}` : '';
-            return `/HRM/Asset/UtilityBills/details/${encodeURIComponent(String(meta.entryId))}${billQ}`;
+            return buildUtilityBillDetailsPath(meta.entryId, { billId: meta.billId });
         }
         return '/HRM/Asset/UtilityBills';
     }

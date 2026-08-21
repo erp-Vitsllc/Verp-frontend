@@ -361,6 +361,7 @@ function UtilityBillDetailsPageContent() {
     const [currentUser, setCurrentUser] = useState(null);
     const [flowchartRows, setFlowchartRows] = useState([]);
     const [reviewBatchId, setReviewBatchId] = useState('');
+    const [approvalActing, setApprovalActing] = useState(false);
     const [statusChangeOpen, setStatusChangeOpen] = useState(false);
     const [statusChangeSaving, setStatusChangeSaving] = useState(false);
     const [pendingStatusChange, setPendingStatusChange] = useState(null);
@@ -503,6 +504,17 @@ function UtilityBillDetailsPageContent() {
         const sortedBills = (bills || [])
             .slice()
             .sort((a, b) => billSortTime(b) - billSortTime(a));
+        const focused = focusBillId
+            ? sortedBills.find((bill) => String(bill._id) === String(focusBillId))
+            : null;
+        if (
+            focused &&
+            ['Pending Accounts', 'Pending HR', 'Approved', 'Paid', 'Rejected'].includes(
+                String(focused.status),
+            )
+        ) {
+            return focused;
+        }
         return (
             sortedBills.find((bill) =>
                 ['Pending Accounts', 'Pending HR'].includes(String(bill.status)),
@@ -512,7 +524,7 @@ function UtilityBillDetailsPageContent() {
             ) ||
             null
         );
-    }, [bills]);
+    }, [bills, focusBillId]);
 
     const approvalIsPending = ['Pending Accounts', 'Pending HR'].includes(
         String(latestApprovalRequest?.status || ''),
@@ -520,6 +532,11 @@ function UtilityBillDetailsPageContent() {
     const approvalCanAct = Boolean(
         approvalIsPending && latestApprovalRequest?.canApproveReject,
     );
+    const approvalCanPay = Boolean(
+        String(latestApprovalRequest?.status || '') === 'Approved' &&
+            latestApprovalRequest?.canPay,
+    );
+    const approvalCanEdit = approvalCanAct || approvalCanPay;
     const approvalRequesterName =
         String(latestApprovalRequest?.requestedByName || '').trim() || '—';
     const approvalEmployeeName = approvalIsPending
@@ -819,7 +836,10 @@ function UtilityBillDetailsPageContent() {
             }
             invalidateAssetPendingInbox('tools');
             clearModuleNotificationFeedsCache();
-            await loadBills();
+            if (payload.billMonth) {
+                setBillsBrowseMonth(payload.billMonth);
+            }
+            loadBills();
             return { ok: true };
         } catch (err) {
             toast({
@@ -943,6 +963,80 @@ function UtilityBillDetailsPageContent() {
 
     const closeBillReview = () => {
         setReviewBatchId('');
+    };
+
+    const handleHeaderApproval = async (decision) => {
+        const id = latestApprovalRequest?.batchId || latestApprovalRequest?._id;
+        if (!id || !approvalCanAct || approvalActing) return;
+        if (decision === 'reject') {
+            const ok = window.confirm('Reject this bill request?');
+            if (!ok) return;
+        }
+        setApprovalActing(true);
+        try {
+            const res = await axiosInstance.put(`/UtilityBill/batch/${id}/respond`, { decision });
+            const label = String(res.data?.statusLabel || res.data?.status || '');
+            const returnedTo = String(res.data?.returnedTo || '').toLowerCase();
+            const zohoSync = Array.isArray(res.data?.zohoSync) ? res.data.zohoSync : [];
+            const zohoFailed = zohoSync.filter((row) => row && row.ok === false && !row.skipped);
+            const zohoCreated = zohoSync.filter((row) => row && row.ok && !row.skipped);
+            const differenceFailed = Boolean(res.data?.differenceJournalFailed);
+
+            if (decision === 'approve' && zohoFailed.length > 0) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Approved — Zoho sync failed',
+                    description:
+                        zohoFailed[0]?.message ||
+                        'Zoho bill was not created. Use Edit to fix vendor / expense account, then retry.',
+                });
+            } else if (decision === 'approve' && differenceFailed) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Bill approved — Chart of Accounts Debit failed',
+                    description:
+                        String(res.data?.message || '').trim() ||
+                        'Use Edit to retry Zoho sync after reconnecting Zoho Books.',
+                });
+            } else if (decision === 'reject') {
+                const rejectTitle =
+                    returnedTo === 'accounts'
+                        ? 'Returned to Accounts'
+                        : returnedTo === 'creator'
+                          ? 'Returned to creator'
+                          : 'Rejected';
+                toast({
+                    title: rejectTitle,
+                    description:
+                        returnedTo === 'accounts'
+                            ? 'HR rejected — sent back to Accounts for re-review.'
+                            : returnedTo === 'creator'
+                              ? 'Accounts rejected — returned to the creator for correction.'
+                              : label,
+                });
+            } else {
+                toast({
+                    title: label.toLowerCase() === 'not paid' ? 'Not paid' : 'Approved',
+                    description:
+                        label.toLowerCase() === 'not paid'
+                            ? zohoCreated.length > 0
+                                ? `Awaiting Accounts payment. ${zohoCreated.length} bill(s) Open in Zoho.`
+                                : 'Awaiting Accounts payment.'
+                            : label || 'Bill approved.',
+                });
+            }
+            invalidateAssetPendingInbox('all');
+            clearModuleNotificationFeedsCache();
+            await loadBills();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: decision === 'reject' ? 'Could not reject' : 'Could not approve',
+                description: err?.response?.data?.message || 'Please try again, or use Edit to change details.',
+            });
+        } finally {
+            setApprovalActing(false);
+        }
     };
 
     const handleDeleteBill = async (bill) => {
@@ -1136,7 +1230,7 @@ function UtilityBillDetailsPageContent() {
                         const isPaid = bill.status === 'Paid';
                         const canApproveReject = Boolean(bill.canApproveReject);
                         const actionBatchId = bill.batchId || bill._id;
-                        const showApprove = Boolean(canApproveReject && actionBatchId);
+                        const showEdit = Boolean(canApproveReject && actionBatchId);
                         const vendorPayLabel = isPaid
                             ? 'Paid'
                             : isNotPaid
@@ -1329,13 +1423,15 @@ function UtilityBillDetailsPageContent() {
                                                 Invoice
                                             </button>
                                         ) : null}
-                                        {showApprove ? (
+                                        {showEdit ? (
                                             <button
                                                 type="button"
                                                 onClick={openBatchReview}
-                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold shadow-sm shadow-sky-100/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                                title="Edit bill details"
+                                                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-white border border-sky-200 text-sky-700 hover:bg-sky-50 text-xs font-bold shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
                                             >
-                                                Approve
+                                                <Pencil size={12} />
+                                                Edit
                                             </button>
                                         ) : null}
                                         {canAdminDelete ? (
@@ -1697,46 +1793,79 @@ function UtilityBillDetailsPageContent() {
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-1.5 sm:gap-2 shrink-0">
-                                                <button
-                                                    type="button"
-                                                    disabled={!approvalCanAct}
-                                                    onClick={() =>
-                                                        openBillReview(latestApprovalRequest)
-                                                    }
-                                                    title={
-                                                        approvalCanAct
-                                                            ? 'Open this request to approve it'
-                                                            : 'Only the assigned approver can approve this request'
-                                                    }
-                                                    className="inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-teal-500 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-white hover:bg-teal-600 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
-                                                >
-                                                    {approvalCanAct ? (
-                                                        <Check size={13} />
-                                                    ) : (
-                                                        <LockKeyhole size={12} />
-                                                    )}
-                                                    Approve
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={!approvalCanAct}
-                                                    onClick={() =>
-                                                        openBillReview(latestApprovalRequest)
-                                                    }
-                                                    title={
-                                                        approvalCanAct
-                                                            ? 'Open this request to reject it'
-                                                            : 'Only the assigned approver can reject this request'
-                                                    }
-                                                    className="inline-flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
-                                                >
-                                                    {approvalCanAct ? (
-                                                        <X size={13} />
-                                                    ) : (
-                                                        <LockKeyhole size={12} />
-                                                    )}
-                                                    Reject
-                                                </button>
+                                                {approvalCanEdit ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={approvalActing}
+                                                        onClick={() =>
+                                                            openBillReview(latestApprovalRequest)
+                                                        }
+                                                        title={
+                                                            approvalCanPay
+                                                                ? 'Edit bill details before paying'
+                                                                : 'Edit bill details before approving'
+                                                        }
+                                                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-white px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    >
+                                                        <Pencil size={12} />
+                                                        Edit
+                                                    </button>
+                                                ) : (
+                                                    <span />
+                                                )}
+                                                {approvalCanPay ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={approvalActing}
+                                                        onClick={() =>
+                                                            openBillReview(latestApprovalRequest)
+                                                        }
+                                                        title="Pay this approved bill"
+                                                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-teal-500 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-white hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    >
+                                                        <CreditCard size={13} />
+                                                        Pay
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        disabled={!approvalCanAct || approvalActing}
+                                                        onClick={() => handleHeaderApproval('reject')}
+                                                        title={
+                                                            approvalCanAct
+                                                                ? 'Reject this request'
+                                                                : 'Only the assigned approver can reject this request'
+                                                        }
+                                                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+                                                    >
+                                                        {approvalCanAct ? (
+                                                            <X size={13} />
+                                                        ) : (
+                                                            <LockKeyhole size={12} />
+                                                        )}
+                                                        {approvalActing ? 'Saving…' : 'Reject'}
+                                                    </button>
+                                                )}
+                                                {approvalCanPay ? null : (
+                                                    <button
+                                                        type="button"
+                                                        disabled={!approvalCanAct || approvalActing}
+                                                        onClick={() => handleHeaderApproval('approve')}
+                                                        title={
+                                                            approvalCanAct
+                                                                ? 'Approve this request'
+                                                                : 'Only the assigned approver can approve this request'
+                                                        }
+                                                        className="col-span-2 inline-flex items-center justify-center gap-1 rounded-lg border border-teal-200 bg-teal-500 px-2 py-1.5 text-[11px] sm:text-xs font-semibold text-white hover:bg-teal-600 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+                                                    >
+                                                        {approvalCanAct ? (
+                                                            <Check size={13} />
+                                                        ) : (
+                                                            <LockKeyhole size={12} />
+                                                        )}
+                                                        {approvalActing ? 'Saving…' : 'Approve'}
+                                                    </button>
+                                                )}
                                             </div>
                                         </>
                                     ) : (
@@ -1999,7 +2128,7 @@ function UtilityBillDetailsPageContent() {
                 utilityAttachment={utilityConfig?.attachment || null}
                 onClose={closeBillReview}
                 onChanged={() => {
-                    invalidateAssetPendingInbox('tools');
+                    invalidateAssetPendingInbox('all');
                     clearModuleNotificationFeedsCache();
                     loadBills();
                 }}

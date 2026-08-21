@@ -44,9 +44,8 @@ import { ATTENDANCE_PENDING_INBOX_CHANGED } from '@/app/HRM/Attendance/utils/att
 import DashboardAttendanceCalendar from '@/app/dashboard/components/DashboardAttendanceCalendar';
 import DashboardCheckInOutCard from '@/app/dashboard/components/DashboardCheckInOutCard';
 import DashboardEmployeeHrCards from '@/app/dashboard/components/DashboardEmployeeHrCards';
-import DashboardEmployeeAssetCards from '@/app/dashboard/components/DashboardEmployeeAssetCards';
 import DashboardMyLeaveCard from '@/app/dashboard/components/DashboardMyLeaveCard';
-import DashboardMyRequestsCard from '@/app/dashboard/components/DashboardMyRequestsCard';
+import DashboardMyRequestsCard, { OPEN_MY_REQUESTS } from '@/app/dashboard/components/DashboardMyRequestsCard';
 import DashboardRequestHub from '@/app/dashboard/components/DashboardRequestHub';
 import ActivityPieChart from '@/app/dashboard/components/ActivityPieChart';
 import { dashboardGrid, dashboardHover, dashboardItem, dashboardStagger } from '@/app/dashboard/components/dashboardMotion';
@@ -159,6 +158,17 @@ function DashboardContent() {
             setRequestScope(scopeParam);
         }
     }, [searchParams]);
+
+    useEffect(() => {
+        const openMyRequests = () => {
+            setRequestScope('outgoing');
+            setViewMode('requests');
+            setFilter('Pending');
+            setIsExpanded(true);
+        };
+        window.addEventListener(OPEN_MY_REQUESTS, openMyRequests);
+        return () => window.removeEventListener(OPEN_MY_REQUESTS, openMyRequests);
+    }, []);
 
 
 
@@ -954,7 +964,7 @@ function DashboardContent() {
 
         <>
 
-        <div className="flex h-screen bg-[#F8FAFC] text-slate-800 font-sans">
+        <div className="flex h-screen bg-[#F7F9FC] text-slate-800 font-sans">
 
             <Sidebar />
 
@@ -964,7 +974,7 @@ function DashboardContent() {
 
 
 
-                <div className="flex-1 overflow-y-auto w-full p-3 sm:p-4 lg:px-5 lg:py-4 scrollbar-hide">
+                <div className="flex-1 overflow-x-hidden overflow-y-auto w-full p-3 sm:p-4 lg:px-5 lg:py-4 scrollbar-hide">
 
                     <motion.div
                         className="w-full space-y-3"
@@ -1640,7 +1650,6 @@ function DashboardContent() {
                                 <DashboardMyLeaveCard />
                                 <DashboardMyRequestsCard />
                                 <DashboardEmployeeHrCards />
-                                <DashboardEmployeeAssetCards />
                             </>
                         ) : null}
 

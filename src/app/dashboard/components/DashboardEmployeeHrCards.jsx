@@ -7,6 +7,8 @@ import { ArrowUpRight, Gift, HandCoins, ShieldAlert, Wallet } from 'lucide-react
 import axiosInstance from '@/utils/axios';
 import { cn } from '@/lib/utils';
 import { dashboardItem } from './dashboardMotion';
+import DashboardEmployeeAssetCards from './DashboardEmployeeAssetCards';
+import { DashboardCard, EmptyState, SectionHeader, StatusBadge, metricHint } from './ui';
 
 const EMPTY = {
     loans: [],
@@ -21,38 +23,44 @@ const CARD_META = [
     {
         key: 'loans',
         title: 'My Loans',
-        emptyText: 'You have no loans',
+        emptyText: 'No active loans',
+        label: (count) => (count === 1 ? 'Active Loan' : 'Active Loans'),
         Icon: HandCoins,
         iconWrap: 'bg-blue-50 text-blue-500',
-        fadedIcon: 'text-blue-200',
-    },
-    {
-        key: 'advances',
-        title: 'My Advances',
-        emptyText: 'You have no advances',
-        Icon: Wallet,
-        iconWrap: 'bg-violet-50 text-violet-500',
-        fadedIcon: 'text-violet-200',
+        arrowHover: 'group-hover/card:text-blue-500',
+        valueClass: 'text-blue-700',
     },
     {
         key: 'rewards',
         title: 'My Rewards',
-        emptyText: 'You have no rewards',
+        emptyText: 'No rewards yet',
+        label: (count) => (count === 1 ? 'Reward' : 'Rewards'),
         Icon: Gift,
         iconWrap: 'bg-orange-50 text-orange-500',
-        fadedIcon: 'text-orange-200',
+        arrowHover: 'group-hover/card:text-orange-500',
+        valueClass: 'text-orange-600',
     },
     {
         key: 'fines',
         title: 'My Fines',
-        emptyText: 'You have no fines',
+        emptyText: 'No active fines',
+        label: (count) => (count === 1 ? 'Active Fine' : 'Active Fines'),
         Icon: ShieldAlert,
         iconWrap: 'bg-pink-50 text-pink-500',
-        fadedIcon: 'text-pink-200',
+        arrowHover: 'group-hover/card:text-pink-500',
+        valueClass: 'text-rose-700',
+    },
+    {
+        key: 'advances',
+        title: 'My Advances',
+        emptyText: 'No active advances',
+        label: (count) => (count === 1 ? 'Advance' : 'Advances'),
+        Icon: Wallet,
+        iconWrap: 'bg-violet-50 text-violet-500',
+        arrowHover: 'group-hover/card:text-violet-500',
+        valueClass: 'text-violet-700',
     },
 ];
-
-const SIDE_ROW = ['row-start-1', 'row-start-2', 'row-start-3'];
 
 function formatAed(value) {
     const n = Number(value) || 0;
@@ -87,19 +95,17 @@ function statusClass(status) {
 function RecordRow({ item, allowNavigate }) {
     const detail = itemDetail(item);
     const className =
-        'flex items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/80 transition-colors';
+        'flex items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 transition-colors duration-200';
     const content = (
         <>
             <div className="min-w-0">
-                <p className="text-[11px] sm:text-xs font-bold text-slate-800 truncate">{item.code}</p>
-                {detail ? <p className="text-[10px] text-slate-400 truncate">{detail}</p> : null}
+                <p className="text-[11px] sm:text-xs font-semibold text-[#111827] truncate">{item.code}</p>
+                {detail ? <p className="text-[10px] text-[#8792A6] truncate">{detail}</p> : null}
                 <p className="text-[10px] sm:text-[11px] font-semibold text-slate-700">{formatAed(item.amount)}</p>
             </div>
             <div className="text-right shrink-0">
-                <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${statusClass(item.status)}`}>
-                    {item.status}
-                </span>
-                {item.date ? <p className="text-[9px] text-slate-400 mt-0.5">{formatDate(item.date)}</p> : null}
+                <StatusBadge className={statusClass(item.status)}>{item.status}</StatusBadge>
+                {item.date ? <p className="text-[9px] text-[#8792A6] mt-0.5">{formatDate(item.date)}</p> : null}
             </div>
         </>
     );
@@ -118,31 +124,232 @@ function RecordRow({ item, allowNavigate }) {
 function ExpandedHeader({ card, count }) {
     const Icon = card.Icon;
     return (
-        <div className="shrink-0 px-4 pt-3 pb-2">
+        <div className="shrink-0 px-4 pt-3.5 pb-2 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
                 <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', card.iconWrap)}>
                     <Icon size={16} />
                 </div>
-                <h3 className="text-sm font-semibold text-slate-800 truncate">{card.title}</h3>
+                <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-[#111827] truncate">{card.title}</h3>
+                    <p className="text-[11px] text-[#8792A6] truncate">{card.label(count)}</p>
+                </div>
             </div>
-            <div className="flex items-center gap-1 mt-1.5">
-                <span className="text-2xl font-black text-slate-800 tabular-nums leading-none">{count}</span>
-                <ArrowUpRight size={14} className="text-slate-400" />
+            <div className="flex items-center gap-2 shrink-0">
+                <p className="text-[26px] font-bold text-[#111827] tabular-nums leading-none">{count}</p>
+                <ArrowUpRight size={16} className={cn('text-[#8792A6] transition-colors duration-200', card.arrowHover)} />
             </div>
         </div>
     );
 }
 
-function CardBody({ card, items, allowNavigate }) {
-    const Icon = card.Icon;
+function ScheduleChips({ schedule }) {
+    if (!Array.isArray(schedule) || schedule.length === 0) {
+        return <span className="text-[#8792A6]">—</span>;
+    }
+    return (
+        <div className="flex flex-wrap gap-1">
+            {schedule.map((box, idx) => (
+                <span
+                    key={`${box.label}-${idx}`}
+                    className={cn(
+                        'px-1.5 py-0.5 text-[9px] font-semibold rounded border',
+                        box.paid
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-rose-50 text-rose-700 border-rose-200',
+                    )}
+                >
+                    {box.label}
+                </span>
+            ))}
+        </div>
+    );
+}
+
+function DetailTable({ columns, minWidth, items, emptyText, allowNavigate, renderRow }) {
+    const thClass = 'px-2.5 py-2 text-[10px] font-semibold text-[#8792A6] whitespace-nowrap text-left';
 
     return (
-        <div className="mx-3 mb-3 rounded-xl bg-slate-50">
+        <div
+            className="mx-4 mb-3 flex-1 min-h-0 overflow-auto border-t border-[#E7EBF1]"
+            onClick={(e) => e.stopPropagation()}
+        >
+            <table className={cn('w-full border-collapse', minWidth)}>
+                <thead className="sticky top-0 bg-white z-[1]">
+                    <tr className="border-b border-[#E7EBF1]">
+                        {columns.map((col) => (
+                            <th key={col} className={thClass}>
+                                {col}
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {items.length === 0 ? (
+                        <tr>
+                            <td colSpan={columns.length} className="px-2.5 py-6">
+                                <EmptyState title={emptyText} />
+                            </td>
+                        </tr>
+                    ) : (
+                        items.map((item) => renderRow(item, allowNavigate))
+                    )}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+const FINE_COLUMNS = [
+    'Fine ID',
+    'Type',
+    'Individual Amount',
+    'Paid Amount',
+    'Balance',
+    'Status',
+    'Payment Schedule',
+];
+
+const LOAN_ADVANCE_COLUMNS = [
+    'Type',
+    'Date',
+    'Total Amount',
+    'Deduction',
+    'Status',
+    'Payment Schedule',
+];
+
+const REWARD_COLUMNS = ['Date', 'Month', 'Description', 'Amount', 'Status'];
+
+function FineTable({ items, allowNavigate, emptyText }) {
+    const tdClass = 'px-2.5 py-2 text-[11px] text-slate-700 whitespace-nowrap align-middle';
+
+    return (
+        <DetailTable
+            columns={FINE_COLUMNS}
+            minWidth="min-w-[46rem]"
+            items={items}
+            emptyText={emptyText}
+            allowNavigate={allowNavigate}
+            renderRow={(item, canNavigate) => (
+                <tr key={item.id} className="border-b border-[#E7EBF1] last:border-0 hover:bg-slate-50/80 transition-colors">
+                    <td className={cn(tdClass, 'font-semibold text-[#111827]')}>
+                        {canNavigate ? (
+                            <Link href={item.href || '#'} className="hover:text-blue-600 hover:underline">
+                                {item.code || '—'}
+                            </Link>
+                        ) : (
+                            item.code || '—'
+                        )}
+                    </td>
+                    <td className={tdClass}>{item.type || '—'}</td>
+                    <td className={cn(tdClass, 'font-semibold')}>{formatAed(item.amount)}</td>
+                    <td className={cn(tdClass, 'font-semibold text-emerald-700')}>{formatAed(item.paid)}</td>
+                    <td className={cn(tdClass, 'font-semibold text-rose-600')}>{formatAed(item.outstanding)}</td>
+                    <td className={tdClass}>
+                        <StatusBadge className={statusClass(item.status)}>{item.status || '—'}</StatusBadge>
+                    </td>
+                    <td className={cn(tdClass, 'whitespace-normal')}>
+                        <ScheduleChips schedule={item.schedule} />
+                    </td>
+                </tr>
+            )}
+        />
+    );
+}
+
+function LoanAdvanceTable({ items, allowNavigate, emptyText }) {
+    const tdClass = 'px-2.5 py-2 text-[11px] text-slate-700 whitespace-nowrap align-middle';
+
+    return (
+        <DetailTable
+            columns={LOAN_ADVANCE_COLUMNS}
+            minWidth="min-w-[40rem]"
+            items={items}
+            emptyText={emptyText}
+            allowNavigate={allowNavigate}
+            renderRow={(item, canNavigate) => (
+                <tr key={item.id} className="border-b border-[#E7EBF1] last:border-0 hover:bg-slate-50/80 transition-colors">
+                    <td className={cn(tdClass, 'font-semibold text-[#111827]')}>
+                        {canNavigate ? (
+                            <Link href={item.href || '#'} className="hover:text-blue-600 hover:underline">
+                                {item.code || item.type || '—'}
+                            </Link>
+                        ) : (
+                            item.code || item.type || '—'
+                        )}
+                    </td>
+                    <td className={tdClass}>{formatDate(item.date) || '—'}</td>
+                    <td className={cn(tdClass, 'font-semibold')}>{formatAed(item.amount)}</td>
+                    <td className={tdClass}>{formatAed(item.deduction)}</td>
+                    <td className={tdClass}>
+                        <StatusBadge className={statusClass(item.status)}>{item.status || '—'}</StatusBadge>
+                    </td>
+                    <td className={cn(tdClass, 'whitespace-normal')}>
+                        <ScheduleChips schedule={item.schedule} />
+                    </td>
+                </tr>
+            )}
+        />
+    );
+}
+
+function formatMonthName(value) {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('default', { month: 'long' });
+}
+
+function RewardTable({ items, allowNavigate, emptyText }) {
+    const tdClass = 'px-2.5 py-2 text-[11px] text-slate-700 whitespace-nowrap align-middle';
+
+    return (
+        <DetailTable
+            columns={REWARD_COLUMNS}
+            minWidth="min-w-[32rem]"
+            items={items}
+            emptyText={emptyText}
+            allowNavigate={allowNavigate}
+            renderRow={(item, canNavigate) => (
+                <tr key={item.id} className="border-b border-[#E7EBF1] last:border-0 hover:bg-slate-50/80 transition-colors">
+                    <td className={tdClass}>
+                        {canNavigate ? (
+                            <Link href={item.href || '#'} className="font-semibold text-[#111827] hover:text-blue-600 hover:underline">
+                                {formatDate(item.date) || '—'}
+                            </Link>
+                        ) : (
+                            formatDate(item.date) || '—'
+                        )}
+                    </td>
+                    <td className={tdClass}>{formatMonthName(item.date)}</td>
+                    <td className={cn(tdClass, 'whitespace-normal max-w-[14rem]')}>
+                        <span className="line-clamp-2">{item.title || item.type || '—'}</span>
+                    </td>
+                    <td className={cn(tdClass, 'font-semibold')}>{formatAed(item.amount)}</td>
+                    <td className={tdClass}>
+                        <StatusBadge className={statusClass(item.status)}>{item.status || '—'}</StatusBadge>
+                    </td>
+                </tr>
+            )}
+        />
+    );
+}
+
+function CardBody({ card, items, allowNavigate }) {
+    if (card.key === 'fines') {
+        return <FineTable items={items} allowNavigate={allowNavigate} emptyText={card.emptyText} />;
+    }
+    if (card.key === 'loans' || card.key === 'advances') {
+        return <LoanAdvanceTable items={items} allowNavigate={allowNavigate} emptyText={card.emptyText} />;
+    }
+    if (card.key === 'rewards') {
+        return <RewardTable items={items} allowNavigate={allowNavigate} emptyText={card.emptyText} />;
+    }
+
+    return (
+        <div className="mx-4 mb-3 border-t border-[#E7EBF1]">
             {items.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-8">
-                    <Icon size={26} className={card.fadedIcon} />
-                    <p className="text-xs text-slate-400">{card.emptyText}</p>
-                </div>
+                <EmptyState title={card.emptyText} />
             ) : (
                 <div className="py-0.5">
                     {items.map((item) => (
@@ -150,29 +357,6 @@ function CardBody({ card, items, allowNavigate }) {
                     ))}
                 </div>
             )}
-        </div>
-    );
-}
-
-function CollapsedBody({ card, count }) {
-    const Icon = card.Icon;
-    return (
-        <div className="mx-3 mb-3 flex-1 rounded-xl bg-slate-50 flex flex-col items-center justify-center gap-1.5 px-3 min-h-0">
-            <Icon size={26} className={card.fadedIcon} />
-            {count === 0 ? <p className="text-xs text-slate-400">{card.emptyText}</p> : null}
-        </div>
-    );
-}
-
-function SummaryCard({ card, count }) {
-    const Icon = card.Icon;
-    return (
-        <div className="h-full w-full flex flex-col items-center justify-center gap-0.5 px-2 py-1.5">
-            <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', card.iconWrap)}>
-                <Icon size={16} />
-            </div>
-            <span className="text-lg font-black text-slate-800 tabular-nums leading-none mt-0.5">{count}</span>
-            <span className="text-[10px] font-medium text-slate-500 leading-tight text-center">{card.title}</span>
         </div>
     );
 }
@@ -202,71 +386,65 @@ export default function DashboardEmployeeHrCards() {
         };
     }, []);
 
-    const sideKeys = expandedKey ? CARD_META.map((c) => c.key).filter((key) => key !== expandedKey) : [];
-
-    const onCardClick = (key) => {
-        setExpandedKey((prev) => (prev === key ? null : key));
-    };
+    const expandedCard = CARD_META.find((card) => card.key === expandedKey) || null;
+    const expandedItems = expandedCard ? data[expandedCard.key] || [] : [];
 
     return (
-        <motion.section variants={dashboardItem}>
-            <motion.div
-                layout
-                className={cn(
-                    'grid gap-3 items-stretch',
-                    expandedKey
-                        ? 'grid-cols-[minmax(0,1fr)_9.75rem] grid-rows-3'
-                        : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4',
-                )}
-                transition={{ layout: SPRING }}
-            >
-                {CARD_META.map((card) => {
-                    const items = data[card.key] || [];
-                    const isMain = expandedKey === card.key;
-                    const isSide = Boolean(expandedKey) && !isMain;
-                    const sideIndex = isSide ? sideKeys.indexOf(card.key) : -1;
+        <DashboardCard variants={dashboardItem} className="px-4 py-3.5">
+            <SectionHeader
+                icon={Wallet}
+                iconWrap="bg-violet-50 text-violet-600"
+                title="My Account"
+                subtitle="Loans, rewards, fines, advances and assigned assets"
+            />
 
+            <div className="mt-3 grid grid-cols-2 min-[1200px]:grid-cols-4 gap-3">
+                {CARD_META.map((card) => {
+                    const count = (data[card.key] || []).length;
+                    const active = expandedKey === card.key;
                     return (
-                        <motion.article
+                        <button
                             key={card.key}
-                            layout
-                            layoutId={`account-overview-${card.key}`}
-                            transition={{ layout: SPRING }}
-                            onClick={() => onCardClick(card.key)}
+                            type="button"
+                            onClick={() => setExpandedKey((prev) => (prev === card.key ? null : card.key))}
                             className={cn(
-                                'dash-card-lift bg-white border border-slate-100 shadow-sm cursor-pointer overflow-hidden flex min-w-0 rounded-2xl',
-                                !expandedKey && 'flex-col h-[11.75rem]',
-                                isMain && 'flex-col col-start-1 row-start-1 row-span-3 h-full',
-                                isSide && cn('col-start-2 h-full min-h-0', SIDE_ROW[sideIndex]),
+                                'min-h-[84px] rounded-xl border bg-white px-3.5 py-3 flex flex-col justify-center text-left transition-colors duration-200',
+                                active
+                                    ? 'border-slate-900 shadow-[0_1px_3px_rgba(16,24,40,0.06)]'
+                                    : 'border-[#E7EBF1] hover:border-[#D8DEE8]',
                             )}
                         >
-                            {isSide ? (
-                                <SummaryCard card={card} count={items.length} />
-                            ) : (
-                                <>
-                                    <ExpandedHeader card={card} count={items.length} />
-                                    <AnimatePresence initial={false} mode="popLayout">
-                                        <motion.div
-                                            key={isMain ? 'list' : 'preview'}
-                                            className="flex flex-col flex-1 min-h-0"
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            exit={{ opacity: 0 }}
-                                            transition={{ duration: 0.2, ease: 'easeOut' }}
-                                        >
-                                            {isMain ? (
-                                                <CardBody card={card} items={items} allowNavigate />
-                                            ) : (
-                                                <CollapsedBody card={card} count={items.length} />
-                                            )}
-                                        </motion.div>
-                                    </AnimatePresence>
-                                </>
-                            )}
-                        </motion.article>
+                            <p className={cn('text-[26px] font-bold tabular-nums leading-none', card.valueClass)}>
+                                {count}
+                            </p>
+                            <p className="text-[11px] font-medium text-[#8792A6] mt-1.5 leading-tight">{card.title}</p>
+                            <p className="text-[10px] text-[#8792A6] mt-0.5 leading-tight">
+                                {metricHint(count, card.emptyText)}
+                            </p>
+                        </button>
                     );
                 })}
-            </motion.div>
-        </motion.section>
+            </div>
+
+            <AnimatePresence initial={false}>
+                {expandedCard ? (
+                    <motion.div
+                        key={expandedCard.key}
+                        className="mt-3 min-h-[220px] rounded-xl border border-[#E7EBF1] bg-white overflow-hidden flex flex-col"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={SPRING}
+                    >
+                        <ExpandedHeader card={expandedCard} count={expandedItems.length} />
+                        <CardBody card={expandedCard} items={expandedItems} allowNavigate />
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
+
+            <div className="mt-3">
+                <DashboardEmployeeAssetCards embedded />
+            </div>
+        </DashboardCard>
     );
 }

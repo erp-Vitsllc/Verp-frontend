@@ -7,10 +7,11 @@ import axiosInstance from '@/utils/axios';
  * Loads Locator GPS fleet dashboard on mount / manual refresh.
  * Backend caches the heavy snapshot aggregation (~5 min) — avoid refetching on every tab focus.
  */
-export function useLocatorFleetDashboard({ enabled = true } = {}) {
+export function useLocatorFleetDashboard({ enabled = true, year } = {}) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const periodYear = String(year || new Date().getFullYear());
 
     const load = useCallback(async () => {
         if (!enabled) return;
@@ -20,6 +21,7 @@ export function useLocatorFleetDashboard({ enabled = true } = {}) {
 
         try {
             const response = await axiosInstance.get('/locator/fleet-dashboard', {
+                params: { year: periodYear },
                 skipToast: true,
             });
             setData(response?.data?.data || null);
@@ -33,7 +35,7 @@ export function useLocatorFleetDashboard({ enabled = true } = {}) {
         } finally {
             setLoading(false);
         }
-    }, [enabled]);
+    }, [enabled, periodYear]);
 
     useEffect(() => {
         if (!enabled) return undefined;

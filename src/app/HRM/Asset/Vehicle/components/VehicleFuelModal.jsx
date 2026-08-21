@@ -12,6 +12,25 @@ function currentMonthKey() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function formatGpsKm(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return '0 km';
+    return `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
+}
+
+function formatGpsDay(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function gpsRangeCaption(gps) {
+    const from = formatGpsDay(gps?.rangeStart || gps?.coverageStart);
+    const to = formatGpsDay(gps?.rangeEnd || gps?.coverageEnd);
+    if (!from || !to) return 'Select a month to load Locator GPS.';
+    return `${from} → ${to}`;
+}
+
 function vehicleLabel(vehicle) {
     if (!vehicle) return '';
     return [vehicle.plate, vehicle.name].filter(Boolean).join(' — ') || vehicle.assetId || '';
@@ -83,6 +102,7 @@ export default function VehicleFuelModal({
     const [fileName, setFileName] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [matchedBill, setMatchedBill] = useState(null);
+    const [gpsStats, setGpsStats] = useState(null);
     const [errors, setErrors] = useState({});
 
     const activeBill = existingBill || matchedBill;
@@ -93,18 +113,24 @@ export default function VehicleFuelModal({
         () => vehicles.find((v) => String(v._id) === String(vehicleId)) || null,
         [vehicles, vehicleId],
     );
+    const lockedVehicleId = useMemo(
+        () => String(asset?._id || asset?.id || vehicleIdOf(existingBill) || ''),
+        [asset, existingBill],
+    );
     const lockedVehicleName = useMemo(() => {
         if (!vehicleLocked) return '';
-        if (selectedVehicle) return vehicleLabel(selectedVehicle);
         const plate = [asset?.plateEmirate, asset?.plateNumber].filter(Boolean).join(' ').trim();
         if (plate && asset?.name) return `${plate} — ${asset.name}`;
-        return plate || asset?.name || asset?.assetId || '';
+        if (plate || asset?.name || asset?.assetId) return plate || asset?.name || asset?.assetId;
+        if (selectedVehicle) return vehicleLabel(selectedVehicle);
+        return '';
     }, [vehicleLocked, selectedVehicle, asset]);
     const lockedOwnerName = useMemo(() => {
-        if (selectedVehicle?.owner) return selectedVehicle.owner;
         if (asset?.assignedToType === 'Company') return asset?.assignedCompany?.name || 'Company';
         const name = `${asset?.assignedTo?.firstName || ''} ${asset?.assignedTo?.lastName || ''}`.trim();
-        return name || '';
+        if (name) return name;
+        if (selectedVehicle?.owner) return selectedVehicle.owner;
+        return '';
     }, [selectedVehicle, asset]);
 
     const formSession = useRef(0);
@@ -113,8 +139,8 @@ export default function VehicleFuelModal({
         if (!isOpen) return;
         formSession.current += 1;
         const defaultVehicleId = vehicleLocked
-            ? asset?._id || asset?.id || vehicleIdOf(existingBill)
-            : vehicleIdOf(existingBill) || asset?._id || asset?.id || '';
+            ? lockedVehicleId
+            : vehicleIdOf(existingBill) || lockedVehicleId;
         setVehicleId(String(defaultVehicleId || ''));
         setMonthKey(existingBill?.monthKey || currentMonthKey());
         setAmount(existingBill?.amountUsed != null ? String(existingBill.amountUsed) : '');
@@ -122,15 +148,29 @@ export default function VehicleFuelModal({
         setFileName(existingBill?.entries?.find((e) => e.hasAttachment)?.attachmentName || '');
         setAttachment(null);
         setMatchedBill(existingBill?._id ? existingBill : null);
+        setGpsStats(
+            existingBill?.kmRun != null || existingBill?.idleTimeLabel
+                ? {
+                      kmRun: Number(existingBill.kmRun) || 0,
+                      idleTimeMinutes: Number(existingBill.idleTimeMinutes) || 0,
+                      idleTimeLabel: existingBill.idleTimeLabel || '0 min',
+                  }
+                : null,
+        );
         setErrors({});
         setConfirmClose(false);
-    }, [isOpen, existingBill]);
+    }, [isOpen, existingBill, vehicleLocked, lockedVehicleId]);
 
     useEffect(() => {
-        if (!isOpen || vehicleId || existingBill?._id) return;
+        if (!isOpen || vehicleLocked || vehicleId || existingBill?._id) return;
         const first = vehicles[0]?._id;
         if (first) setVehicleId(String(first));
-    }, [isOpen, vehicleId, vehicles, existingBill]);
+    }, [isOpen, vehicleLocked, vehicleId, vehicles, existingBill]);
+
+    useEffect(() => {
+        if (!isOpen || !vehicleLocked || !lockedVehicleId) return;
+        if (String(vehicleId) !== lockedVehicleId) setVehicleId(lockedVehicleId);
+    }, [isOpen, vehicleLocked, lockedVehicleId, vehicleId]);
 
     useEffect(() => {
         if (!isOpen || existingBill?._id) return;
@@ -139,7 +179,7 @@ export default function VehicleFuelModal({
     }, [isOpen, existingBill, selectedVehicle, asset]);
 
     useEffect(() => {
-        if (!isOpen || existingBill?._id || !vehicleId || !monthKey) return;
+        if (!isOpen || !vehicleId || !monthKey) return;
         const session = formSession.current;
         const local = (knownBills || []).find(
             (bill) =>
@@ -149,20 +189,22 @@ export default function VehicleFuelModal({
                 String(bill.monthKey) === String(monthKey),
         );
         const vehicleDefault = defaultMonthlyLimit(asset, selectedVehicle);
-        if (local) {
-            setMatchedBill(local);
-            setAmount(local.amountUsed != null ? String(local.amountUsed) : '');
-            setMonthlyLimit(billPositiveLimit(local) || vehicleDefault);
-            setFileName(local.entries?.find((e) => e.hasAttachment)?.attachmentName || '');
-            return;
-        }
 
         let cancelled = false;
         axiosInstance
             .get('/VehicleFuel/lookup', { params: { vehicleId, monthKey }, skipToast: true })
             .then((res) => {
                 if (cancelled || session !== formSession.current) return;
-                const bill = res.data?.data || null;
+                const bill = res.data?.data || local || null;
+                const gps = res.data?.gps || (bill
+                    ? {
+                          kmRun: Number(bill.kmRun) || 0,
+                          idleTimeMinutes: Number(bill.idleTimeMinutes) || 0,
+                          idleTimeLabel: bill.idleTimeLabel || '0 min',
+                      }
+                    : null);
+                setGpsStats(gps);
+                if (existingBill?._id) return;
                 setMatchedBill(bill);
                 if (bill) {
                     setAmount(bill.amountUsed != null ? String(bill.amountUsed) : '');
@@ -170,10 +212,26 @@ export default function VehicleFuelModal({
                     setFileName(bill.entries?.find((e) => e.hasAttachment)?.attachmentName || '');
                     return;
                 }
+                setMatchedBill(null);
                 if (vehicleDefault) setMonthlyLimit(vehicleDefault);
             })
             .catch(() => {
-                if (!cancelled && session === formSession.current && vehicleDefault) {
+                if (cancelled || session !== formSession.current) return;
+                if (local) {
+                    setGpsStats({
+                        kmRun: Number(local.kmRun) || 0,
+                        idleTimeMinutes: Number(local.idleTimeMinutes) || 0,
+                        idleTimeLabel: local.idleTimeLabel || '0 min',
+                    });
+                    if (!existingBill?._id) {
+                        setMatchedBill(local);
+                        setAmount(local.amountUsed != null ? String(local.amountUsed) : '');
+                        setMonthlyLimit(billPositiveLimit(local) || vehicleDefault);
+                    }
+                    return;
+                }
+                setGpsStats(null);
+                if (!existingBill?._id && vehicleDefault) {
                     setMatchedBill(null);
                     setMonthlyLimit(vehicleDefault);
                 }
@@ -187,7 +245,7 @@ export default function VehicleFuelModal({
 
     const validate = () => {
         const next = {};
-        if (!vehicleId) next.vehicleId = 'Select a vehicle.';
+        if (!(vehicleLocked ? lockedVehicleId || vehicleId : vehicleId)) next.vehicleId = 'Select a vehicle.';
         if (!monthKey) next.monthKey = 'Select a month.';
         const n = Number(amount);
         if (!Number.isFinite(n) || n <= 0) next.amount = 'Enter a valid amount.';
@@ -231,7 +289,7 @@ export default function VehicleFuelModal({
         setSaving(true);
         try {
             const payload = {
-                vehicleId,
+                vehicleId: vehicleLocked ? lockedVehicleId || vehicleId : vehicleId,
                 monthKey,
                 amount: Number(amount),
                 ...(isUpdate ? {} : { monthlyLimit: Number(monthlyLimit) || Number(defaultMonthlyLimit(asset, selectedVehicle)) || undefined }),
@@ -367,6 +425,26 @@ export default function VehicleFuelModal({
                             className={errors.monthKey ? 'border-red-400' : ''}
                         />
                         {errors.monthKey && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.monthKey}</p>}
+                    </div>
+
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                            GPS running KM
+                        </label>
+                        <div className="w-full min-h-11 px-4 py-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-800 font-semibold tabular-nums">
+                            {formatGpsKm(gpsStats?.kmRun)}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">{gpsRangeCaption(gpsStats)}</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                            GPS idle time
+                        </label>
+                        <div className="w-full min-h-11 px-4 py-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-800 font-semibold tabular-nums">
+                            {gpsStats?.idleTimeLabel || '00:00:00 Hrs'}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">{gpsRangeCaption(gpsStats)}</p>
                     </div>
 
                     <div>

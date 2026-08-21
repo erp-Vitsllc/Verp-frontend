@@ -5,8 +5,8 @@ import {
 } from './loanStatusConstants';
 
 export const LOAN_WORKFLOW_STEPS = [
-    { id: 1, label: 'Created', role: 'System' },
-    { id: 2, label: 'Requester', role: 'Requester' },
+    { id: 1, label: 'Created', role: 'Creator' },
+    { id: 2, label: 'Creator', role: 'Requester' },
     { id: 3, label: 'HR', role: 'HR' },
     { id: 4, label: 'Accounts', role: 'Accounts' },
     { id: 5, label: 'Management', role: 'Management' },
@@ -96,51 +96,70 @@ function toTitleCase(value) {
 function resolvePersonName(person) {
     if (!person || typeof person !== 'object') return '';
     const named = String(person.name || '').trim();
-    if (named) return named;
-    return `${person.firstName || ''} ${person.lastName || ''}`.trim();
+    if (isUsableDisplayName(named)) return named;
+    const full = `${person.firstName || ''} ${person.lastName || ''}`.trim();
+    return isUsableDisplayName(full) ? full : '';
 }
 
+function isUsableDisplayName(value) {
+    const named = String(value || '').trim();
+    if (!named) return false;
+    if (/^(unknown|system|n\/a)$/i.test(named)) return false;
+    if (/^[a-fA-F0-9]{24}$/.test(named)) return false;
+    return true;
+}
+
+function flowchartName(value) {
+    return isUsableDisplayName(value) ? String(value).trim() : '';
+}
+
+function resolveCreatorName(loan) {
+    return resolvePersonName(loan?.createdBy) || 'Creator';
+}
+
+/**
+ * Tracker names only — does not change who can approve.
+ * HR / Accounts / Management / Paid must show flowchart people, not the
+ * applicant, department HOD, or whoever clicked Approve (e.g. Super User).
+ */
 export function getLoanStepActor(step, loan, workflow = []) {
-    if (step.id === 1) return 'System';
-    if (step.id === 2) {
-        const fromCreator = resolvePersonName(loan.createdBy);
-        return fromCreator || loan.applicantName || 'Requester';
-    }
+    if (step.id === 1 || step.id === 2) return resolveCreatorName(loan);
+
     if (step.id === 3) {
-        const hrStep = workflow.find((w) => w.role === 'HR');
-        const fromWf = resolvePersonName(hrStep?.assignedTo);
-        if (fromWf) return fromWf;
-        const fromApprover = resolvePersonName(loan.hrApprovedBy);
-        if (fromApprover) return fromApprover;
-        if (loan.hrHODName && loan.hrHODName !== 'Unknown') return loan.hrHODName;
-        return 'HR Manager';
+        const hod = flowchartName(loan.hrHODName);
+        if (hod) return hod;
+        const hrStep = workflow.find((w) => w.role === 'HR' || w.role === 'HR Admin');
+        return (
+            resolvePersonName(loan.hrApprovedBy) ||
+            resolvePersonName(hrStep?.assignedTo) ||
+            'HR'
+        );
     }
     if (step.id === 4) {
+        const hod = flowchartName(loan.accountsHODName);
+        if (hod) return hod;
         const accStep = workflow.find((w) => w.role === 'Accounts');
-        const fromWf = resolvePersonName(accStep?.assignedTo);
-        if (fromWf) return fromWf;
-        const fromApprover = resolvePersonName(loan.accountsApprovedBy);
-        if (fromApprover) return fromApprover;
-        if (loan.accountsHODName && loan.accountsHODName !== 'Unknown') return loan.accountsHODName;
-        return 'Accounts Officer';
+        return (
+            resolvePersonName(loan.accountsApprovedBy) ||
+            resolvePersonName(accStep?.assignedTo) ||
+            'Accounts'
+        );
     }
     if (step.id === 5) {
+        const hod = flowchartName(loan.ceoName);
+        if (hod) return hod;
         const mgtStep = workflow.find((w) => w.role === 'Management' || w.role === 'CEO');
-        const fromWf = resolvePersonName(mgtStep?.assignedTo);
-        if (fromWf) return fromWf;
-        const fromApprover = resolvePersonName(loan.approvedBy);
-        if (fromApprover) return fromApprover;
-        const fromSubmitted = resolvePersonName(loan.submittedTo);
-        if (fromSubmitted) return fromSubmitted;
-        if (loan.ceoName && loan.ceoName !== 'Unknown') return loan.ceoName;
-        return 'CEO / Management';
+        return (
+            resolvePersonName(loan.approvedBy) ||
+            resolvePersonName(mgtStep?.assignedTo) ||
+            'Management'
+        );
     }
     if (step.id === 6) {
+        const hod = flowchartName(loan.accountsHODName);
+        if (hod) return hod;
         const payStep = workflow.find((w) => w.role === 'Paid to Employee');
-        const fromWf = resolvePersonName(payStep?.assignedTo);
-        if (fromWf) return fromWf;
-        if (loan.accountsHODName && loan.accountsHODName !== 'Unknown') return loan.accountsHODName;
-        return 'Accounts Officer';
+        return resolvePersonName(payStep?.assignedTo) || 'Accounts';
     }
     return '';
 }

@@ -1,12 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Eye, Fuel, PlusCircle, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import VehicleFuelModal from './VehicleFuelModal';
+import VehicleFuelPreviousToggle from './VehicleFuelPreviousToggle';
 import { canAccessAddFuel } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import {
+    formatFuelEntryWhen,
+    previousFuelEntries,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleFuelPreviousEntries';
+import { isAdmin } from '@/utils/permissions';
 
 function formatAmount(value) {
     const n = Number(value);
@@ -20,18 +26,26 @@ function formatKm(value) {
     return `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
 }
 
+function fuelRowStatus(row) {
+    return row?.status === 'closed' ? 'Closed' : 'Opened';
+}
+
 export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
     const { toast } = useToast();
     const vehicleId = asset?._id || asset?.id || '';
     const [rows, setRows] = useState([]);
     const [canManage, setCanManage] = useState(false);
+    const [canDelete, setCanDelete] = useState(() => isAdmin());
     const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [modalOpen, setModalOpen] = useState(false);
     const [editingBill, setEditingBill] = useState(null);
     const [closingBill, setClosingBill] = useState(null);
     const [closing, setClosing] = useState(false);
+    const [deletingBill, setDeletingBill] = useState(null);
+    const [deleting, setDeleting] = useState(false);
     const [viewingDocument, setViewingDocument] = useState(null);
+    const [openPreviousId, setOpenPreviousId] = useState('');
 
     const loadBills = useCallback(async () => {
         if (!vehicleId) {
@@ -44,6 +58,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
             const res = await axiosInstance.get(`/VehicleFuel/vehicle/${vehicleId}`);
             setRows(Array.isArray(res.data?.data) ? res.data.data : []);
             setCanManage(Boolean(res.data?.canManage));
+            setCanDelete(Boolean(res.data?.canDelete) || isAdmin());
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -70,6 +85,14 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
     }, [loadBills, loadVehicles]);
 
     const allowHrActions = isFlowchartHr || canManage || canAccessAddFuel();
+    const allowDelete = canDelete || isAdmin();
+
+    const handleSaved = (saved) => {
+        loadBills();
+        if (saved?._id && previousFuelEntries(saved.entries).length) {
+            setOpenPreviousId(String(saved._id));
+        }
+    };
 
     const openAdd = () => {
         setEditingBill(null);
@@ -100,8 +123,33 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
         }
     };
 
-    const openAttachment = async (bill) => {
-        const entry = [...(bill.entries || [])].reverse().find((e) => e.hasAttachment);
+    const deleteBill = async () => {
+        if (!deletingBill?._id) return;
+        setDeleting(true);
+        try {
+            const res = await axiosInstance.delete(`/VehicleFuel/${deletingBill._id}`);
+            toast({
+                title: 'Fuel deleted',
+                description: res.data?.message || 'Fuel bill deleted. Management has been notified.',
+            });
+            setDeletingBill(null);
+            loadBills();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not delete',
+                description: error.response?.data?.message || 'Failed to delete the fuel bill.',
+            });
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    const openAttachment = async (bill, entryId = '') => {
+        const entries = bill.entries || [];
+        const entry = entryId
+            ? entries.find((e) => String(e._id) === String(entryId))
+            : [...entries].reverse().find((e) => e.hasAttachment);
         if (!entry) return;
         setViewingDocument({ data: '', name: entry.attachmentName || 'Fuel attachment', mimeType: 'application/pdf', loading: true });
         try {
@@ -181,17 +229,31 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
             ) : (
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[860px] text-left border-collapse">
+                        <table className="w-full min-w-[1160px] table-fixed text-left border-collapse">
+                            <colgroup>
+                                <col className="w-12" />
+                                <col className="w-[140px]" />
+                                <col className="w-[150px]" />
+                                <col className="w-[130px]" />
+                                <col className="w-[110px]" />
+                                <col className="w-[130px]" />
+                                <col className="w-[130px]" />
+                                <col className="w-[110px]" />
+                                <col className="w-[120px]" />
+                                <col />
+                            </colgroup>
                             <thead>
                                 <tr className="bg-slate-50/70">
-                                    {['Sl', 'Vehicle Number', 'Vehicle Owner', 'Month', 'Monthly Limit', 'Amount Used', 'Monthly KM', 'Idle Time', ''].map((col) => (
-                                        <th
-                                            key={col || 'actions'}
-                                            className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100"
-                                        >
-                                            {col}
-                                        </th>
-                                    ))}
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Sl</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Vehicle Number</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Vehicle Owner</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Month</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Status</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 text-right">Monthly Limit</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 text-right">Amount Used</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 text-right">Monthly KM</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 text-right">Idle Time</th>
+                                    <th className="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -199,93 +261,173 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                     const limitTone = row.limitExceeded
                                         ? 'red'
                                         : row.limitWarning80
-                                          ? 'amber'
-                                          : null;
+                                            ? 'amber'
+                                            : null;
                                     const tone = {
                                         sl: limitTone === 'red' ? 'text-red-600' : limitTone === 'amber' ? 'text-amber-600' : 'text-slate-500',
                                         strong: limitTone === 'red' ? 'text-red-700' : limitTone === 'amber' ? 'text-amber-800' : 'text-slate-800',
                                         muted: limitTone === 'red' ? 'text-red-600' : limitTone === 'amber' ? 'text-amber-700' : 'text-slate-600',
                                         body: limitTone === 'red' ? 'text-red-700' : limitTone === 'amber' ? 'text-amber-800' : 'text-slate-700',
                                     };
+                                    const previous = previousFuelEntries(row.entries);
+                                    const previousOpen = String(openPreviousId) === String(row._id);
                                     return (
-                                    <tr
-                                        key={row._id}
-                                        className={
-                                            limitTone === 'red'
-                                                ? 'bg-red-50 hover:bg-red-100/70'
-                                                : limitTone === 'amber'
-                                                  ? 'bg-amber-50 hover:bg-amber-100/70'
-                                                  : 'hover:bg-slate-50/60'
-                                        }
-                                    >
-                                        <td className={`px-4 py-3 text-sm font-semibold ${tone.sl}`}>{idx + 1}</td>
-                                        <td className={`px-4 py-3 text-sm font-bold whitespace-nowrap ${tone.strong}`}>{row.vehicleNumber}</td>
-                                        <td className={`px-4 py-3 text-sm ${tone.muted}`}>{row.vehicleOwner}</td>
-                                        <td className={`px-4 py-3 text-sm font-semibold ${tone.body}`}>
-                                            <span>{row.monthLabel}</span>
-                                            {row.status === 'closed' && (
-                                                <span className="ml-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
-                                                    Closed
-                                                </span>
-                                            )}
-                                            {row.limitExceeded && (
-                                                <span className="ml-2 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-red-700">
-                                                    100% of monthly limit
-                                                </span>
-                                            )}
-                                            {row.limitWarning80 && (
-                                                <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-800">
-                                                    80% of monthly limit
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${tone.body}`}>
-                                            {formatAmount(row.monthlyLimit)}
-                                        </td>
-                                        <td className={`px-4 py-3 text-sm font-black tabular-nums whitespace-nowrap ${tone.strong}`}>
-                                            {formatAmount(row.amountUsed)}
-                                        </td>
-                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${tone.body}`}>
-                                            {formatKm(row.kmRun)}
-                                        </td>
-                                        <td className={`px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap ${tone.body}`}>
-                                            {row.idleTimeLabel || '—'}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex items-center justify-end gap-1">
-                                                {row.entries?.some((e) => e.hasAttachment) && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => openAttachment(row)}
-                                                        className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50"
-                                                        title="View attachment"
-                                                    >
-                                                        <Eye size={16} />
-                                                    </button>
-                                                )}
-                                                {allowHrActions && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => openEdit(row)}
-                                                        className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
-                                                        title="Update"
-                                                    >
-                                                        Update
-                                                    </button>
-                                                )}
-                                                {allowHrActions && row.status !== 'closed' && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setClosingBill(row)}
-                                                        className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50"
-                                                        title="Close bill"
-                                                    >
-                                                        Close
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
+                                        <Fragment key={row._id}>
+                                            <tr
+                                                className={
+                                                    limitTone === 'red'
+                                                        ? 'bg-red-50 hover:bg-red-100/70'
+                                                        : limitTone === 'amber'
+                                                            ? 'bg-amber-50 hover:bg-amber-100/70'
+                                                            : 'hover:bg-slate-50/60'
+                                                }
+                                            >
+                                                <td className={`px-3 py-3.5 text-sm font-semibold align-top ${tone.sl}`}>{idx + 1}</td>
+                                                <td className={`px-3 py-3.5 text-sm font-bold align-top break-words ${tone.strong}`}>{row.vehicleNumber}</td>
+                                                <td className={`px-3 py-3.5 text-sm align-top break-words ${tone.muted}`}>{row.vehicleOwner}</td>
+                                                <td className={`px-3 py-3.5 text-sm font-semibold align-top whitespace-nowrap ${tone.body}`}>
+                                                    {row.monthLabel}
+                                                </td>
+                                                <td className="px-3 py-3.5 align-top">
+                                                    {fuelRowStatus(row) === 'Closed' ? (
+                                                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                                                            Closed
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                                                            Opened
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className={`px-3 py-3.5 text-sm font-semibold tabular-nums whitespace-nowrap text-right align-top ${tone.body}`}>
+                                                    {formatAmount(row.monthlyLimit)}
+                                                </td>
+                                                <td className={`px-3 py-3.5 text-sm font-black tabular-nums whitespace-nowrap text-right align-top ${tone.strong}`}>
+                                                    {formatAmount(row.amountUsed)}
+                                                </td>
+                                                <td className={`px-3 py-3.5 text-sm font-semibold tabular-nums whitespace-nowrap text-right align-top ${tone.body}`}>
+                                                    {formatKm(row.kmRun)}
+                                                </td>
+                                                <td className={`px-3 py-3.5 text-sm font-semibold tabular-nums whitespace-nowrap text-right align-top ${tone.body}`}>
+                                                    {row.idleTimeLabel || '—'}
+                                                </td>
+                                                <td className="px-3 py-3.5 align-top">
+                                                    <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+                                                        {row.entries?.some((e) => e.hasAttachment) && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openAttachment(row)}
+                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                                                title="View attachment"
+                                                            >
+                                                                <Eye size={16} />
+                                                            </button>
+                                                        )}
+                                                        {allowHrActions && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openEdit(row)}
+                                                                className="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
+                                                                title="Update"
+                                                            >
+                                                                Update
+                                                            </button>
+                                                        )}
+                                                        {allowHrActions && row.status !== 'closed' && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setClosingBill(row)}
+                                                                className="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50"
+                                                                title="Close bill"
+                                                            >
+                                                                Close
+                                                            </button>
+                                                        )}
+                                                        {allowDelete && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setDeletingBill(row)}
+                                                                className="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-red-700 hover:bg-red-50"
+                                                                title="Delete fuel bill"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        )}
+                                                        <VehicleFuelPreviousToggle
+                                                            open={previousOpen}
+                                                            count={previous.length}
+                                                            onToggle={() =>
+                                                                setOpenPreviousId((current) =>
+                                                                    String(current) === String(row._id) ? '' : String(row._id),
+                                                                )
+                                                            }
+                                                        />
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {previousOpen ? (
+                                                <tr className={limitTone === 'red' ? 'bg-red-50/40' : limitTone === 'amber' ? 'bg-amber-50/40' : 'bg-white'}>
+                                                    <td colSpan={10} className="px-4 pb-4 pt-0">
+                                                        <div className="ml-8 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                                            <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
+                                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                                                    Previous fuels · {row.monthLabel}
+                                                                </p>
+                                                            </div>
+                                                            <table className="w-full text-left">
+                                                                <thead>
+                                                                    <tr className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                                                        <th className="px-4 py-2 w-12">#</th>
+                                                                        <th className="px-4 py-2">Added on</th>
+                                                                        <th className="px-4 py-2 text-right">Amount</th>
+                                                                        <th className="px-4 py-2">Entry</th>
+                                                                        <th className="px-4 py-2 text-right w-16"></th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {previous.map((entry, entryIdx) => {
+                                                                        const isFirstFuel = entryIdx === previous.length - 1;
+                                                                        return (
+                                                                            <tr
+                                                                                key={`${row._id}-prev-${entry._id || entryIdx}`}
+                                                                                className="border-t border-slate-100"
+                                                                            >
+                                                                                <td className="px-4 py-2.5 text-sm text-slate-400 tabular-nums">
+                                                                                    {entryIdx + 1}
+                                                                                </td>
+                                                                                <td className="px-4 py-2.5 text-sm font-semibold text-slate-700 whitespace-nowrap">
+                                                                                    {formatFuelEntryWhen(entry.createdAt) || row.monthLabel}
+                                                                                </td>
+                                                                                <td className="px-4 py-2.5 text-sm font-black tabular-nums whitespace-nowrap text-right text-slate-800">
+                                                                                    {formatAmount(entry.amount)}
+                                                                                </td>
+                                                                                <td className="px-4 py-2.5">
+                                                                                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-600">
+                                                                                        {isFirstFuel ? 'First fuel' : 'Previous'}
+                                                                                    </span>
+                                                                                </td>
+                                                                                <td className="px-4 py-2.5 text-right">
+                                                                                    {entry.hasAttachment ? (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => openAttachment(row, entry._id)}
+                                                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                                                                            title="View attachment"
+                                                                                        >
+                                                                                            <Eye size={16} />
+                                                                                        </button>
+                                                                                    ) : null}
+                                                                                </td>
+                                                                            </tr>
+                                                                        );
+                                                                    })}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ) : null}
+                                        </Fragment>
                                     );
                                 })}
                             </tbody>
@@ -300,7 +442,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                     setModalOpen(false);
                     setEditingBill(null);
                 }}
-                onSaved={loadBills}
+                onSaved={handleSaved}
                 asset={asset}
                 vehicles={vehicleOptions}
                 existingBill={editingBill}
@@ -336,6 +478,39 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                 className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest"
                             >
                                 {closing ? 'Closing…' : 'Confirm'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
+            {deletingBill ? (
+                <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-base font-black text-slate-800 uppercase tracking-widest">Delete fuel?</h3>
+                            <button type="button" onClick={() => setDeletingBill(null)} className="p-1 text-slate-400 hover:text-slate-700">
+                                <XCircle size={18} />
+                            </button>
+                        </div>
+                        <p className="text-sm text-slate-500">
+                            Delete the fuel bill for {deletingBill.monthLabel}? Management will be emailed, and the record stays in recovery.
+                        </p>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeletingBill(null)}
+                                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={deleting}
+                                onClick={deleteBill}
+                                className="px-4 py-2 rounded-xl bg-red-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
+                            >
+                                {deleting ? 'Deleting…' : 'Delete'}
                             </button>
                         </div>
                     </div>

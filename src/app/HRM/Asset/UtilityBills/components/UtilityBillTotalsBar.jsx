@@ -228,7 +228,26 @@ export function getBillAllocationParties(bill = {}) {
         }
     }
 
-    return [...map.values()].filter((p) => p.amount > 0.009 || p.name);
+    // Same company (or employee) on two payable lines → one badge, amounts added.
+    const byPartyName = new Map();
+    for (const party of map.values()) {
+        const nameKey = `${party.type}:${shortAllocationPartyName(
+            party.fullName || party.name,
+            party.type,
+        ).toLowerCase()}`;
+        const prev = byPartyName.get(nameKey);
+        if (!prev) {
+            byPartyName.set(nameKey, { ...party, key: nameKey });
+            continue;
+        }
+        prev.amount += Number(party.amount) || 0;
+        if (party.fullName) {
+            prev.fullName = party.fullName;
+            prev.name = shortAllocationPartyName(party.fullName, party.type);
+        }
+    }
+
+    return [...byPartyName.values()].filter((p) => p.amount > 0.009 || p.name);
 }
 
 /**

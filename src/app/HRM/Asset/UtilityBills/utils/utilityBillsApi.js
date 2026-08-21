@@ -23,6 +23,15 @@ export async function fetchUtilityEntries(params = {}) {
     return Array.isArray(res.data?.entries) ? res.data.entries : [];
 }
 
+/** Lean bills for the Utility Bills dashboard (no Zoho live sync). */
+export async function fetchUtilityOverviewBills() {
+    const res = await axiosInstance.get('/UtilityBill', {
+        params: { overview: 1 },
+        skipToast: true,
+    });
+    return Array.isArray(res.data?.bills) ? res.data.bills : [];
+}
+
 export async function fetchUtilityEntry(id) {
     const res = await axiosInstance.get(`/UtilityBill/entries/${encodeURIComponent(String(id))}`, {
         skipToast: true,

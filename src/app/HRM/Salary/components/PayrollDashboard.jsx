@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
     Area,
     AreaChart,
@@ -16,7 +17,18 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { Banknote, Clock, HardHat, Loader2, MoreVertical, Settings, User, Wallet } from 'lucide-react';
+import {
+    CalendarDays,
+    ChevronDown,
+    Clock,
+    Gift,
+    HardHat,
+    Loader2,
+    MoreVertical,
+    Settings,
+    User,
+    Wallet,
+} from 'lucide-react';
 import RechartsBox from '@/components/charts/RechartsBox';
 import axiosInstance from '@/utils/axios';
 import EmployeePayrollDashboard from './EmployeePayrollDashboard';
@@ -31,59 +43,77 @@ import {
     withDeductionColors,
     withLeaveColors,
 } from '../utils/payrollDashboardChartUtils';
+import './PayrollDashboard.css';
 
 const tooltipStyle = {
-    borderRadius: '10px',
-    border: '1px solid #E8EDF3',
-    background: '#ffffff',
-    boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
+    background: '#fff',
+    border: '1px solid #E4E7EC',
+    borderRadius: '8px',
+    boxShadow: '0 4px 12px rgba(0,0,0,.08)',
+    padding: '8px 10px',
     fontSize: '12px',
     color: '#334155',
 };
 
-const chartCardClass =
-    'bg-white rounded-2xl border border-[#EEF0F4] shadow-[0_1px_3px_rgba(15,23,42,0.04)] p-5 flex flex-col min-h-[340px]';
+const AXIS_TICK = { fontSize: 10, fill: '#4D535D', fontWeight: 400 };
+const VALUE_LABEL = { fontSize: 9, fill: '#111', fontWeight: 600 };
+const CHART_MARGIN = { top: 16, right: 10, left: 0, bottom: 4 };
+const PLOT_HEIGHT = 175;
 
-const headerIconBtnClass =
-    'inline-flex items-center justify-center w-10 h-10 rounded-xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:scale-105 active:scale-95';
+const PENDING_BAR_COLORS = {
+    'Leave Requests': '#FF4949',
+    'Attendance Corrections': '#18B7A7',
+    'Expense Claims': '#FFA20B',
+    'Advance Requests': '#778292',
+};
 
-function ChartCard({ title, children }) {
+const EMPTY_PENDING_REQUESTS = {
+    total: 0,
+    categories: [
+        { name: 'Leave Requests', count: 0 },
+        { name: 'Attendance Corrections', count: 0 },
+        { name: 'Expense Claims', count: 0 },
+        { name: 'Advance Requests', count: 0 },
+    ],
+    priority: { high: 0, medium: 0, low: 0 },
+};
+
+function currentYear() {
+    return new Date().getFullYear();
+}
+
+function splitAed(label) {
+    const text = String(label || 'AED 0').trim();
+    const idx = text.indexOf(' ');
+    if (idx < 0) return { prefix: 'AED', value: text };
+    return { prefix: text.slice(0, idx), value: text.slice(idx + 1) };
+}
+
+function ChartCard({ title, caption, children }) {
     return (
-        <div className={chartCardClass}>
-            <div className="flex items-start justify-between gap-3 mb-3">
-                <h3 className="text-[15px] font-bold text-[#1E293B] leading-snug">{title}</h3>
-                <button
-                    type="button"
-                    className="p-1 rounded-md text-[#94A3B8] hover:bg-slate-50 hover:text-slate-600 shrink-0"
-                    aria-label={`${title} options`}
-                >
-                    <MoreVertical size={16} />
-                </button>
-            </div>
-            <div className="flex-1 min-h-0 min-w-0">{children}</div>
+        <div className="pd-chart-card">
+            <h3 className="pd-card-title">{title}</h3>
+            <button type="button" className="pd-more" aria-label={`${title} options`}>
+                <MoreVertical size={16} />
+            </button>
+            {caption ? <div className="pd-chart-caption">{caption}</div> : null}
+            <div className="pd-chart-plot">{children}</div>
         </div>
     );
 }
 
 function SummaryCard({ title, value, icon: Icon, iconBg, iconColor }) {
     return (
-        <div className="bg-white rounded-2xl border border-[#EEF0F4] shadow-[0_1px_3px_rgba(15,23,42,0.04)] px-5 py-4 flex items-center gap-4">
-            <div
-                className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
-                style={{ backgroundColor: iconBg }}
-            >
-                <Icon size={22} style={{ color: iconColor }} strokeWidth={2} />
+        <div className="pd-kpi-card">
+            <div className="pd-kpi-icon" style={{ backgroundColor: iconBg }}>
+                <Icon size={25} style={{ color: iconColor }} strokeWidth={2} />
             </div>
             <div className="min-w-0">
-                <p className="text-[13px] text-[#64748B] font-medium">{title}</p>
-                <p className="text-[22px] leading-tight font-bold text-[#0F172A] tabular-nums mt-0.5">{value}</p>
+                <p className="pd-kpi-label">{title}</p>
+                <p className="pd-kpi-value">{value}</p>
             </div>
         </div>
     );
-}
-
-function currentYear() {
-    return new Date().getFullYear();
 }
 
 export default function PayrollDashboard() {
@@ -153,6 +183,13 @@ export default function PayrollDashboard() {
         { name: 'Advance', value: 0 },
         { name: 'Fine', value: 0 },
     ]);
+    const upcomingBirthdays = orgPayload?.upcomingBirthdays || [];
+    const upcomingLeave = orgPayload?.upcomingLeave || [];
+    const pendingRequests = orgPayload?.pendingRequests || EMPTY_PENDING_REQUESTS;
+    const pendingCategories = pendingRequests.categories?.length
+        ? pendingRequests.categories
+        : EMPTY_PENDING_REQUESTS.categories;
+    const pendingMax = Math.max(1, ...pendingCategories.map((row) => Number(row.count) || 0));
 
     const monthAxis = useMemo(
         () => niceAxis(monthWiseSalary.map((row) => row.total), 3, 10),
@@ -177,455 +214,555 @@ export default function PayrollDashboard() {
 
     const pieHasData = salaryRatio.some((row) => Number(row.value) > 0);
     const pieData = pieHasData ? salaryRatio : [{ name: 'No data', value: 1, empty: true }];
+    const payrollSplit = splitAed(summary.annualPayrollShort);
+    const selectedEmployee = employees.find((emp) => emp.employeeId === employeeId);
+    const employeeFilterLabel =
+        employeeId === 'all'
+            ? 'All Employees'
+            : selectedEmployee
+              ? selectedEmployee.name
+              : employeeId;
+    const subtitlePrefix = payload?.isSample ? 'Sample Data' : 'Live Data';
 
     return (
-        <div className="w-full max-w-[1600px] mx-auto relative">
-            {loading ? (
-                <div className="absolute inset-0 z-10 bg-[#F5F7FB]/60 rounded-2xl flex items-start justify-center pt-40">
-                    <div className="flex items-center gap-2 bg-white border border-[#EEF0F4] rounded-full px-4 py-2 shadow-sm">
-                        <Loader2 size={16} className="animate-spin text-[#1D5FDB]" />
-                        <span className="text-sm font-medium text-[#475569]">Loading payroll…</span>
+        <div className="payroll-dash">
+            <main className="pd-main">
+                {loading ? (
+                    <div className="pd-loading">
+                        <div className="pd-loading-chip">
+                            <Loader2 size={16} className="animate-spin" style={{ color: '#0877EF' }} />
+                            Loading payroll…
+                        </div>
                     </div>
-                </div>
-            ) : null}
+                ) : null}
 
-            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
-                <div>
-                    <h1 className="text-[28px] md:text-[32px] font-bold text-[#0F172A] tracking-tight">
-                        {employeeId !== 'all' ? 'Employee Payroll Dashboard' : 'Payroll Dashboard'}
-                    </h1>
-                    <p className="text-sm text-[#94A3B8] mt-1">
-                        {employeeId !== 'all'
-                            ? `${payload?.employee?.name || employeeId} • Jan–${year === currentYear() ? new Date().toLocaleString('en-US', { month: 'short' }) : 'Dec'} ${year}`
-                            : `Jan–${year === currentYear() ? new Date().toLocaleString('en-US', { month: 'short' }) : 'Dec'} ${year} • All employees`}
-                    </p>
-                    {error ? <p className="text-sm text-red-500 mt-1">{error}</p> : null}
-                </div>
-                <div className="flex flex-wrap items-end gap-3">
-                    <div className="flex items-center gap-2 pb-[1px]">
+                <div className="pd-header">
+                    <div>
+                        <h1 className="pd-title">
+                            {employeeId !== 'all' ? 'Employee Payroll Dashboard' : 'Payroll Dashboard'}
+                        </h1>
+                        <p className="pd-subtitle">
+                            {employeeId !== 'all'
+                                ? `${payload?.employee?.name || employeeId} • Jan–Dec ${year}`
+                                : `${subtitlePrefix} • Jan–Dec ${year}`}
+                        </p>
+                        {error ? <p className="pd-error">{error}</p> : null}
+                    </div>
+                    <div className="pd-filters">
+                        <div className="pd-year-filter">
+                            <span className="pd-year-label">Year</span>
+                            <span className="pd-year-value">{year}</span>
+                            <ChevronDown className="pd-filter-chevron" size={16} />
+                            <select
+                                value={year}
+                                onChange={(e) => setYear(Number(e.target.value))}
+                                aria-label="Year"
+                            >
+                                {years.map((y) => (
+                                    <option key={y} value={y}>
+                                        {y}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="pd-emp-filter">
+                            <span className="pd-emp-value">{employeeFilterLabel}</span>
+                            <ChevronDown className="pd-filter-chevron" size={16} />
+                            <select
+                                value={employeeId}
+                                onChange={(e) => setEmployeeId(e.target.value)}
+                                aria-label="Employee"
+                            >
+                                <option value="all">All Employees</option>
+                                {employees.map((emp) => (
+                                    <option key={emp.employeeId} value={emp.employeeId}>
+                                        {emp.name} ({emp.employeeId})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                         <button
                             type="button"
-                            onClick={() => setSettingsOpen(true)}
-                            className={`${headerIconBtnClass} ${
-                                settingsOpen
-                                    ? 'border-[#1D5FDB]/30 text-[#1D5FDB] bg-[#E8F1FE]'
-                                    : 'border-[#E8EDF3] text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'
-                            }`}
-                            title="Payroll settings"
+                            className="pd-settings-btn"
                             aria-label="Payroll settings"
+                            onClick={() => setSettingsOpen(true)}
                         >
-                            <Settings size={20} />
-                        </button>
-                        <button
-                            type="button"
-                            className={`${headerIconBtnClass} border-[#1D5FDB]/30 text-[#1D5FDB] bg-[#E8F1FE] hover:bg-[#dbeafe]`}
-                            title="Payroll"
-                            aria-label="Payroll"
-                        >
-                            <Banknote size={20} />
+                            <Settings size={18} strokeWidth={1.75} />
                         </button>
                     </div>
-                    <label className="flex flex-col gap-1">
-                        <span className="text-[11px] font-medium text-[#94A3B8]">Year</span>
-                        <select
-                            value={year}
-                            onChange={(e) => setYear(Number(e.target.value))}
-                            className="h-10 min-w-[108px] rounded-xl border border-[#E8EDF3] bg-white px-3 text-sm font-semibold text-[#1E293B] shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none focus:ring-2 focus:ring-[#4C8EF5]/20"
-                        >
-                            {years.map((y) => (
-                                <option key={y} value={y}>
-                                    {y}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                        <span className="text-[11px] font-medium text-[#94A3B8]">Employee</span>
-                        <select
-                            value={employeeId}
-                            onChange={(e) => setEmployeeId(e.target.value)}
-                            className="h-10 min-w-[168px] max-w-[260px] rounded-xl border border-[#E8EDF3] bg-white px-3 text-sm font-semibold text-[#1E293B] shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none focus:ring-2 focus:ring-[#4C8EF5]/20"
-                        >
-                            <option value="all">All Employees</option>
-                            {employees.map((emp) => (
-                                <option key={emp.employeeId} value={emp.employeeId}>
-                                    {emp.name} ({emp.employeeId})
-                                </option>
-                            ))}
-                        </select>
-                    </label>
                 </div>
-            </div>
 
-            {employeeId !== 'all' ? (
-                <EmployeePayrollDashboard data={payload?.view === 'employee' ? payload : null} />
-            ) : (
-            <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-                <SummaryCard
-                    title={year === currentYear() ? 'YTD Payroll' : 'Annual Payroll'}
-                    value={summary.annualPayroll}
-                    icon={Wallet}
-                    iconBg="#E8F1FE"
-                    iconColor={PAYROLL_COLORS.blue}
-                />
-                <SummaryCard
-                    title="Office Staff (Salary)"
-                    value={summary.officeStaff}
-                    icon={User}
-                    iconBg="#E6F9F6"
-                    iconColor={PAYROLL_COLORS.teal}
-                />
-                <SummaryCard
-                    title="Site Staff (Salary)"
-                    value={summary.siteStaff}
-                    icon={HardHat}
-                    iconBg="#E8F1FE"
-                    iconColor={PAYROLL_COLORS.blue}
-                />
-                <SummaryCard
-                    title="Overtime Paid"
-                    value={summary.overtimePaid}
-                    icon={Clock}
-                    iconBg="#FEF6E4"
-                    iconColor={PAYROLL_COLORS.orange}
-                />
-            </div>
+                {employeeId !== 'all' ? (
+                    <EmployeePayrollDashboard data={payload?.view === 'employee' ? payload : null} />
+                ) : (
+                    <>
+                        <div className="pd-kpi-grid">
+                            <SummaryCard
+                                title="Annual Payroll"
+                                value={summary.annualPayroll}
+                                icon={Wallet}
+                                iconBg="#EAF2FF"
+                                iconColor="#0878F9"
+                            />
+                            <SummaryCard
+                                title="Office Staff"
+                                value={summary.officeStaff}
+                                icon={User}
+                                iconBg="#E1F8F4"
+                                iconColor="#11B6A5"
+                            />
+                            <SummaryCard
+                                title="Site Staff"
+                                value={summary.siteStaff}
+                                icon={HardHat}
+                                iconBg="#E7F0FF"
+                                iconColor="#1877F2"
+                            />
+                            <SummaryCard
+                                title="Overtime Paid"
+                                value={summary.overtimePaid}
+                                icon={Clock}
+                                iconBg="#FFF2DF"
+                                iconColor="#F5A000"
+                            />
+                        </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
-                <ChartCard title="1) Month-wise Salary">
-                    <RechartsBox height={260} minHeight={240}>
-                        <BarChart data={monthWiseSalary} margin={{ top: 22, right: 8, left: 4, bottom: 4 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} vertical={false} />
-                            <XAxis
-                                dataKey="month"
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                            />
-                            <YAxis
-                                domain={monthAxis.domain}
-                                ticks={monthAxis.ticks}
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                                width={52}
-                                label={{
-                                    value: 'AED (K)',
-                                    angle: -90,
-                                    position: 'insideLeft',
-                                    style: { fill: PAYROLL_COLORS.axis, fontSize: 11 },
-                                }}
-                            />
-                            <RechartsTooltip
-                                contentStyle={tooltipStyle}
-                                formatter={(value) => [`AED ${formatK(value)}`, 'Salary']}
-                                cursor={{ fill: 'rgba(76, 142, 245, 0.08)' }}
-                            />
-                            <Bar dataKey="total" fill={PAYROLL_COLORS.blue} radius={[6, 6, 0, 0]} maxBarSize={28}>
-                                <LabelList
-                                    dataKey="total"
-                                    position="top"
-                                    formatter={formatK}
-                                    style={{ fontSize: 10, fill: '#64748B', fontWeight: 600 }}
-                                />
-                            </Bar>
-                        </BarChart>
-                    </RechartsBox>
-                </ChartCard>
+                        <div className="pd-chart-grid">
+                            <ChartCard title="1) Month-wise Salary" caption="AED (K)">
+                                <RechartsBox height={PLOT_HEIGHT} minHeight={PLOT_HEIGHT}>
+                                    <BarChart data={monthWiseSalary} margin={CHART_MARGIN} barCategoryGap="28%">
+                                        <CartesianGrid
+                                            strokeDasharray="3 3"
+                                            stroke={PAYROLL_COLORS.grid}
+                                            strokeWidth={1}
+                                            vertical={false}
+                                        />
+                                        <XAxis
+                                            dataKey="month"
+                                            tick={AXIS_TICK}
+                                            axisLine={false}
+                                            tickLine={false}
+                                        />
+                                        <YAxis
+                                            domain={monthAxis.domain}
+                                            ticks={monthAxis.ticks}
+                                            tick={AXIS_TICK}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            width={32}
+                                        />
+                                        <RechartsTooltip
+                                            contentStyle={tooltipStyle}
+                                            formatter={(value) => [`AED ${formatK(value)}`, 'Salary']}
+                                            cursor={{ fill: 'rgba(8, 119, 239, 0.08)' }}
+                                        />
+                                        <Bar
+                                            dataKey="total"
+                                            fill="#0877EF"
+                                            radius={[2, 2, 0, 0]}
+                                            maxBarSize={20}
+                                        >
+                                            <LabelList dataKey="total" position="top" formatter={formatK} style={VALUE_LABEL} />
+                                        </Bar>
+                                    </BarChart>
+                                </RechartsBox>
+                            </ChartCard>
 
-                <ChartCard title="2) Salary Ratio">
-                    <div className="h-full flex items-center gap-2 min-h-[240px]">
-                        <div className="relative flex-1 min-w-0 h-[240px]">
-                            <RechartsBox height={240} minHeight={240}>
-                                <PieChart>
-                                    <Pie
-                                        data={pieData}
-                                        dataKey="value"
-                                        nameKey="name"
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={48}
-                                        outerRadius={102}
-                                        startAngle={90}
-                                        endAngle={-270}
-                                        stroke="#fff"
-                                        strokeWidth={3}
+                            <ChartCard title="2) Salary Ratio">
+                                <div className="pd-ratio">
+                                    <div className="pd-ratio-chart">
+                                        <RechartsBox height={PLOT_HEIGHT} minHeight={PLOT_HEIGHT}>
+                                            <PieChart>
+                                                <Pie
+                                                    data={pieData}
+                                                    dataKey="value"
+                                                    nameKey="name"
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    innerRadius={56}
+                                                    outerRadius={82}
+                                                    startAngle={90}
+                                                    endAngle={-270}
+                                                    stroke="#fff"
+                                                    strokeWidth={2}
+                                                >
+                                                    {pieData.map((row) => (
+                                                        <Cell
+                                                            key={row.name}
+                                                            fill={
+                                                                row.empty
+                                                                    ? '#CBD5E1'
+                                                                    : row.name === 'Office Staff'
+                                                                      ? '#16B8A5'
+                                                                      : '#0877EF'
+                                                            }
+                                                        />
+                                                    ))}
+                                                </Pie>
+                                                <RechartsTooltip
+                                                    contentStyle={tooltipStyle}
+                                                    formatter={(value, name) => [`${pieHasData ? value : 0}%`, name]}
+                                                />
+                                            </PieChart>
+                                        </RechartsBox>
+                                        <div className="pd-ratio-center">
+                                            <span className="pd-ratio-aed">{payrollSplit.prefix}</span>
+                                            <span className="pd-ratio-val">{payrollSplit.value}</span>
+                                        </div>
+                                    </div>
+                                    <div className="pd-ratio-legend">
+                                        <div className="pd-legend-item">
+                                            <span className="pd-legend-swatch" style={{ backgroundColor: '#16B8A5' }} />
+                                            <span className="pd-legend-label">Office Staff</span>
+                                            <span className="pd-legend-pct">{summary.officePct}%</span>
+                                        </div>
+                                        <div className="pd-legend-item">
+                                            <span className="pd-legend-swatch" style={{ backgroundColor: '#0877EF' }} />
+                                            <span className="pd-legend-label">Site Staff</span>
+                                            <span className="pd-legend-pct">{summary.sitePct}%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </ChartCard>
+
+                            <ChartCard title="3) Office vs Site Salary — Monthly" caption="AED (K)">
+                                <RechartsBox height={PLOT_HEIGHT} minHeight={PLOT_HEIGHT}>
+                                    <BarChart
+                                        data={officeVsSiteMonthly}
+                                        margin={{ top: 22, right: 10, left: 0, bottom: 4 }}
+                                        barGap={2}
+                                        barCategoryGap="18%"
                                     >
-                                        {pieData.map((row) => (
-                                            <Cell
-                                                key={row.name}
-                                                fill={
-                                                    row.empty
-                                                        ? '#CBD5E1'
-                                                        : row.name === 'Office Staff'
-                                                          ? PAYROLL_COLORS.teal
-                                                          : PAYROLL_COLORS.blue
-                                                }
-                                            />
+                                        <CartesianGrid
+                                            strokeDasharray="3 3"
+                                            stroke={PAYROLL_COLORS.grid}
+                                            strokeWidth={1}
+                                            vertical={false}
+                                        />
+                                        <XAxis dataKey="month" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                                        <YAxis
+                                            domain={officeSiteAxis.domain}
+                                            ticks={officeSiteAxis.ticks}
+                                            tick={AXIS_TICK}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            width={32}
+                                        />
+                                        <RechartsTooltip
+                                            contentStyle={tooltipStyle}
+                                            formatter={(value, name) => [`AED ${formatK(value)}`, name]}
+                                            cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
+                                        />
+                                        <Legend
+                                            verticalAlign="top"
+                                            align="right"
+                                            iconType="square"
+                                            iconSize={10}
+                                            wrapperStyle={{ fontSize: 11, color: '#676C75', paddingBottom: 0 }}
+                                        />
+                                        <Bar
+                                            dataKey="office"
+                                            name="Office Staff"
+                                            fill="#16B8A5"
+                                            radius={[2, 2, 0, 0]}
+                                            maxBarSize={14}
+                                        >
+                                            <LabelList dataKey="office" position="top" formatter={formatK} style={VALUE_LABEL} />
+                                        </Bar>
+                                        <Bar
+                                            dataKey="site"
+                                            name="Site Staff"
+                                            fill="#0877EF"
+                                            radius={[2, 2, 0, 0]}
+                                            maxBarSize={14}
+                                        >
+                                            <LabelList dataKey="site" position="top" formatter={formatK} style={VALUE_LABEL} />
+                                        </Bar>
+                                    </BarChart>
+                                </RechartsBox>
+                            </ChartCard>
+
+                            <ChartCard title="4) Total Leave by Category">
+                                <RechartsBox height={PLOT_HEIGHT} minHeight={PLOT_HEIGHT}>
+                                    <BarChart
+                                        layout="vertical"
+                                        data={leaveByCategory}
+                                        margin={{ top: 8, right: 28, left: 4, bottom: 16 }}
+                                    >
+                                        <CartesianGrid
+                                            strokeDasharray="3 3"
+                                            stroke={PAYROLL_COLORS.grid}
+                                            strokeWidth={1}
+                                            horizontal={false}
+                                        />
+                                        <XAxis
+                                            type="number"
+                                            domain={leaveAxis.domain}
+                                            ticks={leaveAxis.ticks}
+                                            tick={AXIS_TICK}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            label={{
+                                                value: 'Number of Leaves',
+                                                position: 'insideBottom',
+                                                offset: -6,
+                                                style: { fill: '#4D535D', fontSize: 10 },
+                                            }}
+                                        />
+                                        <YAxis
+                                            type="category"
+                                            dataKey="name"
+                                            tick={{ fontSize: 10, fill: '#40454D' }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            width={78}
+                                        />
+                                        <RechartsTooltip
+                                            contentStyle={tooltipStyle}
+                                            formatter={(value) => [value, 'Leaves']}
+                                            cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
+                                        />
+                                        <Bar dataKey="value" radius={[0, 2, 2, 0]} barSize={25}>
+                                            {leaveByCategory.map((row) => (
+                                                <Cell key={row.name} fill={row.color} />
+                                            ))}
+                                            <LabelList dataKey="value" position="right" style={VALUE_LABEL} />
+                                        </Bar>
+                                    </BarChart>
+                                </RechartsBox>
+                            </ChartCard>
+
+                            <ChartCard title="5) Overtime Paid — Monthly" caption="AED (K)">
+                                <RechartsBox height={PLOT_HEIGHT} minHeight={PLOT_HEIGHT}>
+                                    <AreaChart data={overtimeMonthly} margin={CHART_MARGIN}>
+                                        <defs>
+                                            <linearGradient id="overtimeFill" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#F5A000" stopOpacity={0.18} />
+                                                <stop offset="100%" stopColor="#F5A000" stopOpacity={0} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid
+                                            strokeDasharray="3 3"
+                                            stroke={PAYROLL_COLORS.grid}
+                                            strokeWidth={1}
+                                            vertical={false}
+                                        />
+                                        <XAxis dataKey="month" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                                        <YAxis
+                                            domain={overtimeAxis.domain}
+                                            ticks={overtimeAxis.ticks}
+                                            tick={AXIS_TICK}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            width={32}
+                                        />
+                                        <RechartsTooltip
+                                            contentStyle={tooltipStyle}
+                                            formatter={(value) => [`AED ${formatK(value)}`, 'Overtime']}
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="ot"
+                                            stroke="#F5A000"
+                                            strokeWidth={2}
+                                            fill="url(#overtimeFill)"
+                                            dot={{
+                                                r: 4,
+                                                fill: '#fff',
+                                                stroke: '#F5A000',
+                                                strokeWidth: 2,
+                                            }}
+                                            activeDot={{ r: 5, fill: '#fff', stroke: '#F5A000', strokeWidth: 2 }}
+                                        >
+                                            <LabelList dataKey="ot" position="top" formatter={formatK} style={VALUE_LABEL} />
+                                        </Area>
+                                    </AreaChart>
+                                </RechartsBox>
+                            </ChartCard>
+
+                            <ChartCard title="6) Total Deductions by Category" caption="AED (K)">
+                                <RechartsBox height={PLOT_HEIGHT} minHeight={PLOT_HEIGHT}>
+                                    <BarChart
+                                        data={deductionsByCategory}
+                                        margin={CHART_MARGIN}
+                                        barCategoryGap="28%"
+                                    >
+                                        <CartesianGrid
+                                            strokeDasharray="3 3"
+                                            stroke={PAYROLL_COLORS.grid}
+                                            strokeWidth={1}
+                                            vertical={false}
+                                        />
+                                        <XAxis
+                                            dataKey="name"
+                                            tick={AXIS_TICK}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            interval={0}
+                                        />
+                                        <YAxis
+                                            domain={deductionAxis.domain}
+                                            ticks={deductionAxis.ticks}
+                                            tick={AXIS_TICK}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            width={32}
+                                        />
+                                        <RechartsTooltip
+                                            contentStyle={tooltipStyle}
+                                            formatter={(value) => [`AED ${formatK(value)}`, 'Deduction']}
+                                            cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
+                                        />
+                                        <Bar dataKey="value" radius={[2, 2, 0, 0]} maxBarSize={50}>
+                                            {deductionsByCategory.map((row) => (
+                                                <Cell key={row.name} fill={row.color} />
+                                            ))}
+                                            <LabelList dataKey="value" position="top" formatter={formatK} style={VALUE_LABEL} />
+                                        </Bar>
+                                    </BarChart>
+                                </RechartsBox>
+                            </ChartCard>
+                        </div>
+
+                        <div className="pd-chart-grid">
+                            <div className="pd-bottom-card">
+                                <div className="pd-bottom-head">
+                                    <div className="pd-bottom-head-left">
+                                        <div className="pd-head-icon" style={{ backgroundColor: '#F3E8FF' }}>
+                                            <Gift size={18} color="#7C3AED" strokeWidth={2} />
+                                        </div>
+                                        <h3 className="pd-card-title" style={{ paddingRight: 0 }}>
+                                            7) Upcoming Birthdays
+                                        </h3>
+                                    </div>
+                                    <span className="pd-badge pd-badge-purple">Next 30 Days</span>
+                                </div>
+                                {upcomingBirthdays.length ? (
+                                    <ul className="pd-list">
+                                        {upcomingBirthdays.map((row) => (
+                                            <li key={`${row.employeeId}-${row.date}`} className="pd-bday-row">
+                                                <div
+                                                    className="pd-avatar"
+                                                    style={{ backgroundColor: row.color || '#7C3AED' }}
+                                                >
+                                                    {row.initials || '—'}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="pd-bday-name">{row.name}</p>
+                                                    <p className="pd-bday-dept">{row.department}</p>
+                                                </div>
+                                                <span className="pd-bday-date">{row.date}</span>
+                                            </li>
                                         ))}
-                                    </Pie>
-                                    <RechartsTooltip
-                                        contentStyle={tooltipStyle}
-                                        formatter={(value, name) => [`${pieHasData ? value : 0}%`, name]}
-                                    />
-                                </PieChart>
-                            </RechartsBox>
-                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                                <p className="text-[15px] font-bold text-[#0F172A] tabular-nums">
-                                    {summary.annualPayrollShort}
-                                </p>
+                                    </ul>
+                                ) : (
+                                    <p className="pd-empty">No birthdays in the next 30 days.</p>
+                                )}
+                                <Link href="/emp" className="pd-card-cta">
+                                    View All Birthdays →
+                                </Link>
+                            </div>
+
+                            <div className="pd-bottom-card">
+                                <div className="pd-bottom-head">
+                                    <div className="pd-bottom-head-left">
+                                        <div className="pd-head-icon" style={{ backgroundColor: '#E6F8F4' }}>
+                                            <CalendarDays size={18} color="#16B8A5" strokeWidth={2} />
+                                        </div>
+                                        <h3 className="pd-card-title" style={{ paddingRight: 0 }}>
+                                            8) Upcoming Leave
+                                        </h3>
+                                    </div>
+                                    <span className="pd-badge pd-badge-teal">Next 30 Days</span>
+                                </div>
+                                {upcomingLeave.length ? (
+                                    <>
+                                        <div className="pd-leave-head">
+                                            <span>Employee</span>
+                                            <span>Leave Type</span>
+                                            <span>Date</span>
+                                            <span>Status</span>
+                                        </div>
+                                        <ul className="pd-list">
+                                            {upcomingLeave.map((row, index) => (
+                                                <li
+                                                    key={`${row.employeeId}-${row.dates}-${index}`}
+                                                    className="pd-leave-row"
+                                                >
+                                                    <span className="pd-leave-name">{row.name}</span>
+                                                    <span className="pd-leave-muted">{row.leaveType}</span>
+                                                    <span className="pd-leave-muted">{row.dates}</span>
+                                                    <span
+                                                        className={`pd-status ${
+                                                            row.status === 'Approved'
+                                                                ? 'pd-status-approved'
+                                                                : 'pd-status-scheduled'
+                                                        }`}
+                                                    >
+                                                        {row.status}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </>
+                                ) : (
+                                    <p className="pd-empty">No leave in the next 30 days.</p>
+                                )}
+                                <Link href="/HRM/Leave" className="pd-card-cta">
+                                    View Leave Calendar →
+                                </Link>
+                            </div>
+
+                            <div className="pd-bottom-card">
+                                <div className="pd-bottom-head">
+                                    <h3 className="pd-card-title" style={{ paddingRight: 0 }}>
+                                        9) Pending User Requests
+                                    </h3>
+                                    <span className="pd-badge pd-badge-orange">
+                                        {pendingRequests.total || 0} Pending
+                                    </span>
+                                </div>
+                                <ul className="pd-list">
+                                    {pendingCategories.map((row) => {
+                                        const count = Number(row.count) || 0;
+                                        const width = `${Math.max(count > 0 ? 8 : 0, (count / pendingMax) * 100)}%`;
+                                        return (
+                                            <li key={row.name} className="pd-pending-row">
+                                                <span className="pd-pending-label">{row.name}</span>
+                                                <div className="pd-pending-track">
+                                                    <div
+                                                        className="pd-pending-fill"
+                                                        style={{
+                                                            width,
+                                                            backgroundColor:
+                                                                PENDING_BAR_COLORS[row.name] || PAYROLL_COLORS.slate,
+                                                        }}
+                                                    />
+                                                </div>
+                                                <span className="pd-pending-count">{count}</span>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                                <div className="pd-priority">
+                                    <span className="pd-pill pd-pill-high">
+                                        {pendingRequests.priority?.high || 0} High
+                                    </span>
+                                    <span className="pd-pill pd-pill-medium">
+                                        {pendingRequests.priority?.medium || 0} Medium
+                                    </span>
+                                    <span className="pd-pill pd-pill-low">
+                                        {pendingRequests.priority?.low || 0} Low
+                                    </span>
+                                </div>
+                                <Link href="/dashboard" className="pd-review-btn">
+                                    Review Requests →
+                                </Link>
                             </div>
                         </div>
-                        <div className="shrink-0 pr-1 space-y-3">
-                            <div className="flex items-center gap-2 text-[13px] text-[#334155]">
-                                <span
-                                    className="w-2.5 h-2.5 rounded-[3px] shrink-0"
-                                    style={{ backgroundColor: PAYROLL_COLORS.teal }}
-                                />
-                                <span>Office Staff {summary.officePct}%</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-[13px] text-[#334155]">
-                                <span
-                                    className="w-2.5 h-2.5 rounded-[3px] shrink-0"
-                                    style={{ backgroundColor: PAYROLL_COLORS.blue }}
-                                />
-                                <span>Site Staff {summary.sitePct}%</span>
-                            </div>
-                        </div>
-                    </div>
-                </ChartCard>
-
-                <ChartCard title="3) Office vs Site Salary — Monthly">
-                    <RechartsBox height={260} minHeight={240}>
-                        <BarChart
-                            data={officeVsSiteMonthly}
-                            margin={{ top: 28, right: 8, left: 4, bottom: 4 }}
-                            barGap={2}
-                            barCategoryGap="22%"
-                        >
-                            <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} vertical={false} />
-                            <XAxis
-                                dataKey="month"
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                            />
-                            <YAxis
-                                domain={officeSiteAxis.domain}
-                                ticks={officeSiteAxis.ticks}
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                                width={52}
-                                label={{
-                                    value: 'AED (K)',
-                                    angle: -90,
-                                    position: 'insideLeft',
-                                    style: { fill: PAYROLL_COLORS.axis, fontSize: 11 },
-                                }}
-                            />
-                            <RechartsTooltip
-                                contentStyle={tooltipStyle}
-                                formatter={(value, name) => [`AED ${formatK(value)}`, name]}
-                                cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
-                            />
-                            <Legend
-                                verticalAlign="top"
-                                align="right"
-                                iconType="square"
-                                iconSize={10}
-                                wrapperStyle={{ fontSize: 12, color: '#64748B', paddingBottom: 4 }}
-                            />
-                            <Bar
-                                dataKey="office"
-                                name="Office Staff"
-                                fill={PAYROLL_COLORS.teal}
-                                radius={[4, 4, 0, 0]}
-                                maxBarSize={14}
-                            >
-                                <LabelList
-                                    dataKey="office"
-                                    position="top"
-                                    formatter={formatK}
-                                    style={{ fontSize: 8, fill: '#64748B', fontWeight: 600 }}
-                                />
-                            </Bar>
-                            <Bar
-                                dataKey="site"
-                                name="Site Staff"
-                                fill={PAYROLL_COLORS.blue}
-                                radius={[4, 4, 0, 0]}
-                                maxBarSize={14}
-                            >
-                                <LabelList
-                                    dataKey="site"
-                                    position="top"
-                                    formatter={formatK}
-                                    style={{ fontSize: 8, fill: '#64748B', fontWeight: 600 }}
-                                />
-                            </Bar>
-                        </BarChart>
-                    </RechartsBox>
-                </ChartCard>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                <ChartCard title="4) Total Leave by Category">
-                    <RechartsBox height={260} minHeight={240}>
-                        <BarChart
-                            layout="vertical"
-                            data={leaveByCategory}
-                            margin={{ top: 8, right: 36, left: 8, bottom: 18 }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} horizontal={false} />
-                            <XAxis
-                                type="number"
-                                domain={leaveAxis.domain}
-                                ticks={leaveAxis.ticks}
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                                label={{
-                                    value: 'Number of Leaves',
-                                    position: 'insideBottom',
-                                    offset: -8,
-                                    style: { fill: PAYROLL_COLORS.axis, fontSize: 11 },
-                                }}
-                            />
-                            <YAxis
-                                type="category"
-                                dataKey="name"
-                                tick={{ fontSize: 12, fill: '#475569' }}
-                                axisLine={false}
-                                tickLine={false}
-                                width={96}
-                            />
-                            <RechartsTooltip
-                                contentStyle={tooltipStyle}
-                                formatter={(value) => [value, 'Leaves']}
-                                cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
-                            />
-                            <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={22} background={{ fill: '#F8FAFC' }}>
-                                {leaveByCategory.map((row) => (
-                                    <Cell key={row.name} fill={row.color} />
-                                ))}
-                                <LabelList
-                                    dataKey="value"
-                                    position="right"
-                                    style={{ fontSize: 12, fill: '#475569', fontWeight: 700 }}
-                                />
-                            </Bar>
-                        </BarChart>
-                    </RechartsBox>
-                </ChartCard>
-
-                <ChartCard title="5) Overtime Paid — Monthly">
-                    <RechartsBox height={260} minHeight={240}>
-                        <AreaChart data={overtimeMonthly} margin={{ top: 22, right: 12, left: 4, bottom: 4 }}>
-                            <defs>
-                                <linearGradient id="payrollOtFill" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor={PAYROLL_COLORS.orange} stopOpacity={0.28} />
-                                    <stop offset="100%" stopColor={PAYROLL_COLORS.orange} stopOpacity={0.04} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} vertical={false} />
-                            <XAxis
-                                dataKey="month"
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                            />
-                            <YAxis
-                                domain={overtimeAxis.domain}
-                                ticks={overtimeAxis.ticks}
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                                width={52}
-                                label={{
-                                    value: 'AED (K)',
-                                    angle: -90,
-                                    position: 'insideLeft',
-                                    style: { fill: PAYROLL_COLORS.axis, fontSize: 11 },
-                                }}
-                            />
-                            <RechartsTooltip
-                                contentStyle={tooltipStyle}
-                                formatter={(value) => [`AED ${formatK(value)}`, 'Overtime']}
-                            />
-                            <Area
-                                type="monotone"
-                                dataKey="ot"
-                                stroke={PAYROLL_COLORS.orange}
-                                strokeWidth={2.5}
-                                fill="url(#payrollOtFill)"
-                                dot={{
-                                    r: 4.5,
-                                    fill: PAYROLL_COLORS.orange,
-                                    stroke: '#fff',
-                                    strokeWidth: 2,
-                                }}
-                                activeDot={{ r: 6 }}
-                            >
-                                <LabelList
-                                    dataKey="ot"
-                                    position="top"
-                                    formatter={formatK}
-                                    style={{ fontSize: 10, fill: '#64748B', fontWeight: 600 }}
-                                />
-                            </Area>
-                        </AreaChart>
-                    </RechartsBox>
-                </ChartCard>
-
-                <ChartCard title="6) Total Deductions by Category">
-                    <RechartsBox height={260} minHeight={240}>
-                        <BarChart data={deductionsByCategory} margin={{ top: 22, right: 8, left: 4, bottom: 4 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={PAYROLL_COLORS.grid} vertical={false} />
-                            <XAxis
-                                dataKey="name"
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                                interval={0}
-                            />
-                            <YAxis
-                                domain={deductionAxis.domain}
-                                ticks={deductionAxis.ticks}
-                                tick={{ fontSize: 11, fill: PAYROLL_COLORS.axis }}
-                                axisLine={false}
-                                tickLine={false}
-                                width={52}
-                                label={{
-                                    value: 'AED (K)',
-                                    angle: -90,
-                                    position: 'insideLeft',
-                                    style: { fill: PAYROLL_COLORS.axis, fontSize: 11 },
-                                }}
-                            />
-                            <RechartsTooltip
-                                contentStyle={tooltipStyle}
-                                formatter={(value) => [`AED ${formatK(value)}`, 'Deduction']}
-                                cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
-                            />
-                            <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={48}>
-                                {deductionsByCategory.map((row) => (
-                                    <Cell key={row.name} fill={row.color} />
-                                ))}
-                                <LabelList
-                                    dataKey="value"
-                                    position="top"
-                                    formatter={formatK}
-                                    style={{ fontSize: 11, fill: '#64748B', fontWeight: 700 }}
-                                />
-                            </Bar>
-                        </BarChart>
-                    </RechartsBox>
-                </ChartCard>
-            </div>
-            </>
-            )}
+                    </>
+                )}
+            </main>
             <PayrollSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </div>
     );

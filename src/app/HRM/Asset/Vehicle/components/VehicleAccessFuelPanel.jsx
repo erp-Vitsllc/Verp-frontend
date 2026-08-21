@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     AlertTriangle,
@@ -17,6 +17,8 @@ import { useToast } from '@/hooks/use-toast';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import VehicleFuelModal from '@/app/HRM/Asset/Vehicle/components/VehicleFuelModal';
+import VehicleFuelPreviousToggle from '@/app/HRM/Asset/Vehicle/components/VehicleFuelPreviousToggle';
+import { MonthPicker } from '@/components/ui/date-picker';
 import VehicleServiceRequestSortHeader from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRequestSortHeader';
 import {
     codeSortValue,
@@ -25,8 +27,18 @@ import {
     textSortValue,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceRequestTableSort';
 import { canAccessAddFuel } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
+import {
+    formatFuelEntryWhen,
+    previousFuelEntries,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleFuelPreviousEntries';
+import { isAdmin } from '@/utils/permissions';
 
 const VEHICLE_LIST_RETURN = '/HRM/Asset/Vehicle';
+
+function currentMonthKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
 
 const TYPE_CARD =
     'group flex items-center gap-2 rounded-xl border p-2 text-left transition-colors min-h-[3.25rem]';
@@ -38,7 +50,7 @@ const TYPE_ICON_WRAP =
 const FILTERS = [
     { key: 'added', label: 'Fuel added vehicle', Icon: Fuel, tone: 'pending' },
     { key: 'not-added', label: 'Not added vehicle', Icon: Car, tone: 'pending' },
-    { key: 'total', label: 'Total current month fuel price', Icon: Banknote, tone: 'complete' },
+    { key: 'total', label: 'Total month fuel price', Icon: Banknote, tone: 'complete' },
     { key: 'exceeded', label: 'Vehicle exceed limit of fuel', Icon: AlertTriangle, tone: 'pending' },
 ];
 
@@ -89,6 +101,7 @@ export default function VehicleAccessFuelPanel({
 
     const [loading, setLoading] = useState(true);
     const [canManage, setCanManage] = useState(false);
+    const [canDelete, setCanDelete] = useState(() => isAdmin());
     const [vehicles, setVehicles] = useState([]);
     const [added, setAdded] = useState([]);
     const [notAdded, setNotAdded] = useState([]);
@@ -98,6 +111,7 @@ export default function VehicleAccessFuelPanel({
         totalAmount: 0,
         exceedCount: 0,
     });
+    const [monthKey, setMonthKey] = useState(currentMonthKey);
     const [monthLabel, setMonthLabel] = useState('');
     const [selectedFilter, setSelectedFilter] = useState('added');
     const [formOpen, setFormOpen] = useState(false);
@@ -105,13 +119,20 @@ export default function VehicleAccessFuelPanel({
     const [sortKey, setSortKey] = useState('vehicleName');
     const [sortDirection, setSortDirection] = useState('asc');
     const [viewingDocument, setViewingDocument] = useState(null);
+    const [deletingBill, setDeletingBill] = useState(null);
+    const [deleting, setDeleting] = useState(false);
+    const [openPreviousId, setOpenPreviousId] = useState('');
 
     const allowManage = canManage || canAccessAddFuel();
+    const allowDelete = canDelete || isAdmin();
 
     const loadList = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await axiosInstance.get('/VehicleFuel/access-list', { skipToast: true });
+            const res = await axiosInstance.get('/VehicleFuel/access-list', {
+                params: { monthKey },
+                skipToast: true,
+            });
             setVehicles(Array.isArray(res.data?.vehicles) ? res.data.vehicles : []);
             setAdded(Array.isArray(res.data?.added) ? res.data.added : []);
             setNotAdded(Array.isArray(res.data?.notAdded) ? res.data.notAdded : []);
@@ -123,6 +144,7 @@ export default function VehicleAccessFuelPanel({
             });
             setMonthLabel(res.data?.monthLabel || '');
             setCanManage(Boolean(res.data?.canManage));
+            setCanDelete(Boolean(res.data?.canDelete) || isAdmin());
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -135,7 +157,7 @@ export default function VehicleAccessFuelPanel({
         } finally {
             setLoading(false);
         }
-    }, [toast]);
+    }, [toast, monthKey]);
 
     useEffect(() => {
         loadList();
@@ -191,7 +213,7 @@ export default function VehicleAccessFuelPanel({
     };
 
     const openAdd = () => {
-        setEditingBill(null);
+        setEditingBill({ monthKey });
         setFormOpen(true);
     };
 
@@ -214,9 +236,34 @@ export default function VehicleAccessFuelPanel({
         setEditingBill(null);
     };
 
-    const handleSaved = () => {
+    const handleSaved = (saved) => {
         closeForm();
         loadList();
+        if (saved?._id && previousFuelEntries(saved.entries).length) {
+            setOpenPreviousId(String(saved._id));
+        }
+    };
+
+    const deleteBill = async () => {
+        if (!deletingBill?._id || deletingBill?.noFuel) return;
+        setDeleting(true);
+        try {
+            const res = await axiosInstance.delete(`/VehicleFuel/${deletingBill._id}`);
+            toast({
+                title: 'Fuel deleted',
+                description: res.data?.message || 'Fuel bill deleted. Management has been notified.',
+            });
+            setDeletingBill(null);
+            loadList();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not delete',
+                description: error.response?.data?.message || 'Failed to delete the fuel bill.',
+            });
+        } finally {
+            setDeleting(false);
+        }
     };
 
     const rowHref = (row) => {
@@ -225,8 +272,11 @@ export default function VehicleAccessFuelPanel({
         return `/HRM/Asset/Vehicle/details/${id}?tab=fuel`;
     };
 
-    const openAttachment = async (bill) => {
-        const entry = [...(bill.entries || [])].reverse().find((e) => e.hasAttachment);
+    const openAttachment = async (bill, entryId = '') => {
+        const entries = bill.entries || [];
+        const entry = entryId
+            ? entries.find((e) => String(e._id) === String(entryId))
+            : [...entries].reverse().find((e) => e.hasAttachment);
         if (!entry) return;
         setViewingDocument({
             data: '',
@@ -279,10 +329,13 @@ export default function VehicleAccessFuelPanel({
                         ) : null}
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
-                        Current month fuel bills across the fleet
+                        Fuel bills, GPS running KM, and idle time for the selected month
                     </p>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                    <div className="min-w-[150px]">
+                        <MonthPicker value={monthKey} onChange={setMonthKey} />
+                    </div>
                     {allowManage ? (
                         <button
                             type="button"
@@ -377,7 +430,7 @@ export default function VehicleAccessFuelPanel({
                     onSaved={handleSaved}
                     vehicles={vehicles}
                     existingBill={editingBill}
-                    knownBills={added}
+                    knownBills={[...added, ...notAdded]}
                     canManage={allowManage}
                 />
             ) : null}
@@ -436,6 +489,8 @@ export default function VehicleAccessFuelPanel({
                                             : row.limitWarning80
                                               ? 'amber'
                                               : null;
+                                        const previous = previousFuelEntries(row.entries);
+                                        const previousOpen = String(openPreviousId) === String(row._id);
                                         const rowElement = (
                                             <tr
                                                 key={row._id}
@@ -510,24 +565,100 @@ export default function VehicleAccessFuelPanel({
                                                                 {row.noFuel ? 'Add' : 'Update'}
                                                             </button>
                                                         ) : null}
+                                                        {allowDelete && !row.noFuel ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    setDeletingBill(row);
+                                                                }}
+                                                                className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-red-700 hover:bg-red-50"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        ) : null}
+                                                        <VehicleFuelPreviousToggle
+                                                            open={previousOpen}
+                                                            count={previous.length}
+                                                            onToggle={() =>
+                                                                setOpenPreviousId((current) =>
+                                                                    String(current) === String(row._id)
+                                                                        ? ''
+                                                                        : String(row._id),
+                                                                )
+                                                            }
+                                                        />
                                                     </div>
                                                 </td>
                                             </tr>
                                         );
 
-                                        if (isNavigable) {
-                                            return (
-                                                <ListTableRowLink
-                                                    key={row._id}
-                                                    href={href}
-                                                    router={router}
-                                                    listReturnHref={listReturnHref}
-                                                >
-                                                    {rowElement}
-                                                </ListTableRowLink>
-                                            );
-                                        }
-                                        return rowElement;
+                                        const previousRows = previousOpen
+                                            ? previous.map((entry, entryIdx) => {
+                                                  const isFirstFuel = entryIdx === previous.length - 1;
+                                                  return (
+                                                      <tr
+                                                          key={`${row._id}-prev-${entry._id || entryIdx}`}
+                                                          className={
+                                                              isFirstFuel
+                                                                  ? 'bg-slate-100/90 border-b border-slate-200'
+                                                                  : 'bg-slate-50/80 border-b border-slate-100'
+                                                          }
+                                                      >
+                                                          <td className="px-4 py-2.5 text-slate-400">—</td>
+                                                          <td className="px-4 py-2.5 text-slate-500">{row.vehicleName || '—'}</td>
+                                                          <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">
+                                                              {row.plateNo || row.vehicleNumber || '—'}
+                                                          </td>
+                                                          <td className="px-4 py-2.5 text-slate-400">{row.vehicleOwner || '—'}</td>
+                                                          <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">
+                                                              <span>{formatFuelEntryWhen(entry.createdAt) || row.monthLabel}</span>
+                                                              <span className="ml-2 inline-flex rounded-full bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                                                                  {isFirstFuel ? 'First fuel' : 'Previous'}
+                                                              </span>
+                                                          </td>
+                                                          <td className="px-4 py-2.5 text-slate-400">—</td>
+                                                          <td className="px-4 py-2.5 font-black tabular-nums whitespace-nowrap text-slate-700">
+                                                              {formatAmount(entry.amount)}
+                                                          </td>
+                                                          <td className="px-4 py-2.5 text-slate-400">—</td>
+                                                          <td className="px-4 py-2.5 text-slate-400">—</td>
+                                                          <td className="px-4 py-2.5 text-right">
+                                                              {entry.hasAttachment ? (
+                                                                  <button
+                                                                      type="button"
+                                                                      onClick={(event) => {
+                                                                          event.stopPropagation();
+                                                                          openAttachment(row, entry._id);
+                                                                      }}
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                                                      title="View attachment"
+                                                                  >
+                                                                      <Eye size={16} />
+                                                                  </button>
+                                                              ) : null}
+                                                          </td>
+                                                      </tr>
+                                                  );
+                                              })
+                                            : null;
+
+                                        return (
+                                            <Fragment key={row._id}>
+                                                {isNavigable ? (
+                                                    <ListTableRowLink
+                                                        href={href}
+                                                        router={router}
+                                                        listReturnHref={listReturnHref}
+                                                    >
+                                                        {rowElement}
+                                                    </ListTableRowLink>
+                                                ) : (
+                                                    rowElement
+                                                )}
+                                                {previousRows}
+                                            </Fragment>
+                                        );
                                     })}
                                 </tbody>
                             </table>
@@ -535,6 +666,39 @@ export default function VehicleAccessFuelPanel({
                     )}
                 </div>
             </div>
+
+            {deletingBill ? (
+                <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-base font-black text-slate-800 uppercase tracking-widest">Delete fuel?</h3>
+                            <button type="button" onClick={() => setDeletingBill(null)} className="p-1 text-slate-400 hover:text-slate-700">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <p className="text-sm text-slate-500">
+                            Delete the fuel bill for {deletingBill.monthLabel}? Management will be emailed, and the record stays in recovery.
+                        </p>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeletingBill(null)}
+                                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={deleting}
+                                onClick={deleteBill}
+                                className="px-4 py-2 rounded-xl bg-red-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
+                            >
+                                {deleting ? 'Deleting…' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
 
             <DocumentViewerModal
                 isOpen={Boolean(viewingDocument)}

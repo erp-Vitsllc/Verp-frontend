@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
-import { motion } from 'motion/react';
 import axiosInstance from '@/utils/axios';
+import { cn } from '@/lib/utils';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
-import { dashboardHover, dashboardItem } from './dashboardMotion';
+import { dashboardItem } from './dashboardMotion';
+import { DashboardCard, SectionHeader } from './ui';
 
 const EMPTY_COUNTS = {
     on_leave: 0,
@@ -36,12 +37,12 @@ const EMPTY_SUMMARY = {
 };
 
 const DETAIL_BOXES = [
-    { key: 'authorized_leave', label: 'Authorized leave', wrap: 'bg-blue-50 text-blue-700' },
-    { key: 'unauthorized_leave', label: 'Unauthorized leave', wrap: 'bg-rose-50 text-rose-700' },
-    { key: 'sick_leave', label: 'Sick leave', wrap: 'bg-emerald-50 text-emerald-700' },
-    { key: 'work_from_home', label: 'Work from home', wrap: 'bg-green-50 text-green-700' },
-    { key: 'late_group', label: 'Late / Mispunch / Early', wrap: 'bg-yellow-50 text-yellow-800' },
-    { key: 'annual_leave', label: 'Annual leave', wrap: 'bg-indigo-50 text-indigo-700' },
+    { key: 'authorized_leave', label: 'Authorized leave', wrap: 'bg-blue-50/70 text-blue-700' },
+    { key: 'unauthorized_leave', label: 'Unauthorized leave', wrap: 'bg-rose-50/70 text-rose-700' },
+    { key: 'sick_leave', label: 'Sick leave', wrap: 'bg-emerald-50/70 text-emerald-700' },
+    { key: 'work_from_home', label: 'Work from home', wrap: 'bg-green-50/70 text-green-700' },
+    { key: 'late_group', label: 'Late / Mispunch / Early', wrap: 'bg-amber-50/70 text-amber-800' },
+    { key: 'annual_leave', label: 'Annual leave', wrap: 'bg-indigo-50/70 text-indigo-700' },
 ];
 
 const PERIOD_FILTERS = [
@@ -123,6 +124,18 @@ function formatLeaveDate(value) {
     }
 }
 
+function MiniStat({ value, label, hint, valueClass }) {
+    return (
+        <div className="min-h-[84px] rounded-xl border border-[#E7EBF1] bg-white px-3.5 py-3 flex flex-col justify-center">
+            <p className={cn('text-[26px] font-bold tabular-nums leading-none text-[#111827]', valueClass)}>
+                {value}
+            </p>
+            <p className="text-[11px] font-medium text-[#8792A6] mt-1.5 leading-tight">{label}</p>
+            {hint ? <p className="text-[10px] text-[#8792A6] mt-0.5 leading-tight">{hint}</p> : null}
+        </div>
+    );
+}
+
 export default function DashboardMyLeaveCard() {
     const [filterKey, setFilterKey] = useState('current_month');
     const [customMonth, setCustomMonth] = useState(currentMonthKey);
@@ -190,156 +203,82 @@ export default function DashboardMyLeaveCard() {
     };
 
     return (
-        <motion.article
-            variants={dashboardItem}
-            className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 pt-3 pb-4"
-        >
-            <div className="flex items-center justify-between gap-3 mb-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
-                        <CalendarDays size={16} />
-                    </div>
-                    <div className="min-w-0">
-                        <h3 className="text-sm font-semibold text-slate-800">My Attendance</h3>
-                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider truncate">
-                            {periodLabel(filterKey, customMonth)}
-                        </p>
-                    </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-1 shrink-0 max-w-full">
-                    {PERIOD_FILTERS.map((opt) => {
-                        const active = filterKey === opt.key;
-                        return (
-                            <button
-                                key={opt.key}
-                                type="button"
-                                onClick={() => setFilterKey(opt.key)}
-                                className={`h-7 px-2 rounded-full text-[10px] font-bold uppercase tracking-wide border transition-colors ${
-                                    active
-                                        ? 'bg-slate-900 text-white border-slate-900'
-                                        : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                                }`}
-                            >
-                                {opt.label}
-                            </button>
-                        );
-                    })}
-                    {filterKey === 'custom' ? (
-                        <input
-                            type="month"
-                            value={customMonth}
-                            onChange={(e) => {
-                                const next = String(e.target.value || '').trim();
-                                if (/^\d{4}-\d{2}$/.test(next)) setCustomMonth(next);
-                            }}
-                            className="h-7 w-[8.5rem] px-2 rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
-                        />
-                    ) : null}
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <motion.div
-                    whileHover={dashboardHover}
-                    className="dash-card-lift rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:p-4 min-h-[168px]"
-                >
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-xl bg-green-50 text-green-800 px-3 py-3">
-                            <p className="text-3xl sm:text-4xl font-black tabular-nums leading-none">
-                                {summary.presentDays}
-                            </p>
-                            <p className="text-[10px] font-bold uppercase tracking-wide mt-1.5">
-                                Present days
-                            </p>
-                        </div>
-                        <div className="rounded-xl bg-rose-50 text-rose-800 px-3 py-3">
-                            <p className="text-2xl font-black tabular-nums leading-none">
-                                {summary.absentDays}
-                            </p>
-                            <p className="text-[10px] font-bold uppercase tracking-wide mt-1">
-                                Absent days
-                            </p>
-                            <div className="mt-2 grid grid-cols-3 gap-1">
-                                <div className="rounded-md bg-white/80 px-1 py-1 text-center">
-                                    <p className="text-sm font-black tabular-nums leading-none">
-                                        {summary.absentAuth}
-                                    </p>
-                                    <p className="text-[8px] font-bold uppercase tracking-wide text-blue-700 mt-0.5">
-                                        Auth
-                                    </p>
-                                </div>
-                                <div className="rounded-md bg-white/80 px-1 py-1 text-center">
-                                    <p className="text-sm font-black tabular-nums leading-none">
-                                        {summary.absentSick}
-                                    </p>
-                                    <p className="text-[8px] font-bold uppercase tracking-wide text-emerald-700 mt-0.5">
-                                        Sick
-                                    </p>
-                                </div>
-                                <div className="rounded-md bg-white/80 px-1 py-1 text-center">
-                                    <p className="text-sm font-black tabular-nums leading-none">
-                                        {summary.absentUnauthorized}
-                                    </p>
-                                    <p className="text-[8px] font-bold uppercase tracking-wide text-rose-700 mt-0.5">
-                                        Unauth
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="rounded-xl bg-sky-50 text-sky-800 px-3 py-3">
-                            <p className="text-2xl font-black tabular-nums leading-none">
-                                {summary.workingDays}
-                            </p>
-                            <p className="text-[10px] font-bold uppercase tracking-wide mt-1.5 leading-tight">
-                                Total working days
-                            </p>
-                        </div>
-                        <div className="rounded-xl bg-slate-100 text-slate-700 px-3 py-3">
-                            <p className="text-2xl font-black tabular-nums leading-none">
-                                {summary.holidayCount}
-                            </p>
-                            <p className="text-[10px] font-bold uppercase tracking-wide mt-1.5">
-                                Holidays
-                            </p>
-                        </div>
-                    </div>
-                </motion.div>
-
-                <motion.div
-                    whileHover={dashboardHover}
-                    className="dash-card-lift rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:p-4 min-h-[168px]"
-                >
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {DETAIL_BOXES.map((box, index) => {
-                            const hint = detailHint(box.key);
-                            const isDate = box.key === 'annual_leave';
+        <DashboardCard variants={dashboardItem} className="px-4 py-3.5">
+            <SectionHeader
+                icon={CalendarDays}
+                iconWrap="bg-sky-50 text-sky-600"
+                title="My Attendance"
+                subtitle={periodLabel(filterKey, customMonth)}
+                action={
+                    <div className="flex flex-wrap items-center justify-end gap-1 max-w-full">
+                        {PERIOD_FILTERS.map((opt) => {
+                            const active = filterKey === opt.key;
                             return (
-                                <div
-                                    key={box.key}
-                                    className={`dash-leave-box rounded-xl px-2 py-2.5 text-center min-w-0 ${box.wrap}`}
-                                    style={{ animationDelay: `${index * 40}ms` }}
+                                <button
+                                    key={opt.key}
+                                    type="button"
+                                    onClick={() => setFilterKey(opt.key)}
+                                    className={`h-7 px-2 rounded-full text-[11px] font-semibold border transition-colors duration-200 ${
+                                        active
+                                            ? 'bg-slate-900 text-white border-slate-900'
+                                            : 'bg-white text-[#8792A6] border-[#E7EBF1] hover:bg-slate-50'
+                                    }`}
                                 >
-                                    <p
-                                        className={`font-black tabular-nums leading-none ${
-                                            isDate ? 'text-sm sm:text-[15px]' : 'text-lg sm:text-xl'
-                                        }`}
-                                    >
-                                        {detailValue(box.key)}
-                                    </p>
-                                    <p className="text-[9px] font-bold uppercase tracking-wide mt-1 leading-tight">
-                                        {box.label}
-                                    </p>
-                                    {hint ? (
-                                        <p className="text-[8px] font-semibold mt-0.5 leading-tight opacity-80">
-                                            {hint}
-                                        </p>
-                                    ) : null}
-                                </div>
+                                    {opt.label}
+                                </button>
                             );
                         })}
+                        {filterKey === 'custom' ? (
+                            <input
+                                type="month"
+                                value={customMonth}
+                                onChange={(e) => {
+                                    const next = String(e.target.value || '').trim();
+                                    if (/^\d{4}-\d{2}$/.test(next)) setCustomMonth(next);
+                                }}
+                                className="h-7 w-[8.5rem] px-2 rounded-full border border-[#E7EBF1] bg-white text-[11px] font-semibold text-slate-700 tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
+                            />
+                        ) : null}
                     </div>
-                </motion.div>
+                }
+            />
+
+            <div className="mt-3 grid grid-cols-2 min-[1200px]:grid-cols-4 gap-3">
+                <MiniStat value={summary.presentDays} label="Present days" valueClass="text-emerald-700" />
+                <MiniStat
+                    value={summary.absentDays}
+                    label="Absent days"
+                    valueClass="text-rose-700"
+                    hint={`Auth ${summary.absentAuth} · Sick ${summary.absentSick} · Unauth ${summary.absentUnauthorized}`}
+                />
+                <MiniStat value={summary.workingDays} label="Total Working Days" />
+                <MiniStat value={summary.holidayCount} label="Holidays" />
             </div>
-        </motion.article>
+
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 min-[1200px]:grid-cols-6 gap-2">
+                {DETAIL_BOXES.map((box) => {
+                    const hint = detailHint(box.key);
+                    const isDate = box.key === 'annual_leave';
+                    return (
+                        <div
+                            key={box.key}
+                            className={`rounded-xl px-2.5 py-2.5 min-w-0 min-h-[72px] flex flex-col justify-center ${box.wrap}`}
+                        >
+                            <p
+                                className={`font-bold tabular-nums leading-none ${
+                                    isDate ? 'text-[13px]' : 'text-lg'
+                                }`}
+                            >
+                                {detailValue(box.key)}
+                            </p>
+                            <p className="text-[11px] font-medium mt-1 leading-tight">{box.label}</p>
+                            {hint ? (
+                                <p className="text-[10px] mt-0.5 leading-tight opacity-80">{hint}</p>
+                            ) : null}
+                        </div>
+                    );
+                })}
+            </div>
+        </DashboardCard>
     );
 }

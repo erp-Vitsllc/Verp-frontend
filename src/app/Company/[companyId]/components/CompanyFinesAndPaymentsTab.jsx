@@ -1,38 +1,18 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import {
-    ChevronDown,
-    ChevronRight,
-    ExternalLink,
-    FileText,
-    History,
-    Plus,
-    Wallet,
-    X,
-} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { FileText, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
-import { fineMatchesDeductionMonthRange } from '@/app/HRM/Fine/utils/fineScheduleUtils';
-import FineFlowManager from '@/app/HRM/Fine/components/FineFlowManager';
-import { buildFineVendorPaymentPrefill } from '@/app/HRM/Fine/utils/fineVendorPaymentPrefill';
 import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 import {
-    getPaymentAmountTextClass,
-    getPaymentStatusBadgeClass,
-    getPaymentStatusLabel,
-    getPaymentStatusSurfaceClass,
     isPaymentCountableTowardPaid,
     shouldShowPaymentInHistory,
 } from '@/utils/paymentStatusDisplay';
 import { resolveCompanyFinePayableAmount } from '@/utils/finePayableAmount';
-import { crudAccess, isAdmin } from '@/utils/permissions';
 
 const COMPANY_PARTY_ID = 'VEGA-HR-0000';
-
-const PAYABLE_FINE_STATUSES = ['Approved', 'Active', 'Completed', 'Paid'];
 
 function formatMoney(n) {
     const num = Number(n);
@@ -40,10 +20,15 @@ function formatMoney(n) {
     return num.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function paymentMatchesMonthRange(payment, startMonth, endMonth) {
+function paymentMatchesMonthRange(row, startMonth, endMonth) {
     if (!startMonth && !endMonth) return true;
-    const raw = payment?.paymentDate || payment?.createdAt;
+    const raw = row?.paymentDate || row?.billMonth || row?.createdAt;
     if (!raw) return false;
+    if (/^\d{4}-\d{2}$/.test(String(raw))) {
+        if (startMonth && raw < startMonth) return false;
+        if (endMonth && raw > endMonth) return false;
+        return true;
+    }
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return false;
     const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -75,40 +60,49 @@ function utilityBillBelongsToCompany(bill, company) {
     });
 }
 
+function isZohoPaidStatus(value) {
+    return String(value || '').trim().toLowerCase() === 'paid';
+}
+
+/** Company payment list: Zoho bill paid → Paid. */
+function companyRowStatus(row) {
+    if (isZohoPaidStatus(row?.status) || isZohoPaidStatus(row?.vendorBillStatus)) return 'Paid';
+    if (isPaymentCountableTowardPaid(row?.status)) return 'Paid';
+    const label = String(row?.status || '').trim();
+    if (!label) return 'Not Paid';
+    if (label.toLowerCase() === 'zoho billed') return 'Zoho billed';
+    if (['pending', 'processing', 'not paid'].includes(label.toLowerCase())) return 'Not Paid';
+    return label;
+}
+
+function statusBadgeClass(status) {
+    const label = String(status || '').toLowerCase();
+    if (label === 'paid') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    if (label === 'zoho billed') return 'bg-sky-50 text-sky-800 border-sky-200';
+    if (label === 'not paid' || label === 'pending') {
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+    }
+    return 'bg-slate-50 text-slate-700 border-slate-200';
+}
+
 /**
- * Company profile → Fines and Payment: list company fines, Add Fine, company-share
- * payments (VEGA-HR-0000), expand history, Pay selected.
+ * Company profile → Payment: company-share bills and payments only (no fine list).
  */
 export default function CompanyFinesAndPaymentsTab({ company }) {
     const router = useRouter();
-    const pathname = usePathname();
-    const { toast } = useToast();
-
     const companyOid = company?._id ? String(company._id) : '';
-    const canAddFine = isAdmin() || crudAccess('hrm_fine').create || crudAccess('hrm_fine_add').create;
-    const canPay = true; // Pay uses Accounts Payments prefill (same as employee Salary → Fine)
 
     const [fines, setFines] = useState([]);
     const [companyPayments, setCompanyPayments] = useState([]);
     const [companyDeductions, setCompanyDeductions] = useState([]);
-    const [loading, setLoading] = useState(false);
     const [paymentsLoading, setPaymentsLoading] = useState(false);
-    const [activeSubTab, setActiveSubTab] = useState('fines');
     const [filterStartMonth, setFilterStartMonth] = useState('');
     const [filterEndMonth, setFilterEndMonth] = useState('');
     const [utilityBillById, setUtilityBillById] = useState({});
-    const [expandedFineId, setExpandedFineId] = useState(null);
-    const [finePayments, setFinePayments] = useState([]);
-    const [loadingFinePayments, setLoadingFinePayments] = useState(false);
-    const [selectedFineKeys, setSelectedFineKeys] = useState([]);
-    const [showAddFine, setShowAddFine] = useState(false);
-    const [employees, setEmployees] = useState([]);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
-    const [reloadKey, setReloadKey] = useState(0);
 
     const loadFines = useCallback(async () => {
         if (!companyOid) return;
-        setLoading(true);
         try {
             const res = await axiosInstance.get('/Fine', {
                 params: { companyId: companyOid, limit: 1000 },
@@ -118,8 +112,6 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
         } catch (err) {
             console.error('Error fetching company fines:', err);
             setFines([]);
-        } finally {
-            setLoading(false);
         }
     }, [companyOid]);
 
@@ -152,7 +144,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
             });
             setCompanyDeductions(Array.isArray(res.data?.rows) ? res.data.rows : []);
         } catch (err) {
-            console.error('Error fetching company utility deductions:', err);
+            console.error('Error fetching company payments:', err);
             setCompanyDeductions([]);
         }
     }, [companyOid]);
@@ -161,7 +153,7 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
         loadFines();
         loadCompanyPayments();
         loadCompanyDeductions();
-    }, [loadFines, loadCompanyPayments, loadCompanyDeductions, reloadKey]);
+    }, [loadFines, loadCompanyPayments, loadCompanyDeductions]);
 
     useEffect(() => {
         const utilityPayments = (companyPayments || []).filter(
@@ -199,16 +191,6 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
         };
     }, [companyPayments]);
 
-    useEffect(() => {
-        if (!showAddFine) return;
-        axiosInstance
-            .get('/Employee', { params: { limit: 2000 }, skipToast: true })
-            .then((res) => {
-                setEmployees(res.data?.employees || res.data || []);
-            })
-            .catch(() => setEmployees([]));
-    }, [showAddFine]);
-
     const companyFineIds = useMemo(
         () => new Set(fines.map((f) => String(f.fineId || '')).filter(Boolean)),
         [fines],
@@ -219,7 +201,6 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
         [fines],
     );
 
-    /** Company-share payments: fines for this company and asset bills paid on its behalf. */
     const paymentsForCompany = useMemo(() => {
         return (companyPayments || []).filter((p) => {
             if (
@@ -248,261 +229,111 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
         });
     }, [companyPayments, companyFineIds, companyFineMongoIds, utilityBillById, company]);
 
-    const getCompanyShare = (fine) => resolveCompanyFinePayableAmount(fine);
-
-    const getPaidForFine = (fine) => {
-        const fid = String(fine.fineId || '');
-        const oid = String(fine._id || '');
-        return paymentsForCompany
-            .filter(
-                (p) =>
-                    isPaymentCountableTowardPaid(p.status) &&
-                    (p.referenceId === fid || String(p.relatedEntityId || '') === oid),
-            )
-            .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-    };
-
-    const getBalanceForFine = (fine) =>
-        Math.max(0, getCompanyShare(fine) - getPaidForFine(fine));
-
-    const companyFines = useMemo(
-        () => (fines || []).filter((f) => f.fineStatus !== 'Draft'),
-        [fines],
-    );
-
     const monthFilterActive = Boolean(filterStartMonth || filterEndMonth);
 
-    const filteredFines = useMemo(
-        () =>
-            companyFines.filter((f) =>
-                fineMatchesDeductionMonthRange(f, filterStartMonth, filterEndMonth),
-            ),
-        [companyFines, filterStartMonth, filterEndMonth],
-    );
+    const listRows = useMemo(() => {
+        const rows = [];
+        const seenFine = new Set();
+        const seenUtility = new Set();
 
-    const filteredPayments = useMemo(
-        () =>
-            paymentsForCompany.filter((p) =>
-                paymentMatchesMonthRange(p, filterStartMonth, filterEndMonth),
-            ),
-        [paymentsForCompany, filterStartMonth, filterEndMonth],
-    );
-
-    const filteredDeductions = useMemo(
-        () =>
-            companyDeductions.filter((row) => {
-                const month = String(row.billMonth || '');
-                if (filterStartMonth && month < filterStartMonth) return false;
-                if (filterEndMonth && month > filterEndMonth) return false;
-                return true;
-            }),
-        [companyDeductions, filterStartMonth, filterEndMonth],
-    );
-
-    const payCompanyDeduction = (row) => {
-        const params = new URLSearchParams({
-            addUtilityPay: '1',
-            mode: 'difference',
-        });
-        if (row.zohoOrganizationId) params.set('organizationId', row.zohoOrganizationId);
-        if (row.utilityBillId) params.set('utilityBillIds', row.utilityBillId);
-        const prefill = {
-            mode: 'difference',
-            amount: Number(row.amount || 0).toFixed(2),
-            companyId: companyOid,
-            payByCompanyId: companyOid,
-            payByCompanyName: company?.name || row.companyName || '',
-            organizationId: row.zohoOrganizationId || '',
-            utilityBillIds: row.utilityBillId ? [row.utilityBillId] : [],
-            selectedBillIds: row.zohoBillId ? [row.zohoBillId] : [],
-            partyRows: [
-                {
-                    utilityBillId: row.utilityBillId || '',
-                    accountNo: row.accountNo || '',
-                    payBy: 'company',
-                    amount: Number(row.amount) || 0,
-                    payByCompanyId: companyOid,
-                    payByCompanyName: company?.name || row.companyName || '',
-                    partyAccountId: row.partyAccountId || '',
-                    partyAccountName: row.partyAccountName || '',
-                    partyAccountCode: row.partyAccountCode || '',
-                },
-            ],
-            utilityBillLinks: row.utilityBillId
-                ? [{ utilityBillId: row.utilityBillId, zohoBillId: row.zohoBillId || '' }]
-                : [],
-        };
-        try {
-            sessionStorage.setItem('utilityVendorPaymentPrefill', JSON.stringify(prefill));
-        } catch {
-            // Navigation still opens the payment form if storage is unavailable.
-        }
-        router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
-    };
-
-    const payableFines = useMemo(
-        () =>
-            filteredFines.filter(
-                (f) =>
-                    PAYABLE_FINE_STATUSES.includes(f.fineStatus) &&
-                    getBalanceForFine(f) > 0.01 &&
-                    getCompanyShare(f) > 0.01,
-            ),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [filteredFines, paymentsForCompany],
-    );
-
-    const selectedPayable = useMemo(
-        () =>
-            payableFines.filter((f) =>
-                selectedFineKeys.includes(String(f.fineId || f._id)),
-            ),
-        [payableFines, selectedFineKeys],
-    );
-
-    const selectedTotalBalance = useMemo(
-        () => selectedPayable.reduce((s, f) => s + getBalanceForFine(f), 0),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [selectedPayable, paymentsForCompany],
-    );
-
-    const toggleExpand = async (rowKey, fineId) => {
-        if (expandedFineId === rowKey) {
-            setExpandedFineId(null);
-            setFinePayments([]);
-            return;
-        }
-        setExpandedFineId(rowKey);
-        setLoadingFinePayments(true);
-        try {
-            const res = await axiosInstance.get('/Payment', {
-                params: {
-                    relatedEntityType: 'Fine',
-                    referenceId: fineId,
-                    employeeId: COMPANY_PARTY_ID,
-                },
-                skipToast: true,
+        (fines || [])
+            .filter((f) => f.fineStatus !== 'Draft')
+            .forEach((fine) => {
+                const amount = resolveCompanyFinePayableAmount(fine);
+                if (!(amount > 0.01)) return;
+                const fineKey = String(fine.fineId || fine._id || '');
+                if (fineKey) seenFine.add(fineKey);
+                const vendorPaid = isZohoPaidStatus(fine.vendorBillStatus);
+                const hasZohoBill = Boolean(String(fine.zohoBillId || '').trim());
+                rows.push({
+                    id: `fine:${fine._id || fine.fineId}`,
+                    paymentId: fine.fineId || '—',
+                    type: 'Fine',
+                    reference: fine.fineId || fine.billNumber || '—',
+                    paymentDate: fine.billDate || fine.awardedDate || fine.createdAt,
+                    amount,
+                    status: vendorPaid ? 'Paid' : hasZohoBill ? 'Not Paid' : 'Not Paid',
+                    billLink: fine.fineId || fine._id
+                        ? `/HRM/Fine/${encodeURIComponent(fine.fineId || fine._id)}`
+                        : '',
+                    payment: null,
+                });
             });
-            const fetched = res.data?.payments || res.data || [];
-            setFinePayments(fetched.filter((p) => shouldShowPaymentInHistory(p.status)));
-        } catch (err) {
-            console.error(err);
-            setFinePayments([]);
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Failed to load payment history.',
-            });
-        } finally {
-            setLoadingFinePayments(false);
-        }
-    };
 
-    const handlePaySelected = () => {
-        if (!selectedPayable.length) {
-            toast({
-                variant: 'destructive',
-                title: 'No fines selected',
-                description: 'Select one or more company fines with an outstanding balance.',
-            });
-            return;
-        }
-
-        const zohoReady = selectedPayable.filter((f) => String(f.zohoBillId || '').trim());
-        if (
-            zohoReady.length === selectedPayable.length &&
-            zohoReady.length === 1 &&
-            String(zohoReady[0].vendorBillStatus || '').toLowerCase() !== 'paid'
-        ) {
-            const prefill = buildFineVendorPaymentPrefill(zohoReady[0], {
-                returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
-            });
-            if (prefill?.zohoBillIds?.length) {
-                sessionStorage.setItem('fineVendorPaymentPrefill', JSON.stringify(prefill));
-                const params = new URLSearchParams();
-                params.set('addFinePay', '1');
-                if (prefill.organizationId) params.set('organizationId', prefill.organizationId);
-                if (prefill.companyId || companyOid) {
-                    params.set('companyId', prefill.companyId || companyOid);
-                }
-                if (prefill.fineMongoId) params.set('fineMongoId', prefill.fineMongoId);
-                router.push(`/Accounts/PaymentsMade/new?${params.toString()}`);
-                return;
+        (companyDeductions || []).forEach((row) => {
+            const kind = String(row.kind || '').toLowerCase();
+            if (kind === 'fine') {
+                const fineKey = String(row.fineId || row.fineMongoId || '');
+                if (fineKey && seenFine.has(fineKey)) return;
+                if (fineKey) seenFine.add(fineKey);
             }
-        }
+            if (kind === 'utility_share' || kind === 'balance') {
+                const billKey = String(row.utilityBillId || '');
+                if (billKey) seenUtility.add(billKey);
+            }
+            const typeLabel =
+                kind === 'utility_share'
+                    ? 'Utility'
+                    : kind === 'balance'
+                      ? 'Utility deduction'
+                      : kind === 'service'
+                        ? row.utilityType || 'Service'
+                        : kind === 'fine'
+                          ? 'Fine'
+                          : row.kind || 'Payment';
+            rows.push({
+                id: `exp:${row.id}`,
+                paymentId: row.accountNo || row.fineId || row.zohoPaymentNumber || '—',
+                type: typeLabel,
+                reference: row.utilityBillId || row.fineId || row.description || '—',
+                paymentDate: row.billMonth || row.paidAt,
+                amount: Number(row.amount) || 0,
+                status: companyRowStatus(row),
+                billLink: row.billLink || row.paymentLink || '',
+                payment: null,
+            });
+        });
 
-        const payload = {
-            employeeId: COMPANY_PARTY_ID,
-            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
-            companyId: companyOid,
-            companyName: company?.name || '',
-            fines: selectedPayable.map((f) => ({
-                _id: f._id,
-                fineId: f.fineId,
-                fineAmount: f.fineAmount,
-                balance: getBalanceForFine(f),
-                employeeShare: getCompanyShare(f),
-                paidAmount: getPaidForFine(f),
-                monthStart: f.monthStart,
-                payableDuration: f.payableDuration,
-                assignedEmployees: f.assignedEmployees,
-                fineType: f.fineType,
-                category: f.category,
-                serviceCharge: f.serviceCharge,
-                companyAmount: f.companyAmount,
-                employeeAmount: f.employeeAmount,
-                responsibleFor: f.responsibleFor,
-            })),
-        };
-        sessionStorage.setItem('finePaymentPrefill', JSON.stringify(payload));
-        router.push('/Accounts/Payments?addFinePay=1');
-    };
+        paymentsForCompany.forEach((pay) => {
+            if (pay.paymentType === 'Fine') {
+                const ref = String(pay.referenceId || '');
+                const rel = String(pay.relatedEntityId || '');
+                if ((ref && seenFine.has(ref)) || (rel && seenFine.has(rel))) return;
+            }
+            if (pay.paymentType === 'UtilityBill') {
+                const billId = String(pay.relatedEntityId || pay.referenceId || '').trim();
+                if (billId && seenUtility.has(billId)) return;
+            }
+            rows.push({
+                id: `pay:${pay._id}`,
+                paymentId: pay.paymentId || '—',
+                type: pay.paymentType || 'Payment',
+                reference: pay.referenceId || '—',
+                paymentDate: pay.paymentDate || pay.createdAt,
+                amount: Number(pay.amount) || 0,
+                status: companyRowStatus(pay),
+                billLink: '',
+                payment: pay,
+            });
+        });
 
-    const statusColors = {
-        Pending: 'bg-yellow-100 text-yellow-700',
-        'Pending HR': 'bg-orange-100 text-orange-700',
-        'Pending Accounts': 'bg-blue-100 text-blue-700',
-        'Pending Authorization': 'bg-purple-100 text-purple-700',
-        Approved: 'bg-green-100 text-green-700',
-        Active: 'bg-emerald-100 text-emerald-700',
-        Completed: 'bg-teal-100 text-teal-700',
-        Paid: 'bg-gray-100 text-gray-700',
-        Rejected: 'bg-red-100 text-red-700',
-        Cancelled: 'bg-slate-100 text-slate-700',
-        Draft: 'bg-gray-100 text-gray-500',
-    };
+        return rows;
+    }, [fines, companyDeductions, paymentsForCompany]);
+
+    const filteredRows = useMemo(
+        () => listRows.filter((row) => paymentMatchesMonthRange(row, filterStartMonth, filterEndMonth)),
+        [listRows, filterStartMonth, filterEndMonth],
+    );
 
     return (
         <div className="animate-in fade-in duration-500 space-y-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 sm:p-8 min-h-[400px]">
                 <div className="flex flex-col gap-4 mb-4">
                     <div>
-                        <h3 className="text-base sm:text-xl font-semibold text-gray-800">
-                            Fines and Payment
-                        </h3>
+                        <h3 className="text-base sm:text-xl font-semibold text-gray-800">Payment</h3>
                         <p className="text-sm text-gray-400 mt-0.5">
-                            Company fines and payments for {company?.name || 'this company'}
+                            Company payments for {company?.name || 'this company'}
                         </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-6 border-b border-gray-100 pb-1">
-                        {[
-                            { id: 'fines', label: 'Fines' },
-                            { id: 'payments', label: 'Payments' },
-                        ].map((tab) => (
-                            <button
-                                key={tab.id}
-                                type="button"
-                                onClick={() => setActiveSubTab(tab.id)}
-                                className={`pb-2 text-sm font-semibold tracking-tight transition-all relative whitespace-nowrap ${
-                                    activeSubTab === tab.id
-                                        ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
-                                        : 'text-gray-400 hover:text-gray-600'
-                                }`}
-                            >
-                                {tab.label}
-                            </button>
-                        ))}
                     </div>
                 </div>
 
@@ -510,15 +341,12 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                     <div>
                         {monthFilterActive ? (
                             <p className="text-xs text-slate-500">
-                                {activeSubTab === 'fines'
-                                    ? `Showing ${filteredFines.length} of ${companyFines.length} fine(s) in the selected period`
-                                    : `Showing ${filteredPayments.length} of ${paymentsForCompany.length} payment(s) in the selected period`}
+                                Showing {filteredRows.length} of {listRows.length} payment(s) in the
+                                selected period
                             </p>
                         ) : (
                             <p className="text-xs text-slate-500">
-                                {activeSubTab === 'fines'
-                                    ? `${companyFines.length} fine(s) · draft excluded`
-                                    : `${paymentsForCompany.length} payment(s) for fines and assets`}
+                                {listRows.length} payment(s) for this company
                             </p>
                         )}
                     </div>
@@ -558,334 +386,9 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                 Clear
                             </button>
                         ) : null}
-                        {activeSubTab === 'fines' && canAddFine ? (
-                            <button
-                                type="button"
-                                onClick={() => setShowAddFine(true)}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm"
-                            >
-                                <Plus size={14} />
-                                Add Fine
-                            </button>
-                        ) : null}
-                        {activeSubTab === 'fines' && canPay && selectedPayable.length > 0 ? (
-                            <button
-                                type="button"
-                                onClick={handlePaySelected}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
-                            >
-                                <Wallet size={14} />
-                                Pay · AED {formatMoney(selectedTotalBalance)}
-                            </button>
-                        ) : null}
                     </div>
                 </div>
 
-                {activeSubTab === 'fines' ? (
-                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
-                    <table className="w-full text-left">
-                        <thead className="bg-gray-50/80 border-b border-gray-100">
-                            <tr>
-                                <th className="px-4 py-4 w-10">
-                                    <input
-                                        type="checkbox"
-                                        className="w-4 h-4 rounded text-emerald-600"
-                                        checked={
-                                            payableFines.length > 0 &&
-                                            payableFines.every((f) =>
-                                                selectedFineKeys.includes(
-                                                    String(f.fineId || f._id),
-                                                ),
-                                            )
-                                        }
-                                        onChange={(e) => {
-                                            if (e.target.checked) {
-                                                setSelectedFineKeys(
-                                                    payableFines.map((f) =>
-                                                        String(f.fineId || f._id),
-                                                    ),
-                                                );
-                                            } else {
-                                                setSelectedFineKeys([]);
-                                            }
-                                        }}
-                                        title="Select all payable"
-                                    />
-                                </th>
-                                <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                    Fine ID
-                                </th>
-                                <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                    Type
-                                </th>
-                                <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                    Company Share
-                                </th>
-                                <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                    Paid
-                                </th>
-                                <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                    Balance
-                                </th>
-                                <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                    Status
-                                </th>
-                                <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">
-                                    Action
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50">
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={8} className="px-6 py-20 text-center">
-                                        <div className="flex flex-col items-center gap-3 text-gray-300">
-                                            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                                            <span className="text-sm font-semibold text-gray-400">
-                                                Loading fines…
-                                            </span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ) : filteredFines.length === 0 ? (
-                                <tr>
-                                    <td colSpan={8} className="px-6 py-20 text-center">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100">
-                                                <FileText size={28} className="text-gray-300" />
-                                            </div>
-                                            <span className="text-sm font-semibold text-gray-400">
-                                                {companyFines.length === 0
-                                                    ? 'No company fines for this company'
-                                                    : 'No fines match the selected month range'}
-                                            </span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ) : (
-                                filteredFines.map((fine, idx) => {
-                                    const rowKey = fine._id || idx;
-                                    const fineKey = String(fine.fineId || fine._id);
-                                    const share = getCompanyShare(fine);
-                                    const paid = getPaidForFine(fine);
-                                    const balance = getBalanceForFine(fine);
-                                    const canSelect = balance > 0.01 && share > 0.01;
-                                    const isExpanded = expandedFineId === rowKey;
-                                    const statusClass =
-                                        statusColors[fine.fineStatus] ||
-                                        'bg-blue-100 text-blue-600';
-
-                                    return (
-                                        <React.Fragment key={fineKey || rowKey}>
-                                            <tr
-                                                className={`hover:bg-blue-50/20 transition-colors cursor-pointer ${
-                                                    isExpanded ? 'bg-blue-50/30' : ''
-                                                }`}
-                                                onClick={() =>
-                                                    toggleExpand(rowKey, fine.fineId)
-                                                }
-                                            >
-                                                <td
-                                                    className="px-4 py-4"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        className="w-4 h-4 rounded text-emerald-600 disabled:opacity-40"
-                                                        disabled={!canSelect}
-                                                        checked={selectedFineKeys.includes(
-                                                            fineKey,
-                                                        )}
-                                                        onChange={(e) => {
-                                                            setSelectedFineKeys((prev) =>
-                                                                e.target.checked
-                                                                    ? [
-                                                                          ...new Set([
-                                                                              ...prev,
-                                                                              fineKey,
-                                                                          ]),
-                                                                      ]
-                                                                    : prev.filter(
-                                                                          (k) => k !== fineKey,
-                                                                      ),
-                                                            );
-                                                        }}
-                                                    />
-                                                </td>
-                                                <td className="px-4 py-4">
-                                                    <div className="flex items-center gap-2">
-                                                        {isExpanded ? (
-                                                            <ChevronDown
-                                                                size={14}
-                                                                className="text-blue-500"
-                                                            />
-                                                        ) : (
-                                                            <ChevronRight
-                                                                size={14}
-                                                                className="text-gray-400"
-                                                            />
-                                                        )}
-                                                        <span className="text-sm font-mono font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
-                                                            {fine.fineId || '—'}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-4 text-sm text-gray-600 capitalize">
-                                                    {fine.fineType || fine.subCategory || '—'}
-                                                </td>
-                                                <td className="px-4 py-4 text-sm font-bold text-emerald-700">
-                                                    AED {formatMoney(share)}
-                                                </td>
-                                                <td className="px-4 py-4 text-sm font-bold text-emerald-600">
-                                                    AED {formatMoney(paid)}
-                                                </td>
-                                                <td className="px-4 py-4 text-sm font-bold text-rose-600">
-                                                    AED {formatMoney(balance)}
-                                                </td>
-                                                <td className="px-4 py-4">
-                                                    <span
-                                                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${statusClass}`}
-                                                    >
-                                                        {fine.fineStatus || 'Pending'}
-                                                    </span>
-                                                </td>
-                                                <td
-                                                    className="px-4 py-4 text-right"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            router.push(
-                                                                `/HRM/Fine/${encodeURIComponent(
-                                                                    fine.fineId || fine._id,
-                                                                )}`,
-                                                            )
-                                                        }
-                                                        className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"
-                                                        title="Open fine details"
-                                                    >
-                                                        <ExternalLink size={16} />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                            {isExpanded ? (
-                                                <tr>
-                                                    <td
-                                                        colSpan={8}
-                                                        className="bg-gray-50/50 p-4"
-                                                    >
-                                                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                                                            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
-                                                                <div className="flex items-center gap-2">
-                                                                    <History
-                                                                        size={14}
-                                                                        className="text-blue-500"
-                                                                    />
-                                                                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                                                        Company Payment Receipts
-                                                                    </h4>
-                                                                </div>
-                                                            </div>
-                                                            {loadingFinePayments ? (
-                                                                <div className="p-8 text-center text-xs text-gray-400 font-bold">
-                                                                    Loading receipts…
-                                                                </div>
-                                                            ) : finePayments.length === 0 ? (
-                                                                <div className="p-8 text-center text-gray-400 text-xs font-bold uppercase tracking-widest">
-                                                                    No company payments for this
-                                                                    fine yet.
-                                                                </div>
-                                                            ) : (
-                                                                <table className="w-full text-left text-sm">
-                                                                    <thead>
-                                                                        <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                                                                            <th className="px-4 py-2">
-                                                                                Receipt No
-                                                                            </th>
-                                                                            <th className="px-4 py-2">
-                                                                                Date
-                                                                            </th>
-                                                                            <th className="px-4 py-2">
-                                                                                Amount
-                                                                            </th>
-                                                                            <th className="px-4 py-2">
-                                                                                Status
-                                                                            </th>
-                                                                            <th className="px-4 py-2 text-right">
-                                                                                Action
-                                                                            </th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {finePayments.map(
-                                                                            (pay) => (
-                                                                                <tr
-                                                                                    key={pay._id}
-                                                                                    className={`border-b border-slate-50 ${getPaymentStatusSurfaceClass(pay.status)}`}
-                                                                                >
-                                                                                    <td className="px-4 py-3 font-bold text-slate-700">
-                                                                                        {
-                                                                                            pay.paymentId
-                                                                                        }
-                                                                                    </td>
-                                                                                    <td className="px-4 py-3 text-slate-500">
-                                                                                        {new Date(
-                                                                                            pay.paymentDate ||
-                                                                                                pay.createdAt,
-                                                                                        ).toLocaleDateString(
-                                                                                            'en-GB',
-                                                                                        )}
-                                                                                    </td>
-                                                                                    <td
-                                                                                        className={`px-4 py-3 font-black ${getPaymentAmountTextClass(pay.status)}`}
-                                                                                    >
-                                                                                        AED{' '}
-                                                                                        {formatMoney(
-                                                                                            pay.amount,
-                                                                                        )}
-                                                                                    </td>
-                                                                                    <td className="px-4 py-3">
-                                                                                        <span
-                                                                                            className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${getPaymentStatusBadgeClass(pay.status)}`}
-                                                                                        >
-                                                                                            {getPaymentStatusLabel(
-                                                                                                pay.status,
-                                                                                            )}
-                                                                                        </span>
-                                                                                    </td>
-                                                                                    <td className="px-4 py-3 text-right">
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={() =>
-                                                                                                setSelectedInvoice(
-                                                                                                    pay,
-                                                                                                )
-                                                                                            }
-                                                                                            className="text-blue-600 hover:text-blue-700 font-bold text-[10px] uppercase tracking-widest"
-                                                                                        >
-                                                                                            View
-                                                                                            Invoice
-                                                                                        </button>
-                                                                                    </td>
-                                                                                </tr>
-                                                                            ),
-                                                                        )}
-                                                                    </tbody>
-                                                                </table>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ) : null}
-                                        </React.Fragment>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-                ) : (
                 <div className="overflow-x-auto rounded-xl border border-gray-100">
                     <table className="w-full text-left text-sm">
                         <thead className="bg-gray-50/80 border-b border-gray-100">
@@ -920,148 +423,91 @@ export default function CompanyFinesAndPaymentsTab({ company }) {
                                         Loading payments…
                                     </td>
                                 </tr>
-                            ) : filteredPayments.length === 0 && filteredDeductions.length === 0 ? (
+                            ) : filteredRows.length === 0 ? (
                                 <tr>
                                     <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
-                                        {paymentsForCompany.length === 0
+                                        {listRows.length === 0
                                             ? 'No company payments yet'
                                             : 'No payments match the selected month range'}
                                     </td>
                                 </tr>
                             ) : (
-                                <>
-                                {filteredDeductions.map((row) => (
-                                    <tr
-                                        key={`deduction-${row.id}`}
-                                        className={row.status === 'Paid' ? 'bg-emerald-50/30' : 'bg-amber-50/40'}
-                                    >
-                                        <td className="px-4 py-3 font-bold text-slate-700">
-                                            {row.accountNo || '—'}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-600">
-                                            {row.kind === 'utility_share'
-                                                ? 'Utility payable share'
-                                                : 'Utility deduction'}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-600 font-mono text-xs">
-                                            {row.utilityType || row.utilityBillId || '—'}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-500">
-                                            {row.billMonth || '—'}
-                                        </td>
-                                        <td className="px-4 py-3 font-bold text-slate-800">
-                                            AED {formatMoney(row.amount)}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <span
-                                                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${
-                                                    row.status === 'Paid'
-                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                        : String(row.status || '').toLowerCase() ===
-                                                            'zoho billed'
-                                                          ? 'bg-sky-50 text-sky-800 border-sky-200'
-                                                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                                filteredRows.map((row) => {
+                                    const status = companyRowStatus(row);
+                                    return (
+                                        <tr
+                                            key={row.id}
+                                            className={
+                                                status === 'Paid'
+                                                    ? 'bg-emerald-50/30'
+                                                    : 'hover:bg-slate-50/80'
+                                            }
+                                        >
+                                            <td className="px-4 py-3 font-bold text-slate-700">
+                                                {row.paymentId || '—'}
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-600 capitalize">
+                                                {row.type || '—'}
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-600 font-mono text-xs">
+                                                {row.reference || '—'}
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-500">
+                                                {row.paymentDate
+                                                    ? /^\d{4}-\d{2}$/.test(String(row.paymentDate))
+                                                        ? row.paymentDate
+                                                        : new Date(row.paymentDate).toLocaleDateString(
+                                                              'en-GB',
+                                                          )
+                                                    : '—'}
+                                            </td>
+                                            <td
+                                                className={`px-4 py-3 font-bold ${
+                                                    status === 'Paid'
+                                                        ? 'text-emerald-700'
+                                                        : 'text-slate-800'
                                                 }`}
                                             >
-                                                {row.status || 'Not Paid'}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-right">
-                                            {row.kind === 'utility_share' ||
-                                            row.partyType === 'company' ||
-                                            !row.canPay ? (
-                                                row.billLink ? (
+                                                AED {formatMoney(row.amount)}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span
+                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${statusBadgeClass(status)}`}
+                                                >
+                                                    {status}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                {row.payment ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedInvoice(row.payment)}
+                                                        className="text-blue-600 hover:text-blue-700 text-xs font-semibold"
+                                                    >
+                                                        View Invoice
+                                                    </button>
+                                                ) : row.billLink ? (
                                                     <button
                                                         type="button"
                                                         onClick={() => router.push(row.billLink)}
                                                         className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
                                                     >
-                                                        Open bill
+                                                        Open
                                                     </button>
                                                 ) : (
                                                     <span className="text-xs font-semibold text-slate-400">
                                                         —
                                                     </span>
-                                                )
-                                            ) : row.status === 'Paid' ? (
-                                                <span className="text-xs font-semibold text-emerald-700">Paid</span>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => payCompanyDeduction(row)}
-                                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
-                                                >
-                                                    Pay deduction
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                                {filteredPayments.map((pay) => (
-                                    <tr
-                                        key={pay._id}
-                                        className={`hover:bg-slate-50/80 ${getPaymentStatusSurfaceClass(pay.status)}`}
-                                    >
-                                        <td className="px-4 py-3 font-bold text-slate-700">
-                                            {pay.paymentId || '—'}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-600 capitalize">
-                                            {pay.paymentType || '—'}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-600 font-mono text-xs">
-                                            {pay.referenceId || '—'}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-500">
-                                            {pay.paymentDate || pay.createdAt
-                                                ? new Date(
-                                                      pay.paymentDate || pay.createdAt,
-                                                  ).toLocaleDateString('en-GB')
-                                                : '—'}
-                                        </td>
-                                        <td
-                                            className={`px-4 py-3 font-bold ${getPaymentAmountTextClass(pay.status)}`}
-                                        >
-                                            AED {formatMoney(pay.amount)}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <span
-                                                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${getPaymentStatusBadgeClass(pay.status)}`}
-                                            >
-                                                {getPaymentStatusLabel(pay.status)}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-right">
-                                            <button
-                                                type="button"
-                                                onClick={() => setSelectedInvoice(pay)}
-                                                className="text-blue-600 hover:text-blue-700 text-xs font-semibold"
-                                            >
-                                                View Invoice
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                </>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
                 </div>
-                )}
             </div>
-
-            <FineFlowManager
-                isOpen={showAddFine}
-                onClose={() => setShowAddFine(false)}
-                onSuccess={() => {
-                    setShowAddFine(false);
-                    setReloadKey((k) => k + 1);
-                    toast({
-                        title: 'Fine submitted',
-                        description: 'Company fines list will refresh.',
-                    });
-                }}
-                employees={employees}
-            />
 
             {selectedInvoice ? (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">

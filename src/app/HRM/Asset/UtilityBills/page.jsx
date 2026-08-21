@@ -44,6 +44,7 @@ import {
     deleteUtilityEntryApi,
     fetchUtilityConfigs,
     fetchUtilityEntries,
+    fetchUtilityOverviewBills,
     saveUtilityConfig,
     updateUtilityEntryApi,
     addUtilityTypeNameApi,
@@ -59,6 +60,7 @@ import {
     utilityBillYears,
 } from './utils/utilityOverviewStats';
 import { clearModuleNotificationFeedsCache } from '@/utils/moduleNotifications';
+import { buildUtilityBillDetailsPath } from '@/utils/assetNotificationRouting';
 
 const CELL_MAX_LEN = 42;
 const LONG_TEXT_KEYS = new Set(['planDetails', 'location', 'paymentDetails']);
@@ -359,7 +361,6 @@ function UtilityBillsPageContent() {
     const [tabSearchQuery, setTabSearchQuery] = useState('');
     const [sortKey, setSortKey] = useState('provider');
     const [sortDirection, setSortDirection] = useState('asc');
-    const [typeBills, setTypeBills] = useState([]);
     /** Bills across every utility type — powers the overview amounts. */
     const [allTypeBills, setAllTypeBills] = useState([]);
     const [overviewMonth, setOverviewMonth] = useState(() => currentPeriod().month);
@@ -369,65 +370,66 @@ function UtilityBillsPageContent() {
         const batchId = String(searchParams?.get('batchId') || '').trim();
         const statusChangeId = String(searchParams?.get('statusChangeId') || '').trim();
         const review = String(searchParams?.get('review') || '') === '1';
-        if (batchId && review) {
-            setReviewBatchId(batchId);
-            const type = String(searchParams?.get('type') || '').trim();
-            if (type) setActiveTypeTab(type);
-        }
         if (statusChangeId && review) {
             setStatusChangeReviewId(statusChangeId);
         }
-    }, [searchParams]);
+        if (!batchId) return undefined;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await axiosInstance.get(`/UtilityBill/batch/${batchId}`, {
+                    skipToast: true,
+                });
+                if (cancelled) return;
+                const bills = Array.isArray(res.data?.bills) ? res.data.bills : [];
+                const focus =
+                    bills.find((bill) =>
+                        ['Pending Accounts', 'Pending HR'].includes(String(bill.status)),
+                    ) || bills[0];
+                const detailsPath = buildUtilityBillDetailsPath(focus?.entryId, {
+                    billId: focus?._id,
+                });
+                if (detailsPath) {
+                    router.replace(detailsPath);
+                    return;
+                }
+            } catch {
+                if (!cancelled) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Bill not found',
+                        description: 'Could not open this approval on the details page.',
+                    });
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [searchParams, router, toast]);
 
-    const loadTypeBills = useCallback(async (typeName) => {
-        if (!typeName) {
-            setTypeBills([]);
-            return;
-        }
+    const loadOverviewBills = useCallback(async () => {
         try {
-            const res = await axiosInstance.get('/UtilityBill', {
-                params: { utilityType: typeName },
-                skipToast: true,
-            });
-            setTypeBills(Array.isArray(res.data?.bills) ? res.data.bills : []);
+            const bills = await fetchUtilityOverviewBills();
+            setAllTypeBills(Array.isArray(bills) ? bills : []);
         } catch {
-            setTypeBills([]);
-        }
-    }, []);
-
-    useEffect(() => {
-        loadTypeBills(activeTypeTab);
-    }, [activeTypeTab, loadTypeBills]);
-
-    /** The list endpoint is per type, so fan out over every created type. */
-    const loadAllTypeBills = useCallback(async (typeNames) => {
-        const names = (typeNames || []).map((n) => String(n || '').trim()).filter(Boolean);
-        if (!names.length) {
             setAllTypeBills([]);
-            return;
         }
-        const results = await Promise.all(
-            names.map((utilityType) =>
-                axiosInstance
-                    .get('/UtilityBill', { params: { utilityType }, skipToast: true })
-                    .then((res) => (Array.isArray(res.data?.bills) ? res.data.bills : []))
-                    .catch(() => []),
-            ),
-        );
-        setAllTypeBills(results.flat());
     }, []);
 
     const reloadUtilitiesAndEntries = useCallback(async () => {
         try {
             await migrateLocalUtilityDataIfNeeded();
-            const [configs, entryList] = await Promise.all([
+            const [configs, entryList, bills] = await Promise.all([
                 fetchUtilityConfigs(),
                 fetchUtilityEntries(),
+                fetchUtilityOverviewBills(),
             ]);
             const loaded = normalizeUtilities(configs);
             const loadedEntries = normalizeUtilityEntries(entryList);
             setUtilities(loaded);
             setEntries(loadedEntries);
+            setAllTypeBills(Array.isArray(bills) ? bills : []);
             if (loaded.length > 0) {
                 setActiveTypeTab((prev) =>
                     prev && loaded.some((u) => u.type === prev) ? prev : loaded[0].type,
@@ -441,6 +443,7 @@ function UtilityBillsPageContent() {
             });
             setUtilities([]);
             setEntries([]);
+            setAllTypeBills([]);
         }
     }, [toast]);
 
@@ -463,11 +466,12 @@ function UtilityBillsPageContent() {
     }, []);
 
     useEffect(() => {
-        fetchPendingInboxCount();
+        const startId = window.setTimeout(() => fetchPendingInboxCount(), 400);
         const intervalId = setInterval(() => fetchPendingInboxCount(), 5 * 60 * 1000);
         const onInboxChanged = () => fetchPendingInboxCount({ force: true });
         window.addEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
         return () => {
+            window.clearTimeout(startId);
             clearInterval(intervalId);
             window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
         };
@@ -636,15 +640,6 @@ function UtilityBillsPageContent() {
 
     const showAssignColumn = activeUtility?.fields?.assignment === 'yes';
 
-    const typeNamesKey = useMemo(
-        () => typeTabs.map((tab) => String(tab.type || '')).join('|'),
-        [typeTabs],
-    );
-
-    useEffect(() => {
-        loadAllTypeBills(typeNamesKey ? typeNamesKey.split('|') : []);
-    }, [typeNamesKey, loadAllTypeBills]);
-
     /** Overview boxes: only types that are in use (count > 0). Zero-count types stay hidden. */
     const typeOverviewCards = useMemo(
         () =>
@@ -807,6 +802,16 @@ function UtilityBillsPageContent() {
         [activeEntries],
     );
 
+    const addBillExistingBills = useMemo(() => {
+        const type = String(activeTypeTab || activeUtility?.type || '')
+            .trim()
+            .toLowerCase();
+        if (!type) return allTypeBills || [];
+        return (allTypeBills || []).filter(
+            (bill) => String(bill?.utilityType || '').trim().toLowerCase() === type,
+        );
+    }, [allTypeBills, activeTypeTab, activeUtility]);
+
     const openAddBills = () => {
         if (!billableEntries.length) {
             window.alert(
@@ -817,6 +822,7 @@ function UtilityBillsPageContent() {
             return;
         }
         setAddBillsOpen(true);
+        loadOverviewBills();
     };
 
     const handleAddBills = async (payload) => {
@@ -865,7 +871,7 @@ function UtilityBillsPageContent() {
             invalidateAssetPendingInbox('tools');
             clearModuleNotificationFeedsCache();
             fetchPendingInboxCount({ force: true });
-            await loadTypeBills(activeTypeTab);
+            loadOverviewBills();
             return { ok: true };
         } catch (err) {
             toast({
@@ -898,22 +904,14 @@ function UtilityBillsPageContent() {
         router.replace(qs ? `/HRM/Asset/UtilityBills?${qs}` : '/HRM/Asset/UtilityBills');
     };
 
-    /** Open review from pending-inbox click without relying on same-page router.push. */
+    /** Open activate/deactivate review from pending-inbox click without relying on same-page router.push. */
     const handlePendingActivatePath = useCallback(
         (path) => {
             const href = String(path || '').trim();
             if (!href.includes('/HRM/Asset/UtilityBills')) return false;
             try {
                 const url = new URL(href, 'http://local');
-                const batchId = String(url.searchParams.get('batchId') || '').trim();
                 const statusChangeId = String(url.searchParams.get('statusChangeId') || '').trim();
-                const type = String(url.searchParams.get('type') || '').trim();
-                if (batchId) {
-                    setReviewBatchId(batchId);
-                    if (type) setActiveTypeTab(type);
-                    router.replace(href.startsWith('/') ? href : `${url.pathname}${url.search}`);
-                    return true;
-                }
                 if (statusChangeId) {
                     setStatusChangeReviewId(statusChangeId);
                     router.replace(href.startsWith('/') ? href : `${url.pathname}${url.search}`);
@@ -1090,13 +1088,13 @@ function UtilityBillsPageContent() {
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 lg:mb-8">
+                <div className="p-3 sm:p-4 lg:p-5 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="mb-2 flex flex-col justify-between gap-1.5 sm:flex-row sm:items-center sm:gap-2">
                         <div className="min-w-0">
-                            <h1 className="mb-1 text-xl font-bold text-[#1A2B48] sm:mb-2 sm:text-2xl lg:text-3xl">
+                            <h1 className="mb-0 text-xl font-bold leading-tight text-[#1A2B48] sm:text-2xl lg:text-[1.65rem]">
                                 Utility Bills
                             </h1>
-                            <p className="text-sm sm:text-base text-gray-600">
+                            <p className="text-xs sm:text-sm text-gray-600 leading-tight">
                                 Manage utility bills and payment status
                             </p>
                         </div>
@@ -1126,8 +1124,8 @@ function UtilityBillsPageContent() {
                         </div>
                     </div>
 
-                    <div className="mb-4 grid w-full max-w-full grid-cols-1 items-stretch gap-3 sm:mb-6 sm:gap-4 lg:mb-8 lg:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)] lg:gap-5">
-                        <div className="relative z-10 flex h-auto min-h-[420px] w-full min-w-0 flex-col overflow-visible rounded-2xl border border-[#EEF0F4] bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.04)] sm:p-5 lg:h-[560px] lg:p-6">
+                    <div className="mb-3 grid w-full max-w-full grid-cols-1 items-stretch gap-2.5 sm:mb-3 lg:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)] lg:gap-3">
+                        <div className="relative z-10 flex h-auto min-h-[320px] w-full min-w-0 flex-col overflow-visible rounded-2xl border border-[#EEF0F4] bg-white p-2.5 shadow-[0_1px_3px_rgba(15,23,42,0.04)] sm:p-3 lg:h-[340px]">
                             <UtilityTypeOverviewCard
                                 cards={typeOverviewCards}
                                 activeType={activeTypeTab}
@@ -1146,7 +1144,7 @@ function UtilityBillsPageContent() {
                             />
                         </div>
 
-                        <div className="flex h-auto min-h-[420px] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-[#EEF0F4] bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.04)] sm:p-5 lg:h-[560px] lg:p-6">
+                        <div className="flex h-auto min-h-[320px] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-[#EEF0F4] bg-white p-2.5 shadow-[0_1px_3px_rgba(15,23,42,0.04)] sm:p-3 lg:h-[340px]">
                             <UtilityBillPendingCard
                                 pending={pendingOverview}
                                 typeNames={overviewTypeNames}
@@ -1696,7 +1694,7 @@ function UtilityBillsPageContent() {
                 isOpen={addBillsOpen}
                 onClose={() => setAddBillsOpen(false)}
                 entries={billableEntries}
-                existingBills={typeBills}
+                existingBills={addBillExistingBills}
                 utilityType={activeUtility?.type || ''}
                 utilityAttachment={activeUtility?.attachment || null}
                 onSubmit={handleAddBills}
@@ -1707,7 +1705,7 @@ function UtilityBillsPageContent() {
                 isOpen={Boolean(reviewBatchId)}
                 batchId={reviewBatchId}
                 entries={billableEntries}
-                existingBills={typeBills}
+                existingBills={addBillExistingBills}
                 utilityAttachment={activeUtility?.attachment || null}
                 onClose={closeReviewModal}
                 onChanged={() => {
@@ -1715,7 +1713,7 @@ function UtilityBillsPageContent() {
                     invalidateAssetPendingInbox('all');
                     clearModuleNotificationFeedsCache();
                     fetchPendingInboxCount({ force: true });
-                    loadTypeBills(activeTypeTab);
+                    loadOverviewBills();
                 }}
             />
 

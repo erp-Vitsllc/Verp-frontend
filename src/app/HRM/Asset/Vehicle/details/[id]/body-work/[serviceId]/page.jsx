@@ -20,6 +20,7 @@ import VehicleServiceAccountsZohoBillingCard from '@/app/HRM/Asset/Vehicle/compo
 import VehicleBodyWorkPreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkPreviousHistoryPanel';
 import VehicleBodyWorkDriverHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkDriverHistoryPanel';
 import VehicleBodyWorkWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleBodyWorkWorkflowPanel';
+import VehicleServiceAttachmentsPanel from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAttachmentsPanel';
 import {
     canUserManageOilService,
     canUserCreateOrInitiateVehicleService,
@@ -455,6 +456,10 @@ function VehicleBodyWorkDetailPageContent() {
                                 asset={asset}
                                 service={service}
                                 className="min-h-[320px] flex-1"
+                            />
+                            <VehicleServiceAttachmentsPanel
+                                service={service}
+                                className="shrink-0"
                             />
                         </div>
                     </div>

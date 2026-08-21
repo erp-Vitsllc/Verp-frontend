@@ -121,6 +121,52 @@ function normalizePrefillPayBy(value) {
     return '';
 }
 
+/**
+ * Same company (or employee) on two payables of one bill → one row,
+ * summing those payable amounts only (not the bill total).
+ */
+function mergeSameCompanyPartyRows(rows = []) {
+    const map = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+        if (!row) return;
+        const payBy = normalizePrefillPayBy(row.payBy);
+        const billId = String(row.utilityBillId || '').trim();
+        const companyKey = String(row.payByCompanyId || row.payByCompanyName || '')
+            .trim()
+            .toLowerCase();
+        const employeeKey = String(row.payByEmployeeId || row.payByEmployeeName || '')
+            .trim()
+            .toLowerCase();
+        const partyKey =
+            payBy === 'company'
+                ? `company:${companyKey}`
+                : payBy === 'employee'
+                  ? `employee:${employeeKey}`
+                  : companyKey
+                    ? `company:${companyKey}`
+                    : `employee:${employeeKey}`;
+        const key = `${billId}|${partyKey}`;
+        const amount = amountValue(
+            row.amount || row.employeePayAmount || row.companyPayAmount,
+        );
+        const prev = map.get(key);
+        if (!prev) {
+            map.set(key, { ...row, amount });
+            return;
+        }
+        prev.amount = amountValue(prev.amount) + amount;
+        if (row.companyPayAmount != null || prev.companyPayAmount != null) {
+            prev.companyPayAmount =
+                amountValue(prev.companyPayAmount) + amountValue(row.companyPayAmount);
+        }
+        if (row.employeePayAmount != null || prev.employeePayAmount != null) {
+            prev.employeePayAmount =
+                amountValue(prev.employeePayAmount) + amountValue(row.employeePayAmount);
+        }
+    });
+    return [...map.values()];
+}
+
 /** Build party_expenses[] only for Pay difference / balance (not full vendor bill pay). */
 function buildPartyExpensesPayloadForZoho({ utilityPrefill, paymentAmount }) {
     if (!utilityPrefill) return [];
@@ -128,7 +174,9 @@ function buildPartyExpensesPayloadForZoho({ utilityPrefill, paymentAmount }) {
     const mode = String(utilityPrefill.mode || '').trim().toLowerCase();
     if (mode && mode !== 'difference') return [];
 
-    const partyRows = Array.isArray(utilityPrefill.partyRows) ? utilityPrefill.partyRows : [];
+    const partyRows = mergeSameCompanyPartyRows(
+        Array.isArray(utilityPrefill.partyRows) ? utilityPrefill.partyRows : [],
+    );
     const rows = [...partyRows];
     const linkByBill = new Map(
         (Array.isArray(utilityPrefill.utilityBillLinks) ? utilityPrefill.utilityBillLinks : []).map(
@@ -1565,9 +1613,9 @@ export default function AddVendorPaymentModal({
         paymentDate,
         notes,
     }) => {
-        const partyRows = Array.isArray(utilityPrefill?.partyRows)
-            ? utilityPrefill.partyRows
-            : [];
+        const partyRows = mergeSameCompanyPartyRows(
+            Array.isArray(utilityPrefill?.partyRows) ? utilityPrefill.partyRows : [],
+        );
         const rows =
             partyRows.length > 0
                 ? partyRows.filter((row) =>
@@ -1739,9 +1787,9 @@ export default function AddVendorPaymentModal({
         const mode = String(utilityPrefill?.mode || '').trim().toLowerCase();
         if (mode && mode !== 'difference') return;
 
-        const partyRows = Array.isArray(utilityPrefill?.partyRows)
-            ? utilityPrefill.partyRows
-            : [];
+        const partyRows = mergeSameCompanyPartyRows(
+            Array.isArray(utilityPrefill?.partyRows) ? utilityPrefill.partyRows : [],
+        );
         const rows =
             partyRows.length > 0
                 ? partyRows.filter((row) =>

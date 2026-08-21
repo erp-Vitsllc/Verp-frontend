@@ -14,6 +14,7 @@ import VehicleOilServiceDetailHeaderCards from '@/app/HRM/Asset/Vehicle/componen
 import VehicleOilServiceDetailForm from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceDetailForm';
 import VehicleOilServiceScheduleCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceScheduleCard';
 import VehicleOilServiceWorkflowPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceWorkflowPanel';
+import VehicleServiceAttachmentsPanel from '@/app/HRM/Asset/Vehicle/components/VehicleServiceAttachmentsPanel';
 import VehicleOilServicePreviousHistoryPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServicePreviousHistoryPanel';
 import VehicleOilServiceDetailsPanel from '@/app/HRM/Asset/Vehicle/components/VehicleOilServiceDetailsPanel';
 import VehicleOilCashPaymentApprovalCard from '@/app/HRM/Asset/Vehicle/components/VehicleOilCashPaymentApprovalCard';
@@ -452,6 +453,11 @@ function VehicleOilServiceDetailPageContent() {
                                 service={service}
                                 flowchartRows={flowchartRows}
                                 className="min-h-[320px] flex-1"
+                            />
+
+                            <VehicleServiceAttachmentsPanel
+                                service={service}
+                                className="shrink-0"
                             />
                         </div>
                     </div>

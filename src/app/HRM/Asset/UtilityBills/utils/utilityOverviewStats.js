@@ -128,7 +128,7 @@ function startOfToday() {
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-/** Bill month YYYY-MM + payment day (1–31) → due date at start of that calendar day. */
+/** Bill month YYYY-MM is payable on that payment day in the *next* calendar month. */
 export function payableDueDateForBillMonth(billMonth, paymentDay = 16) {
     const month = String(billMonth || '').trim();
     if (!/^\d{4}-\d{2}$/.test(month)) return null;
@@ -138,12 +138,14 @@ export function payableDueDateForBillMonth(billMonth, paymentDay = 16) {
     const monthIndex = Number(monthStr) - 1;
     if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) return null;
 
-    const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+    const dueYear = monthIndex === 11 ? year + 1 : year;
+    const dueMonthIndex = monthIndex === 11 ? 0 : monthIndex + 1;
+    const lastDay = new Date(dueYear, dueMonthIndex + 1, 0).getDate();
     let day = Number(paymentDay);
     if (!Number.isInteger(day) || day < 1) day = 16;
     day = Math.min(day, lastDay);
 
-    return new Date(year, monthIndex, day);
+    return new Date(dueYear, dueMonthIndex, day);
 }
 
 /** True once today is after the account's payable day for that bill month. */
@@ -164,13 +166,28 @@ function resolvePaymentDay(bill, entry) {
     return null;
 }
 
+function calendarMonthKeyOffset(refDate = new Date(), monthsBack = 0) {
+    const d = new Date(refDate.getFullYear(), refDate.getMonth() - monthsBack, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function calendarCurrentMonthKey(refDate = new Date()) {
-    return `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, '0')}`;
+    return calendarMonthKeyOffset(refDate, 0);
 }
 
 function calendarPreviousMonthKey(refDate = new Date()) {
-    const d = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return calendarMonthKeyOffset(refDate, 1);
+}
+
+function calendarTwoMonthsAgoKey(refDate = new Date()) {
+    return calendarMonthKeyOffset(refDate, 2);
+}
+
+export function monthLabelFromYm(ym) {
+    const parsed = parseBillMonth(ym);
+    if (!parsed) return '';
+    const opt = MONTH_OPTIONS.find((m) => m.value === parsed.month);
+    return opt?.label || '';
 }
 
 /** Paid-bills window: this month and last month only. */
@@ -183,23 +200,16 @@ function isPaidOverviewMonth(billMonth, refDate = new Date()) {
     return ym ? paidOverviewMonthKeys(refDate).has(ym) : false;
 }
 
-/** Unpaid window: current month and every earlier month (no future months). */
-function isCurrentOrEarlierBillMonth(billMonth, refDate = new Date()) {
-    const ym = normalizeBillMonthKey(billMonth);
-    if (!ym) return false;
-    return ym <= calendarCurrentMonthKey(refDate);
-}
-
-/** Every YYYY-MM from entry availability through the current calendar month. */
+/** Every YYYY-MM from entry availability through the last payable bill month (previous calendar month). */
 function billMonthsThroughCurrentForEntry(entry, refDate = new Date()) {
-    const currentYm = calendarCurrentMonthKey(refDate);
+    const endYm = calendarPreviousMonthKey(refDate);
     const fromYm = entryAvailableFromMonth(entry);
-    if (!fromYm || fromYm > currentYm) return [];
+    if (!fromYm || fromYm > endYm) return [];
 
     const months = [];
     let year = Number(fromYm.slice(0, 4));
     let month = Number(fromYm.slice(5, 7));
-    const [endYear, endMonth] = currentYm.split('-').map(Number);
+    const [endYear, endMonth] = endYm.split('-').map(Number);
 
     while (year < endYear || (year === endYear && month <= endMonth)) {
         months.push(`${year}-${String(month).padStart(2, '0')}`);
@@ -210,14 +220,6 @@ function billMonthsThroughCurrentForEntry(entry, refDate = new Date()) {
         }
     }
     return months;
-}
-
-function entriesById(entries = []) {
-    return new Map(
-        (Array.isArray(entries) ? entries : [])
-            .map((entry) => [String(entry?.id || '').trim(), entry])
-            .filter(([id]) => id),
-    );
 }
 
 function formatExpiryDate(value) {
@@ -286,30 +288,18 @@ export function buildPaidBillRows({ bills = [], refDate = new Date() } = {}) {
 }
 
 /**
- * Pending unpaid bills and missing bills for the current month and all earlier months.
+ * Bills not yet created through the last payable bill month (previous calendar month).
+ * Once any bill exists for that entry + month, it is not pending — status, approval, and Zoho do not matter.
  */
 export function buildUnpaidBillRows({ bills = [], entries = [], refDate = new Date() } = {}) {
     const list = Array.isArray(bills) ? bills : [];
-    const entryMap = entriesById(entries);
 
-    const billRows = list
-        .filter((bill) => isCurrentOrEarlierBillMonth(bill?.billMonth, refDate))
-        .filter((bill) => {
-            const status = String(bill?.status || '').trim();
-            return status && status !== 'Paid';
-        })
-        .filter((bill) => {
-            const entry = entryMap.get(String(bill?.entryId || '').trim()) || null;
-            return !entry || entryRequiresMonthlyBill(entry);
-        })
-        .map((bill) => mapBillToOverviewRow(bill, entryMap.get(String(bill?.entryId || '').trim()) || null));
-
-    const billsByEntryMonth = new Map();
+    const billsByEntryMonth = new Set();
     for (const bill of list) {
         const entryId = String(bill?.entryId || '').trim();
         const ym = normalizeBillMonthKey(bill?.billMonth);
         if (!entryId || !ym) continue;
-        billsByEntryMonth.set(`${entryId}::${ym}`, bill);
+        billsByEntryMonth.add(`${entryId}::${ym}`);
     }
 
     const missingBillRows = [];
@@ -343,7 +333,7 @@ export function buildUnpaidBillRows({ bills = [], entries = [], refDate = new Da
         }
     }
 
-    return [...billRows, ...missingBillRows].sort(sortOverviewBillRows);
+    return missingBillRows.sort(sortOverviewBillRows);
 }
 
 /** Active (not expired) contracts with an end date, soonest end first. */
@@ -453,12 +443,15 @@ function sumOverviewRows(rows = []) {
 }
 
 /**
- * Unpaid / missing bills split into current vs previous calendar month (header pending panel).
+ * Bills not yet created, split into last payable month vs the month before
+ * (June bill is payable in July; in August the boxes are July / June).
  */
 export function buildPendingBillOverview({ bills = [], entries = [], refDate = new Date() } = {}) {
     const unpaid = buildUnpaidBillRows({ bills, entries, refDate });
-    const currentYm = calendarCurrentMonthKey(refDate);
-    const previousYm = calendarPreviousMonthKey(refDate);
+    const currentYm = calendarPreviousMonthKey(refDate);
+    const previousYm = calendarTwoMonthsAgoKey(refDate);
+    const currentLabel = monthLabelFromYm(currentYm);
+    const previousLabel = monthLabelFromYm(previousYm);
 
     const withPeriod = unpaid.map((row) => {
         const ym = String(row.billMonth || '');
@@ -474,8 +467,18 @@ export function buildPendingBillOverview({ bills = [], entries = [], refDate = n
     const windowTotals = sumOverviewRows(windowRows);
 
     return {
-        current: { ...sumOverviewRows(currentRows), rows: currentRows },
-        previous: { ...sumOverviewRows(previousRows), rows: previousRows },
+        current: {
+            ...sumOverviewRows(currentRows),
+            rows: currentRows,
+            monthKey: currentYm,
+            monthLabel: currentLabel,
+        },
+        previous: {
+            ...sumOverviewRows(previousRows),
+            rows: previousRows,
+            monthKey: previousYm,
+            monthLabel: previousLabel,
+        },
         windowRows,
         allRows: withPeriod,
         totalCount: windowTotals.count,

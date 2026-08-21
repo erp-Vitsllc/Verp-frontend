@@ -198,20 +198,54 @@ function isUtilityBillsSidebarItem(label) {
     );
 }
 
+function isAssetParentSidebarItem(label) {
+    return label === 'Asset';
+}
+
+function isPayrollParentSidebarItem(label) {
+    return label === 'Payroll';
+}
+
+function isAssetSectionPath(pathname) {
+    return typeof pathname === 'string' && pathname.startsWith('/HRM/Asset');
+}
+
+function isPayrollSectionPath(pathname) {
+    if (typeof pathname !== 'string') return false;
+    return (
+        pathname === '/HRM/Payroll' ||
+        pathname.startsWith('/HRM/Payroll/') ||
+        pathname.startsWith('/HRM/Salary') ||
+        pathname.startsWith('/HRM/Attendance') ||
+        pathname === '/HRM/Leave' ||
+        pathname.startsWith('/HRM/Leave/')
+    );
+}
+
+function isDashboardParentSidebarItem(label) {
+    return isAssetParentSidebarItem(label) || isPayrollParentSidebarItem(label);
+}
+
+const ASSET_DASHBOARD_HREF = '/HRM/Asset/dashboard';
+const PAYROLL_DASHBOARD_HREF = '/HRM/Payroll';
+
 /**
  * Path for real links so right-click / middle-click get standard browser behavior (e.g. Open in new tab).
  * Returns null for expand-only rows, Logout, and items with no route wired in the sidebar.
  */
 function getSidebarSubmenuHref(parentId, subItem) {
-    if (!subItem?.label || (Array.isArray(subItem.children) && subItem.children.length > 0)) return null;
+    if (!subItem?.label) return null;
     if (subItem.label === 'Logout') return null;
+    if (parentId === 'HRM' && isAssetParentSidebarItem(subItem.label)) return ASSET_DASHBOARD_HREF;
+    if (parentId === 'HRM' && isPayrollParentSidebarItem(subItem.label)) return PAYROLL_DASHBOARD_HREF;
+    if (Array.isArray(subItem.children) && subItem.children.length > 0) return null;
 
     const label = subItem.label;
     if (parentId === 'HRM') {
         if (label === 'Employees') return '/emp';
         if (label === 'Attendance') return '/HRM/Attendance';
         if (label === 'Leave') return '/HRM/Leave';
-        if (label === 'Salary') return '/HRM/Salary';
+        if (label === 'Salary') return '/HRM/Payroll';
         if (label === 'Reward') return '/HRM/Reward';
         if (label === 'Fine') return '/HRM/Fine';
         if (label === 'Loan and Advance' || label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
@@ -565,14 +599,9 @@ export default function Sidebar() {
             setOpenMenu('HRM');
 
             // Sub-module detection for HRM
-            if (pathname.includes('/Asset')) {
+            if (isAssetSectionPath(pathname) || pathname.includes('/Asset')) {
                 setOpenSubmenu('HRM-Asset');
-            } else if (
-                pathname.startsWith('/HRM/Attendance') ||
-                pathname === '/HRM/Leave' ||
-                pathname.startsWith('/HRM/Leave/') ||
-                pathname.startsWith('/HRM/Salary')
-            ) {
+            } else if (isPayrollSectionPath(pathname)) {
                 setOpenSubmenu('HRM-Payroll');
             }
         }
@@ -670,7 +699,7 @@ export default function Sidebar() {
         } else if (parentId === 'HRM' && subItem.label === 'Leave') {
             router.push('/HRM/Leave');
         } else if (parentId === 'HRM' && subItem.label === 'Salary') {
-            router.push('/HRM/Salary');
+            router.push('/HRM/Payroll');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             router.push('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -715,6 +744,12 @@ export default function Sidebar() {
     // Determine if a subsection is active based on pathname
     const isSubmenuActive = (parentId, subItem) => {
         if (subItem?.children && subItem.children.length) {
+            if (parentId === 'HRM' && isAssetParentSidebarItem(subItem.label)) {
+                return isAssetSectionPath(pathname);
+            }
+            if (parentId === 'HRM' && isPayrollParentSidebarItem(subItem.label)) {
+                return isPayrollSectionPath(pathname);
+            }
             return subItem.children.some(child => isSubmenuActive(parentId, child));
         }
         if (parentId === 'HRM' && subItem.label === 'Employees') {
@@ -724,7 +759,7 @@ export default function Sidebar() {
         } else if (parentId === 'HRM' && subItem.label === 'Leave') {
             return pathname === '/HRM/Leave' || pathname?.startsWith('/HRM/Leave/');
         } else if (parentId === 'HRM' && subItem.label === 'Salary') {
-            return pathname?.startsWith('/HRM/Salary');
+            return pathname?.startsWith('/HRM/Salary') && pathname !== '/HRM/Salary';
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             return pathname?.startsWith('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -1040,7 +1075,12 @@ export default function Sidebar() {
                                                             : 'text-slate-100 hover:text-white hover:bg-[#252943]/80'
                                                         }`;
 
-                                                    const subHref = !hasChildren ? getSidebarSubmenuHref(item.id, subItem) : null;
+                                                    const isDashboardParent =
+                                                        item.id === 'HRM' &&
+                                                        isDashboardParentSidebarItem(subItem.label);
+                                                    const subHref = hasChildren && !isDashboardParent
+                                                        ? null
+                                                        : getSidebarSubmenuHref(item.id, subItem);
 
                                                     return (
                                                         <div
@@ -1052,29 +1092,59 @@ export default function Sidebar() {
                                                             }}
                                                         >
                                                             {subHref ? (
-                                                                <Link
-                                                                    href={subHref}
-                                                                    className={subNavClass}
-                                                                >
-                                                                    <SidebarNavIcon icon={subItem.icon} active={isSubActive && !isLogout} size={17} className="mr-2.5" />
-                                                                    <span className={`flex-1 text-left ${isSubActive && !isLogout ? '!text-white' : ''}`}>{subItem.label}</span>
-                                                                    {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
-                                                                        <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
-                                                                            {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
-                                                                        </span>
-                                                                    )}
-                                                                    {hasChildren ? (
-                                                                        <ChevronRight
-                                                                            size={16}
-                                                                            className={`ml-auto transition-transform ${isSubOpen ? 'rotate-90' : ''} ${isSubActive ? '!text-white' : ''}`}
-                                                                        />
-                                                                    ) : (
+                                                                isDashboardParent ? (
+                                                                    <div className={subNavClass}>
+                                                                        <Link
+                                                                            href={subHref}
+                                                                            onClick={() => {
+                                                                                setOpenMenu(item.id);
+                                                                                setOpenSubmenu(subKey);
+                                                                            }}
+                                                                            className="flex items-center flex-1 min-w-0"
+                                                                        >
+                                                                            <SidebarNavIcon icon={subItem.icon} active={isSubActive && !isLogout} size={17} className="mr-2.5" />
+                                                                            <span className={`flex-1 text-left ${isSubActive && !isLogout ? '!text-white' : ''}`}>{subItem.label}</span>
+                                                                            {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
+                                                                                <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                                    {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
+                                                                                </span>
+                                                                            )}
+                                                                        </Link>
+                                                                        <button
+                                                                            type="button"
+                                                                            aria-label={isSubOpen ? `Collapse ${subItem.label} menu` : `Expand ${subItem.label} menu`}
+                                                                            onClick={(e) => {
+                                                                                e.preventDefault();
+                                                                                e.stopPropagation();
+                                                                                setOpenMenu(item.id);
+                                                                                setOpenSubmenu(isSubOpen ? '' : subKey);
+                                                                            }}
+                                                                            className="shrink-0 p-0.5 rounded-md hover:bg-white/10"
+                                                                        >
+                                                                            <ChevronRight
+                                                                                size={16}
+                                                                                className={`transition-transform ${isSubOpen ? 'rotate-90' : ''} ${isSubActive ? '!text-white' : ''}`}
+                                                                            />
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <Link
+                                                                        href={subHref}
+                                                                        className={subNavClass}
+                                                                    >
+                                                                        <SidebarNavIcon icon={subItem.icon} active={isSubActive && !isLogout} size={17} className="mr-2.5" />
+                                                                        <span className={`flex-1 text-left ${isSubActive && !isLogout ? '!text-white' : ''}`}>{subItem.label}</span>
+                                                                        {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
+                                                                            <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                                {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
+                                                                            </span>
+                                                                        )}
                                                                         <ChevronRight
                                                                             size={16}
                                                                             className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100 !text-white' : 'opacity-0 group-hover:opacity-100'}`}
                                                                         />
-                                                                    )}
-                                                                </Link>
+                                                                    </Link>
+                                                                )
                                                             ) : (
                                                                 <button
                                                                     type="button"

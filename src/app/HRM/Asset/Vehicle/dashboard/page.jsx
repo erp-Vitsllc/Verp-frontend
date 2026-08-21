@@ -29,6 +29,7 @@ export default function VehicleFleetDashboardPage() {
     const [dashboardLoading, setDashboardLoading] = useState(true);
     const [dashboardError, setDashboardError] = useState(null);
     const [locatorEnabled, setLocatorEnabled] = useState(false);
+    const [periodYear, setPeriodYear] = useState(String(new Date().getFullYear()));
 
     const [vehicleInboxOpen, setVehicleInboxOpen] = useState(false);
     const [vehicleInboxCount, setVehicleInboxCount] = useState(0);
@@ -99,6 +100,7 @@ export default function VehicleFleetDashboardPage() {
     } = useLocatorFleetDashboard({
         // Start GPS after first fleet paint so the two heavy APIs don't contend.
         enabled: locatorEnabled,
+        year: periodYear,
     });
 
     useEffect(() => {
@@ -123,20 +125,63 @@ export default function VehicleFleetDashboardPage() {
         <PermissionGuard moduleId="hrm_asset_vehicle" redirectTo="/dashboard">
             <div className="flex min-h-screen w-full bg-white">
                 <Sidebar />
-                <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex-1 flex flex-col min-w-0" style={{ background: '#F5F7F9' }}>
                     <Navbar />
-                    <div className="p-8">
-                        <ScrollReveal className="relative z-[140]" durationMs={550} rootMargin="0px 0px 10% 0px">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 dashboard-hero-glow rounded-2xl px-4 py-3 md:px-5 md:py-4 border border-gray-200 bg-white shadow-sm">
+                    <div className="w-full max-w-full" style={{ padding: '18px 20px 20px' }}>
+                        <ScrollReveal className="relative z-[140]" durationMs={400} rootMargin="0px 0px 10% 0px">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3" style={{ marginBottom: 14 }}>
                                 <div>
-                                    <h1 className="text-2xl md:text-3xl font-bold text-[#5c4f55] tracking-tight">
-                                        Vehicle Dashboard
+                                    <h1
+                                        className="font-bold"
+                                        style={{
+                                            fontSize: 27,
+                                            lineHeight: 1.15,
+                                            letterSpacing: '-0.4px',
+                                            color: '#172033',
+                                        }}
+                                    >
+                                        Fleet Management Dashboard
                                     </h1>
-                                    <p className="text-sm text-[#9a8a90] mt-1 hidden md:block">
-                                        Fleet availability, replacement outlook, and service metrics in floral overview.
+                                    <p
+                                        style={{
+                                            fontSize: 13,
+                                            fontWeight: 400,
+                                            color: '#8A9AB2',
+                                            lineHeight: '18px',
+                                            marginTop: 5,
+                                        }}
+                                    >
+                                        Fleet Operations
                                     </p>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex flex-wrap items-center gap-2.5">
+                                    <label className="inline-flex items-center gap-2" style={{ fontSize: 13, fontWeight: 400, color: '#555B65' }}>
+                                        <span>Period:</span>
+                                        <select
+                                            value={periodYear}
+                                            onChange={(e) => setPeriodYear(e.target.value)}
+                                            className="min-w-[90px] px-3 focus:outline-none focus:ring-2 focus:ring-[#1677FF]/20"
+                                            style={{
+                                                height: 38,
+                                                background: '#FFFFFF',
+                                                border: '1px solid #DDE3EA',
+                                                borderRadius: 7,
+                                                boxShadow: '0 1px 2px rgba(16,24,40,.04)',
+                                                fontSize: 13,
+                                                fontWeight: 500,
+                                                color: '#344054',
+                                            }}
+                                        >
+                                            {(fleetDashboard?.periodYears?.length
+                                                ? fleetDashboard.periodYears
+                                                : [new Date().getFullYear()]
+                                            ).map((year) => (
+                                                <option key={year} value={String(year)}>
+                                                    {year}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
                                     <button
                                         type="button"
                                         onClick={() => setVehicleInboxOpen(true)}
@@ -184,6 +229,7 @@ export default function VehicleFleetDashboardPage() {
                             locatorLoading={locatorLoading}
                             locatorError={locatorError}
                             onLocatorRefresh={reloadLocatorDashboard}
+                            periodYear={periodYear}
                         />
                     </div>
                 </div>

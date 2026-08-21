@@ -515,8 +515,12 @@ function CompanyProfilePageContent() {
 
     const [activeTab, setActiveTab] = useState(() => {
         const tabParam = searchParams?.get('tab');
-        if (tabParam && String(tabParam).toLowerCase() === 'certificate') {
+        const tabLower = String(tabParam || '').toLowerCase();
+        if (tabLower === 'certificate') {
             return 'others';
+        }
+        if (tabLower === 'payment' || tabLower === 'payments') {
+            return 'fine';
         }
         return tabParam || 'basic';
     });
@@ -552,7 +556,7 @@ function CompanyProfilePageContent() {
             if (value !== null && value !== '') q.set(key, value);
         });
         const tabLower = String(activeTab || 'basic').toLowerCase();
-        q.set('tab', tabLower);
+        q.set('tab', tabLower === 'fine' ? 'payment' : tabLower);
         if (tabLower === 'others' && docStatusTab) {
             q.set('docStatusTab', docStatusTab);
         }
@@ -1311,7 +1315,9 @@ function CompanyProfilePageContent() {
         }
 
         const canonicalTabs = new Set(['basic', 'owner', 'assets', 'fine', 'others', 'add', 'moa']);
-        if (tabParam && canonicalTabs.has(tabLower)) {
+        if (tabLower === 'payment' || tabLower === 'payments') {
+            setActiveTab('fine');
+        } else if (tabParam && canonicalTabs.has(tabLower)) {
             setActiveTab(tabLower);
         }
 
@@ -5835,7 +5841,7 @@ function CompanyProfilePageContent() {
 
                         >
 
-                            Fines and Payment
+                            Payment
 
                             {activeTab === 'fine' ? (
 

@@ -338,18 +338,19 @@ export function buildUnderstandableNotificationTitle(item = {}) {
         case 'Utility Contract Expiry':
             return 'Utility Contract Expiry — Renew or Deactivate';
         case 'Utility Bill Payment Reminder': {
+            const extra2 = String(item.extra2 || '').trim();
+            if (extra2) return extra2;
             const meta = parseExtra3(item.extra3);
             const billMonth = String(meta?.billMonth || meta?.yearMonth || '').trim();
+            const utilityType = String(meta?.utilityType || '').trim() || 'utility';
+            const accountNo = String(meta?.accountNo || '').trim() || 'account';
             if (/^\d{4}-\d{2}$/.test(billMonth)) {
                 const [y, m] = billMonth.split('-');
                 const probe = new Date(Number(y), Number(m) - 1, 1);
-                const monthLabel = probe.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-                const nowYm = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-                return billMonth === nowYm
-                    ? 'Utility Payment Day — Clear This Month’s Bill'
-                    : `Utility Payment Day — Clear ${monthLabel} Bill`;
+                const monthName = probe.toLocaleDateString('en-GB', { month: 'long' });
+                return `${monthName} bill payment day on ${utilityType} on the ${accountNo}, please pay the bill`;
             }
-            return 'Utility Payment Day — Clear Bill';
+            return 'Utility bill payment day, please pay the bill';
         }
         case 'Utility Bill Payment':
             return 'Utility Bill Payment — Review / Pay';
@@ -444,6 +445,9 @@ function buildUtilityCategoryLine(item = {}) {
     const e2 = sanitizeNotificationText(item.extra2 || '');
     if (type === 'Vehicle Service Request') {
         return e2 || e1 || 'Pending task';
+    }
+    if (type === 'Utility Bill Payment Reminder') {
+        return e1 || e2 || 'Pending utility task';
     }
     const isUtility =
         type === 'Utility Contract Expiry' ||

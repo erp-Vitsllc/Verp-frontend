@@ -69,33 +69,9 @@ export default function AddVehicleModal({
         }
     }, []);
 
-    const fetchDropdownData = useCallback(async () => {
-        try {
-            setDataLoading(true);
-            const response = await axiosInstance.get('/AssetType', {
-                params: { scope: 'catalog' },
-                timeout: 15000,
-            });
-            const data = response.data || [];
-            const cats = data.filter((item) => item.assetId && item.assetId.toString().startsWith('asset-cat-'));
-            setCategories(cats);
-            const defaultCat = cats.find(
-                (c) => c.category?.toLowerCase().includes('vehicle') || c.category?.toLowerCase().includes('fleet')
-            );
-            if (defaultCat && !isEditMode) {
-                setFormData((prev) => ({ ...prev, category: defaultCat.category }));
-            }
-        } catch (error) {
-        } finally {
-            setDataLoading(false);
-        }
-    }, [isEditMode, toast]);
-
-    const loadAssetForEdit = useCallback(async () => {
-        if (!editAssetId) return;
-        try {
-            setLoadEdit(true);
-            const { data: a } = await axiosInstance.get(`/AssetItem/detail/${editAssetId}`);
+    const applyAssetToForm = useCallback(
+        (a) => {
+            if (!a) return;
             const { code, digits } = parsePlateParts(a.plateNumber);
             const pd = a.purchaseDate ? new Date(a.purchaseDate).toISOString().slice(0, 10) : '';
             // Locator stubs often store GPS device name as model and type name as brand — match Add Vehicle blanks.
@@ -123,13 +99,48 @@ export default function AddVehicleModal({
                 invoiceAttachment: '',
             });
             setNextFleetAssetId(a.assetId || '');
+        },
+        [isLocatorSetup],
+    );
+
+    const fetchDropdownData = useCallback(async () => {
+        try {
+            setDataLoading(true);
+            const response = await axiosInstance.get('/AssetType', {
+                params: { scope: 'catalog' },
+                timeout: 15000,
+            });
+            const data = response.data || [];
+            const cats = data.filter((item) => item.assetId && item.assetId.toString().startsWith('asset-cat-'));
+            setCategories(cats);
+            const defaultCat = cats.find(
+                (c) => c.category?.toLowerCase().includes('vehicle') || c.category?.toLowerCase().includes('fleet')
+            );
+            if (defaultCat && !isEditMode) {
+                setFormData((prev) => ({ ...prev, category: defaultCat.category }));
+            }
+        } catch (error) {
+        } finally {
+            setDataLoading(false);
+        }
+    }, [isEditMode]);
+
+    const loadAssetForEdit = useCallback(async () => {
+        if (!editAssetId) return;
+        try {
+            setLoadEdit(true);
+            const { data: a } = await axiosInstance.get(`/AssetItem/detail/${editAssetId}`, {
+                params: { light: '1' },
+                timeout: 15000,
+            });
+            applyAssetToForm(a);
         } catch (e) {
             toast({ variant: 'destructive', title: 'Error', description: 'Could not load vehicle for editing.' });
             onClose();
         } finally {
             setLoadEdit(false);
         }
-    }, [editAssetId, isLocatorSetup, onClose, toast]);
+    }, [editAssetId, applyAssetToForm, onClose, toast]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -137,19 +148,23 @@ export default function AddVehicleModal({
             setLoadEdit(false);
             return;
         }
-        fetchDropdownData();
-        if (!editAssetId) {
-            fetchNextFleetAssetId();
-        } else {
-            setNextFleetAssetId('');
-        }
         if (editAssetId) {
-            loadAssetForEdit();
-        } else {
-            setFormData(emptyForm());
-            setErrors({});
+            setNextFleetAssetId('');
+            if (asset) {
+                applyAssetToForm(asset);
+                setLoadEdit(false);
+            } else {
+                loadAssetForEdit();
+            }
+            return;
         }
-    }, [isOpen, editAssetId, fetchDropdownData, loadAssetForEdit, fetchNextFleetAssetId]);
+        fetchDropdownData();
+        fetchNextFleetAssetId();
+        setFormData(emptyForm());
+        setErrors({});
+        // Hydrate once when the modal opens so a parent asset refresh does not wipe in-progress edits.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, editAssetId]);
 
     const normalizePlate = ({ code, digits }) => {
         const digitsOnly = String(digits || '').replace(/\D/g, '').slice(0, 6) || '1';

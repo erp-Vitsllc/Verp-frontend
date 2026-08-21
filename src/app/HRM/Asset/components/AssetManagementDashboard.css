@@ -1,0 +1,788 @@
+.tad-dash {
+    --page-bg: #fafafb;
+    --card-bg: #ffffff;
+    --text-primary: #141923;
+    --text-secondary: #636b77;
+    --text-muted: #8992a3;
+    --blue: #0877f9;
+    --teal: #12a99d;
+    --orange: #f59e0b;
+    --purple: #8b5cf6;
+    --red: #ff4a4a;
+    --grid-gap: 16px;
+    --card-radius: 8px;
+    --card-border: #e1e5ea;
+    --card-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.025),
+        0 2px 5px rgba(0, 0, 0, 0.025);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    color: var(--text-primary);
+    background: var(--page-bg);
+    min-height: 100%;
+    overflow-x: hidden;
+    padding: 18px 20px 20px;
+    position: relative;
+}
+
+.tad-dash *,
+.tad-dash *::before,
+.tad-dash *::after {
+    box-sizing: border-box;
+}
+
+.tad-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 51px;
+    margin-bottom: 16px;
+}
+
+.tad-title {
+    margin: 0;
+    font-size: 27px;
+    line-height: 32px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    color: #121722;
+}
+
+.tad-subtitle {
+    margin: 3px 0 0;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 18px;
+    color: #6f7580;
+}
+
+.tad-error {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: #ff4a4a;
+}
+
+.tad-filters {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+}
+
+.tad-filter {
+    position: relative;
+    height: 38px;
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    box-sizing: border-box;
+}
+
+.tad-filter-customer {
+    width: 222px;
+    padding: 0 32px 0 14px;
+    display: flex;
+    align-items: center;
+}
+
+.tad-filter-period {
+    width: 170px;
+    padding: 0 32px 0 14px;
+    display: flex;
+    align-items: center;
+}
+
+.tad-filter-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #344054;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+}
+
+.tad-filter select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.tad-filter-chevron {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    color: #667085;
+    pointer-events: none;
+}
+
+.tad-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--grid-gap);
+}
+
+.tad-row-1 {
+    display: grid;
+    grid-template-columns: 1.08fr 0.96fr 1.1fr 1.16fr;
+    gap: var(--grid-gap);
+    height: 263px;
+}
+
+.tad-row-2 {
+    display: grid;
+    grid-template-columns: 1.5fr 0.84fr 1fr;
+    gap: var(--grid-gap);
+    height: 217px;
+}
+
+.tad-row-3 {
+    display: grid;
+    grid-template-columns: 1.22fr 1fr 1.3fr;
+    gap: var(--grid-gap);
+    height: 246px;
+}
+
+.tad-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.tad-card-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 18px;
+    color: #161a21;
+    flex-shrink: 0;
+}
+
+.tad-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.tad-metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 8px;
+    flex-shrink: 0;
+}
+
+.tad-metric-blue {
+    font-size: 25px;
+    font-weight: 700;
+    line-height: 1;
+    color: #0877f9;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-metric-unit {
+    font-size: 13px;
+    font-weight: 400;
+    color: #667085;
+    margin-left: 4px;
+}
+
+.tad-metric-dark {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    color: #151a23;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-metric-red {
+    display: flex;
+    align-items: baseline;
+    font-size: 25px;
+    font-weight: 700;
+    line-height: 1;
+    color: #ff4a4a;
+    font-variant-numeric: tabular-nums;
+    margin-top: 8px;
+}
+
+.tad-metric-teal {
+    display: flex;
+    align-items: baseline;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+    color: #10afa3;
+    font-variant-numeric: tabular-nums;
+    margin-top: 8px;
+}
+
+.tad-metric-fuel {
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+    color: #0877f9;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-metric-fuel-unit {
+    font-size: 14px;
+    font-weight: 500;
+    color: #6b7280;
+    margin-left: 4px;
+}
+
+.tad-metric-fuel-cost {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    color: #151a23;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-metric-fuel-cost-prefix {
+    font-size: 12px;
+    font-weight: 500;
+    color: #667085;
+    margin-right: 4px;
+}
+
+.tad-metric-prefix {
+    font-size: 14px;
+    font-weight: 600;
+    margin-right: 5px;
+}
+
+.tad-caption {
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 14px;
+    color: #697386;
+    flex-shrink: 0;
+}
+
+.tad-caption-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    flex-shrink: 0;
+}
+
+.tad-legend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 10px;
+    font-weight: 500;
+    color: #5f6671;
+}
+
+.tad-legend-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 1px;
+    display: inline-block;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+.tad-legend-line {
+    width: 12px;
+    height: 0;
+    border-top: 2px solid #0877f9;
+    display: inline-block;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+.tad-plot {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    margin-top: 2px;
+}
+
+.tad-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    flex-shrink: 0;
+}
+
+.tad-tab {
+    height: 24px;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    border-radius: 4px;
+    background: #fff;
+    color: #5f6671;
+    border: 1px solid #d8dce2;
+    cursor: pointer;
+}
+
+.tad-tab.active {
+    background: #ffffff;
+    border-color: #1677ff;
+    color: #1677ff;
+}
+
+.tad-empty {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 8px;
+    font-size: 12px;
+    color: #8795aa;
+}
+
+.tad-tools {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.tad-tools-donut {
+    position: relative;
+    flex: 0 0 158px;
+    width: 158px;
+    height: 158px;
+    min-width: 158px;
+}
+
+.tad-donut-center {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.tad-donut-kicker {
+    font-size: 10px;
+    font-weight: 400;
+    color: #8992a3;
+    line-height: 12px;
+}
+
+.tad-donut-count {
+    font-size: 20px;
+    font-weight: 700;
+    color: #121722;
+    line-height: 22px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-donut-sub {
+    font-size: 10px;
+    font-weight: 400;
+    color: #667085;
+    line-height: 12px;
+}
+
+.tad-donut-value {
+    font-size: 11px;
+    font-weight: 700;
+    color: #151a23;
+    line-height: 14px;
+    margin-top: 1px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-cat-list {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 9px;
+}
+
+.tad-cat-row {
+    display: grid;
+    grid-template-columns: 8px minmax(70px, 1.35fr) minmax(40px, 1fr) 28px 58px;
+    align-items: center;
+    column-gap: 8px;
+}
+
+.tad-cat-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.tad-cat-name {
+    font-size: 11px;
+    font-weight: 500;
+    color: #25334a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tad-cat-track {
+    height: 8px;
+    background: #e3eef8;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.tad-cat-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+}
+
+.tad-cat-qty {
+    font-size: 11px;
+    font-weight: 700;
+    color: #202936;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-cat-val {
+    font-size: 11px;
+    font-weight: 700;
+    color: #202936;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-assign {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.tad-assign-side {
+    width: 78px;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.tad-assign-label {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 16px;
+}
+
+.tad-assign-count {
+    font-size: 25px;
+    font-weight: 700;
+    line-height: 28px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-assign-pct {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 16px;
+    color: #667085;
+}
+
+.tad-assign-teal {
+    color: #12a99d;
+}
+
+.tad-assign-orange {
+    color: #f59e0b;
+}
+
+.tad-assign-donut {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    height: 148px;
+}
+
+.tad-approve-metric {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-top: 8px;
+    flex-shrink: 0;
+}
+
+.tad-approve-list {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 10px;
+}
+
+.tad-approve-row {
+    display: grid;
+    grid-template-columns: minmax(86px, 0.95fr) minmax(0, 1fr) 28px;
+    gap: 10px;
+    align-items: center;
+}
+
+.tad-approve-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #36465d;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tad-approve-track {
+    height: 10px;
+    background: #e3eef8;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.tad-approve-fill {
+    display: block;
+    height: 100%;
+    border-radius: 5px;
+}
+
+.tad-approve-count {
+    font-size: 13px;
+    font-weight: 700;
+    color: #161b22;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-util-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 10px;
+    font-weight: 500;
+    color: #5f6671;
+}
+
+.tad-util-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tad-util-legend-item i {
+    width: 12px;
+    height: 0;
+    border-top-width: 2px;
+    border-top-style: solid;
+    display: inline-block;
+}
+
+.tad-pending-list {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 8px;
+}
+
+.tad-pending-row {
+    display: grid;
+    grid-template-columns: 22px 78px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.tad-pending-icon {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tad-pending-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: #36465d;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tad-pending-track {
+    height: 8px;
+    background: #eef1f4;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.tad-pending-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+}
+
+.tad-pending-amt {
+    font-size: 12px;
+    font-weight: 600;
+    color: #161b22;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-pending-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid #eef2f6;
+    flex-shrink: 0;
+}
+
+.tad-pending-total-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #667085;
+}
+
+.tad-pending-total-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0877f9;
+    font-variant-numeric: tabular-nums;
+}
+
+.tad-month-filter {
+    position: relative;
+    width: 140px;
+    height: 31px;
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 0 26px 0 10px;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.tad-month-filter span {
+    font-size: 12px;
+    font-weight: 500;
+    color: #344054;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tad-month-filter select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.tad-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    background: rgba(250, 250, 251, 0.6);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 140px;
+}
+
+.tad-loading-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    border: 1px solid #e1e5ea;
+    border-radius: 999px;
+    padding: 8px 14px;
+    box-shadow: var(--card-shadow);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 1279px) {
+    .tad-row-1,
+    .tad-row-2,
+    .tad-row-3 {
+        height: auto;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tad-card {
+        min-height: 240px;
+    }
+}
+
+@media (max-width: 1023px) {
+    .tad-dash {
+        padding: 16px;
+    }
+}
+
+@media (max-width: 767px) {
+    .tad-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .tad-filters,
+    .tad-filter-customer,
+    .tad-filter-period {
+        width: 100%;
+    }
+
+    .tad-row-1,
+    .tad-row-2,
+    .tad-row-3 {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tad-title {
+        font-size: 24px;
+    }
+}
