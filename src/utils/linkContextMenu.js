@@ -267,13 +267,39 @@ export function resolveNavigableHref(target) {
 }
 
 /**
- * Custom context menu disabled ERP-wide — real <a>/<Link> use the browser native menu.
- * Kept as no-ops so older call sites do not break.
+ * Show a chooser menu for non-link navigable controls (`data-nav-href` on buttons/rows).
+ * Real <a>/<Link> keep the browser native menu — never auto-open on contextmenu.
  */
-export function handleLinkContextMenu(_event, _href, _opts) {
-    return;
+export function handleLinkContextMenu(event, href, _opts) {
+    if (!event || !href) return;
+
+    const path = normalizeHref(href);
+    if (!path) return;
+
+    const anchor =
+        event.target instanceof Element ? event.target.closest('a[href]') : null;
+    if (anchor) {
+        const anchorHref = anchor.getAttribute('href') || '';
+        if (isInternalAppHref(anchorHref)) return;
+    }
+
+    event.preventDefault();
+    showLinkContextMenu({ href: path, x: event.clientX, y: event.clientY });
 }
 
-export function handleGlobalNavContextMenu(_event) {
-    return;
+export function handleGlobalNavContextMenu(event) {
+    if (!event || typeof window === 'undefined') return;
+
+    const href = resolveNavigableHref(event.target);
+    if (!href) return;
+
+    const anchor =
+        event.target instanceof Element ? event.target.closest('a[href]') : null;
+    if (anchor) {
+        const anchorHref = anchor.getAttribute('href') || '';
+        if (isInternalAppHref(anchorHref)) return;
+    }
+
+    event.preventDefault();
+    showLinkContextMenu({ href, x: event.clientX, y: event.clientY });
 }

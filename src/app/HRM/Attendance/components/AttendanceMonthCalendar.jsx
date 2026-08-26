@@ -547,7 +547,7 @@ export default function AttendanceMonthCalendar({ staffType = null }) {
                     to: fetchRange.to,
                     month: format(cursorDate, 'yyyy-MM'),
                 };
-                if (staffType === 'site' || staffType === 'office') {
+                if (staffType) {
                     params.staffType = staffType;
                 }
                 const res = await axiosInstance.get('/Attendance/calendar', {

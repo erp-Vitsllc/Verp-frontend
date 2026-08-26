@@ -19,6 +19,7 @@ const MARK_OPTIONS = [
             { key: 'sick_leave', label: 'Sick leave' },
             { key: 'authorized_leave', label: 'Authorized leave' },
             { key: 'unauthorized_leave', label: 'Unauthorized leave' },
+            { key: 'compoff_leave', label: 'Comp off leave' },
         ],
     },
     { key: 'clear_attendance', label: 'Clear attendance' },
@@ -40,6 +41,7 @@ function formatStatusLabel(mark) {
     if (mark.key === 'mispunch') return mark.label || 'Mispunched';
     if (mark.key === 'unauthorized_leave') return mark.label || 'Unauthorized Leave';
     if (mark.key === 'authorized_leave') return mark.label || 'Authorized Leave';
+    if (mark.key === 'compoff_leave') return mark.label || 'Comp Off Leave';
     if (mark.key === 'weekly_off') return 'Off Day';
     if (mark.key === 'holiday') return mark.label || 'Holiday';
     return mark.label || '';
@@ -79,7 +81,7 @@ function mapActiveEmployee(emp) {
         emp?.employeeName ||
         '—';
     const empNo = emp?.employeeId || emp?.empNo || emp?.employeeNo || emp?.employeeCode || '—';
-    const staffType = String(emp?.staffType || '').trim().toLowerCase() === 'site' ? 'site' : 'office';
+    const staffType = String(emp?.staffType || '').trim().toLowerCase() || 'office';
     return {
         id,
         empNo: String(empNo),
@@ -104,8 +106,8 @@ function isActiveEmployee(emp) {
 }
 
 function matchesStaffType(emp, staffType) {
-    const wanted = staffType === 'site' ? 'site' : 'office';
-    const actual = emp?.staffType === 'site' ? 'site' : 'office';
+    const wanted = String(staffType || 'office').trim().toLowerCase() || 'office';
+    const actual = String(emp?.staffType || '').trim().toLowerCase() || 'office';
     return actual === wanted;
 }
 
@@ -258,6 +260,8 @@ function EmployeeRow({ index, employee, checked, onToggle, mark, onRequestMark }
                                         ? 'text-orange-700 bg-orange-50'
                                       : mark.key === 'sick_leave'
                                         ? 'text-emerald-700 bg-emerald-50'
+                                      : mark.key === 'compoff_leave'
+                                        ? 'text-violet-700 bg-violet-50'
                                       : mark.key === 'late_arrived' ||
                                           mark.key === 'early_go' ||
                                           mark.key === 'mispunch'
@@ -619,7 +623,7 @@ export default function MarkAttendanceTable({ dateKey, staffType = 'office' }) {
     if (employees.length === 0) {
         return (
             <div className="py-12 text-center text-sm text-gray-400">
-                No active {staffType === 'site' ? 'site' : 'office'} staff found.
+                No active {String(staffType || 'office')} staff found.
             </div>
         );
     }

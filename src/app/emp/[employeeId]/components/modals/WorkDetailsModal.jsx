@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import DropdownWithDelete from '@/components/ui/DropdownWithDelete';
 import AddDepartmentModal from '@/app/HRM/Department/components/AddDepartmentModal';
 import AddDesignationModal from '@/app/HRM/Designation/components/AddDesignationModal';
+import AddWorkLocationModal from '@/app/HRM/WorkLocation/components/AddWorkLocationModal';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -74,6 +75,10 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
 
 import { useRouter } from 'next/navigation';
 import { isAdmin } from '@/utils/permissions';
+import {
+    invalidateWorkLocationsCache,
+    normalizeWorkLocationKey,
+} from '@/utils/workLocations';
 
 let workDetailsCatalogCache = null;
 let workDetailsCatalogInflight = null;
@@ -85,13 +90,15 @@ async function loadWorkDetailsCatalog() {
             axiosInstance.get('/Department', { skipToast: true }),
             axiosInstance.get('/Designation', { skipToast: true }),
             axiosInstance.get('/Company', { skipToast: true }),
+            axiosInstance.get('/WorkLocation', { skipToast: true }),
         ])
-            .then(([deptRes, desigRes, companyRes]) => {
+            .then(([deptRes, desigRes, companyRes, locRes]) => {
                 const fetchedCompanies = companyRes.data.companies || companyRes.data;
                 workDetailsCatalogCache = {
                     departments: deptRes.data || [],
                     designations: desigRes.data || [],
                     companies: Array.isArray(fetchedCompanies) ? fetchedCompanies : [],
+                    workLocations: locRes.data?.workLocations || locRes.data || [],
                 };
                 return workDetailsCatalogCache;
             })
@@ -130,14 +137,17 @@ export default function WorkDetailsModal({
 
     const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
     const [isAddDesigModalOpen, setIsAddDesigModalOpen] = useState(false);
+    const [isAddWorkLocationModalOpen, setIsAddWorkLocationModalOpen] = useState(false);
     const [deptModalInitialName, setDeptModalInitialName] = useState('');
     const [desigModalInitialName, setDesigModalInitialName] = useState('');
+    const [workLocationModalInitialName, setWorkLocationModalInitialName] = useState('');
     const [leftUserEligibility, setLeftUserEligibility] = useState(null);
     const [leftUserEligibilityLoading, setLeftUserEligibilityLoading] = useState(false);
     const [markingLeftUser, setMarkingLeftUser] = useState(false);
     const [showLeftUserConfirm, setShowLeftUserConfirm] = useState(false);
     const [departments, setDepartments] = useState([]);
     const [designations, setDesignations] = useState([]);
+    const [workLocations, setWorkLocations] = useState([]);
     const [assignedEmployees, setAssignedEmployees] = useState([]);
     const [isEmployeesListModalOpen, setIsEmployeesListModalOpen] = useState(false);
     const [companies, setCompanies] = useState([]);
@@ -145,12 +155,13 @@ export default function WorkDetailsModal({
     // State for delete confirmation
     const [deleteConfig, setDeleteConfig] = useState({
         isOpen: false,
-        type: '', // 'department' or 'designation'
+        type: '', // 'department' | 'designation' | 'workLocation'
         item: null
     });
 
     /** Same users who can quick-add catalog rows may delete non-system rows. */
     const canDeleteCatalogItems = !submitting;
+    const canManageWorkLocations = isAdmin() && !submitting;
 
     useEffect(() => {
         if (!isOpen || !employee) return undefined;
@@ -293,11 +304,12 @@ export default function WorkDetailsModal({
 
         let cancelled = false;
         loadWorkDetailsCatalog()
-            .then(({ departments, designations, companies }) => {
+            .then(({ departments, designations, companies, workLocations: locations }) => {
                 if (cancelled) return;
                 setDepartments(departments);
                 setDesignations(designations);
                 setCompanies(companies);
+                setWorkLocations(Array.isArray(locations) ? locations : []);
             })
             .catch((error) => {
                 if (!cancelled) {
@@ -377,6 +389,45 @@ export default function WorkDetailsModal({
             .map((d) => ({ value: d.name, label: d.name, _id: d._id, department: d.department, isSystem: d.isSystem }));
     }, [designations, form.department]);
 
+    const workLocationOptions = useMemo(() => {
+        const source = workLocations.length
+            ? workLocations
+            : [
+                { key: 'office', label: 'Office', isSystem: true, status: 'Active', sortOrder: 0 },
+                { key: 'site', label: 'Site', isSystem: true, status: 'Active', sortOrder: 1 },
+            ];
+        const rows = [...source]
+            .filter((row) => String(row.status || 'Active').toLowerCase() === 'active')
+            .sort((a, b) => {
+                const orderA = Number(a.sortOrder);
+                const orderB = Number(b.sortOrder);
+                if (Number.isFinite(orderA) && Number.isFinite(orderB) && orderA !== orderB) {
+                    return orderA - orderB;
+                }
+                if (a.key === 'office') return -1;
+                if (b.key === 'office') return 1;
+                if (a.key === 'site') return -1;
+                if (b.key === 'site') return 1;
+                return String(a.label || '').localeCompare(String(b.label || ''));
+            })
+            .map((row) => ({
+                value: row.key,
+                label: row.label,
+                _id: row._id,
+                isSystem: Boolean(row.isSystem) || row.key === 'office' || row.key === 'site',
+            }));
+
+        const currentKey = normalizeWorkLocationKey(form.staffType);
+        if (currentKey && !rows.some((row) => row.value === currentKey)) {
+            rows.unshift({
+                value: currentKey,
+                label: currentKey === 'site' ? 'Site' : currentKey === 'office' ? 'Office' : currentKey,
+                isSystem: true,
+            });
+        }
+        return rows;
+    }, [workLocations, form.staffType]);
+
     const handleDeleteDepartment = (option) => {
         const deptName = option.value;
         if (!deptName) return;
@@ -431,6 +482,18 @@ export default function WorkDetailsModal({
                     title: "Designation Deleted",
                     description: `Designation "${item.value}" has been deleted successfully.`,
                 });
+            } else if (type === 'workLocation') {
+                await axiosInstance.delete(`/WorkLocation/${item._id}`);
+                setWorkLocations((prev) => prev.filter((d) => d._id !== item._id));
+                workDetailsCatalogCache = null;
+                invalidateWorkLocationsCache();
+                if (form.staffType === item.value) {
+                    handleChange('staffType', 'office');
+                }
+                toast({
+                    title: 'Work location deleted',
+                    description: `"${item.label || item.value}" has been removed from the dropdown.`,
+                });
             }
         } catch (error) {
             console.error(`Failed to delete ${type}`, error);
@@ -464,6 +527,47 @@ export default function WorkDetailsModal({
         } finally {
             setDeleteConfig({ isOpen: false, type: '', item: null });
         }
+    };
+
+    const handleDeleteWorkLocation = (option) => {
+        if (!option?._id || option.isSystem) return;
+        setDeleteConfig({
+            isOpen: true,
+            type: 'workLocation',
+            item: { ...option },
+        });
+    };
+
+    const onWorkLocationAdded = (created) => {
+        if (!created?.key) return;
+        setWorkLocations((prev) => [...prev, created]);
+        workDetailsCatalogCache = null;
+        invalidateWorkLocationsCache();
+        handleChange('staffType', created.key);
+    };
+
+    const handleQuickAddWorkLocation = async (name) => {
+        const trimmed = String(name || '').trim();
+        if (!trimmed) return;
+        try {
+            const response = await axiosInstance.post('/WorkLocation', { name: trimmed });
+            onWorkLocationAdded(response.data);
+            toast({
+                title: 'Work location added',
+                description: `"${trimmed}" is now available in the list.`,
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not add work location',
+                description: error.response?.data?.message || 'Failed to add work location.',
+            });
+        }
+    };
+
+    const openAddWorkLocationModal = (initialName = '') => {
+        setWorkLocationModalInitialName(initialName);
+        setIsAddWorkLocationModalOpen(true);
     };
 
     const handleDepartmentChange = (value) => {
@@ -840,40 +944,28 @@ export default function WorkDetailsModal({
                             </div>
                         )}
 
-                        {/* Work Location — Office / Site (drives Attendance tabs) */}
+                        {/* Work Location — admin-managed categories (Attendance / Leave grouping) */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Work Location <span className="text-red-500">*</span>
                             </label>
-                            <div className="w-full md:flex-1">
-                                <div className="inline-flex items-center rounded-xl border border-gray-200 bg-gray-50 p-0.5">
-                                    <button
-                                        type="button"
-                                        disabled={submitting}
-                                        onClick={() => handleChange('staffType', 'office')}
-                                        className={`min-w-[5.5rem] px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
-                                            form.staffType !== 'site'
-                                                ? 'bg-white text-[#EA3D2F] shadow-sm'
-                                                : 'text-gray-500 hover:text-gray-700'
-                                        }`}
-                                    >
-                                        Office
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={submitting}
-                                        onClick={() => handleChange('staffType', 'site')}
-                                        className={`min-w-[5.5rem] px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
-                                            form.staffType === 'site'
-                                                ? 'bg-white text-[#EA3D2F] shadow-sm'
-                                                : 'text-gray-500 hover:text-gray-700'
-                                        }`}
-                                    >
-                                        Site
-                                    </button>
-                                </div>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                <DropdownWithDelete
+                                    options={workLocationOptions}
+                                    value={normalizeWorkLocationKey(form.staffType)}
+                                    onChange={(value) => handleChange('staffType', value)}
+                                    onDelete={canManageWorkLocations ? handleDeleteWorkLocation : undefined}
+                                    onAdd={canManageWorkLocations ? () => openAddWorkLocationModal('') : undefined}
+                                    onQuickAddFromSearch={canManageWorkLocations ? handleQuickAddWorkLocation : undefined}
+                                    placeholder="Select Work Location"
+                                    addNewLabel="+ Add Work Location"
+                                    disabled={submitting}
+                                />
                                 <p className="mt-1.5 text-xs text-gray-400">
                                     Active employees appear under this group on the Attendance page.
+                                    {canManageWorkLocations
+                                        ? ' You can add or remove categories from this dropdown.'
+                                        : ''}
                                 </p>
                             </div>
                         </div>
@@ -1069,14 +1161,28 @@ export default function WorkDetailsModal({
                 initialName={desigModalInitialName}
             />
 
+            <AddWorkLocationModal
+                isOpen={isAddWorkLocationModalOpen}
+                onClose={() => {
+                    setIsAddWorkLocationModalOpen(false);
+                    setWorkLocationModalInitialName('');
+                }}
+                onWorkLocationAdded={onWorkLocationAdded}
+                initialName={workLocationModalInitialName}
+            />
+
             <AlertDialog open={deleteConfig.isOpen} onOpenChange={(open) => !open && setDeleteConfig(prev => ({ ...prev, isOpen: false }))}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                         <AlertDialogDescription>
                             This action cannot be undone. This will permanently delete the
-                            {deleteConfig.type === 'department' ? ' department' : ' designation'}
-                            <span className="font-semibold text-black"> "{deleteConfig.item?.value}"</span>
+                            {deleteConfig.type === 'department'
+                                ? ' department'
+                                : deleteConfig.type === 'workLocation'
+                                  ? ' work location'
+                                  : ' designation'}
+                            <span className="font-semibold text-black"> "{deleteConfig.item?.label || deleteConfig.item?.value}"</span>
                             and remove it from the system.
                         </AlertDialogDescription>
                     </AlertDialogHeader>

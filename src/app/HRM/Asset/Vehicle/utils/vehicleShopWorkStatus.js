@@ -20,9 +20,16 @@ function resolveShopWorkWorkflowStage(service, asset) {
     const wf = asset?.activeServiceWorkflow || {};
     const wfMatch = serviceId && normalizeMongoId(wf.serviceRecordId) === serviceId;
 
+    const remarkStage = String(remark.workflowStage || remark.stage || '')
+        .toLowerCase()
+        .trim();
+    if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live' && remarkStage) {
+        return remarkStage;
+    }
+
     const candidates = [
         wfMatch ? wf.stage : '',
-        remark.workflowStage,
+        remarkStage,
         service?.workflowSnapshot?.stage,
         remark.stage,
     ]
@@ -78,24 +85,24 @@ export function resolveShopWorkTableStatusLabel(service, asset) {
     const requestStatus = String(remark.requestStatus || '').toLowerCase();
     const stage = resolveShopWorkWorkflowStage(service, asset);
     const vehicleServiceDone = String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live';
+    const workComplete = String(remark.serviceWorkStatus || '').toLowerCase() === 'complete';
 
     if (requestStatus === 'draft') {
         return { label: 'Draft', tone: 'draft' };
-    }
-    if (requestStatus === 'pending') {
-        return { label: 'Pending', tone: 'pending' };
     }
     if (stage === 'billed' || String(remark.billingStatus || '').toLowerCase() === 'billed') {
         return { label: 'Billed', tone: 'complete' };
     }
     if (
         stage === 'pending_billing' ||
-        (vehicleServiceDone && String(remark.workflowStage || '').toLowerCase() === 'pending_billing')
+        stage === 'complete' ||
+        vehicleServiceDone ||
+        workComplete
     ) {
         return { label: 'Completed', tone: 'complete' };
     }
-    if (stage === 'complete' || vehicleServiceDone) {
-        return { label: 'Completed', tone: 'complete' };
+    if (requestStatus === 'pending') {
+        return { label: 'Pending', tone: 'pending' };
     }
     if (stage === 'rejected') {
         return { label: 'Rejected', tone: 'rejected' };
@@ -214,7 +221,7 @@ export function isCompletedShopServiceHistoryRecord(service, asset) {
     const stage = String(
         service?.workflowSnapshot?.stage || remark.workflowStage || remark.stage || '',
     ).toLowerCase();
-    if (stage === 'complete') return true;
+    if (['complete', 'pending_billing', 'billed'].includes(stage)) return true;
 
     const serviceId = normalizeMongoId(service?._id);
     const wf = asset?.activeServiceWorkflow || {};

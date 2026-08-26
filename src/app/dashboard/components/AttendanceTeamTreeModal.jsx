@@ -19,6 +19,7 @@ const MARK_OPTIONS = [
             { key: 'sick_leave', label: 'Sick leave' },
             { key: 'authorized_leave', label: 'Authorized leave' },
             { key: 'unauthorized_leave', label: 'Unauthorized leave' },
+            { key: 'compoff_leave', label: 'Comp off leave' },
         ],
     },
     { key: 'late_arrived', label: 'Late arrived' },

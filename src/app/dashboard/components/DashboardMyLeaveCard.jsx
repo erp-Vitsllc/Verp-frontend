@@ -7,10 +7,12 @@ import { cn } from '@/lib/utils';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import { dashboardItem } from './dashboardMotion';
 import { DashboardCard, SectionHeader } from './ui';
+import DashboardSalaryEnrollLock from './DashboardSalaryEnrollLock';
 
 const EMPTY_COUNTS = {
     on_leave: 0,
     sick_leave: 0,
+    compoff_leave: 0,
     authorized_leave: 0,
     authorized_leave_paid: 0,
     authorized_leave_unpaid: 0,
@@ -40,6 +42,7 @@ const DETAIL_BOXES = [
     { key: 'authorized_leave', label: 'Authorized leave', wrap: 'bg-blue-50/70 text-blue-700' },
     { key: 'unauthorized_leave', label: 'Unauthorized leave', wrap: 'bg-rose-50/70 text-rose-700' },
     { key: 'sick_leave', label: 'Sick leave', wrap: 'bg-emerald-50/70 text-emerald-700' },
+    { key: 'compoff_leave', label: 'Comp off leave', wrap: 'bg-violet-50/70 text-violet-700' },
     { key: 'work_from_home', label: 'Work from home', wrap: 'bg-green-50/70 text-green-700' },
     { key: 'late_group', label: 'Late / Mispunch / Early', wrap: 'bg-amber-50/70 text-amber-800' },
     { key: 'annual_leave', label: 'Annual leave', wrap: 'bg-indigo-50/70 text-indigo-700' },
@@ -141,6 +144,7 @@ export default function DashboardMyLeaveCard() {
     const [customMonth, setCustomMonth] = useState(currentMonthKey);
     const [counts, setCounts] = useState(EMPTY_COUNTS);
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
+    const [salaryLocked, setSalaryLocked] = useState(false);
 
     const query = queryForFilter(filterKey, customMonth);
 
@@ -154,6 +158,13 @@ export default function DashboardMyLeaveCard() {
                     skipToast: true,
                 });
                 if (cancelled || !res?.data) return;
+                if (res.data.salaryEnrolled === false) {
+                    setSalaryLocked(true);
+                    setCounts(EMPTY_COUNTS);
+                    setSummary(EMPTY_SUMMARY);
+                    return;
+                }
+                setSalaryLocked(false);
                 setCounts({ ...EMPTY_COUNTS, ...(res.data.counts || {}) });
                 setSummary({
                     presentDays: n(res.data.presentDays),
@@ -168,6 +179,7 @@ export default function DashboardMyLeaveCard() {
                 });
             } catch {
                 if (!cancelled) {
+                    setSalaryLocked(false);
                     setCounts(EMPTY_COUNTS);
                     setSummary(EMPTY_SUMMARY);
                 }
@@ -203,7 +215,7 @@ export default function DashboardMyLeaveCard() {
     };
 
     return (
-        <DashboardCard variants={dashboardItem} className="px-4 py-3.5">
+        <DashboardCard variants={dashboardItem} className="relative overflow-hidden px-4 py-3.5">
             <SectionHeader
                 icon={CalendarDays}
                 iconWrap="bg-sky-50 text-sky-600"
@@ -279,6 +291,7 @@ export default function DashboardMyLeaveCard() {
                     );
                 })}
             </div>
+            <DashboardSalaryEnrollLock locked={salaryLocked} />
         </DashboardCard>
     );
 }

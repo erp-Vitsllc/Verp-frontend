@@ -78,11 +78,113 @@ export function resolveServiceAmountTypeAndStatus(serviceOrRemark) {
     return { amountType, amountStatus: 'Pending', amountStatusTone: 'pending' };
 }
 
+function resolveAssignedCompanyName(asset) {
+    const c = asset?.assignedCompany;
+    if (c && typeof c === 'object') {
+        return String(
+            c.nickName || c.companyShortName || c.companyName || c.tradeName || c.name || '',
+        ).trim();
+    }
+    return '';
+}
+
+function resolveAssignedEmployeeName(asset) {
+    const e = asset?.assignedTo;
+    if (!e || typeof e !== 'object') return '';
+    return `${e.firstName || ''} ${e.lastName || ''}`.trim() || String(e.employeeId || '').trim();
+}
+
+/** Who the bill / payable is attributed to (company name or employee name). */
+export function resolveServiceBillPartyLabel(remark = {}, asset = null) {
+    const mode = String(remark.paymentByMode || remark.liableOn || 'company').toLowerCase().trim();
+    const companyName =
+        String(remark.companyPayPartyName || remark.companyName || '').trim() ||
+        resolveAssignedCompanyName(asset) ||
+        'Company';
+
+    const empSource =
+        Array.isArray(remark.hrReviewEmployeeRows) && remark.hrReviewEmployeeRows.length
+            ? remark.hrReviewEmployeeRows
+            : Array.isArray(remark.employeeLiabilityRows)
+              ? remark.employeeLiabilityRows
+              : [];
+
+    const employeeNames = empSource
+        .map((row) => {
+            const named = String(row?.employeeName || row?.name || row?.partyName || '').trim();
+            if (named && !/^employee$/i.test(named)) return named;
+            return resolveAssignedEmployeeName(asset) || 'Employee';
+        })
+        .filter(Boolean);
+
+    if (mode === 'person' || mode === 'employee') {
+        return employeeNames[0] || resolveAssignedEmployeeName(asset) || 'Employee';
+    }
+
+    if (mode === 'split' || mode === 'both') {
+        const parts = [];
+        const companyPay = Number(remark.hrReviewCompanyPay ?? remark.companyPayAmount ?? 0);
+        if (companyPay > 0) parts.push(companyName);
+        employeeNames.forEach((name) => {
+            if (name && !parts.includes(name)) parts.push(name);
+        });
+        return parts.length ? parts.join(' & ') : companyName;
+    }
+
+    return companyName;
+}
+
+/**
+ * Bill Status for service lists — e.g. "Bill Pending with John Smith".
+ * Not Paid = Zoho bill exists but vendor payment (Payments Made) is still outstanding.
+ */
+export function resolveServiceBillStatus(serviceOrRemark, asset = null) {
+    const remark =
+        serviceOrRemark && typeof serviceOrRemark === 'object' && !serviceOrRemark.remark
+            ? serviceOrRemark
+            : parseVehicleServiceRemark(serviceOrRemark) || {};
+    const amountMode = normalizeOilPaymentType(remark.amountMode) || String(remark.amountMode || '').toLowerCase();
+
+    if (amountMode === 'warranty') {
+        return { billStatus: '—', billStatusTone: 'na' };
+    }
+
+    const party = resolveServiceBillPartyLabel(remark, asset);
+    const amountInfo = resolveServiceAmountTypeAndStatus(remark);
+
+    if (amountInfo.amountStatusTone === 'paid') {
+        return { billStatus: `Paid to Vendor with ${party}`, billStatusTone: 'paid' };
+    }
+    if (amountInfo.amountStatusTone === 'not_paid') {
+        return { billStatus: `Not Paid to Vendor with ${party}`, billStatusTone: 'not_paid' };
+    }
+    if (amountInfo.amountStatusTone === 'pending') {
+        return { billStatus: `Bill Pending with ${party}`, billStatusTone: 'pending' };
+    }
+
+    return { billStatus: '—', billStatusTone: 'na' };
+}
+
+export function serviceBillStatusBadgeClass(tone) {
+    return serviceAmountStatusBadgeClass(tone);
+}
+
 export function serviceAmountStatusBadgeClass(tone) {
     if (tone === 'paid') return 'bg-emerald-100 text-emerald-800';
     if (tone === 'not_paid') return 'bg-amber-100 text-amber-900';
     if (tone === 'pending') return 'bg-slate-100 text-slate-700';
     return 'bg-transparent text-slate-400';
+}
+
+export function vehicleServiceStatusBadgeClass(tone) {
+    const key = String(tone || '').toLowerCase();
+    if (key === 'complete' || key === 'paid') return 'bg-emerald-100 text-emerald-800';
+    if (key === 'pending' || key === 'working' || key === 'scheduled' || key === 'draft') {
+        return 'bg-amber-100 text-amber-900';
+    }
+    if (key === 'rejected') return 'bg-slate-100 text-slate-600';
+    if (key === 'not_yet') return 'bg-violet-100 text-violet-800';
+    return 'bg-slate-100 text-slate-700';
 }
 
 export function normalizeMongoId(v) {
@@ -256,6 +358,9 @@ export function vehicleServiceDetailPath(assetId, serviceId, serviceType) {
 /** Href for a vehicle service list row (fleet inbox / service-requests / detail tables). */
 export function buildVehicleServiceListRowHref(row) {
     const vehicleId = normalizeMongoId(row?.vehicleId);
+    if (row?.isNotYet && vehicleId) {
+        return `/HRM/Asset/Vehicle/details/${vehicleId}?tab=service`;
+    }
     const serviceId = normalizeMongoId(row?.serviceId || row?.id);
     if (!vehicleId || !serviceId) return '';
     const serviceType = String(row?.serviceType || '').trim();
@@ -434,9 +539,16 @@ export function resolveVehicleServiceListRowTone(row, { activeServiceWorkflow } 
         .toLowerCase()
         .replace(/\s+/g, '_');
 
+    const workStatus = String(remark?.serviceWorkStatus || '')
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+
     const isDone =
         stage === 'complete' ||
+        stage === 'pending_billing' ||
+        stage === 'billed' ||
         vehicleServiceDone === 'live' ||
+        workStatus === 'complete' ||
         accidentStatus === 'complete' ||
         serviceStatus === 'complete' ||
         serviceStatus === 'completed';
@@ -563,6 +675,7 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
     }
 
     const amountInfo = resolveServiceAmountTypeAndStatus(requestMeta || service);
+    const billInfo = resolveServiceBillStatus(requestMeta || service, asset);
     const listStatus = toVehicleServiceListBucketStatus(statusInfo);
 
     return {
@@ -580,6 +693,10 @@ export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {})
         amountType: amountInfo.amountType,
         amountStatus: amountInfo.amountStatus,
         amountStatusTone: amountInfo.amountStatusTone,
+        billStatus: billInfo.billStatus,
+        billStatusTone: billInfo.billStatusTone,
+        serviceStatus: statusInfo.label,
+        serviceStatusTone: statusInfo.tone,
         status: listStatus.label,
         statusTone: listStatus.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : nextOilServiceDate || null,
@@ -706,6 +823,7 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
           })()
         : { label: 'Pending', tone: 'pending' };
     const amountInfo = resolveServiceAmountTypeAndStatus(remark || service);
+    const billInfo = resolveServiceBillStatus(remark || service, asset);
     const listStatus = toVehicleServiceListBucketStatus(statusInfo);
 
     return {
@@ -721,6 +839,10 @@ export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
         amountType: amountInfo.amountType,
         amountStatus: amountInfo.amountStatus,
         amountStatusTone: amountInfo.amountStatusTone,
+        billStatus: billInfo.billStatus,
+        billStatusTone: billInfo.billStatusTone,
+        serviceStatus: statusInfo.label,
+        serviceStatusTone: statusInfo.tone,
         status: listStatus.label,
         statusTone: listStatus.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
@@ -770,6 +892,7 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
         ? resolveOilServiceTableStatusLabel(service, asset)
         : { label: 'Draft', tone: 'draft' };
     const amountInfo = resolveServiceAmountTypeAndStatus(remark || service);
+    const billInfo = resolveServiceBillStatus(remark || service, asset);
     const listStatus = toVehicleServiceListBucketStatus(statusInfo);
 
     return {
@@ -783,6 +906,10 @@ export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { 
         amountType: amountInfo.amountType,
         amountStatus: amountInfo.amountStatus,
         amountStatusTone: amountInfo.amountStatusTone,
+        billStatus: billInfo.billStatus,
+        billStatusTone: billInfo.billStatusTone,
+        serviceStatus: statusInfo.label,
+        serviceStatusTone: statusInfo.tone,
         status: listStatus.label,
         statusTone: listStatus.tone,
         sortEndDate: service ? resolveVehicleServiceListEndDate(service, asset) : null,
@@ -840,6 +967,39 @@ export function buildVehicleAccessServiceRowsFromAsset(asset, serviceType) {
         );
     }
     return [];
+}
+
+/** Fleet vehicles with no completed service yet — one row per vehicle. */
+export function buildVehicleAccessNotYetRowsFromAssets(assets = []) {
+    const rows = (Array.isArray(assets) ? assets : []).map((asset) => {
+        const vehicleId = normalizeMongoId(asset._id);
+        const vehicleNo =
+            [asset?.plateEmirate, asset?.plateNumber].filter(Boolean).join(' ').trim() ||
+            asset?.plateNumber ||
+            '—';
+        return {
+            id: `not-yet-${vehicleId}`,
+            vehicleId,
+            vehicleAssetNo: asset?.assetId || '—',
+            vehicleNo,
+            serviceReqNo: '—',
+            currentKm: asset?.currentKilometer ?? '—',
+            amountType: '—',
+            amountStatus: '—',
+            amountStatusTone: 'na',
+            billStatus: '—',
+            billStatusTone: 'na',
+            serviceType: '—',
+            serviceStatus: 'Not Yet',
+            serviceStatusTone: 'not_yet',
+            status: 'Not Yet',
+            statusTone: 'not_yet',
+            isNotYet: true,
+            sortDate: asset?.updatedAt || asset?.createdAt || null,
+            createdAt: asset?.createdAt || null,
+        };
+    });
+    return assignAndSortByVehicleServiceSl(rows);
 }
 
 export function findOpenVehicleServiceTabDraft(asset, serviceType) {

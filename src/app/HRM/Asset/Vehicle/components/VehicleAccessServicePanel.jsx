@@ -8,21 +8,30 @@ import { useToast } from '@/hooks/use-toast';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import VehicleAccessServiceListTable from '@/app/HRM/Asset/Vehicle/components/VehicleAccessServiceListTable';
 import {
+    buildVehicleAccessNotYetRowsFromAssets,
     buildVehicleAccessServiceRowsFromAsset,
     buildVehicleServiceListRowHref,
     isVehicleServiceListCompletedStatus,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import {
     VEHICLE_ACCESS_SERVICE_COMPLETED,
+    VEHICLE_ACCESS_SERVICE_NOT_YET,
     VEHICLE_ACCESS_SERVICE_PENDING,
+    VEHICLE_ACCESS_SERVICE_STATUS_FILTERS,
     VEHICLE_ACCESS_SERVICE_TYPES,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleAccessNav';
 
 function isAccessServiceRowCompleted(row) {
+    if (row?.isNotYet) return false;
     return isVehicleServiceListCompletedStatus({
         label: row?.status,
         tone: row?.statusTone,
     });
+}
+
+function isAccessServiceRowPending(row) {
+    if (row?.isNotYet) return false;
+    return !isAccessServiceRowCompleted(row);
 }
 
 function CountBellBadge({ count, tone = 'pending', title }) {
@@ -31,11 +40,13 @@ function CountBellBadge({ count, tone = 'pending', title }) {
     const cls =
         tone === 'complete'
             ? 'bg-emerald-100 text-emerald-700'
-            : 'bg-red-100 text-red-600';
+            : tone === 'not_yet'
+              ? 'bg-violet-100 text-violet-700'
+              : 'bg-red-100 text-red-600';
     return (
         <span
             className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 ${cls}`}
-            title={title || (tone === 'complete' ? `${n} completed` : `${n} pending`)}
+            title={title || `${n}`}
         >
             <Bell size={10} strokeWidth={2.5} />
             <span className="text-[9px] font-black tabular-nums">{n}</span>
@@ -61,14 +72,14 @@ export default function VehicleAccessServicePanel({
     const [countsLoading, setCountsLoading] = useState(true);
     const [apiPendingTotal, setApiPendingTotal] = useState(0);
     const [apiCompletedTotal, setApiCompletedTotal] = useState(0);
+    const [apiNotYetTotal, setApiNotYetTotal] = useState(0);
     const [vehiclesByType, setVehiclesByType] = useState(emptyVehiclesByType);
+    const [notYetAssets, setNotYetAssets] = useState([]);
     const [listLoading, setListLoading] = useState(false);
 
-    const statusFilter =
-        selectedType === VEHICLE_ACCESS_SERVICE_PENDING ||
-        selectedType === VEHICLE_ACCESS_SERVICE_COMPLETED
-            ? selectedType
-            : 'All';
+    const statusFilter = VEHICLE_ACCESS_SERVICE_STATUS_FILTERS.some((tab) => tab.key === selectedType)
+        ? selectedType
+        : 'All';
 
     const loadCounts = useCallback(async () => {
         setCountsLoading(true);
@@ -76,9 +87,11 @@ export default function VehicleAccessServicePanel({
             const res = await axiosInstance.get('/AssetItem/vehicle-access-services', { skipToast: true });
             setApiPendingTotal(Number(res.data?.pendingTotal) || 0);
             setApiCompletedTotal(Number(res.data?.completedTotal) || 0);
+            setApiNotYetTotal(Number(res.data?.notYetTotal) || 0);
         } catch {
             setApiPendingTotal(0);
             setApiCompletedTotal(0);
+            setApiNotYetTotal(0);
         } finally {
             setCountsLoading(false);
         }
@@ -87,16 +100,26 @@ export default function VehicleAccessServicePanel({
     const loadServiceList = useCallback(async () => {
         setListLoading(true);
         try {
-            const results = await Promise.all(
-                VEHICLE_ACCESS_SERVICE_TYPES.map(async (type) => {
-                    const res = await axiosInstance.get('/AssetItem/vehicle-access-services', {
-                        params: { type },
-                        skipToast: true,
-                    });
-                    return [type, Array.isArray(res.data?.items) ? res.data.items : []];
-                }),
-            );
-            setVehiclesByType(Object.fromEntries(results));
+            if (statusFilter === VEHICLE_ACCESS_SERVICE_NOT_YET) {
+                const res = await axiosInstance.get('/AssetItem/vehicle-access-services', {
+                    params: { status: 'not-yet' },
+                    skipToast: true,
+                });
+                setNotYetAssets(Array.isArray(res.data?.items) ? res.data.items : []);
+                setVehiclesByType(emptyVehiclesByType());
+            } else {
+                const results = await Promise.all(
+                    VEHICLE_ACCESS_SERVICE_TYPES.map(async (type) => {
+                        const res = await axiosInstance.get('/AssetItem/vehicle-access-services', {
+                            params: { type },
+                            skipToast: true,
+                        });
+                        return [type, Array.isArray(res.data?.items) ? res.data.items : []];
+                    }),
+                );
+                setVehiclesByType(Object.fromEntries(results));
+                setNotYetAssets([]);
+            }
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -104,10 +127,11 @@ export default function VehicleAccessServicePanel({
                 description: error?.response?.data?.message || 'Try again in a moment.',
             });
             setVehiclesByType(emptyVehiclesByType());
+            setNotYetAssets([]);
         } finally {
             setListLoading(false);
         }
-    }, [toast]);
+    }, [statusFilter, toast]);
 
     useEffect(() => {
         loadCounts();
@@ -118,34 +142,49 @@ export default function VehicleAccessServicePanel({
     }, [loadServiceList]);
 
     const allRows = useMemo(() => {
+        if (statusFilter === VEHICLE_ACCESS_SERVICE_NOT_YET) {
+            return buildVehicleAccessNotYetRowsFromAssets(notYetAssets);
+        }
         return VEHICLE_ACCESS_SERVICE_TYPES.flatMap((type) =>
             (vehiclesByType[type] || []).flatMap((asset) =>
                 buildVehicleAccessServiceRowsFromAsset(asset, type),
             ),
         );
-    }, [vehiclesByType]);
+    }, [notYetAssets, statusFilter, vehiclesByType]);
 
     const visibleRows = useMemo(() => {
         if (statusFilter === VEHICLE_ACCESS_SERVICE_PENDING) {
-            return allRows.filter((row) => !isAccessServiceRowCompleted(row));
+            return allRows.filter((row) => isAccessServiceRowPending(row));
         }
         if (statusFilter === VEHICLE_ACCESS_SERVICE_COMPLETED) {
             return allRows.filter((row) => isAccessServiceRowCompleted(row));
         }
+        if (statusFilter === VEHICLE_ACCESS_SERVICE_NOT_YET) {
+            return allRows;
+        }
         return allRows;
     }, [allRows, statusFilter]);
 
+    const serviceRecordRows = useMemo(() => allRows.filter((row) => !row?.isNotYet), [allRows]);
+
     const pendingCount = useMemo(
-        () => allRows.filter((row) => !isAccessServiceRowCompleted(row)).length,
-        [allRows],
+        () => serviceRecordRows.filter((row) => isAccessServiceRowPending(row)).length,
+        [serviceRecordRows],
     );
     const completedCount = useMemo(
-        () => allRows.filter((row) => isAccessServiceRowCompleted(row)).length,
-        [allRows],
+        () => serviceRecordRows.filter((row) => isAccessServiceRowCompleted(row)).length,
+        [serviceRecordRows],
     );
+    const notYetCount = useMemo(() => {
+        if (statusFilter === VEHICLE_ACCESS_SERVICE_NOT_YET) return allRows.length;
+        return apiNotYetTotal;
+    }, [allRows.length, apiNotYetTotal, statusFilter]);
 
-    const displayPendingCount = listLoading ? apiPendingTotal : pendingCount;
-    const displayCompletedCount = listLoading ? apiCompletedTotal : completedCount;
+    const displayPendingCount =
+        listLoading && statusFilter !== VEHICLE_ACCESS_SERVICE_NOT_YET ? apiPendingTotal : pendingCount;
+    const displayCompletedCount =
+        listLoading && statusFilter !== VEHICLE_ACCESS_SERVICE_NOT_YET ? apiCompletedTotal : completedCount;
+    const displayNotYetCount = countsLoading ? apiNotYetTotal : notYetCount;
 
     const openRow = (row) => {
         const href = buildVehicleServiceListRowHref(row);
@@ -163,6 +202,19 @@ export default function VehicleAccessServicePanel({
     };
 
     const refreshing = countsLoading || listLoading;
+
+    const filterTitle =
+        VEHICLE_ACCESS_SERVICE_STATUS_FILTERS.find((tab) => tab.key === statusFilter)?.label ||
+        'All service records';
+
+    const emptyMessage =
+        statusFilter === VEHICLE_ACCESS_SERVICE_PENDING
+            ? 'No pending services found.'
+            : statusFilter === VEHICLE_ACCESS_SERVICE_COMPLETED
+              ? 'No completed services found.'
+              : statusFilter === VEHICLE_ACCESS_SERVICE_NOT_YET
+                ? 'All vehicles have at least one completed service.'
+                : 'No service records found.';
 
     return (
         <div className="bg-white rounded-2xl border border-teal-200 shadow-sm mb-4 sm:mb-6 overflow-hidden">
@@ -186,9 +238,16 @@ export default function VehicleAccessServicePanel({
                                 title={`${displayCompletedCount} completed services`}
                             />
                         ) : null}
+                        {!countsLoading && displayNotYetCount > 0 ? (
+                            <CountBellBadge
+                                count={displayNotYetCount}
+                                tone="not_yet"
+                                title={`${displayNotYetCount} vehicles not yet serviced`}
+                            />
+                        ) : null}
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
-                        All fleet service records in one list
+                        All fleet service records — filter by status or vehicles with no completed service
                     </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -215,17 +274,13 @@ export default function VehicleAccessServicePanel({
             <div className="border-t border-slate-100">
                 <div className="px-4 sm:px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-600">
-                        {statusFilter === 'All' ? 'All service records' : statusFilter}
+                        {filterTitle}
                         {!listLoading ? (
                             <span className="ml-2 text-teal-700 tabular-nums">({visibleRows.length})</span>
                         ) : null}
                     </h3>
-                    <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-                        {[
-                            { key: 'All', label: 'All' },
-                            { key: VEHICLE_ACCESS_SERVICE_PENDING, label: 'Pending' },
-                            { key: VEHICLE_ACCESS_SERVICE_COMPLETED, label: 'Completed' },
-                        ].map((tab) => {
+                    <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 flex-wrap">
+                        {VEHICLE_ACCESS_SERVICE_STATUS_FILTERS.map((tab) => {
                             const isActive = statusFilter === tab.key;
                             return (
                                 <button
@@ -254,13 +309,7 @@ export default function VehicleAccessServicePanel({
                             getRowHref={(row) => buildVehicleServiceListRowHref(row)}
                             router={router}
                             listReturnHref={listReturnHref}
-                            emptyMessage={
-                                statusFilter === VEHICLE_ACCESS_SERVICE_PENDING
-                                    ? 'No pending services found.'
-                                    : statusFilter === VEHICLE_ACCESS_SERVICE_COMPLETED
-                                      ? 'No completed services found.'
-                                      : 'No service records found.'
-                            }
+                            emptyMessage={emptyMessage}
                         />
                     )}
                 </div>

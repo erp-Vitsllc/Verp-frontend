@@ -12,6 +12,12 @@ import {
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { formatWorkStatusDisplay, resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
+import {
+    normalizeWorkLocationKey,
+    workLocationBadgeClass,
+    workLocationLabel,
+} from '@/utils/workLocations';
+import useWorkLocations from '@/hooks/useWorkLocations';
 
 let cachedCompaniesList = null;
 let cachedCompaniesPromise = null;
@@ -55,6 +61,7 @@ export default function WorkDetailsCard({
     fetchEmployee,
     canEdit: canEditProp,
 }) {
+    const { locations } = useWorkLocations();
     // Employee profile: this card is the job/company block — gated by nested "Work Details" (`hrm_employees_view_work_employee`), not "Digital Signature".
     const access = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
@@ -238,30 +245,23 @@ export default function WorkDetailsCard({
                         label: 'Work Location',
                         value: (
                             <span
-                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                    employee.staffType === 'site'
-                                        ? 'bg-amber-50 text-amber-700'
-                                        : 'bg-sky-50 text-sky-700'
-                                }`}
+                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${workLocationBadgeClass(employee.staffType)}`}
                             >
-                                {employee.staffType === 'site' ? 'Site' : 'Office'}
+                                {workLocationLabel(employee.staffType, locations)}
                             </span>
                         ),
                         show: !isCompanyProfile,
                     },
                     {
                         label: 'Work Location (Pending Approval)',
-                        value:
-                            pendingWorkProposal?.proposedData?.staffType === 'site'
-                                ? 'Site'
-                                : pendingWorkProposal?.proposedData?.staffType === 'office'
-                                  ? 'Office'
-                                  : null,
+                        value: pendingWorkProposal?.proposedData?.staffType
+                            ? workLocationLabel(pendingWorkProposal.proposedData.staffType, locations)
+                            : null,
                         show:
                             !isCompanyProfile &&
                             !!pendingWorkProposal?.proposedData?.staffType &&
-                            pendingWorkProposal.proposedData.staffType !==
-                                (employee.staffType === 'site' ? 'site' : 'office'),
+                            normalizeWorkLocationKey(pendingWorkProposal.proposedData.staffType) !==
+                                normalizeWorkLocationKey(employee.staffType),
                     },
                     {
                         label: 'Portal Access',

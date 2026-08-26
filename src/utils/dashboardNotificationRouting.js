@@ -433,6 +433,16 @@ export const buildDashboardNotificationPath = (item) => {
     if (type.includes('loan') || type === 'advance' || type.includes('loan/advance') || type.includes('loan and advance')) {
         return buildLoanNotificationPath(item) || '';
     }
+    if (typeRaw === 'Salary Enrollment' || type.includes('salary enrollment')) {
+        const meta = parseMeta(item.extra3);
+        const employeeId =
+            meta?.employeeId ||
+            item.subjectEmployeeId ||
+            item.targetEmployeeId ||
+            '';
+        if (employeeId) return `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
+        return '/HRM/Salary';
+    }
     if (type.includes('attendance leave') || type.includes('attendance')) {
         let meta = {};
         try {

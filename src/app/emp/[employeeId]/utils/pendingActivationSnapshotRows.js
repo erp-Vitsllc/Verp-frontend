@@ -3,6 +3,8 @@
  * (same shaping as ProfileHeader activation review — labels, dates, document file names).
  */
 
+import { workLocationLabel } from '@/utils/workLocations';
+
 export function toSerializable(value) {
     if (value == null) return null;
     try {
@@ -273,8 +275,7 @@ function buildWorkDetailsSnapshotRows(data, resolveContext = {}) {
         pushScalarRow(rows, covered, 'Portal Access', data.enablePortalAccess, 'enablePortalAccess');
     }
     if (data.staffType !== undefined && data.staffType !== null && data.staffType !== '') {
-        const loc = String(data.staffType).toLowerCase() === 'site' ? 'Site' : 'Office';
-        rows.push({ label: 'Work Location', value: loc });
+        rows.push({ label: 'Work Location', value: workLocationLabel(data.staffType) });
         covered.add('staffType');
     }
     if (data.reportingAuthority) {

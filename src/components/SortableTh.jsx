@@ -13,18 +13,24 @@ export default function SortableTh({
     onSort,
     className = '',
     align = 'left',
+    compact = false,
 }) {
     const isActive = activeKey === sortKey;
     const alignClass = align === 'right' ? 'text-right' : 'text-left';
+    const sizeClass = compact
+        ? 'px-1 py-2 text-[9px] font-semibold text-gray-600 tracking-normal whitespace-nowrap'
+        : 'px-2 sm:px-4 lg:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap';
+
+    const iconSize = compact ? 10 : 12;
 
     return (
         <th
-            className={`px-2 sm:px-4 lg:px-6 py-2 sm:py-3 ${alignClass} text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap ${className}`}
+            className={`${sizeClass} ${alignClass} ${className}`}
         >
             <button
                 type="button"
                 onClick={() => onSort?.(sortKey)}
-                className={`inline-flex items-center gap-1 hover:text-gray-900 ${
+                className={`inline-flex items-center ${compact ? 'gap-0.5' : 'gap-1'} hover:text-gray-900 ${
                     align === 'right' ? 'ml-auto' : ''
                 } ${isActive ? 'text-teal-700' : ''}`}
                 title={`Sort by ${label}`}
@@ -39,12 +45,12 @@ export default function SortableTh({
                 {label}
                 {isActive ? (
                     direction === 'asc' ? (
-                        <ArrowUp size={12} className="opacity-100 shrink-0" />
+                        <ArrowUp size={iconSize} className="opacity-100 shrink-0" />
                     ) : (
-                        <ArrowDown size={12} className="opacity-100 shrink-0" />
+                        <ArrowDown size={iconSize} className="opacity-100 shrink-0" />
                     )
                 ) : (
-                    <ArrowUpDown size={12} className="opacity-40 shrink-0" />
+                    <ArrowUpDown size={iconSize} className="opacity-40 shrink-0" />
                 )}
             </button>
         </th>

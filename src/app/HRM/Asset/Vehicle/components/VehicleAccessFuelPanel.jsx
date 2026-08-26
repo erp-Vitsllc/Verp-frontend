@@ -213,7 +213,11 @@ export default function VehicleAccessFuelPanel({
     };
 
     const openAdd = () => {
-        setEditingBill({ monthKey });
+        const defaultVehicleId = notAdded[0]?.vehicleId || vehicles[0]?._id || '';
+        setEditingBill({
+            monthKey,
+            ...(defaultVehicleId ? { vehicleId: defaultVehicleId } : {}),
+        });
         setFormOpen(true);
     };
 

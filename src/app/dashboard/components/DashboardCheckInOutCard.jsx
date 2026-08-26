@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Clock, LogIn, LogOut } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { normalizeWorkLocationKey } from '@/utils/workLocations';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { dashboardHover, dashboardItem } from './dashboardMotion';
+import DashboardSalaryEnrollLock from './DashboardSalaryEnrollLock';
 
 export const ATTENDANCE_CHECK_CHANGED = 'verp:attendance-check-changed';
 
@@ -115,6 +117,7 @@ export default function DashboardCheckInOutCard() {
     const [staffType, setStaffType] = useState('office');
     const [officeHours, setOfficeHours] = useState({ isOffDay: false, range: '' });
     const [siteHours, setSiteHours] = useState({ isOffDay: false, range: '' });
+    const [salaryLocked, setSalaryLocked] = useState(false);
     const tickRef = useRef(null);
 
     const checkedIn = Boolean(timeIn);
@@ -131,8 +134,16 @@ export default function DashboardCheckInOutCard() {
                 params: { month },
                 skipToast: true,
             });
+            if (res.data?.salaryEnrolled === false) {
+                setSalaryLocked(true);
+                setTimeIn('');
+                setTimeOut('');
+                setError('');
+                return;
+            }
+            setSalaryLocked(false);
             const record = res.data?.todayRecord || null;
-            const nextStaff = res.data?.employee?.staffType === 'site' ? 'site' : 'office';
+            const nextStaff = normalizeWorkLocationKey(res.data?.employee?.staffType);
             setTimeIn(record?.timeIn || '');
             setTimeOut(record?.timeOut || '');
             setStaffType(nextStaff);
@@ -140,6 +151,13 @@ export default function DashboardCheckInOutCard() {
             setSiteHours(resolveTodayHours(res.data?.workingTime?.site, today));
             setError('');
         } catch (err) {
+            if (err?.response?.data?.salaryEnrolled === false) {
+                setSalaryLocked(true);
+                setTimeIn('');
+                setTimeOut('');
+                setError('');
+                return;
+            }
             if (!soft) {
                 setTimeIn('');
                 setTimeOut('');
@@ -217,7 +235,7 @@ export default function DashboardCheckInOutCard() {
     }, [timeIn, timeOut]);
 
     const handleCheckIn = async () => {
-        if (checkedIn || saving || loading) return;
+        if (salaryLocked || checkedIn || saving || loading) return;
         setSaving(true);
         setError('');
         try {
@@ -231,6 +249,10 @@ export default function DashboardCheckInOutCard() {
             // Notify calendar only — avoid hard reload wiping timer state
             notifyAttendanceChanged();
         } catch (err) {
+            if (err?.response?.data?.salaryEnrolled === false) {
+                setSalaryLocked(true);
+                return;
+            }
             const msg = err?.response?.data?.message || 'Check-in failed.';
             setError(msg);
             // If already checked in, sync times from record so timer can run
@@ -245,7 +267,7 @@ export default function DashboardCheckInOutCard() {
     };
 
     const handleCheckOut = async () => {
-        if (!checkedIn || checkedOut || saving || loading) return;
+        if (salaryLocked || !checkedIn || checkedOut || saving || loading) return;
         setSaving(true);
         setError('');
         try {
@@ -257,6 +279,10 @@ export default function DashboardCheckInOutCard() {
             setTimeOut(nextOut);
             notifyAttendanceChanged();
         } catch (err) {
+            if (err?.response?.data?.salaryEnrolled === false) {
+                setSalaryLocked(true);
+                return;
+            }
             const msg = err?.response?.data?.message || 'Check-out failed.';
             setError(msg);
             const record = err?.response?.data?.record;
@@ -294,7 +320,7 @@ export default function DashboardCheckInOutCard() {
         <motion.div
             variants={dashboardItem}
             whileHover={dashboardHover}
-            className="dash-card-lift col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] overflow-hidden"
+            className="dash-card-lift relative col-span-12 sm:col-span-6 lg:col-span-3 bg-white rounded-2xl sm:rounded-[20px] p-3 sm:p-4 lg:p-6 shadow-sm border border-slate-100 flex flex-col justify-between min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:min-h-[380px] lg:max-h-[380px] overflow-hidden"
         >
             <div>
                 <h3 className="text-[10px] sm:text-xs lg:text-sm font-black text-slate-800 uppercase tracking-wider">
@@ -373,7 +399,7 @@ export default function DashboardCheckInOutCard() {
             <div className="flex items-center gap-3 shrink-0">
                 <button
                     type="button"
-                    disabled={saving || loading || checkedIn}
+                    disabled={salaryLocked || saving || loading || checkedIn}
                     onClick={handleCheckIn}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0B7A3E] hover:bg-[#086433] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#0B7A3E] disabled:hover:translate-y-0 disabled:!text-white"
                     title={checkedIn ? `Checked in at ${formatClock(timeIn)}` : 'Check in'}
@@ -387,7 +413,7 @@ export default function DashboardCheckInOutCard() {
                 </button>
                 <button
                     type="button"
-                    disabled={saving || loading || !checkedIn || checkedOut}
+                    disabled={salaryLocked || saving || loading || !checkedIn || checkedOut}
                     onClick={handleCheckOut}
                     className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#B71C1C] hover:bg-[#9A1616] !text-white text-xs sm:text-sm font-bold transition-transform duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:bg-[#B71C1C] disabled:hover:translate-y-0 disabled:!text-white"
                     title={
@@ -406,6 +432,7 @@ export default function DashboardCheckInOutCard() {
                     <span className="truncate !text-white">{checkOutButtonLabel}</span>
                 </button>
             </div>
+            <DashboardSalaryEnrollLock locked={salaryLocked} />
         </motion.div>
     );
 }

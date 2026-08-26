@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, Settings, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { PAYROLL_MONTH_DAYS, toPayrollMonthDay } from '../utils/payrollMonthDay';
 
 const RULE_OPTIONS = [
     { key: 'allAttendanceMarked', label: 'All attendance marked' },
@@ -71,9 +72,9 @@ export default function PayrollSettingsPanel({ open, onClose }) {
                 const res = await axiosInstance.get('/Employee/payroll-settings', { skipToast: true });
                 if (!cancelled) {
                     setForm({
-                        salaryProcessingDate: res.data?.salaryProcessingDate || '',
+                        salaryProcessingDate: toPayrollMonthDay(res.data?.salaryProcessingDate),
                         salaryProcessStartMonth: res.data?.salaryProcessStartMonth || '',
-                        salaryCutoffDate: res.data?.salaryCutoffDate || '',
+                        salaryCutoffDate: toPayrollMonthDay(res.data?.salaryCutoffDate),
                         processingRules: { ...EMPTY_RULES, ...(res.data?.processingRules || {}) },
                         workingDaysRequiredToEligible: res.data?.workingDaysRequiredToEligible ?? '',
                         leaveSalaryWorkingDays: res.data?.leaveSalaryWorkingDays ?? '',
@@ -147,7 +148,18 @@ export default function PayrollSettingsPanel({ open, onClose }) {
                         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
                             <label className="flex flex-col gap-1.5">
                                 <span className="text-[13px] font-semibold text-[#334155]">Salary processing date <span className="text-red-500">*</span></span>
-                                <input type="date" required value={form.salaryProcessingDate} onChange={(e) => setForm((p) => ({ ...p, salaryProcessingDate: e.target.value }))} className={fieldClass} />
+                                <select
+                                    required
+                                    value={form.salaryProcessingDate}
+                                    onChange={(e) => setForm((p) => ({ ...p, salaryProcessingDate: e.target.value }))}
+                                    className={fieldClass}
+                                >
+                                    <option value="">Select day</option>
+                                    {PAYROLL_MONTH_DAYS.map((day) => (
+                                        <option key={day} value={day}>{day}</option>
+                                    ))}
+                                </select>
+                                <span className="text-xs text-[#64748B]">Same day every month (1–28)</span>
                                 {errors.salaryProcessingDate ? <span className="text-xs text-red-500">{errors.salaryProcessingDate}</span> : null}
                             </label>
                             <label className="flex flex-col gap-1.5">
@@ -156,8 +168,19 @@ export default function PayrollSettingsPanel({ open, onClose }) {
                                 {errors.salaryProcessStartMonth ? <span className="text-xs text-red-500">{errors.salaryProcessStartMonth}</span> : null}
                             </label>
                             <label className="flex flex-col gap-1.5">
-                                <span className="text-[13px] font-semibold text-[#334155]">Salary cutoff date <span className="text-red-500">*</span></span>
-                                <input type="date" required value={form.salaryCutoffDate} onChange={(e) => setForm((p) => ({ ...p, salaryCutoffDate: e.target.value }))} className={fieldClass} />
+                                <span className="text-[13px] font-semibold text-[#334155]">Attendance cutoff date <span className="text-red-500">*</span></span>
+                                <select
+                                    required
+                                    value={form.salaryCutoffDate}
+                                    onChange={(e) => setForm((p) => ({ ...p, salaryCutoffDate: e.target.value }))}
+                                    className={fieldClass}
+                                >
+                                    <option value="">Select day</option>
+                                    {PAYROLL_MONTH_DAYS.map((day) => (
+                                        <option key={day} value={day}>{day}</option>
+                                    ))}
+                                </select>
+                                <span className="text-xs text-[#64748B]">Same day every month (1–28)</span>
                                 {errors.salaryCutoffDate ? <span className="text-xs text-red-500">{errors.salaryCutoffDate}</span> : null}
                             </label>
                             <div>

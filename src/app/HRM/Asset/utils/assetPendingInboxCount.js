@@ -22,16 +22,59 @@ export function dedupeAssetPendingInboxItems(items) {
     const list = Array.isArray(items) ? items : [];
     const seenActionIds = new Set();
     const seenAssignmentAssets = new Set();
+    const vehicleServiceBest = new Map();
+
+    for (const row of list) {
+        const requestType = String(row?.requestType || row?.type || '').trim();
+        if (requestType !== 'Vehicle Service Request') continue;
+        const meta = parseInboxExtra3(row?.extra3);
+        const serviceId = String(meta?.serviceRecordId || '').trim();
+        const assetId = String(row?.requestObjectId || row?.requestId || row?.id || '').trim();
+        if (!serviceId || !assetId) continue;
+        const key = `${assetId}:${serviceId}`;
+        const prev = vehicleServiceBest.get(key);
+        if (!prev) {
+            vehicleServiceBest.set(key, row);
+            continue;
+        }
+        const prevMeta = parseInboxExtra3(prev.extra3);
+        const prevTrack = Boolean(prevMeta?.adminOfficerServiceTrack);
+        const curTrack = Boolean(meta?.adminOfficerServiceTrack);
+        if (curTrack && !prevTrack) {
+            vehicleServiceBest.set(key, row);
+            continue;
+        }
+        if (prevTrack && !curTrack) continue;
+        const prevMs = new Date(prev.requestedDate || 0).getTime();
+        const curMs = new Date(row.requestedDate || 0).getTime();
+        if (curMs >= prevMs) vehicleServiceBest.set(key, row);
+    }
+
+    const rowIdentity = (row) =>
+        String(row?.dashboardActionId || row?.actionId || row?._id || '').trim();
+
     const sorted = [...list].sort(
         (a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0),
     );
 
     return sorted.filter((row) => {
         const requestType = String(row?.requestType || row?.type || '').trim();
-        const actionId = String(row?.dashboardActionId || row?.actionId || row?._id || '').trim();
+        const actionId = rowIdentity(row);
         if (actionId) {
             if (seenActionIds.has(actionId)) return false;
             seenActionIds.add(actionId);
+        }
+
+        if (requestType === 'Vehicle Service Request') {
+            const meta = parseInboxExtra3(row?.extra3);
+            const serviceId = String(meta?.serviceRecordId || '').trim();
+            const assetId = String(row?.requestObjectId || row?.requestId || row?.id || '').trim();
+            if (serviceId && assetId) {
+                const best = vehicleServiceBest.get(`${assetId}:${serviceId}`);
+                if (best && rowIdentity(best) && rowIdentity(row) && rowIdentity(best) !== rowIdentity(row)) {
+                    return false;
+                }
+            }
         }
 
         // One inbox row per asset assignment task (same user with multiple roles still sees it once).

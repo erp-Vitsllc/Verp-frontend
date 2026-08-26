@@ -1,14 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, Building2, HardHat } from 'lucide-react';
+import { Clock, MapPin } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-
-const CATEGORY_TABS = [
-    { id: 'site', label: 'Site', icon: HardHat },
-    { id: 'office', label: 'Office', icon: Building2 },
-];
+import useWorkLocations from '@/hooks/useWorkLocations';
 
 const WEEK_DAYS = [
     { key: 'monday', label: 'Monday' },
@@ -108,7 +104,8 @@ function TimeSelect({ hour, minute, meridiem, disabled, onChange }) {
 
 export default function HrWorkingTimePanel() {
     const { toast } = useToast();
-    const [category, setCategory] = useState('site');
+    const { locations } = useWorkLocations();
+    const [category, setCategory] = useState('office');
     const [schedules, setSchedules] = useState({
         site: buildDefaultWeek(),
         office: buildDefaultWeek(),
@@ -121,9 +118,14 @@ export default function HrWorkingTimePanel() {
         try {
             const res = await axiosInstance.get('/WorkingTime', { skipToast: true });
             const data = res.data?.workingTime || {};
+            const extra = data.extra && typeof data.extra === 'object' ? data.extra : {};
+            const extraWeeks = Object.fromEntries(
+                Object.entries(extra).map(([key, week]) => [key, normalizeWeek(week)]),
+            );
             setSchedules({
                 site: normalizeWeek(data.site),
                 office: normalizeWeek(data.office),
+                ...extraWeeks,
             });
         } catch (err) {
             setSchedules({
@@ -144,31 +146,58 @@ export default function HrWorkingTimePanel() {
         loadSchedules();
     }, [loadSchedules]);
 
+    useEffect(() => {
+        if (!locations.length) return;
+        setSchedules((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            locations.forEach((loc) => {
+                if (!next[loc.key]) {
+                    next[loc.key] = normalizeWeek(prev.office);
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+        if (!locations.some((loc) => loc.key === category)) {
+            setCategory(locations[0]?.key || 'office');
+        }
+    }, [locations, category]);
+
     const week = schedules[category] || buildDefaultWeek();
 
     const updateDay = (dayKey, patch) => {
-        setSchedules((prev) => ({
-            ...prev,
-            [category]: {
-                ...prev[category],
-                [dayKey]: {
-                    ...prev[category][dayKey],
-                    ...patch,
+        setSchedules((prev) => {
+            const currentWeek = prev[category] || buildDefaultWeek();
+            return {
+                ...prev,
+                [category]: {
+                    ...currentWeek,
+                    [dayKey]: {
+                        ...currentWeek[dayKey],
+                        ...patch,
+                    },
                 },
-            },
-        }));
+            };
+        });
     };
 
     const handleSave = async () => {
         setSaving(true);
         try {
+            const extra = {};
+            Object.entries(schedules).forEach(([key, weekValue]) => {
+                if (key === 'office' || key === 'site') return;
+                extra[key] = weekValue;
+            });
             await axiosInstance.put('/WorkingTime', {
                 site: schedules.site,
                 office: schedules.office,
+                extra,
             });
             toast({
                 title: 'Working times saved',
-                description: 'Site and Office weekly schedules updated. Off days applied to attendance calendars.',
+                description: 'Weekly schedules updated. Off days applied to attendance calendars.',
             });
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('verp:working-time-changed'));
@@ -206,19 +235,19 @@ export default function HrWorkingTimePanel() {
             </div>
 
             <div className="flex items-center gap-2 mb-6 bg-slate-50 p-1 rounded-xl border border-slate-100 w-full sm:w-fit overflow-x-auto">
-                {CATEGORY_TABS.map(({ id, label, icon: Icon }) => (
+                {locations.map((loc) => (
                     <button
-                        key={id}
+                        key={loc.key}
                         type="button"
-                        onClick={() => setCategory(id)}
+                        onClick={() => setCategory(loc.key)}
                         className={`inline-flex items-center gap-2 px-4 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-black transition-all whitespace-nowrap ${
-                            category === id
+                            category === loc.key
                                 ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
                                 : 'text-slate-500 hover:text-slate-700'
                         }`}
                     >
-                        <Icon className="w-3.5 h-3.5" />
-                        {label}
+                        <MapPin className="w-3.5 h-3.5" />
+                        {loc.label}
                     </button>
                 ))}
             </div>

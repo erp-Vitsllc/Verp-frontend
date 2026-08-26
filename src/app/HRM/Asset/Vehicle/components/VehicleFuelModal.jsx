@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { MonthPicker } from '@/components/ui/date-picker';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import axiosInstance from '@/utils/axios';
+import { isAdmin } from '@/utils/permissions';
 
 function currentMonthKey() {
     const now = new Date();
@@ -79,6 +80,12 @@ function vehicleIdOf(bill) {
     return String(raw);
 }
 
+function firstVehicleId(vehicles) {
+    const first = vehicles?.[0];
+    if (!first) return '';
+    return String(first._id || first.id || '');
+}
+
 export default function VehicleFuelModal({
     isOpen,
     onClose,
@@ -108,6 +115,7 @@ export default function VehicleFuelModal({
     const activeBill = existingBill || matchedBill;
     const isUpdate = Boolean(billIdOf(activeBill));
     const monthClosed = activeBill?.status === 'closed';
+    const canEditMonthlyLimit = isAdmin();
     const vehicleLocked = Boolean(lockVehicle || asset?._id || asset?.id);
     const selectedVehicle = useMemo(
         () => vehicles.find((v) => String(v._id) === String(vehicleId)) || null,
@@ -140,8 +148,8 @@ export default function VehicleFuelModal({
         formSession.current += 1;
         const defaultVehicleId = vehicleLocked
             ? lockedVehicleId
-            : vehicleIdOf(existingBill) || lockedVehicleId;
-        setVehicleId(String(defaultVehicleId || ''));
+            : vehicleIdOf(existingBill) || lockedVehicleId || firstVehicleId(vehicles);
+        setVehicleId(defaultVehicleId);
         setMonthKey(existingBill?.monthKey || currentMonthKey());
         setAmount(existingBill?.amountUsed != null ? String(existingBill.amountUsed) : '');
         setMonthlyLimit(billPositiveLimit(existingBill) || '');
@@ -162,9 +170,9 @@ export default function VehicleFuelModal({
     }, [isOpen, existingBill, vehicleLocked, lockedVehicleId]);
 
     useEffect(() => {
-        if (!isOpen || vehicleLocked || vehicleId || existingBill?._id) return;
-        const first = vehicles[0]?._id;
-        if (first) setVehicleId(String(first));
+        if (!isOpen || vehicleLocked || vehicleId || vehicleIdOf(existingBill)) return;
+        const first = firstVehicleId(vehicles);
+        if (first) setVehicleId(first);
     }, [isOpen, vehicleLocked, vehicleId, vehicles, existingBill]);
 
     useEffect(() => {
@@ -251,7 +259,9 @@ export default function VehicleFuelModal({
         if (!Number.isFinite(n) || n <= 0) next.amount = 'Enter a valid amount.';
         const vehicleLimit = Number(defaultMonthlyLimit(asset, selectedVehicle));
         const limit = Number(monthlyLimit);
-        if (
+        if (isUpdate && canEditMonthlyLimit) {
+            if (!Number.isFinite(limit) || limit <= 0) next.monthlyLimit = 'Enter a valid monthly limit.';
+        } else if (
             !isUpdate &&
             (!Number.isFinite(limit) || limit <= 0) &&
             (!Number.isFinite(vehicleLimit) || vehicleLimit <= 0)
@@ -292,7 +302,14 @@ export default function VehicleFuelModal({
                 vehicleId: vehicleLocked ? lockedVehicleId || vehicleId : vehicleId,
                 monthKey,
                 amount: Number(amount),
-                ...(isUpdate ? {} : { monthlyLimit: Number(monthlyLimit) || Number(defaultMonthlyLimit(asset, selectedVehicle)) || undefined }),
+                ...(!isUpdate || canEditMonthlyLimit
+                    ? {
+                          monthlyLimit:
+                              Number(monthlyLimit) ||
+                              Number(defaultMonthlyLimit(asset, selectedVehicle)) ||
+                              undefined,
+                      }
+                    : {}),
                 ...(attachment ? { attachment } : {}),
             };
             const res = isUpdate
@@ -363,7 +380,11 @@ export default function VehicleFuelModal({
                                 {isUpdate ? 'Update Fuel' : 'Add Fuel'}
                             </h2>
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                {isUpdate ? 'Existing month — monthly limit locked' : 'Create this month’s petrol bill'}
+                                {isUpdate
+                                    ? canEditMonthlyLimit
+                                        ? 'Existing month — Super User can edit monthly limit'
+                                        : 'Existing month — monthly limit locked'
+                                    : 'Create this month’s petrol bill'}
                             </p>
                         </div>
                     </div>
@@ -457,12 +478,19 @@ export default function VehicleFuelModal({
                             step="0.01"
                             value={monthlyLimit}
                             onChange={(e) => setMonthlyLimit(e.target.value)}
-                            disabled={isUpdate || Boolean(defaultMonthlyLimit(asset, selectedVehicle))}
+                            disabled={
+                                monthClosed ||
+                                (isUpdate
+                                    ? !canEditMonthlyLimit
+                                    : Boolean(defaultMonthlyLimit(asset, selectedVehicle)))
+                            }
                             placeholder="0.00"
                             className={`w-full h-11 px-4 rounded-xl border bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:text-slate-400 disabled:cursor-not-allowed ${errors.monthlyLimit ? 'border-red-400' : 'border-slate-200'}`}
                         />
-                        {isUpdate ? (
+                        {isUpdate && !canEditMonthlyLimit ? (
                             <p className="text-[11px] text-slate-400 mt-1">Monthly limit cannot be changed after create.</p>
+                        ) : isUpdate && canEditMonthlyLimit ? (
+                            <p className="text-[11px] text-slate-400 mt-1">Only Super User can change the monthly limit after create.</p>
                         ) : defaultMonthlyLimit(asset, selectedVehicle) ? (
                             <p className="text-[11px] text-slate-400 mt-1">Filled automatically from this vehicle.</p>
                         ) : null}

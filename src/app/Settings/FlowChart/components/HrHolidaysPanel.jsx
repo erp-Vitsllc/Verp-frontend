@@ -1,18 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Building2, CalendarDays, HardHat, X } from 'lucide-react';
+import { Building2, CalendarDays, HardHat, MapPin, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
-import { holidayAppliesToList } from '@/utils/holidayScope';
+import { holidayCoversLocation } from '@/utils/holidayScope';
+import useWorkLocations from '@/hooks/useWorkLocations';
 import { getUaeHolidaysCurrentMonthThroughNextYear, MONTH_NAMES } from '../utils/uaeHolidaysCatalog';
-
-const INNER_TABS = [
-    { id: 'uae', label: 'UAE Holidays' },
-    { id: 'office', label: 'Office' },
-    { id: 'site', label: 'Site' },
-];
 
 function dayCountInclusive(from, to) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) {
@@ -55,24 +50,52 @@ function relatedSavedForCatalog(catalog, savedHolidays) {
     });
 }
 
-function catalogGroupFlags(catalog, savedHolidays) {
+function catalogGroupFlags(catalog, savedHolidays, locations) {
     const related = relatedSavedForCatalog(catalog, savedHolidays);
-    let office = false;
-    let site = false;
-    let officeDate = '';
-    let siteDate = '';
-    related.forEach((h) => {
-        const list = holidayAppliesToList(h);
-        if (list.includes('office')) {
-            office = true;
-            officeDate = h.date;
-        }
-        if (list.includes('site')) {
-            site = true;
-            siteDate = h.date;
-        }
+    const byKey = {};
+    (locations || []).forEach((loc) => {
+        byKey[loc.key] = { added: false, date: '' };
     });
-    return { office, site, both: office && site, officeDate, siteDate };
+    related.forEach((h) => {
+        (locations || []).forEach((loc) => {
+            if (holidayCoversLocation(h, loc.key)) {
+                byKey[loc.key] = { added: true, date: h.date };
+            }
+        });
+    });
+    const keys = (locations || []).map((loc) => loc.key);
+    const allAdded = keys.length > 0 && keys.every((key) => byKey[key]?.added);
+    return { byKey, allAdded };
+}
+
+function LocationIcon({ locationKey, className = 'w-3 h-3' }) {
+    if (locationKey === 'office') return <Building2 className={className} />;
+    if (locationKey === 'site') return <HardHat className={className} />;
+    return <MapPin className={className} />;
+}
+
+function locationBadgeClass(key) {
+    if (key === 'office') return 'text-blue-700 bg-blue-50';
+    if (key === 'site') return 'text-teal-700 bg-teal-50';
+    return 'text-violet-700 bg-violet-50';
+}
+
+function WorkLocationSelect({ value, onChange, locations, disabled }) {
+    return (
+        <select
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+            className="mt-1 h-11 w-full min-w-[10rem] px-3 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 disabled:text-slate-400"
+        >
+            <option value="all">All</option>
+            {(locations || []).map((loc) => (
+                <option key={loc.key} value={loc.key}>
+                    {loc.label}
+                </option>
+            ))}
+        </select>
+    );
 }
 
 function HolidayMonthBlocks({ years, yearHint, emptyText, renderRow, headerExtra }) {
@@ -131,8 +154,17 @@ function HolidayMonthBlocks({ years, yearHint, emptyText, renderRow, headerExtra
     );
 }
 
+function withCalendarFields(h) {
+    return {
+        ...h,
+        year: Number(h.year) || Number(String(h.date).slice(0, 4)),
+        month: Number(String(h.date).slice(5, 7)),
+    };
+}
+
 export default function HrHolidaysPanel() {
     const { toast } = useToast();
+    const { locations } = useWorkLocations();
     const [innerTab, setInnerTab] = useState('uae');
     const [savedHolidays, setSavedHolidays] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -145,45 +177,43 @@ export default function HrHolidaysPanel() {
     const [customTitle, setCustomTitle] = useState('');
     const [customFromDate, setCustomFromDate] = useState('');
     const [customToDate, setCustomToDate] = useState('');
+    const [customAppliesTo, setCustomAppliesTo] = useState('all');
+    const [modalAppliesTo, setModalAppliesTo] = useState('all');
 
     const { thisYear, nextYear, fromMonth, holidays: uaeHolidays } = useMemo(
         () => getUaeHolidaysCurrentMonthThroughNextYear(),
         [],
     );
 
+    const innerTabs = useMemo(
+        () => [
+            { id: 'uae', label: 'UAE Holidays' },
+            ...locations.map((loc) => ({ id: loc.key, label: loc.label })),
+        ],
+        [locations],
+    );
+
+    const locationLabel = useCallback(
+        (key) => locations.find((loc) => loc.key === key)?.label || key,
+        [locations],
+    );
+
     const uaeYears = useMemo(() => groupByYearMonth(uaeHolidays), [uaeHolidays]);
 
-    const officeHolidays = useMemo(
-        () =>
-            savedHolidays
-                .filter((h) => holidayAppliesToList(h).includes('office'))
-                .map((h) => ({
-                    ...h,
-                    year: Number(h.year) || Number(String(h.date).slice(0, 4)),
-                    month: Number(String(h.date).slice(5, 7)),
-                })),
-        [savedHolidays],
-    );
-
-    const siteHolidays = useMemo(
-        () =>
-            savedHolidays
-                .filter((h) => holidayAppliesToList(h).includes('site'))
-                .map((h) => ({
-                    ...h,
-                    year: Number(h.year) || Number(String(h.date).slice(0, 4)),
-                    month: Number(String(h.date).slice(5, 7)),
-                })),
-        [savedHolidays],
-    );
+    const holidaysByLocation = useMemo(() => {
+        const map = {};
+        locations.forEach((loc) => {
+            map[loc.key] = savedHolidays
+                .filter((h) => holidayCoversLocation(h, loc.key))
+                .map(withCalendarFields);
+        });
+        return map;
+    }, [savedHolidays, locations]);
 
     const customDayCount = useMemo(
         () => dayCountInclusive(customFromDate, customToDate || customFromDate),
         [customFromDate, customToDate],
     );
-
-    const officeYears = useMemo(() => groupByYearMonth(officeHolidays), [officeHolidays]);
-    const siteYears = useMemo(() => groupByYearMonth(siteHolidays), [siteHolidays]);
 
     const loadHolidays = useCallback(async (opts = {}) => {
         if (!opts.silent) setLoading(true);
@@ -211,6 +241,15 @@ export default function HrHolidaysPanel() {
         loadHolidays();
     }, [loadHolidays]);
 
+    useEffect(() => {
+        if (innerTab === 'uae') return;
+        if (!locations.some((loc) => loc.key === innerTab)) {
+            setInnerTab('uae');
+            return;
+        }
+        setCustomAppliesTo(innerTab);
+    }, [locations, innerTab]);
+
     const notifyChanged = () => {
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('verp:holidays-changed'));
@@ -222,6 +261,7 @@ export default function HrHolidaysPanel() {
         setCustomDate(false);
         setAddFromDate(holiday.date);
         setAddToDate(holiday.date);
+        setModalAppliesTo(innerTab !== 'uae' ? innerTab : 'all');
     };
 
     const handleAddHoliday = async (holiday, appliesTo, options = {}) => {
@@ -326,8 +366,9 @@ export default function HrHolidaysPanel() {
             setCustomTitle('');
             setCustomFromDate('');
             setCustomToDate('');
-            if (appliesTo === 'office') setInnerTab('office');
-            else if (appliesTo === 'site') setInnerTab('site');
+            if (appliesTo && appliesTo !== 'all' && appliesTo !== 'both') {
+                setInnerTab(appliesTo);
+            }
         }
     };
 
@@ -337,12 +378,7 @@ export default function HrHolidaysPanel() {
             await axiosInstance.delete(`/Holiday/${date}`, { params: { appliesTo } });
             toast({
                 title: 'Holiday removed',
-                description:
-                    appliesTo === 'office'
-                        ? `${date} removed from the Office calendar.`
-                        : appliesTo === 'site'
-                          ? `${date} removed from the Site calendar.`
-                          : `${date} removed from both calendars.`,
+                description: `${date} removed from the ${locationLabel(appliesTo)} calendar.`,
             });
             await loadHolidays({ silent: true });
             notifyChanged();
@@ -358,15 +394,18 @@ export default function HrHolidaysPanel() {
     };
 
     const handleAddAllInMonth = async (items) => {
-        const pending = items.filter((h) => !catalogGroupFlags(h, savedHolidays).both);
+        const pending = items.filter((h) => !catalogGroupFlags(h, savedHolidays, locations).allAdded);
         if (!pending.length) {
-            toast({ title: 'Already added', description: 'All holidays in this month are already saved for Office and Site.' });
+            toast({
+                title: 'Already added',
+                description: 'All holidays in this month are already saved for every work location.',
+            });
             return;
         }
         for (const h of pending) {
             // sequential to avoid overloading API / duplicate race
             // eslint-disable-next-line no-await-in-loop
-            await handleAddHoliday(h, 'both');
+            await handleAddHoliday(h, 'all');
         }
     };
 
@@ -412,6 +451,8 @@ export default function HrHolidaysPanel() {
         );
     };
 
+    const locationNames = locations.map((loc) => loc.label).join(', ');
+
     return (
         <div className="bg-white rounded-2xl sm:rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 p-4 sm:p-6 lg:p-10 min-h-[400px] sm:min-h-[600px]">
             <div className="flex flex-col gap-4 mb-6 sm:mb-8">
@@ -423,12 +464,12 @@ export default function HrHolidaysPanel() {
                         {MONTH_NAMES[fromMonth - 1]} {thisYear} through December {nextYear}
                     </p>
                     <p className="text-[11px] text-slate-400 mt-2">
-                        Add a UAE holiday to Office, Site, or both. Custom from/to dates mark every day in the range.
-                        Islamic dates may shift by 1–2 days after moon sighting.
+                        Add a holiday to one work location or all of them ({locationNames || 'Office, Site'}).
+                        Employees in that location get it on their attendance calendar.
                     </p>
                 </div>
                 <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl w-full sm:w-fit overflow-x-auto">
-                    {INNER_TABS.map((tab) => (
+                    {innerTabs.map((tab) => (
                         <button
                             key={tab.id}
                             type="button"
@@ -450,7 +491,7 @@ export default function HrHolidaysPanel() {
                     <CalendarDays className="w-4 h-4 text-[#9B59B6]" />
                     <h4 className="text-sm font-black text-slate-800">Add holiday</h4>
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto] gap-3 items-end">
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_auto] gap-3 items-end">
                     <label className="block min-w-0">
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                             From date — To date
@@ -476,44 +517,32 @@ export default function HrHolidaysPanel() {
                             className="mt-1 h-11 w-full px-3 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 placeholder:text-slate-300"
                         />
                     </label>
-                    <div className="h-11 px-3 rounded-xl border border-slate-200 bg-white flex items-center justify-center min-w-[5.5rem]">
-                        <span className="text-sm font-black text-slate-800 tabular-nums">
-                            {customDayCount || 0}
+                    <label className="block min-w-0">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            Work location
                         </span>
-                        <span className="ml-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
-                            {customDayCount === 1 ? 'day' : 'days'}
-                        </span>
-                    </div>
+                        <WorkLocationSelect
+                            value={customAppliesTo}
+                            onChange={setCustomAppliesTo}
+                            locations={locations}
+                            disabled={saving}
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => submitCustomHoliday(customAppliesTo)}
+                        className="h-11 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black disabled:opacity-50 whitespace-nowrap"
+                    >
+                        {saving ? 'Updating…' : 'Update'}
+                    </button>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 mt-3">
-                    <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => submitCustomHoliday('both')}
-                        className="h-10 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black disabled:opacity-50"
-                    >
-                        Add both
-                    </button>
-                    <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => submitCustomHoliday('office')}
-                        className="h-10 px-4 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-black disabled:opacity-50"
-                    >
-                        Add office
-                    </button>
-                    <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => submitCustomHoliday('site')}
-                        className="h-10 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black disabled:opacity-50"
-                    >
-                        Add site
-                    </button>
-                    <span className="text-[11px] text-slate-400">
-                        Marks every day in the range on the Office calendar, Site calendar, or both.
-                    </span>
-                </div>
+                <p className="text-[11px] text-slate-400 mt-3">
+                    {customDayCount || 0} {customDayCount === 1 ? 'day' : 'days'} selected.
+                    {customAppliesTo === 'all'
+                        ? ' Update adds this holiday for every work location group.'
+                        : ` Update adds this holiday for ${locationLabel(customAppliesTo)} staff only.`}
+                </p>
             </div>
 
             {loading ? (
@@ -524,7 +553,7 @@ export default function HrHolidaysPanel() {
                     yearHint={yearHint}
                     emptyText={`No UAE holidays listed from ${MONTH_NAMES[fromMonth - 1]} ${thisYear} through ${nextYear}.`}
                     headerExtra={(items) => {
-                        const allSaved = items.every((h) => catalogGroupFlags(h, savedHolidays).both);
+                        const allSaved = items.every((h) => catalogGroupFlags(h, savedHolidays, locations).allAdded);
                         return (
                             <button
                                 type="button"
@@ -537,7 +566,8 @@ export default function HrHolidaysPanel() {
                         );
                     }}
                     renderRow={(h) => {
-                        const flags = catalogGroupFlags(h, savedHolidays);
+                        const flags = catalogGroupFlags(h, savedHolidays, locations);
+                        const addedLocations = locations.filter((loc) => flags.byKey[loc.key]?.added);
                         return (
                             <tr
                                 key={h.date}
@@ -552,32 +582,27 @@ export default function HrHolidaysPanel() {
                                             <span className="h-2 w-2 rounded-full bg-[#9B59B6] shrink-0" />
                                             <span className="font-bold text-slate-800">{h.name}</span>
                                         </span>
-                                        {flags.office || flags.site ? (
+                                        {addedLocations.length ? (
                                             <span className="flex flex-wrap items-center gap-1.5 pl-3.5">
-                                                {flags.office ? (
-                                                    <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
-                                                        <Building2 className="w-3 h-3" />
-                                                        Office
-                                                        {flags.officeDate && flags.officeDate !== h.date
-                                                            ? ` · ${flags.officeDate}`
-                                                            : ''}
-                                                    </span>
-                                                ) : null}
-                                                {flags.site ? (
-                                                    <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">
-                                                        <HardHat className="w-3 h-3" />
-                                                        Site
-                                                        {flags.siteDate && flags.siteDate !== h.date
-                                                            ? ` · ${flags.siteDate}`
-                                                            : ''}
-                                                    </span>
-                                                ) : null}
+                                                {addedLocations.map((loc) => {
+                                                    const savedDate = flags.byKey[loc.key]?.date;
+                                                    return (
+                                                        <span
+                                                            key={loc.key}
+                                                            className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${locationBadgeClass(loc.key)}`}
+                                                        >
+                                                            <LocationIcon locationKey={loc.key} />
+                                                            {loc.label}
+                                                            {savedDate && savedDate !== h.date ? ` · ${savedDate}` : ''}
+                                                        </span>
+                                                    );
+                                                })}
                                             </span>
                                         ) : null}
                                     </div>
                                 </td>
                                 <td className="px-4 sm:px-5 py-3 text-right">
-                                    {flags.both ? (
+                                    {flags.allAdded ? (
                                         <span className="text-[11px] font-black text-emerald-600 uppercase tracking-wider">
                                             Added
                                         </span>
@@ -596,17 +621,11 @@ export default function HrHolidaysPanel() {
                         );
                     }}
                 />
-            ) : innerTab === 'site' ? (
-                <HolidayMonthBlocks
-                    years={siteYears}
-                    emptyText="No Site holidays added yet. Add them from the UAE Holidays tab."
-                    renderRow={(h) => renderSavedRow(h, 'site')}
-                />
             ) : (
                 <HolidayMonthBlocks
-                    years={officeYears}
-                    emptyText="No Office holidays added yet. Add them from the UAE Holidays tab."
-                    renderRow={(h) => renderSavedRow(h, 'office')}
+                    years={groupByYearMonth(holidaysByLocation[innerTab] || [])}
+                    emptyText={`No ${locationLabel(innerTab)} holidays added yet. Add them from the UAE Holidays tab.`}
+                    renderRow={(h) => renderSavedRow(h, innerTab)}
                 />
             )}
 
@@ -688,34 +707,30 @@ export default function HrHolidaysPanel() {
                                 : 'Official date. Turn on Custom date to change it or cover 2+ days.'}
                         </p>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            <button
-                                type="button"
+                        <label className="block mb-3">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                Work location
+                            </span>
+                            <WorkLocationSelect
+                                value={modalAppliesTo}
+                                onChange={setModalAppliesTo}
+                                locations={locations}
                                 disabled={saving}
-                                onClick={() => submitAddModal('both')}
-                                className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black disabled:opacity-50"
-                            >
-                                Add both
-                            </button>
-                            <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => submitAddModal('office')}
-                                className="h-10 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-black disabled:opacity-50"
-                            >
-                                Add office
-                            </button>
-                            <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => submitAddModal('site')}
-                                className="h-10 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black disabled:opacity-50"
-                            >
-                                Add site
-                            </button>
-                        </div>
+                            />
+                        </label>
+
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => submitAddModal(modalAppliesTo)}
+                            className="h-11 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black disabled:opacity-50"
+                        >
+                            {saving ? 'Updating…' : 'Update'}
+                        </button>
                         <p className="text-[11px] text-slate-400 mt-3">
-                            Office-only leaves Site as a working day (unless they already have another holiday). Site-only does the reverse. Both marks both calendars.
+                            {modalAppliesTo === 'all'
+                                ? 'Update adds this holiday for every work location group.'
+                                : `Update adds this holiday for ${locationLabel(modalAppliesTo)} staff only. Other groups stay as working days unless they already have this date.`}
                         </p>
                     </div>
                 </div>

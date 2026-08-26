@@ -1,4 +1,5 @@
 import { resolveContractJoiningDate } from '@/utils/employeeWorkDetailsValidation';
+import { normalizeWorkLocationKey } from '@/utils/workLocations';
 
 function resolveReporteeId(reportee) {
     if (!reportee) return '';
@@ -67,6 +68,6 @@ export function buildWorkDetailsInitialForm(employee, holdEntryOverride = null) 
             ? effectiveWork.company?._id
             : (effectiveWork.company || ''),
         enablePortalAccess: effectiveWork.enablePortalAccess || false,
-        staffType: effectiveWork.staffType === 'site' ? 'site' : 'office',
+        staffType: normalizeWorkLocationKey(effectiveWork.staffType),
     };
 }

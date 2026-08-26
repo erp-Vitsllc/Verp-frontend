@@ -61,6 +61,9 @@ import {
 import {
     ATTENDANCE_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import {
+    SALARY_PENDING_INBOX_CHANGED,
+} from '@/app/HRM/Salary/utils/salaryPendingInboxCount';
 
 const logoPath = '/assets/employee/sidebar-logo.png';
 
@@ -244,8 +247,8 @@ function getSidebarSubmenuHref(parentId, subItem) {
     if (parentId === 'HRM') {
         if (label === 'Employees') return '/emp';
         if (label === 'Attendance') return '/HRM/Attendance';
-        if (label === 'Leave') return '/HRM/Leave';
-        if (label === 'Salary') return '/HRM/Payroll';
+        if (label === 'Leave') return '/HRM/Leave/annual-leave';
+        if (label === 'Salary') return '/HRM/Salary';
         if (label === 'Reward') return '/HRM/Reward';
         if (label === 'Fine') return '/HRM/Fine';
         if (label === 'Loan and Advance' || label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
@@ -289,6 +292,7 @@ export default function Sidebar() {
         company: 0,
         employee: 0,
         attendance: 0,
+        salary: 0,
         fine: 0,
         reward: 0,
         loan: 0,
@@ -365,6 +369,7 @@ export default function Sidebar() {
                 company: counts.company || 0,
                 employee: counts.employee || 0,
                 attendance: counts.attendance || 0,
+                salary: counts.salary || 0,
                 fine: counts.fine || 0,
                 reward: counts.reward || 0,
                 loan: counts.loan || 0,
@@ -460,6 +465,9 @@ export default function Sidebar() {
         const handleAttendanceInboxChanged = () => {
             scheduleInboxRefresh();
         };
+        const handleSalaryInboxChanged = () => {
+            scheduleInboxRefresh();
+        };
         const handleModuleNotificationsUpdated = (event) => {
             const counts = event?.detail?.counts;
             if (counts) {
@@ -476,6 +484,7 @@ export default function Sidebar() {
             document.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
             document.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
             document.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
+            document.addEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
         }
         if (typeof window !== 'undefined') {
             window.addEventListener(MODULE_NOTIFICATIONS_UPDATED, handleModuleNotificationsUpdated);
@@ -486,6 +495,7 @@ export default function Sidebar() {
             window.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
             window.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
             window.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
+            window.addEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
         }
         return () => {
             if (cancelInitialIdle) cancelInitialIdle();
@@ -501,6 +511,7 @@ export default function Sidebar() {
                 window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
                 window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
                 window.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
+                window.removeEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
             }
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', handleVisibility);
@@ -510,6 +521,7 @@ export default function Sidebar() {
                 document.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
                 document.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
                 document.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
+                document.removeEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
             }
         };
     }, [mounted]);
@@ -519,7 +531,8 @@ export default function Sidebar() {
             if (label === 'Company') return sidebarCounts.company;
             if (label === 'Employees') return sidebarCounts.employee;
             if (label === 'Attendance') return sidebarCounts.attendance || 0;
-            if (label === 'Payroll') return sidebarCounts.attendance || 0;
+            if (label === 'Salary') return sidebarCounts.salary || 0;
+            if (label === 'Payroll') return (sidebarCounts.attendance || 0) + (sidebarCounts.salary || 0);
             if (label === 'Fine') return sidebarCounts.fine;
             if (label === 'Reward') return sidebarCounts.reward;
             if (label === 'Loan and Advance' || label === 'Loan/Advance') return sidebarCounts.loan || 0;
@@ -546,6 +559,7 @@ export default function Sidebar() {
         (sidebarCounts.company || 0) +
         (sidebarCounts.employee || 0) +
         (sidebarCounts.attendance || 0) +
+        (sidebarCounts.salary || 0) +
         (sidebarCounts.fine || 0) +
         (sidebarCounts.reward || 0) +
         (sidebarCounts.loan || 0) +
@@ -697,9 +711,9 @@ export default function Sidebar() {
         } else if (parentId === 'HRM' && subItem.label === 'Attendance') {
             router.push('/HRM/Attendance');
         } else if (parentId === 'HRM' && subItem.label === 'Leave') {
-            router.push('/HRM/Leave');
+            router.push('/HRM/Leave/annual-leave');
         } else if (parentId === 'HRM' && subItem.label === 'Salary') {
-            router.push('/HRM/Payroll');
+            router.push('/HRM/Salary');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             router.push('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -759,7 +773,7 @@ export default function Sidebar() {
         } else if (parentId === 'HRM' && subItem.label === 'Leave') {
             return pathname === '/HRM/Leave' || pathname?.startsWith('/HRM/Leave/');
         } else if (parentId === 'HRM' && subItem.label === 'Salary') {
-            return pathname?.startsWith('/HRM/Salary') && pathname !== '/HRM/Salary';
+            return pathname?.startsWith('/HRM/Salary');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             return pathname?.startsWith('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -1265,6 +1279,11 @@ export default function Sidebar() {
                                                                                                         >
                                                                                                             <SidebarNavIcon icon={grand.icon} active={isGrandActive && !grandIsLogout} size={15} className="mr-2.5" />
                                                                                                             <span className={`flex-1 text-left ${isGrandActive && !grandIsLogout ? '!text-white' : ''}`}>{grand.label}</span>
+                                                                                                            {getSidebarBadgeCount(item.id, grand.label) > 0 && (
+                                                                                                                <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                                                                    {getSidebarBadgeCount(item.id, grand.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, grand.label)}
+                                                                                                                </span>
+                                                                                                            )}
                                                                                                         </Link>
                                                                                                     ) : (
                                                                                                         <button
@@ -1274,6 +1293,11 @@ export default function Sidebar() {
                                                                                                         >
                                                                                                             <SidebarNavIcon icon={grand.icon} active={isGrandActive && !grandIsLogout} size={15} className="mr-2.5" />
                                                                                                             <span className={`flex-1 text-left ${isGrandActive && !grandIsLogout ? '!text-white' : ''}`}>{grand.label}</span>
+                                                                                                            {getSidebarBadgeCount(item.id, grand.label) > 0 && (
+                                                                                                                <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                                                                    {getSidebarBadgeCount(item.id, grand.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, grand.label)}
+                                                                                                                </span>
+                                                                                                            )}
                                                                                                         </button>
                                                                                                     )}
                                                                                                 </div>

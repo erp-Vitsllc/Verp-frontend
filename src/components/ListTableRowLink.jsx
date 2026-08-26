@@ -76,6 +76,8 @@ export default function ListTableRowLink({
         if (event.defaultPrevented || isInteractiveTarget(event.target)) return;
         // Clicks on the overlay <a> are handled by handleLinkClick.
         if (event.target?.closest?.('a[data-row-nav-link]')) return;
+        // Right/middle-click must not navigate — only the browser menu or auxclick on the real <a>.
+        if (event.button !== 0) return;
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         handleNavigateFromListClick(event, router, href, listReturnHref);
     };

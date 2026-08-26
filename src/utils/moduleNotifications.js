@@ -19,6 +19,7 @@ import { countVisiblePaymentPendingInbox } from '@/app/Accounts/Payments/utils/p
 import { countVisibleRewardPendingInbox } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 import { countVisibleLoanPendingInbox } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
 import { countVisibleAttendancePendingInbox } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { countVisibleSalaryPendingInbox } from '@/app/HRM/Salary/utils/salaryPendingInboxCount';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import {
     buildCompanyPageNotifications,
@@ -33,6 +34,7 @@ import {
     fetchRewardPendingInbox,
     fetchLoanPendingInbox,
     fetchAttendancePendingInbox,
+    fetchSalaryPendingInbox,
 } from '@/utils/pendingInboxFetch';
 import {
     filterToolsAssetInboxRows,
@@ -52,6 +54,7 @@ export const MODULE_ORDER = [
     'Company',
     'Employees',
     'Attendance',
+    'Salary',
     'Fine',
     'Loan and Advance',
     'Reward',
@@ -111,12 +114,17 @@ function pendingInboxToItem(row, moduleCategory) {
             extra2:
                 row?.extra2 ||
                 row?.message ||
-                (moduleCategory === 'Attendance'
+                (moduleCategory === 'Salary'
+                    ? 'Salary profile approval'
+                    : moduleCategory === 'Attendance'
                     ? String(row?.leaveRequestKind || '') === 'yellow'
                         ? `Clarification: mark as Present`
                         : `Leave change: ${row?.requestedStatusLabel || 'status update'}`
                     : ''),
             extra3: row?.extra3 || '',
+            href: row?.href || '',
+            subjectEmployeeId: row?.subjectEmployeeId || '',
+            targetEmployeeId: row?.subjectEmployeeId || row?.targetEmployeeId || '',
             assetType: row?.assetType || '',
             hubRequest: row?.hubRequest === true,
             subjectName: row?.subjectName || '',
@@ -324,6 +332,7 @@ export async function loadModuleNotificationFeeds(
             fetchRewardPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchLoanPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchAttendancePendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
+            fetchSalaryPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             loadCompanyNotificationBundle(axiosInstance, {
                 hrLive: hrLiveGuess,
                 cachedCompanies: [],
@@ -348,11 +357,12 @@ export async function loadModuleNotificationFeeds(
         const rewardItems = valueOr(settled, 4, []);
         const loanItems = valueOr(settled, 5, []);
         const attendanceItems = valueOr(settled, 6, []);
-        const notificationBundle = valueOr(settled, 7, {
+        const salaryItems = valueOr(settled, 7, []);
+        const notificationBundle = valueOr(settled, 8, {
             statsRes: { data: { items: [] } },
             companiesList: [],
         });
-        const empRes = skipEmployees ? { data: {} } : valueOr(settled, 8, { data: {} });
+        const empRes = skipEmployees ? { data: {} } : valueOr(settled, 9, { data: {} });
         const empPayload = empRes?.data?.employees ?? empRes?.data;
 
         const statsData = providedStats || notificationBundle?.statsRes?.data || { items: [] };
@@ -377,6 +387,7 @@ export async function loadModuleNotificationFeeds(
             rewardItems: Array.isArray(rewardItems) ? rewardItems : [],
             loanItems: Array.isArray(loanItems) ? loanItems : [],
             attendanceItems: Array.isArray(attendanceItems) ? attendanceItems : [],
+            salaryItems: Array.isArray(salaryItems) ? salaryItems : [],
             ...hrFlags,
         };
 
@@ -411,6 +422,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         rewardItems = [],
         loanItems = [],
         attendanceItems = [],
+        salaryItems = [],
         liveExpiryHrView: liveFlag,
         mandatoryCardsHrLive: mandatoryFlag,
     } = feeds;
@@ -467,6 +479,9 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const attendance = (Array.isArray(attendanceItems) ? attendanceItems : []).map((row) =>
         pendingInboxToItem(row, 'Attendance'),
     );
+    const salary = (Array.isArray(salaryItems) ? salaryItems : []).map((row) =>
+        pendingInboxToItem(row, 'Salary'),
+    );
 
     const toolsRawVisible = dedupeAssetPendingInboxItems(toolsItems).filter(isPendingInboxRowVisible);
     const toolsVisible = filterToolsAssetInboxRows(toolsRawVisible);
@@ -498,6 +513,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         Company: company,
         Employees: employees,
         Attendance: attendance,
+        Salary: salary,
         Fine: fine,
         'Loan and Advance': loan,
         Reward: reward,
@@ -511,6 +527,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         company: company.length,
         employee: employees.length,
         attendance: countVisibleAttendancePendingInbox(attendanceItems),
+        salary: countVisibleSalaryPendingInbox(salaryItems),
         fine: countVisibleFinePendingInbox(fineItems),
         reward: countVisibleRewardPendingInbox(rewardItems),
         payment: countVisiblePaymentPendingInbox(paymentItems),
@@ -526,6 +543,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         (counts.company || 0) +
         (counts.employee || 0) +
         (counts.attendance || 0) +
+        (counts.salary || 0) +
         (counts.fine || 0) +
         (counts.reward || 0) +
         (counts.loan || 0) +
@@ -537,6 +555,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         ...company,
         ...employees,
         ...attendance,
+        ...salary,
         ...fine,
         ...loan,
         ...reward,
@@ -596,6 +615,8 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Loan/Advance',
         'Loan Request',
         'Advance',
+        'Attendance Leave Request',
+        'Salary Enrollment',
         'Vehicle Service Request',
         'Vehicle Profile Activation',
         'Vehicle Profile Edit',
@@ -720,6 +741,7 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
     const paymentPending = pending.filter((i) => String(i?.type || '').trim() === 'Payment Approval');
     const rewardPending = pending.filter((i) => String(i?.type || '').trim() === 'Reward');
     const loanPending = pending.filter((i) => isLoanNotification(i));
+    const salaryPending = pending.filter((i) => String(i?.type || '').trim() === 'Salary Enrollment');
     const toolsPending = pending.filter((i) => isToolsAssetInboxRow(i));
     const utilityPending = pending.filter((i) => isUtilityBillInboxRow(i));
     const vehiclePending = pending.filter((i) => isVehicleAssetInboxRow(i));
@@ -736,6 +758,7 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
         paymentItems: paymentPending.map(statsItemToPendingInboxRow),
         rewardItems: rewardPending.map(statsItemToPendingInboxRow),
         loanItems: loanPending.map(statsItemToPendingInboxRow),
+        salaryItems: salaryPending.map(statsItemToPendingInboxRow),
     });
 
     return mergeUserStatsWithModuleBundle(items, bundle);

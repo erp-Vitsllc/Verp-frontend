@@ -8,6 +8,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import axiosInstance from '@/utils/axios';
+import useWorkLocations from '@/hooks/useWorkLocations';
 import { fetchAttendancePendingInbox } from '@/utils/pendingInboxFetch';
 import {
     ATTENDANCE_PENDING_INBOX_CHANGED,
@@ -52,12 +53,8 @@ const OVERVIEW_STATS = [
     { label: 'Total Staff', value: 0 },
 ];
 
-const STAFF_TABS = [
-    { key: 'office', label: 'Office Staff' },
-    { key: 'site', label: 'Site Staffs' },
-];
-
 export default function AttendancePage() {
+    const { tabs: staffTabs } = useWorkLocations();
     const [staffTab, setStaffTab] = useState('office');
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
@@ -177,7 +174,7 @@ export default function AttendancePage() {
                         </div>
 
                         <div className="mt-3 sm:mt-4 mb-3 flex items-center gap-2 bg-white p-1 rounded-xl border border-gray-100 w-full sm:w-fit overflow-x-auto">
-                            {STAFF_TABS.map((tab) => (
+                            {staffTabs.map((tab) => (
                                 <button
                                     key={tab.key}
                                     type="button"

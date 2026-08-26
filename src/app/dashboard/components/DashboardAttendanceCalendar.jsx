@@ -16,6 +16,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import axiosInstance from '@/utils/axios';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
+import { normalizeWorkLocationKey, workLocationLabel, weekForStaffType } from '@/utils/workLocations';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import AttendanceTeamTreeModal from './AttendanceTeamTreeModal';
 import AttendanceLeaveRequestModal from './AttendanceLeaveRequestModal';
@@ -23,6 +24,7 @@ import AttendanceYellowRequestModal from './AttendanceYellowRequestModal';
 import AttendanceFutureRequestModal from './AttendanceFutureRequestModal';
 import AttendanceLeaveDecideModal from './AttendanceLeaveDecideModal';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
+import DashboardSalaryEnrollLock from './DashboardSalaryEnrollLock';
 import { dashboardHover, dashboardItem, DASH_EASE } from './dashboardMotion';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -31,6 +33,7 @@ const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'f
 const PRESENT_KEYS = new Set(['on_office', 'work_from_home']);
 const LEAVE_KEYS = new Set(['on_leave']);
 const SICK_LEAVE_KEYS = new Set(['sick_leave']);
+const COMPOFF_LEAVE_KEYS = new Set(['compoff_leave']);
 const AUTHORIZED_LEAVE_KEYS = new Set(['authorized_leave']);
 const UNAUTHORIZED_KEYS = new Set(['unauthorized_leave']);
 const ABSENT_KEYS = new Set(['not_marked', 'absent']);
@@ -48,6 +51,7 @@ const TONE = {
     unauthorized: 'bg-[#E74C3C] text-white',
     leave: 'bg-[#E74C3C] text-white',
     sickLeave: 'bg-[#22C55E] text-white',
+    compoffLeave: 'bg-[#9333EA] text-white',
     authorizedLeave: 'bg-[#2563EB] text-white',
     absent: 'bg-[#F97316] text-black',
     yellow: 'bg-[#F1C40F] text-black',
@@ -59,6 +63,7 @@ const TONE_FILL = {
     unauthorized: { backgroundColor: '#E74C3C', color: '#ffffff' },
     leave: { backgroundColor: '#E74C3C', color: '#ffffff' },
     sickLeave: { backgroundColor: '#22C55E', color: '#ffffff' },
+    compoffLeave: { backgroundColor: '#9333EA', color: '#ffffff' },
     authorizedLeave: { backgroundColor: '#2563EB', color: '#ffffff' },
     absent: { backgroundColor: '#F97316', color: '#000000' },
     yellow: { backgroundColor: '#F1C40F', color: '#000000' },
@@ -300,6 +305,12 @@ function dayTone({ record, isFuture, isHoliday, isWeeklyOff, holidayName, isToda
             label: record.statusLabel || 'Sick Leave',
         };
     }
+    if (record && COMPOFF_LEAVE_KEYS.has(record.statusKey)) {
+        return {
+            cell: TONE.compoffLeave,
+            label: record.statusLabel || 'Comp Off Leave',
+        };
+    }
     if (record && LEAVE_KEYS.has(record.statusKey)) {
         return {
             cell: TONE.leave,
@@ -395,6 +406,7 @@ export default function DashboardAttendanceCalendar({
     const [isSelf, setIsSelf] = useState(true);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [salaryLocked, setSalaryLocked] = useState(false);
     const [teamOpen, setTeamOpen] = useState(false);
     const [holidayRows, setHolidayRows] = useState([]);
 
@@ -461,18 +473,25 @@ export default function DashboardAttendanceCalendar({
             setRecordsByDate(map);
             setTodayRecord(res.data?.todayRecord || map[todayKey] || null);
             setEmployeeName(res.data?.employee?.name || '');
-            const nextStaffType = res.data?.employee?.staffType === 'site' ? 'site' : 'office';
+            const nextStaffType = normalizeWorkLocationKey(res.data?.employee?.staffType);
             setStaffType(nextStaffType);
-            setScheduleWeek(res.data?.workingTime?.[nextStaffType] || null);
+            setScheduleWeek(weekForStaffType(res.data?.workingTime, nextStaffType) || null);
             setOffWeekdays(new Set(Array.isArray(res.data?.offWeekdays) ? res.data.offWeekdays : []));
             setIsSelf(res.data?.isSelf !== false);
             if (!viewEmployeeId && res.data?.employee?.id) {
                 setSelfEmployeeId(String(res.data.employee.id));
             }
+            setSalaryLocked(res.data?.salaryEnrolled === false);
         } catch (err) {
             setRecordsByDate({});
             setTodayRecord(null);
-            setError(err?.response?.data?.message || 'Could not load attendance.');
+            if (err?.response?.data?.salaryEnrolled === false) {
+                setSalaryLocked(true);
+                setError('');
+            } else {
+                setSalaryLocked(false);
+                setError(err?.response?.data?.message || 'Could not load attendance.');
+            }
         } finally {
             setLoading(false);
         }
@@ -714,7 +733,7 @@ export default function DashboardAttendanceCalendar({
             <motion.div
                 variants={dashboardItem}
                 whileHover={hideTeamControls ? undefined : dashboardHover}
-                className={`dash-card-lift col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-4 sm:p-5 shadow-sm border border-slate-100 flex flex-col overflow-hidden min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:max-h-[380px] lg:min-h-[380px] ${className}`.trim()}
+                className={`dash-card-lift relative col-span-12 lg:col-span-6 bg-white rounded-2xl sm:rounded-[20px] p-4 sm:p-5 shadow-sm border border-slate-100 flex flex-col overflow-hidden min-h-[220px] sm:min-h-[280px] lg:h-[380px] lg:max-h-[380px] lg:min-h-[380px] ${className}`.trim()}
             >
                 <div className="flex items-start justify-between gap-3 shrink-0">
                     <div className="min-w-0">
@@ -722,7 +741,7 @@ export default function DashboardAttendanceCalendar({
                             {hideTeamControls || viewingOther ? 'Employee Attendance' : 'My Attendance'}
                             {staffType ? (
                                 <span className="ml-1.5 text-slate-500 normal-case tracking-normal">
-                                    · {staffType === 'site' ? 'Site' : 'Office'}
+                                    · {workLocationLabel(staffType)}
                                 </span>
                             ) : null}
                         </p>
@@ -793,6 +812,8 @@ export default function DashboardAttendanceCalendar({
                     <div className="mt-3 flex-1 flex items-center justify-center">
                         <p className="text-sm text-slate-400">Loading…</p>
                     </div>
+                ) : salaryLocked ? (
+                    <div className="mt-3 flex-1" />
                 ) : (
                     <div className="mt-3 flex-1 flex flex-col min-h-0">
                         <div className="grid grid-cols-7 gap-y-1 gap-x-0.5 shrink-0">
@@ -960,6 +981,7 @@ export default function DashboardAttendanceCalendar({
                         </div>
                     </div>
                 )}
+                <DashboardSalaryEnrollLock locked={salaryLocked} />
             </motion.div>
 
             <CalendarDayTooltip hovered={hoveredDay} reduceMotion={reduceMotion} />

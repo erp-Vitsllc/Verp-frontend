@@ -140,26 +140,7 @@
     align-items: center;
 }
 
-.pd-settings-btn {
-    width: 50px;
-    height: 50px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #fff;
-    border: 1px solid #e4e4e4;
-    border-radius: var(--filter-radius);
-    color: #676c75;
-    cursor: pointer;
-    flex-shrink: 0;
-}
-
-.pd-settings-btn:hover {
-    color: #0877ef;
-    border-color: #d5d9e0;
-}
-
-.pd-emp-value {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    swd-emp-value {
     font-size: 14px;
     font-weight: 500;
     color: #111318;
@@ -246,8 +227,8 @@
 }
 
 .pd-bottom-card {
-    height: 272px;
-    padding: 12px 14px 10px;
+    height: 280px;
+    padding: 14px 16px 12px;
     display: flex;
     flex-direction: column;
 }
@@ -389,9 +370,9 @@
 }
 
 .pd-head-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -437,9 +418,9 @@
 .pd-bday-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    height: 44px;
-    border-bottom: 1px solid #f0f1f3;
+    gap: 12px;
+    height: 38px;
+    border-bottom: 1px solid #f3f4f6;
 }
 
 .pd-bday-row:last-child {
@@ -447,68 +428,64 @@
 }
 
 .pd-avatar {
-    width: 31px;
-    height: 31px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 10px;
     font-weight: 700;
-    color: #fff;
+    letter-spacing: 0.02em;
     flex-shrink: 0;
+}
+
+.pd-bday-copy {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
 }
 
 .pd-bday-name {
     margin: 0;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
     color: #111318;
-    line-height: 16px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 18px;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .pd-bday-dept {
     margin: 0;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 400;
-    color: var(--text-muted);
-    line-height: 14px;
+    color: #8b9099;
+    line-height: 16px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
 }
 
 .pd-bday-date {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
-    color: var(--text-secondary);
+    color: #111318;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
+    white-space: nowrap;
 }
 
-.pd-leave-head,
 .pd-leave-row {
     display: grid;
-    grid-template-columns: 1.15fr 1fr 0.9fr auto;
-    gap: 8px;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) auto auto;
+    column-gap: 10px;
     align-items: center;
-}
-
-.pd-leave-head {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--text-muted);
-    height: 22px;
-    margin-bottom: 2px;
-}
-
-.pd-leave-row {
     height: 40px;
-    border-bottom: 1px solid #f0f1f3;
-    font-size: 12px;
+    border-bottom: 1px solid #f3f4f6;
 }
 
 .pd-leave-row:last-child {
@@ -516,18 +493,41 @@
 }
 
 .pd-leave-name {
+    margin: 0;
+    font-size: 13px;
     font-weight: 500;
     color: #111318;
+    line-height: 18px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.pd-leave-muted {
-    color: var(--text-secondary);
+.pd-leave-type {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 400;
+    color: #8b9099;
+    line-height: 16px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.pd-leave-date {
+    font-size: 12px;
+    font-weight: 500;
+    color: #111318;
+    font-variant-numeric: tabular-nums;
+    line-height: 16px;
+    white-space: nowrap;
+}
+
+.pd-leave-row .pd-status {
+    height: 22px;
+    padding: 0 10px;
+    font-size: 11px;
+    justify-self: end;
 }
 
 .pd-status {
@@ -732,20 +732,5 @@
 
     .pd-filters {
         width: 100%;
-    }
-
-    .pd-leave-head {
-        display: none;
-    }
-
-    .pd-leave-row {
-        grid-template-columns: 1fr auto;
-        height: auto;
-        padding: 8px 0;
-        gap: 4px 8px;
-    }
-
-    .pd-leave-muted {
-        grid-column: 1 / -1;
     }
 }

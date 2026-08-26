@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ChevronRight, ClipboardList } from 'lucide-react';
 import ListTableRowLink from '@/components/ListTableRowLink';
-import { buildVehicleServiceListRowHref, serviceAmountStatusBadgeClass } from './vehicleServiceUtils';
+import { buildVehicleServiceListRowHref, serviceBillStatusBadgeClass, vehicleServiceStatusBadgeClass } from './vehicleServiceUtils';
 import VehicleServiceRequestSortHeader from './VehicleServiceRequestSortHeader';
 import {
     codeSortValue,
@@ -19,7 +19,8 @@ const ACCESS_SERVICE_COLUMNS = [
     { key: 'currentKm', label: 'Current KM', type: 'number' },
     { key: 'amountType', label: 'Amount Type', type: 'text' },
     { key: 'serviceType', label: 'Service Type', type: 'text' },
-    { key: 'amountStatus', label: 'Amount Status', type: 'text' },
+    { key: 'serviceStatus', label: 'Service Status', type: 'text' },
+    { key: 'billStatus', label: 'Bill Status', type: 'text' },
 ];
 
 function accessServiceSortValue(row, key) {
@@ -131,7 +132,13 @@ export default function VehicleAccessServiceListTable({
                                         ? 'cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500 group'
                                         : ''
                                 }`}
-                                title={isNavigable || onRowClick ? 'Click to open service request' : undefined}
+                                title={
+                                    isNavigable || onRowClick
+                                        ? entry.isNotYet
+                                            ? 'Click to open vehicle Service tab'
+                                            : 'Click to open service request'
+                                        : undefined
+                                }
                             >
                                 <td className="px-4 py-2.5 text-slate-600 tabular-nums font-semibold">
                                     {entry.slNo ?? '—'}
@@ -151,9 +158,16 @@ export default function VehicleAccessServiceListTable({
                                 </td>
                                 <td className="px-4 py-2.5">
                                     <span
-                                        className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${serviceAmountStatusBadgeClass(entry.amountStatusTone)}`}
+                                        className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${vehicleServiceStatusBadgeClass(entry.serviceStatusTone || entry.statusTone)}`}
                                     >
-                                        {entry.amountStatus || '—'}
+                                        {entry.serviceStatus || entry.status || '—'}
+                                    </span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                    <span
+                                        className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold normal-case tracking-normal max-w-[220px] text-left leading-snug ${serviceBillStatusBadgeClass(entry.billStatusTone || entry.amountStatusTone)}`}
+                                    >
+                                        {entry.billStatus || entry.amountStatus || '—'}
                                     </span>
                                 </td>
                                 {showActions ? (

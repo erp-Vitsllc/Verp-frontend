@@ -216,7 +216,15 @@ export function getVehicleListWaitingLabel(vehicle) {
     return 'Approval';
 }
 
-const TERMINAL_SERVICE_WORKFLOW_STAGES = new Set(['complete', 'completed', 'rejected', 'cancelled', 'canceled']);
+const TERMINAL_SERVICE_WORKFLOW_STAGES = new Set([
+    'complete',
+    'completed',
+    'pending_billing',
+    'billed',
+    'rejected',
+    'cancelled',
+    'canceled',
+]);
 
 /**
  * Fleet list "Assigned To" — assignment only (no On Service here).
@@ -261,7 +269,6 @@ export function resolveVehicleListServiceStatusLabel(vehicle) {
     const hasCompletedCount = Number.isFinite(completedCount);
     if (hasPendingCount && pendingCount > 0) return 'Pending';
     if (hasCompletedCount && completedCount > 0) return 'Completed';
-    if (hasPendingCount && hasCompletedCount) return '';
 
     const wf = vehicle.activeServiceWorkflow || {};
     const stage = String(wf.stage || '')

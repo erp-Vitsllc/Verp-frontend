@@ -29,6 +29,11 @@ export function resolveOilServiceWorkflowStage(service, asset) {
         .toLowerCase()
         .trim();
 
+    if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live' && remarkStage) {
+        if (remarkStage === 'billed' || billingStatus === 'billed') return 'billed';
+        return remarkStage;
+    }
+
     // Billed is final — never keep showing Accounts from a stale snapshot/wf stage.
     if (remarkStage === 'billed' || billingStatus === 'billed' || String(remark.zohoBillId || '').trim()) {
         return 'billed';
@@ -228,7 +233,12 @@ export function resolveOilServiceTableStatusLabel(service, asset) {
     if (stage === 'billed' || String(remark.billingStatus || '').toLowerCase() === 'billed') {
         return { label: 'Billed', tone: 'complete' };
     }
-    if (stage === 'complete' || vehicleServiceDone) {
+    if (
+        stage === 'pending_billing' ||
+        stage === 'complete' ||
+        vehicleServiceDone ||
+        String(remark.serviceWorkStatus || '').toLowerCase() === 'complete'
+    ) {
         return { label: 'Complete', tone: 'complete' };
     }
     if (stage === 'pending_hr') {
@@ -308,7 +318,6 @@ export function isOilServiceCompleteUnlocked(service, asset) {
     if (stage === 'complete' || stage === 'billed' || stage === 'pending_accounts') return true;
     if (String(remark.vehicleServiceCompleted || '').toLowerCase() === 'live') return true;
 
-    if (!isOilServiceLive(service, asset)) return false;
     if (!isOilServiceScheduleStepComplete(remark)) return false;
     const isCash = String(remark.amountMode || '').toLowerCase() !== 'warranty';
     if (isCash && !String(remark.accountsQuoteApprovedAt || '').trim()) return false;
@@ -331,9 +340,8 @@ const CASH_ONLY_MESSAGE =
 /**
  * Sequential card gate: each card stays locked until the previous step is done.
  * Cash: Anyone Initiate → Admin Schedule + HR open together → Accounts (after HR once)
- *       → Ready/On Service → Admin Complete (On Service + schedule once + Accounts)
- *       → Accounts Make Payment (Zoho) — no separate Billed track step
- * Warranty: Anyone Initiate → Admin Officer Schedule → Ready/On Service → Complete
+ *       → Complete (after Schedule submit + Accounts) → Accounts Make Payment (Zoho)
+ * Warranty: Anyone Initiate → Admin Officer Schedule → Complete (after Schedule submit)
  */
 export function resolveOilServiceCardGate(service, asset, cardKey) {
     const remark = parseVehicleServiceRemark(service) || {};
@@ -353,7 +361,6 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
         stage === 'billed' ||
         String(remark.billingStatus || '').toLowerCase() === 'billed' ||
         Boolean(String(remark.zohoBillId || '').trim());
-    const onServiceLive = isOilServiceLive(service, asset);
 
     switch (cardKey) {
         case OIL_SERVICE_CARD.SCHEDULE: {
@@ -432,14 +439,6 @@ export function resolveOilServiceCardGate(service, asset, cardKey) {
             }
             if (stage === 'rejected') {
                 return { locked: false, message: '', active: false, done: false };
-            }
-            if (!onServiceLive) {
-                return {
-                    locked: true,
-                    message: isCash
-                        ? 'Unlocks at On Service (after Accounts Approve)'
-                        : 'Unlocks at On Service (after Schedule — when service start date is reached)',
-                };
             }
             return { locked: false, message: '', active: true, done: false };
         }

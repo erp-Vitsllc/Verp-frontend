@@ -25,14 +25,12 @@ import {
     HardHat,
     Loader2,
     MoreVertical,
-    Settings,
     User,
     Wallet,
 } from 'lucide-react';
 import RechartsBox from '@/components/charts/RechartsBox';
 import axiosInstance from '@/utils/axios';
 import EmployeePayrollDashboard from './EmployeePayrollDashboard';
-import PayrollSettingsPanel from './PayrollSettingsPanel';
 import {
     EMPTY_PAYROLL_SUMMARY,
     PAYROLL_COLORS,
@@ -89,6 +87,25 @@ function splitAed(label) {
     return { prefix: text.slice(0, idx), value: text.slice(idx + 1) };
 }
 
+const BDAY_AVATAR_TONES = [
+    { bg: '#EDE9FE', fg: '#6D28D9' },
+    { bg: '#DBEAFE', fg: '#1D4ED8' },
+    { bg: '#FCE7F3', fg: '#BE185D' },
+    { bg: '#D1FAE5', fg: '#047857' },
+    { bg: '#FFEDD5', fg: '#C2410C' },
+    { bg: '#E0E7FF', fg: '#4338CA' },
+];
+
+function birthdayAvatarTone(row) {
+    if (row?.avatarBg && row?.avatarFg) {
+        return { bg: row.avatarBg, fg: row.avatarFg };
+    }
+    const seed = String(row?.employeeId || row?.name || '');
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    return BDAY_AVATAR_TONES[hash % BDAY_AVATAR_TONES.length];
+}
+
 function ChartCard({ title, caption, children }) {
     return (
         <div className="pd-chart-card">
@@ -123,7 +140,6 @@ export default function PayrollDashboard() {
     const [error, setError] = useState(null);
     const [payload, setPayload] = useState(null);
     const [employees, setEmployees] = useState([]);
-    const [settingsOpen, setSettingsOpen] = useState(false);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -281,14 +297,6 @@ export default function PayrollDashboard() {
                                 ))}
                             </select>
                         </div>
-                        <button
-                            type="button"
-                            className="pd-settings-btn"
-                            aria-label="Payroll settings"
-                            onClick={() => setSettingsOpen(true)}
-                        >
-                            <Settings size={18} strokeWidth={1.75} />
-                        </button>
                     </div>
                 </div>
 
@@ -629,34 +637,39 @@ export default function PayrollDashboard() {
                                 <div className="pd-bottom-head">
                                     <div className="pd-bottom-head-left">
                                         <div className="pd-head-icon" style={{ backgroundColor: '#F3E8FF' }}>
-                                            <Gift size={18} color="#7C3AED" strokeWidth={2} />
+                                            <Gift size={16} color="#7C3AED" strokeWidth={2} />
                                         </div>
                                         <h3 className="pd-card-title" style={{ paddingRight: 0 }}>
                                             7) Upcoming Birthdays
                                         </h3>
                                     </div>
-                                    <span className="pd-badge pd-badge-purple">Next 30 Days</span>
                                 </div>
                                 {upcomingBirthdays.length ? (
                                     <ul className="pd-list">
-                                        {upcomingBirthdays.map((row) => (
-                                            <li key={`${row.employeeId}-${row.date}`} className="pd-bday-row">
-                                                <div
-                                                    className="pd-avatar"
-                                                    style={{ backgroundColor: row.color || '#7C3AED' }}
-                                                >
-                                                    {row.initials || '—'}
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="pd-bday-name">{row.name}</p>
-                                                    <p className="pd-bday-dept">{row.department}</p>
-                                                </div>
-                                                <span className="pd-bday-date">{row.date}</span>
-                                            </li>
-                                        ))}
+                                        {upcomingBirthdays.map((row) => {
+                                            const tone = birthdayAvatarTone(row);
+                                            return (
+                                                <li key={`${row.employeeId}-${row.date}`} className="pd-bday-row">
+                                                    <div
+                                                        className="pd-avatar"
+                                                        style={{
+                                                            backgroundColor: tone.bg,
+                                                            color: tone.fg,
+                                                        }}
+                                                    >
+                                                        {row.initials || '—'}
+                                                    </div>
+                                                    <div className="pd-bday-copy">
+                                                        <span className="pd-bday-name">{row.name}</span>
+                                                        <span className="pd-bday-dept">{row.department}</span>
+                                                    </div>
+                                                    <span className="pd-bday-date">{row.date}</span>
+                                                </li>
+                                            );
+                                        })}
                                     </ul>
                                 ) : (
-                                    <p className="pd-empty">No birthdays in the next 30 days.</p>
+                                    <p className="pd-empty">No upcoming birthdays.</p>
                                 )}
                                 <Link href="/emp" className="pd-card-cta">
                                     View All Birthdays →
@@ -667,7 +680,7 @@ export default function PayrollDashboard() {
                                 <div className="pd-bottom-head">
                                     <div className="pd-bottom-head-left">
                                         <div className="pd-head-icon" style={{ backgroundColor: '#E6F8F4' }}>
-                                            <CalendarDays size={18} color="#16B8A5" strokeWidth={2} />
+                                            <CalendarDays size={16} color="#16B8A5" strokeWidth={2} />
                                         </div>
                                         <h3 className="pd-card-title" style={{ paddingRight: 0 }}>
                                             8) Upcoming Leave
@@ -676,35 +689,27 @@ export default function PayrollDashboard() {
                                     <span className="pd-badge pd-badge-teal">Next 30 Days</span>
                                 </div>
                                 {upcomingLeave.length ? (
-                                    <>
-                                        <div className="pd-leave-head">
-                                            <span>Employee</span>
-                                            <span>Leave Type</span>
-                                            <span>Date</span>
-                                            <span>Status</span>
-                                        </div>
-                                        <ul className="pd-list">
-                                            {upcomingLeave.map((row, index) => (
-                                                <li
-                                                    key={`${row.employeeId}-${row.dates}-${index}`}
-                                                    className="pd-leave-row"
+                                    <ul className="pd-list">
+                                        {upcomingLeave.map((row, index) => (
+                                            <li
+                                                key={`${row.employeeId}-${row.dates}-${index}`}
+                                                className="pd-leave-row"
+                                            >
+                                                <span className="pd-leave-name">{row.name}</span>
+                                                <span className="pd-leave-type">{row.leaveType}</span>
+                                                <span className="pd-leave-date">{row.dates}</span>
+                                                <span
+                                                    className={`pd-status ${
+                                                        row.status === 'Approved'
+                                                            ? 'pd-status-approved'
+                                                            : 'pd-status-scheduled'
+                                                    }`}
                                                 >
-                                                    <span className="pd-leave-name">{row.name}</span>
-                                                    <span className="pd-leave-muted">{row.leaveType}</span>
-                                                    <span className="pd-leave-muted">{row.dates}</span>
-                                                    <span
-                                                        className={`pd-status ${
-                                                            row.status === 'Approved'
-                                                                ? 'pd-status-approved'
-                                                                : 'pd-status-scheduled'
-                                                        }`}
-                                                    >
-                                                        {row.status}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </>
+                                                    {row.status}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
                                 ) : (
                                     <p className="pd-empty">No leave in the next 30 days.</p>
                                 )}
@@ -763,7 +768,6 @@ export default function PayrollDashboard() {
                     </>
                 )}
             </main>
-            <PayrollSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </div>
     );
 }

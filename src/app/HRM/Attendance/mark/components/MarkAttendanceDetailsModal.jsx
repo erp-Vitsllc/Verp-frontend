@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Paperclip, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { weekForStaffType, normalizeWorkLocationKey } from '@/utils/workLocations';
 
 const WEEKDAY_KEYS = [
     'sunday',
@@ -39,6 +40,7 @@ export function getMarkFormConfig(markKey) {
     }
     if (
         markKey === 'sick_leave' ||
+        markKey === 'compoff_leave' ||
         markKey === 'authorized_leave' ||
         markKey === 'unauthorized_leave' ||
         markKey === 'on_leave'
@@ -84,8 +86,7 @@ async function loadDefaultPunchTimes({ dateKey, staffType }) {
     try {
         const res = await axiosInstance.get('/WorkingTime', { skipToast: true });
         const workingTime = res.data?.workingTime || {};
-        const category = staffType === 'site' ? 'site' : 'office';
-        const week = workingTime[category] || {};
+        const week = weekForStaffType(workingTime, staffType);
         const day = week[dayKey] || {};
         return {
             timeIn: scheduleToHHmm(day.startHour, day.startMinute, day.startMeridiem),
@@ -120,12 +121,7 @@ export default function MarkAttendanceDetailsModal({
     const fileRef = useRef(null);
     const bulkCount = Array.isArray(employeeIds) ? employeeIds.length : 0;
     const isBulk = bulkCount > 1;
-    const resolvedStaffType =
-        employee?.staffType === 'site' || employee?.staffType === 'office'
-            ? employee.staffType
-            : staffType === 'site'
-              ? 'site'
-              : 'office';
+    const resolvedStaffType = normalizeWorkLocationKey(employee?.staffType || staffType);
 
     useEffect(() => {
         if (!open) return;

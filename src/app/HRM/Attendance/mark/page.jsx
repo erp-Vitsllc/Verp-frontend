@@ -10,6 +10,8 @@ import PermissionGuard from '@/components/PermissionGuard';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import MarkAttendanceTable from './components/MarkAttendanceTable';
+import useWorkLocations from '@/hooks/useWorkLocations';
+import { workLocationLabel } from '@/utils/workLocations';
 
 /** Company calendar day (Asia/Dubai) as yyyy-MM-dd — matches backend midnight routine. */
 function getDubaiDateKey(date = new Date()) {
@@ -34,15 +36,11 @@ function parseDateParam(value) {
     return isValid(fallback) ? startOfDay(fallback) : startOfDay(new Date());
 }
 
-const STAFF_TABS = [
-    { key: 'office', label: 'Office Staff' },
-    { key: 'site', label: 'Site Staffs' },
-];
-
 function MarkAttendanceContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const dateParam = searchParams.get('date');
+    const { tabs: staffTabs } = useWorkLocations();
 
     const selectedDate = useMemo(() => parseDateParam(dateParam), [dateParam]);
     const dateKey = format(selectedDate, 'yyyy-MM-dd');
@@ -117,7 +115,7 @@ function MarkAttendanceContent() {
     return (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-visible">
             <div className="flex flex-wrap border-b border-gray-100 px-2 sm:px-4">
-                {STAFF_TABS.map((tab) => {
+                {staffTabs.map((tab) => {
                     const active = staffTab === tab.key;
                     return (
                         <button
@@ -146,7 +144,7 @@ function MarkAttendanceContent() {
                     </h1>
                     <p className="text-sm text-gray-500 mt-1">
                         Mark and review attendance for{' '}
-                        {staffTab === 'site' ? 'site staffs' : 'office staff'} on the selected date.
+                        {workLocationLabel(staffTab).toLowerCase()} staff on the selected date.
                     </p>
                     {dayRolledOver ? (
                         <p className="text-xs text-emerald-700 mt-1">

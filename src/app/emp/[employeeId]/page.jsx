@@ -81,6 +81,7 @@ import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, formatTenureDuration, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { resolveContractJoiningDate, resolveVitsTenureStartDate, employeeHasEmploymentVisaRecord } from '@/utils/employeeWorkDetailsValidation';
 import { buildWorkDetailsInitialForm } from '@/utils/buildWorkDetailsInitialForm';
+import { normalizeWorkLocationKey } from '@/utils/workLocations';
 import {
     applyLeftUserReadOnlySectionPermissions,
     isEmployeeLeftUser,
@@ -2945,7 +2946,7 @@ function EmployeeProfilePageContent() {
                 secondaryReportee: form.secondaryReportee || null,
                 companyEmail: form.companyEmail,
                 enablePortalAccess: form.enablePortalAccess,
-                staffType: form.staffType === 'site' ? 'site' : 'office',
+                staffType: normalizeWorkLocationKey(form.staffType),
             };
 
             const blockedStatuses = ['Termination', 'Resignation', 'Notice', 'Left User'];

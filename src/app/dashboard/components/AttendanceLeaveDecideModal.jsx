@@ -17,6 +17,12 @@ const REPORTEE_LEAVE_OPTIONS = [
         selected: 'border-[#22C55E] bg-emerald-50/80',
     },
     {
+        key: 'compoff_leave',
+        label: 'Comp Off Leave',
+        swatch: 'bg-[#9333EA]',
+        selected: 'border-[#9333EA] bg-violet-50/80',
+    },
+    {
         key: 'unauthorized_leave',
         label: 'Unauthorized Leave',
         swatch: 'bg-[#E74C3C]',

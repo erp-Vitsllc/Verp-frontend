@@ -96,6 +96,7 @@ export function resolveDashboardModuleCategory(item = {}) {
     if (isCardDeletedNotificationHiddenType(type)) return 'Other';
 
     if (type === 'Employee Leave Request' || type === 'Attendance Leave Request') return 'Attendance';
+    if (type === 'Salary Enrollment') return 'Salary';
 
     // Exact types first so Document Expiry never fuzzy-matches into Loan / other modules.
     if (FINE_MODULE_TYPES.has(type)) return 'Fine';

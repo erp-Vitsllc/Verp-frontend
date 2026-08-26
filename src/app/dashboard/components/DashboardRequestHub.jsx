@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
+import { normalizeWorkLocationKey, weekForStaffType } from '@/utils/workLocations';
 import { useToast } from '@/hooks/use-toast';
 import { HUB_ASSET_TYPES, HUB_KINDS } from '@/utils/employeeHubRequest';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
@@ -410,8 +411,7 @@ export default function DashboardRequestHub() {
                     }),
                 ]);
                 if (cancelled) return;
-                const staffType =
-                    attendanceRes.data?.employee?.staffType === 'site' ? 'site' : 'office';
+                const staffType = normalizeWorkLocationKey(attendanceRes.data?.employee?.staffType);
                 const offWeekdays = new Set(
                     Array.isArray(attendanceRes.data?.offWeekdays)
                         ? attendanceRes.data.offWeekdays
@@ -428,7 +428,7 @@ export default function DashboardRequestHub() {
                 );
                 const earliest =
                     firstEligibleAdvanceRequestDate(todayKey, holidayDates, offWeekdays) || '';
-                setLeaveScheduleWeek(attendanceRes.data?.workingTime?.[staffType] || null);
+                setLeaveScheduleWeek(weekForStaffType(attendanceRes.data?.workingTime, staffType) || null);
                 setLeaveEarliestDate(earliest);
                 setLeaveDateKey(earliest);
                 setLeaveHolidayDates(holidayDates);

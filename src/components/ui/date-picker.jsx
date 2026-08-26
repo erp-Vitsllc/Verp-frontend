@@ -81,7 +81,32 @@ function parseFlexibleDateInput(value) {
     return { parsed, pageMonth }
 }
 
-export function DatePicker({ value, onChange, placeholder = "Pick a date", className, disabled, disabledDays }) {
+function parseValueToDate(value) {
+    if (!value) return null
+    const str = String(value).trim()
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        const parsed = parse(str, "yyyy-MM-dd", new Date())
+        return isValid(parsed) ? parsed : null
+    }
+    const fromNative = new Date(str)
+    if (!isValid(fromNative)) return null
+    return new Date(fromNative.getFullYear(), fromNative.getMonth(), fromNative.getDate())
+}
+
+/**
+ * @param {{ label: string, date?: string | Date | null, disabled?: boolean }} [quickAction]
+ * Optional footer button inside the calendar (e.g. "Joining date", "Today").
+ */
+export function DatePicker({
+    value,
+    onChange,
+    placeholder = "Pick a date",
+    className,
+    disabled,
+    disabledDays,
+    quickAction,
+}) {
+    const [open, setOpen] = React.useState(false)
     const [date, setDate] = React.useState(undefined)
     const [inputStr, setInputStr] = React.useState("")
     const [month, setMonth] = React.useState(() => new Date())
@@ -101,6 +126,14 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
         },
         [disabledDays, onChange],
     )
+
+    const handleQuickAction = React.useCallback(() => {
+        const nextDate = parseValueToDate(quickAction?.date)
+        if (!nextDate || quickAction?.disabled) return
+        if (applyDate(nextDate)) {
+            setOpen(false)
+        }
+    }, [applyDate, quickAction?.date, quickAction?.disabled])
 
     React.useEffect(() => {
         if (value) {
@@ -180,8 +213,14 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
         }
     }
 
+    const quickActionEnabled =
+        Boolean(quickAction?.label) &&
+        !quickAction?.disabled &&
+        Boolean(parseValueToDate(quickAction?.date)) &&
+        !isDateDisabled(parseValueToDate(quickAction?.date), disabledDays)
+
     return (
-        <Popover>
+        <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <Button
                     variant="outline"
@@ -210,7 +249,10 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
                 <Calendar
                     mode="single"
                     selected={date}
-                    onSelect={handleSelect}
+                    onSelect={(selectedDate) => {
+                        handleSelect(selectedDate)
+                        if (selectedDate) setOpen(false)
+                    }}
                     month={month}
                     onMonthChange={handleMonthChange}
                     captionLayout="dropdown"
@@ -219,6 +261,18 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
                     initialFocus
                     disabled={disabledDays}
                 />
+                {quickAction?.label ? (
+                    <div className="border-t p-2">
+                        <button
+                            type="button"
+                            onClick={handleQuickAction}
+                            disabled={!quickActionEnabled}
+                            className="w-full rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                        >
+                            {quickAction.label}
+                        </button>
+                    </div>
+                ) : null}
             </PopoverContent>
         </Popover>
     )

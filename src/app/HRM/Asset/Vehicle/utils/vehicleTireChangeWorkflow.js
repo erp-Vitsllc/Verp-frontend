@@ -1,5 +1,4 @@
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
-import { isShopServiceLiveOnAsset } from './vehicleShopWorkStatus';
 import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
@@ -48,10 +47,10 @@ export function canApproveTireChangeGarageAccounts(stage, isFlowchartAccounts) {
     return isFlowchartAccounts && stage === TIRE_CHANGE_WORKFLOW_STAGES.ACCOUNTS;
 }
 
-export function canEditTireChangeReturn(stage, canManageTireChange, isComplete, asset) {
+export function canEditTireChangeReturn(stage, canManageTireChange, isComplete) {
     if (isComplete || !canManageTireChange) return false;
     if (stage === TIRE_CHANGE_WORKFLOW_STAGES.ADMIN_RETURN) return true;
-    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.SCHEDULED && isShopServiceLiveOnAsset(asset)) return true;
+    if (stage === TIRE_CHANGE_WORKFLOW_STAGES.SCHEDULED) return true;
     return false;
 }
 

@@ -109,6 +109,14 @@ export function vehicleAccessServiceListPath(type) {
 
 export const VEHICLE_ACCESS_SERVICE_PENDING = 'Pending Services';
 export const VEHICLE_ACCESS_SERVICE_COMPLETED = 'Completed Services';
+export const VEHICLE_ACCESS_SERVICE_NOT_YET = 'Not Yet';
+
+export const VEHICLE_ACCESS_SERVICE_STATUS_FILTERS = [
+    { key: 'All', label: 'All' },
+    { key: VEHICLE_ACCESS_SERVICE_PENDING, label: 'Pending' },
+    { key: VEHICLE_ACCESS_SERVICE_COMPLETED, label: 'Completed' },
+    { key: VEHICLE_ACCESS_SERVICE_NOT_YET, label: 'Not Yet' },
+];
 
 /** Access Handover filter boxes, in display order. */
 export const VEHICLE_ACCESS_HANDOVER_STATUSES = [

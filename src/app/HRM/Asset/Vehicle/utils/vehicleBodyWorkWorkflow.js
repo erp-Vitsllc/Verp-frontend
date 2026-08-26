@@ -1,5 +1,4 @@
 import { parseVehicleServiceRemark } from '../components/vehicleServiceUtils';
-import { isShopServiceLiveOnAsset } from './vehicleShopWorkStatus';
 import {
     isShopServiceWorkflowRecord,
     resolveShopServiceWorkflowStage,
@@ -54,10 +53,10 @@ export function canApproveBodyWorkGarageAccounts(stage, isFlowchartAccounts) {
     return isFlowchartAccounts && stage === BODY_WORK_WORKFLOW_STAGES.ACCOUNTS;
 }
 
-export function canEditBodyWorkReturn(stage, canManageBodyWork, isComplete, asset) {
+export function canEditBodyWorkReturn(stage, canManageBodyWork, isComplete) {
     if (isComplete || !canManageBodyWork) return false;
     if (stage === BODY_WORK_WORKFLOW_STAGES.ADMIN_RETURN) return true;
-    if (stage === BODY_WORK_WORKFLOW_STAGES.SCHEDULED && isShopServiceLiveOnAsset(asset)) return true;
+    if (stage === BODY_WORK_WORKFLOW_STAGES.SCHEDULED) return true;
     return false;
 }
 
