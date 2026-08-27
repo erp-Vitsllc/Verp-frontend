@@ -366,8 +366,8 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
         ? periodStart && (fromDate < periodStart || resolvedTo < periodStart)
             ? 'Leave dates cannot be before the contract joining date.'
             : periodEnd && (fromDate > periodEnd || resolvedTo > periodEnd)
-              ? 'Leave dates cannot be on or after the VERP salary processing start date.'
-              : validateLeaveDates({ fromDate, toDate: resolvedTo }, periodStart, periodEnd)
+                ? 'Leave dates cannot be on or after the VERP salary processing start date.'
+                : validateLeaveDates({ fromDate, toDate: resolvedTo }, periodStart, periodEnd)
         : '';
     const startDisabledDays = leaveDateDisabledDays(periodStart, periodEnd);
     const endDisabledDays = leaveDateDisabledDays(fromDate || periodStart, periodEnd);
@@ -815,35 +815,35 @@ export default function HistoricalSalarySetupPage() {
     const initials = emp?.name
         ? nameInitials(emp.name)
         : String(emp?.initials || nameInitials(employeeId))
-              .slice(0, 2)
-              .toUpperCase();
+            .slice(0, 2)
+            .toUpperCase();
     const enrolled = Boolean(data?.enrolled) || workflowStatus === 'locked';
     const migrationComplete = Boolean(joiningDate && verpStartDate && historicalTo);
     const enrollStatus = pendingHr
         ? 'Approval sent'
         : enrolled
-          ? 'Enrolled'
-          : workflowStatus === 'verified'
-            ? 'Verified'
-            : workflowStatus === 'correction'
-              ? 'Correction'
-              : workflowStatus === 'reopened'
-                ? 'Reopened'
-                : 'Pending';
+            ? 'Enrolled'
+            : workflowStatus === 'verified'
+                ? 'Verified'
+                : workflowStatus === 'correction'
+                    ? 'Correction'
+                    : workflowStatus === 'reopened'
+                        ? 'Reopened'
+                        : 'Pending';
     const enrollTone = pendingHr
         ? 'bg-amber-50 text-amber-700'
         : enrolled
-          ? 'bg-emerald-50 text-emerald-700'
-          : workflowStatus === 'verified'
             ? 'bg-emerald-50 text-emerald-700'
-            : workflowStatus === 'correction' || workflowStatus === 'reopened'
-              ? 'bg-amber-50 text-amber-700'
-              : 'bg-amber-50 text-amber-700';
+            : workflowStatus === 'verified'
+                ? 'bg-emerald-50 text-emerald-700'
+                : workflowStatus === 'correction' || workflowStatus === 'reopened'
+                    ? 'bg-amber-50 text-amber-700'
+                    : 'bg-amber-50 text-amber-700';
     const canClickCreate = Boolean(
         migrationComplete &&
-            leaveComplete &&
-            benefitsComplete &&
-            (permissions.canCreate || permissions.canVerify),
+        leaveComplete &&
+        benefitsComplete &&
+        (permissions.canCreate || permissions.canVerify),
     );
     const readinessByKey = Object.fromEntries((readiness?.items || []).map((item) => [item.key, item.done]));
     const readinessGroups = [
@@ -1414,11 +1414,10 @@ export default function HistoricalSalarySetupPage() {
                                                                         Cycle {cycle.cycleNumber || index + 1}
                                                                     </p>
                                                                     <span
-                                                                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                                                            paid
+                                                                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${paid
                                                                                 ? 'bg-[#F0FDF4] text-[#15803D]'
                                                                                 : 'bg-slate-100 text-slate-500'
-                                                                        }`}
+                                                                            }`}
                                                                     >
                                                                         {paid ? 'Paid' : cycle.paymentStatus || 'Draft'}
                                                                     </span>
@@ -1438,7 +1437,7 @@ export default function HistoricalSalarySetupPage() {
                                                                         <p className="mt-1 text-[13px] font-semibold text-[#0F172A]">
                                                                             {prettyDate(
                                                                                 cycle.leaveSalaryPaymentDate ||
-                                                                                    cycle.ticketPaymentDate,
+                                                                                cycle.ticketPaymentDate,
                                                                             )}
                                                                         </p>
                                                                     </div>
@@ -1562,7 +1561,7 @@ export default function HistoricalSalarySetupPage() {
                                                                 100,
                                                                 (Math.max(0, Number(calc.progressFill) || 0) /
                                                                     Number(calc.cycleDays || 1)) *
-                                                                    100,
+                                                                100,
                                                             )}%`,
                                                         }}
                                                     />
@@ -1604,20 +1603,18 @@ export default function HistoricalSalarySetupPage() {
                                                 {readinessGroups.map((item) => (
                                                     <li key={item.key} className="flex items-start gap-2.5">
                                                         <span
-                                                            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-                                                                item.done
+                                                            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${item.done
                                                                     ? 'bg-[#22C55E] text-white'
                                                                     : 'border border-[#E2E8F0] bg-white text-transparent'
-                                                            }`}
+                                                                }`}
                                                         >
                                                             <Check size={12} strokeWidth={2.8} />
                                                         </span>
                                                         <span
-                                                            className={`text-[13px] leading-5 ${
-                                                                item.done
+                                                            className={`text-[13px] leading-5 ${item.done
                                                                     ? 'font-medium text-[#334155]'
                                                                     : 'text-[#94A3B8]'
-                                                            }`}
+                                                                }`}
                                                         >
                                                             {item.label}
                                                         </span>
@@ -1807,20 +1804,18 @@ function EligibilityCalcRow({ label, value, danger, strong }) {
     return (
         <div className="flex min-h-[42px] items-center justify-between border-b border-[#E8ECF1] pl-4 pr-[22px]">
             <span
-                className={`text-[11px] leading-4 ${
-                    strong ? 'font-bold text-[#1D2A3E]' : 'font-normal text-[#6F7C8F]'
-                }`}
+                className={`text-[11px] leading-4 ${strong ? 'font-bold text-[#1D2A3E]' : 'font-normal text-[#6F7C8F]'
+                    }`}
             >
                 {label}
             </span>
             <span
-                className={`text-right text-[11px] leading-4 tabular-nums ${
-                    danger
+                className={`text-right text-[11px] leading-4 tabular-nums ${danger
                         ? 'font-medium text-[#DC5A64]'
                         : strong
-                          ? 'font-bold text-[#1D2A3E]'
-                          : 'font-semibold text-[#1D2A3E]'
-                }`}
+                            ? 'font-bold text-[#1D2A3E]'
+                            : 'font-semibold text-[#1D2A3E]'
+                    }`}
             >
                 {value}
             </span>
@@ -1835,11 +1830,10 @@ function Row({ label, value, danger, strong }) {
                 {label}
             </span>
             <span
-                className={`text-[13px] tabular-nums ${
-                    danger
+                className={`text-[13px] tabular-nums ${danger
                         ? 'font-semibold text-[#DE350B]'
                         : 'font-semibold text-[#172B4D]'
-                }`}
+                    }`}
             >
                 {value}
             </span>
@@ -1873,9 +1867,8 @@ function LeaveTable({ rows, locked, onEdit, onRemove }) {
                         return (
                             <tr
                                 key={row.id || `${row.fromDate}-${index}`}
-                                className={`border-b border-[#F1F5F9] ${
-                                    canEdit ? 'cursor-pointer hover:bg-slate-50' : ''
-                                }`}
+                                className={`border-b border-[#F1F5F9] ${canEdit ? 'cursor-pointer hover:bg-slate-50' : ''
+                                    }`}
                                 onClick={() => {
                                     if (canEdit) onEdit(index);
                                 }}

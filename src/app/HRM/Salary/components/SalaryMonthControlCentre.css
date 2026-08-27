@@ -662,13 +662,17 @@
 
 .spcc-metrics {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
     margin-bottom: 14px;
+    align-items: stretch;
 }
 
 .spcc-metric {
-    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    min-height: 196px;
+    padding: 12px;
     background: #ffffff;
     border: 1px solid var(--spcc-line);
     border-radius: 12px;
@@ -684,7 +688,6 @@
 
 .spcc-metric--btn:hover {
     border-color: #c7d7fe;
-    box-shadow: 0 2px 8px rgba(26, 86, 219, 0.08);
 }
 
 .spcc-metric.is-active {
@@ -782,16 +785,31 @@
     color: var(--spcc-blue);
 }
 
+.spcc-pay-row .spcc-row-link {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 11px;
+}
+
 .spcc-metric__top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 8px;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.spcc-metric__ident {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
 }
 
 .spcc-metric__code {
     width: 26px;
     height: 26px;
+    flex: none;
     border-radius: 999px;
     display: inline-flex;
     align-items: center;
@@ -799,6 +817,17 @@
     font-size: 10px;
     font-weight: 700;
     color: #fff;
+}
+
+.spcc-metric__title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--spcc-ink);
+    line-height: 1.2;
 }
 
 .spcc-metric__code--blue {
@@ -828,6 +857,7 @@
     border-radius: 999px;
     font-size: 10px;
     font-weight: 650;
+    flex: none;
 }
 
 .spcc-pill--ok {
@@ -858,11 +888,228 @@
     line-height: 1.15;
 }
 
+.spcc-metric__body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    flex: 1;
+}
+
+.spcc-metric-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+    min-width: 0;
+}
+
+.spcc-metric-stat__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.spcc-metric-stat__label {
+    font-size: 11px;
+    font-weight: 650;
+    color: #64748b;
+}
+
+.spcc-metric-stat__hint {
+    font-size: 10px;
+    font-weight: 600;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
+.spcc-metric-stat__value {
+    font-size: 17px;
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    color: var(--spcc-ink);
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.spcc-metric-stat__value.is-money {
+    font-size: 15px;
+}
+
+.spcc-metric-den {
+    color: #94a3b8;
+    font-weight: 650;
+    font-size: 0.82em;
+}
+
+.spcc-metric-bar {
+    display: block;
+    height: 4px;
+    overflow: hidden;
+    background: #e8edf3;
+    border-radius: 999px;
+}
+
+.spcc-metric-bar__fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--spcc-teal);
+}
+
+.spcc-metric-bar--mix {
+    background: #e8edf3;
+}
+
+.spcc-metric-bar__fill--wps {
+    background: #8b5cf6;
+}
+
+.spcc-metric-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    max-height: 132px;
+    padding-right: 2px;
+}
+
+.spcc-metric-co {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin: 0;
+    padding: 7px 8px;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+    background: #f8fafc;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+}
+
+.spcc-metric-co:hover,
+.spcc-metric-co.is-on {
+    border-color: #c7d7fe;
+    background: #f8fbff;
+}
+
+.spcc-metric-co__avatar {
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #d1fae5;
+    color: #0f766e;
+    font-size: 10px;
+    font-weight: 750;
+}
+
+.spcc-metric-co__main {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.spcc-metric-co__top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.spcc-metric-co__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--spcc-ink);
+}
+
+.spcc-metric-co__ratio {
+    flex: none;
+    font-size: 12px;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.spcc-metric-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.spcc-metric-split__tile {
+    align-items: flex-start;
+}
+
+.spcc-metric-split__count {
+    font-size: 22px;
+    font-weight: 750;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--spcc-ink);
+}
+
+.spcc-metric__caption {
+    display: block;
+    margin-top: auto;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #94a3b8;
+    line-height: 1.35;
+}
+
+.spcc-metric-slots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.spcc-metric-slot {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 9px;
+    border: 1px dashed #d7dee8;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.spcc-metric__soon {
+    margin: 2px 0 0;
+    font-size: 15px;
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    color: var(--spcc-ink);
+    line-height: 1.2;
+}
+
 .spcc-metric__sub {
     display: block;
     margin: 4px 0 0;
     font-size: 11px;
     color: var(--spcc-muted);
+    line-height: 1.4;
 }
 
 .spcc-tabs-row {
@@ -1021,19 +1268,21 @@
 }
 
 .spcc-pay-table {
-    min-width: 640px;
+    min-width: 860px;
 }
 
 .spcc-pay-row {
     display: grid;
     grid-template-columns:
-        minmax(8.5rem, 1.35fr)
-        minmax(5.5rem, 0.9fr)
-        minmax(4.25rem, 0.55fr)
-        minmax(4.25rem, 0.55fr)
+        2.6rem
+        minmax(7.5rem, 1.2fr)
+        minmax(7rem, 0.95fr)
+        minmax(5.25rem, 0.7fr)
+        minmax(5.25rem, 0.7fr)
+        minmax(5rem, 0.62fr)
+        minmax(5.25rem, 0.7fr)
         minmax(4.5rem, 0.55fr)
-        minmax(4rem, 0.5fr)
-        minmax(4.25rem, 0.5fr);
+        4.25rem;
     gap: 8px;
     align-items: center;
     padding: 7px 2px;
@@ -1072,6 +1321,26 @@
     font-size: 10.5px;
     color: var(--spcc-muted);
     font-weight: 500;
+}
+
+.spcc-pay-emp {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.spcc-pay-code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
 }
 
 .spcc-pay-empty {

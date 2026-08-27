@@ -634,10 +634,12 @@ export default function VehicleOilServiceDetailForm({
 
     const canRequest =
         assignmentPending && !saving && canEditAssignment && !initiateDone && isOilServiceDetailFormComplete(formData);
-    const missingFields = useMemo(
-        () => (canEditInitiateFields ? getOilServiceDetailFormMissingFields(formData) : []),
-        [formData, canEditInitiateFields],
-    );
+    const missingFields = useMemo(() => {
+        if (!canEditInitiateFields) return [];
+        return getOilServiceDetailFormMissingFields(formData).filter(
+            (label) => !/^vehicle driven by$/i.test(String(label).trim()),
+        );
+    }, [formData, canEditInitiateFields]);
     const submitHandlerRef = useRef(handleCreate);
     submitHandlerRef.current = handleCreate;
 
@@ -777,7 +779,7 @@ export default function VehicleOilServiceDetailForm({
                             disabled
                         />
                     </FormFieldCell>
-                    <FormFieldCell label="Vehicle Driven By" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
+                    <FormFieldCell label="Vehicle Driven By (optional)" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
                         <select
                             className={fieldSelect}
                             value={formData.carDrivenByEmployeeId || ''}

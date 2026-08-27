@@ -16,9 +16,10 @@ export function resolveClientApiBaseUrl() {
     try {
         const configured = new URL(CONFIGURED_API_URL);
         const pageHost = window.location.hostname;
-        const isLocalPage = pageHost === 'localhost' || pageHost === '127.0.0.1';
-        const configuredIsLocalhost =
-            configured.hostname === 'localhost' || configured.hostname === '127.0.0.1';
+        const isLoopbackHost = (host) =>
+            host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+        const isLocalPage = isLoopbackHost(pageHost);
+        const configuredIsLocalhost = isLoopbackHost(configured.hostname);
         if (!isLocalPage && configuredIsLocalhost) {
             return `${window.location.protocol}//${pageHost}:${configured.port || '5000'}/api`;
         }

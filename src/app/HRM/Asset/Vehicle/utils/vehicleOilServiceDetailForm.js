@@ -222,9 +222,6 @@ export function validateOilServiceDetailCreateForm(formData) {
     }
     // Next service KM is collected on Complete Service — not on Initiate.
     delete errors.nextChangeKm;
-    if (!String(formData.carDrivenByEmployeeId ?? '').trim()) {
-        errors.carDrivenByEmployeeId = 'Vehicle Driven By is required';
-    }
     if (isOilPayablePaymentMode(formData.amountMode)) {
         const amount = Number(formData.value);
         if (!Number.isFinite(amount) || amount <= 0) {
@@ -290,7 +287,6 @@ const OIL_SERVICE_FIELD_LABELS = {
     currentKm: 'Current KM',
     lastChangeKm: 'Last change KM',
     vehicleOwnerEmployeeId: 'Vehicle assigned',
-    carDrivenByEmployeeId: 'Vehicle Driven By',
     garageName: 'Garage name',
     garageLocation: 'Garage location',
     garageContact: 'Garage contact',
@@ -310,12 +306,18 @@ const OIL_SERVICE_FIELD_LABELS = {
 
 export function getOilServiceDetailFormMissingFields(formData) {
     const errors = validateOilServiceDetailCreateForm(formData);
-    const labels = Object.keys(errors).map((key) => OIL_SERVICE_FIELD_LABELS[key] || errors[key]);
+    delete errors.carDrivenByEmployeeId;
+    const labels = Object.keys(errors)
+        .filter((key) => key !== 'carDrivenByEmployeeId')
+        .map((key) => OIL_SERVICE_FIELD_LABELS[key] || errors[key])
+        .filter((label) => !/^vehicle driven by$/i.test(String(label).trim()));
     return [...new Set(labels)];
 }
 
 export function isOilServiceDetailFormComplete(formData) {
-    return Object.keys(validateOilServiceDetailCreateForm(formData)).length === 0;
+    const errors = validateOilServiceDetailCreateForm(formData);
+    delete errors.carDrivenByEmployeeId;
+    return Object.keys(errors).length === 0;
 }
 
 export { formatWarrantyExpiryFromAsset };

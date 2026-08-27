@@ -12,6 +12,7 @@ import {
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import useWorkLocations from '@/hooks/useWorkLocations';
+import NavButton from '@/components/NavButton';
 import { FALLBACK_WORK_LOCATIONS, normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
 import { toPayrollMonthDay } from '../utils/payrollMonthDay';
 import { policyFormFromApi } from '../utils/salaryPolicyForm';
@@ -170,7 +171,33 @@ function StatusPill({ tone, children }) {
     return <span className={`spcc-pill spcc-pill--${tone}`}>{children}</span>;
 }
 
-function MetricCard({ code, codeTone, title, value, sub, pill, pillTone, onClick, active }) {
+function ratioPercent(part, total) {
+    const value = Number(part) || 0;
+    const max = Number(total) || 0;
+    if (max <= 0) return 0;
+    return Math.min(100, Math.round((value / max) * 100));
+}
+
+function companyInitials(name) {
+    const parts = String(name || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+    if (!parts.length) return 'CO';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function MetricBar({ percent, tone = 'teal' }) {
+    const width = Math.min(100, Math.max(0, Number(percent) || 0));
+    return (
+        <span className={`spcc-metric-bar spcc-metric-bar--${tone}`} aria-hidden="true">
+            <span className="spcc-metric-bar__fill" style={{ width: `${width}%` }} />
+        </span>
+    );
+}
+
+function MetricCard({ code, codeTone, title, pill, pillTone, onClick, active, children }) {
     const Tag = onClick ? 'button' : 'article';
     return (
         <Tag
@@ -179,13 +206,30 @@ function MetricCard({ code, codeTone, title, value, sub, pill, pillTone, onClick
             onClick={onClick}
         >
             <div className="spcc-metric__top">
-                <span className={`spcc-metric__code spcc-metric__code--${codeTone}`}>{code}</span>
+                <span className="spcc-metric__ident">
+                    <span className={`spcc-metric__code spcc-metric__code--${codeTone}`}>{code}</span>
+                    <span className="spcc-metric__title">{title}</span>
+                </span>
                 <StatusPill tone={pillTone}>{pill}</StatusPill>
             </div>
-            <span className="spcc-metric__label">{title}</span>
-            <span className="spcc-metric__value">{value}</span>
-            <span className="spcc-metric__sub">{sub}</span>
+            <div className="spcc-metric__body">{children}</div>
         </Tag>
+    );
+}
+
+function RatioStat({ label, part, total, money, hint }) {
+    return (
+        <div className="spcc-metric-tile">
+            <div className="spcc-metric-stat__head">
+                <span className="spcc-metric-stat__label">{label}</span>
+                {hint ? <span className="spcc-metric-stat__hint">{hint}</span> : null}
+            </div>
+            <span className={`spcc-metric-stat__value${money ? ' is-money' : ''}`}>
+                {money ? formatMoney(part) : part}
+                <span className="spcc-metric-den"> / {money ? formatMoney(total) : total}</span>
+            </span>
+            <MetricBar percent={ratioPercent(part, total)} />
+        </div>
     );
 }
 
@@ -718,6 +762,11 @@ export default function SalaryMonthControlCentre({ monthKey }) {
             return {
                 totalEmployees: 0,
                 enrolledCount: 0,
+                enrolledSalary: 0,
+                totalSalary: 0,
+                wpsEnrolled: 0,
+                cashEnrolled: 0,
+                companyCards: [],
                 locationCards: [],
                 employees: [],
                 pendingRequests: [],
@@ -768,10 +817,30 @@ export default function SalaryMonthControlCentre({ monthKey }) {
         const enrolledCount = Number(overview.enrolled) || Number(register?.enrolledCount) || 0;
         const employees = Array.isArray(overview.employees) ? overview.employees : [];
         const pendingRequests = Array.isArray(overview.pendingRequests) ? overview.pendingRequests : [];
+        const enrolledEmployees = employees.filter((emp) => emp.enrolled);
+        const enrolledSalary = Number(overview.enrolledSalary);
+        const totalSalary = Number(overview.totalSalary);
+        const wpsEnrolled = Number.isFinite(Number(overview.wpsEnrolled))
+            ? Number(overview.wpsEnrolled)
+            : enrolledEmployees.filter((emp) => emp.isWps).length;
+        const cashEnrolled = Number.isFinite(Number(overview.cashEnrolled))
+            ? Number(overview.cashEnrolled)
+            : enrolledEmployees.filter((emp) => emp.enrolled && !emp.isWps).length;
 
         return {
             totalEmployees,
             enrolledCount,
+            enrolledSalary: Number.isFinite(enrolledSalary)
+                ? enrolledSalary
+                : enrolledEmployees.reduce((sum, emp) => sum + (Number(emp.monthlySalary) || 0), 0),
+            totalSalary: Number.isFinite(totalSalary)
+                ? totalSalary
+                : employees.reduce((sum, emp) => sum + (Number(emp.monthlySalary) || 0), 0),
+            wpsEnrolled,
+            cashEnrolled,
+            companyCards: (Array.isArray(overview.companies) ? overview.companies : []).filter(
+                (row) => Number(row.totalActive) > 0 || Number(row.enrolled) > 0,
+            ),
             locationCards,
             employees,
             pendingRequests,
@@ -952,14 +1021,23 @@ export default function SalaryMonthControlCentre({ monthKey }) {
     );
 
     const payrollRows = useMemo(() => {
-        return monthEmployees.filter((emp) => {
-            if (tab === ALL_TAB_KEY) return true;
-            if (tabMode === TAB_MODE_COMPANY) {
-                return sameCompany(companyKeyOf(emp), fromCompanyTabKey(tab));
-            }
-            return normalizeWorkLocationKey(emp.staffType) === tab;
-        });
-    }, [monthEmployees, tab, tabMode]);
+        const overviewById = new Map(
+            (derived.employees || []).map((emp) => [String(emp.employeeId || '').trim(), emp]),
+        );
+        return monthEmployees
+            .filter((emp) => {
+                if (tab === ALL_TAB_KEY) return true;
+                if (tabMode === TAB_MODE_COMPANY) {
+                    return sameCompany(companyKeyOf(emp), fromCompanyTabKey(tab));
+                }
+                return normalizeWorkLocationKey(emp.staffType) === tab;
+            })
+            .map((emp) => {
+                const overview = overviewById.get(String(emp.employeeId || '').trim());
+                if (!overview?.paymentType) return emp;
+                return { ...emp, paymentType: overview.paymentType };
+            });
+    }, [monthEmployees, tab, tabMode, derived.employees]);
 
     const paymentEmployees = useMemo(() => {
         const byId = new Map();
@@ -1195,13 +1273,9 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                 <>
                     <section className="spcc-metrics">
                         <MetricCard
-                            code="EM"
+                            code="TO"
                             codeTone="blue"
-                            title="Total employees"
-                            value={derived.totalEmployees}
-                            sub={`${derived.enrolledCount} enrolled · ${derived.locationCards.length} work location${
-                                derived.locationCards.length === 1 ? '' : 's'
-                            }`}
+                            title="Headcount & salary"
                             pill="Active"
                             pillTone="ok"
                             onClick={() => {
@@ -1209,24 +1283,120 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 setTab(ALL_TAB_KEY);
                             }}
                             active={tabMode === TAB_MODE_GROUP && tab === ALL_TAB_KEY}
-                        />
-                        {derived.locationCards.map((loc) => (
-                            <MetricCard
-                                key={loc.key}
-                                code={loc.code}
-                                codeTone={loc.codeTone}
-                                title={`${loc.label} employees`}
-                                value={loc.totalActive}
-                                sub={`${loc.enrolled} enrolled · salary ${formatShortDayMonth(loc.salaryDate)}`}
-                                pill="Active"
-                                pillTone="ok"
-                                onClick={() => {
-                                    setTabMode(TAB_MODE_GROUP);
-                                    setTab(loc.key);
-                                }}
-                                active={tabMode === TAB_MODE_GROUP && tab === loc.key}
+                        >
+                            <RatioStat
+                                label="Employees"
+                                part={derived.enrolledCount}
+                                total={derived.totalEmployees}
+                                hint="enrolled / active"
                             />
-                        ))}
+                            <RatioStat
+                                label="Salary"
+                                part={derived.enrolledSalary}
+                                total={derived.totalSalary}
+                                money
+                                hint="enrolled / all"
+                            />
+                        </MetricCard>
+                        <MetricCard
+                            code="CO"
+                            codeTone="teal"
+                            title="Companies"
+                            pill="Active"
+                            pillTone="ok"
+                        >
+                            {derived.companyCards.length ? (
+                                <div className="spcc-metric-list">
+                                    {derived.companyCards.map((company) => {
+                                        const name = company.name || 'Company';
+                                        const enrolled = Number(company.enrolled) || 0;
+                                        const total = Number(company.totalActive) || 0;
+                                        const companyTab = toCompanyTabKey(name);
+                                        const active =
+                                            tabMode === TAB_MODE_COMPANY && sameCompany(fromCompanyTabKey(tab), name);
+                                        return (
+                                            <button
+                                                key={company.companyId || name}
+                                                type="button"
+                                                className={`spcc-metric-co${active ? ' is-on' : ''}`}
+                                                onClick={() => {
+                                                    setTabMode(TAB_MODE_COMPANY);
+                                                    setTab(companyTab);
+                                                }}
+                                            >
+                                                <span className="spcc-metric-co__avatar">{companyInitials(name)}</span>
+                                                <span className="spcc-metric-co__main">
+                                                    <span className="spcc-metric-co__top">
+                                                        <span className="spcc-metric-co__name">{name}</span>
+                                                        <span className="spcc-metric-co__ratio">
+                                                            {enrolled}
+                                                            <span className="spcc-metric-den"> / {total}</span>
+                                                        </span>
+                                                    </span>
+                                                    <MetricBar percent={ratioPercent(enrolled, total)} />
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <span className="spcc-metric__sub">No companies added yet.</span>
+                            )}
+                        </MetricCard>
+                        <MetricCard
+                            code="WP"
+                            codeTone="violet"
+                            title="Payment type"
+                            pill="Enrolled"
+                            pillTone="ok"
+                            onClick={() => {
+                                setTabMode(TAB_MODE_GROUP);
+                                setTab(ALL_TAB_KEY);
+                            }}
+                        >
+                            <div className="spcc-metric-split">
+                                <div className="spcc-metric-tile spcc-metric-split__tile">
+                                    <span className="spcc-metric-stat__label">WPS</span>
+                                    <span className="spcc-metric-split__count">{derived.wpsEnrolled}</span>
+                                </div>
+                                <div className="spcc-metric-tile spcc-metric-split__tile">
+                                    <span className="spcc-metric-stat__label">Cash</span>
+                                    <span className="spcc-metric-split__count">{derived.cashEnrolled}</span>
+                                </div>
+                            </div>
+                            <span
+                                className="spcc-metric-bar spcc-metric-bar--mix"
+                                aria-hidden="true"
+                            >
+                                <span
+                                    className="spcc-metric-bar__fill spcc-metric-bar__fill--wps"
+                                    style={{
+                                        width: `${ratioPercent(
+                                            derived.wpsEnrolled,
+                                            derived.wpsEnrolled + derived.cashEnrolled,
+                                        )}%`,
+                                    }}
+                                />
+                            </span>
+                            <span className="spcc-metric__caption">MOL code on enroll details = WPS</span>
+                        </MetricCard>
+                        <MetricCard
+                            code="SL"
+                            codeTone="amber"
+                            title="Salary slots"
+                            pill="Soon"
+                            pillTone="warn"
+                        >
+                            <div className="spcc-metric-slots">
+                                <span className="spcc-metric-slot">Slot 1</span>
+                                <span className="spcc-metric-slot">Slot 2</span>
+                                <span className="spcc-metric-slot">Slot 3</span>
+                            </div>
+                            <p className="spcc-metric__soon">Coming soon</p>
+                            <span className="spcc-metric__caption">
+                                Split a month into more than one settlement.
+                            </span>
+                        </MetricCard>
                     </section>
 
                     <div className="spcc-tabs-row">
@@ -1287,35 +1457,53 @@ export default function SalaryMonthControlCentre({ monthKey }) {
                                 <div className="spcc-pay-wrap">
                                     <div className="spcc-pay-table" role="table" aria-label="Salary employees">
                                         <div className="spcc-pay-row spcc-pay-row--head" role="row">
-                                            <span>Employee</span>
-                                            <span>Company</span>
-                                            <span>Total</span>
-                                            <span>Actual</span>
+                                            <span>Sl no</span>
+                                            <span>Employee name</span>
+                                            <span>ID</span>
+                                            <span>Monthly salary</span>
+                                            <span>Basic salary</span>
                                             <span>Deduction</span>
-                                            <span>Type</span>
+                                            <span>Net salary</span>
                                             <span>Status</span>
+                                            <span>Open</span>
                                         </div>
                                         {payrollRows.length ? (
-                                            payrollRows.map((emp) => {
+                                            payrollRows.map((emp, index) => {
                                                 const id = String(emp.employeeId || '');
                                                 const processed = processedPaymentIds.has(id);
                                                 const status = processed ? 'Processed' : String(emp.status || 'Ready');
                                                 const pending = !processed && status.toLowerCase() === 'pending';
+                                                const netSalary = emp.actualSalary ?? emp.monthlySalary;
                                                 return (
-                                                    <div key={emp.employeeId || emp.slNo} className="spcc-pay-row" role="row">
-                                                        <span className="spcc-pay-name">
-                                                            <span>{emp.name || emp.employeeId}</span>
-                                                            <span className="spcc-pay-id">{emp.employeeId}</span>
-                                                        </span>
-                                                        <span>{emp.companyName || '—'}</span>
+                                                    <div key={emp.employeeId || emp.slNo || index} className="spcc-pay-row" role="row">
+                                                        <span className="tabular-nums">{emp.slNo || index + 1}</span>
+                                                        <span className="spcc-pay-emp">{emp.name || id || '—'}</span>
+                                                        <span className="spcc-pay-code">{id || '—'}</span>
                                                         <span className="tabular-nums">{formatMoney(emp.monthlySalary)}</span>
-                                                        <span className="tabular-nums">{formatMoney(emp.actualSalary)}</span>
+                                                        <span className="tabular-nums">{formatMoney(emp.basicSalary)}</span>
                                                         <span className="tabular-nums">{formatMoney(emp.deduction)}</span>
-                                                        <span>{emp.paymentType || '—'}</span>
+                                                        <span className="tabular-nums">{formatMoney(netSalary)}</span>
                                                         <span>
                                                             <StatusPill tone={pending ? 'warn' : 'ok'}>
                                                                 {status}
                                                             </StatusPill>
+                                                        </span>
+                                                        <span>
+                                                            {id ? (
+                                                                <NavButton
+                                                                    href={`/HRM/Salary/enroll/${encodeURIComponent(id)}`}
+                                                                    listReturnHref={
+                                                                        parsed?.monthKey
+                                                                            ? `/HRM/Salary/${parsed.monthKey}`
+                                                                            : '/HRM/Salary'
+                                                                    }
+                                                                    className="spcc-row-link"
+                                                                >
+                                                                    Open
+                                                                </NavButton>
+                                                            ) : (
+                                                                '—'
+                                                            )}
                                                         </span>
                                                     </div>
                                                 );
