@@ -1,4 +1,4 @@
-import { toPayrollMonthDay } from './payrollMonthDay';
+import { toCalendarMonthDay, toPayrollMonthDay } from './payrollMonthDay';
 
 export const ATTENDANCE_COMPLETION_CHECKS = [
     { key: 'pendingAttendanceApproval', label: 'Pending attendance approval' },
@@ -10,30 +10,55 @@ export const ATTENDANCE_COMPLETION_CHECKS = [
         key: 'pendingLateEarlyCompoffAdjustment',
         label: 'Pending late / early attendance approval, compoff leave adjustment',
     },
+    { key: 'allUnauthorizedLeave', label: 'Unauthorized attendance for annual leave' },
+    { key: 'pendingLeaveApproval', label: 'Pending leave approval' },
 ];
 
 export const HR_RULE_CHECKS = [
-    { key: 'advance', label: 'Salary Advance' },
-    { key: 'fine', label: 'Fine' },
-    { key: 'utilityBill', label: 'Utility Bill' },
-    { key: 'salikExcess', label: 'Salik Excess' },
-    { key: 'loan', label: 'Loan' },
-    { key: 'reward', label: 'Reward' },
-    { key: 'sandwichLeave', label: 'Sandwich Leave' },
+    { key: 'advance', label: 'Pending Salary Advance' },
+    { key: 'fine', label: 'Pending Fine' },
+    { key: 'utilityBill', label: 'Pending Utility Bill' },
+    { key: 'salikExcess', label: 'Pending Salik Excess' },
+    { key: 'loan', label: 'Pending Loan' },
+    { key: 'reward', label: 'Pending Reward' },
+    { key: 'sandwichLeave', label: 'Sandwich leave applicable on salary' },
 ];
 
 export const REMINDER_DAY_OPTIONS = ['5', '10', '20', '30'];
 export const REMINDER_FOR_WHOM_OPTIONS = [
-    { value: 'accounts', label: 'Accounts' },
-    { value: 'pendingEmployee', label: 'Pending employee' },
-    { value: 'primaryReportee', label: 'Primary reportee' },
-    { value: 'hr', label: 'HR' },
+    { value: 'wfAccounts', label: 'WF Accounts' },
+    { value: 'wfHr', label: 'WF HR' },
+    { value: 'wfAdmin', label: 'WF Admin' },
+    { value: 'wfManagement', label: 'WF Management' },
+    { value: 'pendingTaskUser', label: 'Pending task user' },
 ];
+
+const REMINDER_AUDIENCE_KEYS = new Set(REMINDER_FOR_WHOM_OPTIONS.map((row) => row.value));
+const LEGACY_REMINDER_AUDIENCE = {
+    accounts: 'wfAccounts',
+    hr: 'wfHr',
+    pendingEmployee: 'pendingTaskUser',
+    primaryReportee: 'pendingTaskUser',
+};
+
+export function normalizeReminderAudiences(value) {
+    const items = Array.isArray(value) ? value : value ? [value] : [];
+    return [
+        ...new Set(
+            items
+                .map((item) => {
+                    const raw = String(item || '').trim();
+                    if (REMINDER_AUDIENCE_KEYS.has(raw)) return raw;
+                    return LEGACY_REMINDER_AUDIENCE[raw] || '';
+                })
+                .filter(Boolean),
+        ),
+    ];
+}
 export const REMINDER_LABELS = ['Salary process 1st reminder', '2nd reminder', '3rd reminder'];
 
 const RULE_KEYS = [
     'allAttendanceMarked',
-    'allUnauthorizedLeave',
     ...ATTENDANCE_COMPLETION_CHECKS.map((row) => row.key),
     ...HR_RULE_CHECKS.map((row) => row.key),
     'gratuityCalculationRequired',
@@ -62,16 +87,21 @@ export const EMPTY_POLICY_FORM = {
     unauthorizedLeaveDeductionDays: '',
     lateInRules: [{ minutes: '', events: '', deduct: '' }],
     lateOutRules: [{ minutes: '', events: '', deduct: '' }],
+    extraLateRules: [],
     salaryProcessReminders: [
-        { daysBefore: '', forWhom: '' },
-        { daysBefore: '', forWhom: '' },
-        { daysBefore: '', forWhom: '' },
+        { daysBefore: '', forWhom: [] },
+        { daysBefore: '', forWhom: [] },
+        { daysBefore: '', forWhom: [] },
     ],
     attachment: { ...EMPTY_POLICY_ATTACHMENT },
 };
 
 export function emptyLateRule() {
     return { minutes: '', events: '', deduct: '' };
+}
+
+export function emptyExtraLateRule() {
+    return { title: '', minutes: '', events: '', deduct: '' };
 }
 
 export function toLateRuleRows(value) {
@@ -83,11 +113,25 @@ export function toLateRuleRows(value) {
     }));
 }
 
+export function toSingleLateRuleRow(value) {
+    return [toLateRuleRows(value)[0]];
+}
+
+export function toExtraLateRuleRows(value) {
+    if (!Array.isArray(value) || value.length === 0) return [];
+    return value.map((row) => ({
+        title: row?.title || '',
+        minutes: row?.minutes ?? '',
+        events: row?.events ?? '',
+        deduct: row?.deduct || '',
+    }));
+}
+
 export function toReminderRows(value) {
     const rows = Array.isArray(value) ? value : [];
     return [0, 1, 2].map((index) => ({
         daysBefore: rows[index]?.daysBefore ?? '',
-        forWhom: rows[index]?.forWhom || '',
+        forWhom: normalizeReminderAudiences(rows[index]?.forWhom),
     }));
 }
 
@@ -111,15 +155,16 @@ export function policyFormFromApi(data) {
     return {
         salaryProcessingDate: toPayrollMonthDay(data?.salaryProcessingDate),
         salaryProcessStartMonth: data?.salaryProcessStartMonth || '',
-        salaryCutoffDate: toPayrollMonthDay(data?.salaryCutoffDate),
+        salaryCutoffDate: toCalendarMonthDay(data?.salaryCutoffDate),
         processingRules: { ...EMPTY_RULES, ...(data?.processingRules || {}) },
         workingDaysRequiredToEligible: data?.workingDaysRequiredToEligible ?? '',
         leaveSalaryWorkingDays: data?.leaveSalaryWorkingDays ?? '',
         workingDaysRequiredForAirTicket: data?.workingDaysRequiredForAirTicket ?? '',
         authorizedLeaveDeductionDays: data?.authorizedLeaveDeductionDays ?? '',
         unauthorizedLeaveDeductionDays: data?.unauthorizedLeaveDeductionDays ?? '',
-        lateInRules: toLateRuleRows(data?.lateInRules),
-        lateOutRules: toLateRuleRows(data?.lateOutRules),
+        lateInRules: toSingleLateRuleRow(data?.lateInRules),
+        lateOutRules: toSingleLateRuleRow(data?.lateOutRules),
+        extraLateRules: toExtraLateRuleRows(data?.extraLateRules),
         salaryProcessReminders: toReminderRows(data?.salaryProcessReminders),
         attachment: toPolicyAttachment(data?.attachment),
     };

@@ -13,6 +13,7 @@ export const ASSET_PENDING_INBOX_ENDPOINT = '/AssetItem/dashboard/pending-inbox'
 export const REWARD_PENDING_INBOX_ENDPOINT = '/Reward/dashboard/pending-inbox';
 export const LOAN_PENDING_INBOX_ENDPOINT = '/Employee/loans/dashboard/pending-inbox';
 export const ATTENDANCE_PENDING_INBOX_ENDPOINT = '/Attendance/dashboard/pending-inbox';
+export const LEAVE_PENDING_INBOX_ENDPOINT = '/Leave/dashboard/pending-inbox';
 export const SALARY_PENDING_INBOX_ENDPOINT = '/Employee/salary-enroll/pending-inbox';
 
 function buildCacheKey(endpoint, params = {}) {
@@ -124,6 +125,12 @@ export function fetchAttendancePendingInbox(axiosInstance, options = {}) {
     const { targetUserId, ...rest } = options;
     const params = targetUserId ? { targetUserId } : undefined;
     return fetchPendingInbox(axiosInstance, ATTENDANCE_PENDING_INBOX_ENDPOINT, { ...rest, params });
+}
+
+export function fetchLeavePendingInbox(axiosInstance, options = {}) {
+    const { targetUserId, ...rest } = options;
+    const params = targetUserId ? { targetUserId } : undefined;
+    return fetchPendingInbox(axiosInstance, LEAVE_PENDING_INBOX_ENDPOINT, { ...rest, params });
 }
 
 export function fetchSalaryPendingInbox(axiosInstance, options = {}) {

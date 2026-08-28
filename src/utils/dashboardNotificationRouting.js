@@ -23,6 +23,10 @@ import { buildFineNotificationPath } from '@/utils/fineNotificationRouting';
 import { buildRewardNotificationPath } from '@/utils/rewardNotificationRouting';
 import { buildLoanNotificationPath } from '@/utils/loanNotificationRouting';
 import { buildEmployeeHubDashboardPath, isEmployeeHubRequestItem } from '@/utils/employeeHubRequest';
+import {
+    buildLeaveDashboardNotificationPath,
+    isLeaveDashboardNotification,
+} from '@/app/HRM/Leave/utils/leaveNotificationRouting';
 
 /** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
 export function myRequestNotificationSecondaryText(item) {
@@ -323,6 +327,9 @@ const buildCompanyNotRenewPath = (item, meta) => {
  */
 export const buildDashboardNotificationPath = (item) => {
     if (!item || typeof item !== 'object') return '';
+    if (isLeaveDashboardNotification(item)) {
+        return buildLeaveDashboardNotificationPath(item);
+    }
     if (isEmployeeHubRequestItem(item)) {
         return buildEmployeeHubDashboardPath(item);
     }

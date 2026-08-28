@@ -8,11 +8,19 @@ export const LEAVE_STATUS_META = {
 };
 
 export const SELECTED_DRAFT_META = {
-    label: 'Selected Leave',
-    short: 'New',
+    label: 'Pending Leave',
+    short: 'Pend',
     color: '#9CA3AF',
     bg: '#ECEFF3',
     text: '#6B7280',
+};
+
+export const FOCUSED_LEAVE_META = {
+    label: 'Selected Leave',
+    short: 'Sel',
+    color: '#1D4ED8',
+    bg: '#3B82F6',
+    text: '#FFFFFF',
 };
 
 export const LEAVE_LEGEND = [
@@ -22,10 +30,17 @@ export const LEAVE_LEGEND = [
     LEAVE_STATUS_META.compoff_leave,
     LEAVE_STATUS_META.on_leave,
     SELECTED_DRAFT_META,
+    FOCUSED_LEAVE_META,
 ];
 
-export function leaveMetaForStatus(statusKey, isDraft = false) {
-    if (isDraft || statusKey === 'draft_selection') return SELECTED_DRAFT_META;
+export function leaveMetaForStatus(
+    statusKey,
+    isDraft = false,
+    isPending = false,
+    isFocused = false,
+) {
+    if (isFocused) return FOCUSED_LEAVE_META;
+    if (isDraft || isPending || statusKey === 'draft_selection') return SELECTED_DRAFT_META;
     return LEAVE_STATUS_META[statusKey] || {
         label: statusKey || 'Leave',
         short: 'LV',
@@ -63,9 +78,40 @@ export function isValidDateKey(value) {
 }
 
 export function nextDateKey(dateKey) {
+    return addDaysToDateKey(dateKey, 1);
+}
+
+export function addDaysToDateKey(dateKey, deltaDays) {
+    if (!isValidDateKey(dateKey)) return '';
     const [year, month, day] = String(dateKey).split('-').map(Number);
-    const next = new Date(year, month - 1, day + 1);
-    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+    return formatDateKey(new Date(year, month - 1, day + Number(deltaDays || 0)));
+}
+
+export function daysBetweenKeys(from, to) {
+    if (!isValidDateKey(from) || !isValidDateKey(to)) return 0;
+    const start = parseDateKey(from);
+    const end = parseDateKey(to);
+    return Math.round((end.getTime() - start.getTime()) / 86400000);
+}
+
+function parseDateKey(dateKey) {
+    const [year, month, day] = String(dateKey).split('-').map(Number);
+    return new Date(year, month - 1, day);
+}
+
+export function leaveTypeFromStatusKey(statusKey) {
+    switch (String(statusKey || '')) {
+        case 'authorized_leave':
+            return 'authorized';
+        case 'unauthorized_leave':
+            return 'unauthorized';
+        case 'sick_leave':
+            return 'sick';
+        case 'compoff_leave':
+            return 'compoff';
+        default:
+            return 'annual';
+    }
 }
 
 export function compareDateKeys(a, b) {
@@ -84,22 +130,68 @@ export function buildLeaveSpans(entries) {
         const dateKey = String(entry.date || '').trim();
         if (!isValidDateKey(dateKey)) continue;
 
-        const groupKey = `${entry.employeeMongoId || entry.employeeId}::${entry.statusKey}`;
+        const pendingGroup = String(
+            entry.leaveRequestGroupId || entry.attendanceId || entry.id || '',
+        ).trim();
+        const groupKey = `${entry.employeeMongoId || entry.employeeId}::${entry.statusKey}::${
+            entry.isPending ? `pending:${pendingGroup}` : 'approved'
+        }`;
         if (!grouped.has(groupKey)) {
             grouped.set(groupKey, {
                 employeeMongoId: entry.employeeMongoId,
                 employeeId: entry.employeeId,
                 employeeName: entry.employeeName,
                 statusKey: entry.statusKey,
+                isPending: Boolean(entry.isPending),
+                attendanceId: String(entry.attendanceId || (entry.isPending ? entry.id : '') || ''),
+                attendanceIds: [],
+                leaveRequestGroupId: String(entry.leaveRequestGroupId || ''),
+                rangeStart: isValidDateKey(entry.rangeStart) ? entry.rangeStart : dateKey,
+                rangeEnd: isValidDateKey(entry.rangeEnd) ? entry.rangeEnd : dateKey,
                 dates: new Set(),
             });
         }
-        grouped.get(groupKey).dates.add(dateKey);
+        const group = grouped.get(groupKey);
+        group.dates.add(dateKey);
+        const entryAttendanceId = String(entry.attendanceId || entry.id || '');
+        if (entryAttendanceId && !group.attendanceIds.includes(entryAttendanceId)) {
+            group.attendanceIds.push(entryAttendanceId);
+        }
+        if (!group.attendanceId && entryAttendanceId) {
+            group.attendanceId = entryAttendanceId;
+        }
+        if (isValidDateKey(entry.rangeStart) && entry.rangeStart < group.rangeStart) {
+            group.rangeStart = entry.rangeStart;
+        }
+        if (isValidDateKey(entry.rangeEnd) && entry.rangeEnd > group.rangeEnd) {
+            group.rangeEnd = entry.rangeEnd;
+        }
     }
 
     const spans = [];
 
     for (const group of grouped.values()) {
+        if (
+            group.isPending &&
+            isValidDateKey(group.rangeStart) &&
+            isValidDateKey(group.rangeEnd)
+        ) {
+            spans.push({
+                id: `${group.employeeMongoId}-${group.statusKey}-p-${group.attendanceId || group.rangeStart}`,
+                employeeMongoId: group.employeeMongoId,
+                employeeId: group.employeeId,
+                employeeName: group.employeeName,
+                statusKey: group.statusKey,
+                isPending: true,
+                attendanceId: group.attendanceId || '',
+                attendanceIds: [...(group.attendanceIds || [])],
+                leaveRequestGroupId: group.leaveRequestGroupId || '',
+                start: group.rangeStart,
+                end: group.rangeEnd,
+            });
+            continue;
+        }
+
         const sortedDates = Array.from(group.dates).sort(compareDateKeys);
         if (!sortedDates.length) continue;
 
@@ -110,11 +202,15 @@ export function buildLeaveSpans(entries) {
             const current = sortedDates[index];
             if (current !== nextDateKey(previous)) {
                 spans.push({
-                    id: `${group.employeeMongoId}-${group.statusKey}-${rangeStart}`,
+                    id: `${group.employeeMongoId}-${group.statusKey}-${group.isPending ? 'p' : 'a'}-${rangeStart}`,
                     employeeMongoId: group.employeeMongoId,
                     employeeId: group.employeeId,
                     employeeName: group.employeeName,
                     statusKey: group.statusKey,
+                    isPending: Boolean(group.isPending),
+                    attendanceId: group.attendanceId || '',
+                    attendanceIds: [...(group.attendanceIds || [])],
+                    leaveRequestGroupId: group.leaveRequestGroupId || '',
                     start: rangeStart,
                     end: previous,
                 });
@@ -124,11 +220,15 @@ export function buildLeaveSpans(entries) {
         }
 
         spans.push({
-            id: `${group.employeeMongoId}-${group.statusKey}-${rangeStart}`,
+            id: `${group.employeeMongoId}-${group.statusKey}-${group.isPending ? 'p' : 'a'}-${rangeStart}`,
             employeeMongoId: group.employeeMongoId,
             employeeId: group.employeeId,
             employeeName: group.employeeName,
             statusKey: group.statusKey,
+            isPending: Boolean(group.isPending),
+            attendanceId: group.attendanceId || '',
+            attendanceIds: [...(group.attendanceIds || [])],
+            leaveRequestGroupId: group.leaveRequestGroupId || '',
             start: rangeStart,
             end: previous,
         });
@@ -206,7 +306,12 @@ export function buildWeekBarLayout(weekDays, spans, maxVisibleLanes = 3) {
         });
     }
 
-    rawSegments.sort((a, b) => a.startIdx - b.startIdx || a.endIdx - b.endIdx);
+    rawSegments.sort(
+        (a, b) =>
+            a.startIdx - b.startIdx ||
+            Number(Boolean(b.isFocused)) - Number(Boolean(a.isFocused)) ||
+            a.endIdx - b.endIdx,
+    );
 
     const laneEnds = [];
     const placed = [];

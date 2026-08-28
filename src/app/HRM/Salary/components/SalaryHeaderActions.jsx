@@ -15,6 +15,9 @@ export default function SalaryHeaderActions({ enrollLabel = 'Salary Enrollment' 
             <NavButton href="/HRM/Salary/enroll" className={ENROLL_CLASS}>
                 {enrollLabel}
             </NavButton>
+            <NavButton href="/HRM/Salary/payment" className={ENROLL_CLASS}>
+                Salary Payment
+            </NavButton>
             <NavButton href="/HRM/Salary/salary-policy" className={POLICY_CLASS}>
                 <Wallet size={18} />
                 Salary Policy

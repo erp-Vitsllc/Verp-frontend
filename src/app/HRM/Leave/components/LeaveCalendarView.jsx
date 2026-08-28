@@ -16,18 +16,22 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
+import { filterLeaveEntriesBySalary, isAllLeaveYear, processingStartForEmployee, useLeaveSalaryVisibility } from '../utils/leaveSalaryVisibility';
 import {
+    addDaysToDateKey,
     buildLeaveSpans,
     buildSelectedDraftSpan,
     buildWeekBarLayout,
     chunkWeeks,
     countDaySegments,
     countLeavesByDate,
+    daysBetweenKeys,
     firstNameFromDisplay,
     formatDateKey,
     isValidDateKey,
     LEAVE_LEGEND,
     leaveMetaForStatus,
+    leaveTypeFromStatusKey,
     nextDateKey,
 } from '../utils/leaveCalendarUtils';
 
@@ -39,6 +43,33 @@ const DATE_ROW_HEIGHT = 28;
 const DATE_BAR_GAP = 6;
 const BAR_TOP = CELL_PADDING_Y + DATE_ROW_HEIGHT + DATE_BAR_GAP;
 const CELL_MIN_HEIGHT = 168;
+
+function clampRangeToMin(fromKey, toKey, minDate) {
+    if (!minDate || !isValidDateKey(minDate) || !isValidDateKey(fromKey) || !isValidDateKey(toKey)) {
+        return { from: fromKey, to: toKey };
+    }
+    if (fromKey >= minDate) return { from: fromKey, to: toKey };
+    const length = daysBetweenKeys(fromKey, toKey);
+    return { from: minDate, to: addDaysToDateKey(minDate, length) };
+}
+
+function rangeFromPendingDrag(drag, hoverKey) {
+    if (!drag || !isValidDateKey(hoverKey)) {
+        return { from: drag?.from || '', to: drag?.to || '' };
+    }
+    if (drag.edge === 'start') {
+        const nextFrom = hoverKey > drag.originTo ? drag.originTo : hoverKey;
+        return clampRangeToMin(nextFrom, drag.originTo, drag.minDate);
+    }
+    if (drag.edge === 'end') {
+        const nextTo = hoverKey < drag.originFrom ? drag.originFrom : hoverKey;
+        return clampRangeToMin(drag.originFrom, nextTo, drag.minDate);
+    }
+    const length = daysBetweenKeys(drag.originFrom, drag.originTo);
+    const nextFrom = addDaysToDateKey(hoverKey, -Number(drag.grabOffset || 0));
+    const nextTo = addDaysToDateKey(nextFrom, length);
+    return clampRangeToMin(nextFrom, nextTo, drag.minDate);
+}
 
 function buildCalendarDays(monthDate) {
     const monthStart = startOfMonth(monthDate);
@@ -71,18 +102,66 @@ function DayLabel({ day, isSelected, inMonth }) {
     );
 }
 
+function spanMatchesFocus(segment, { from, to, approvalId, employeeId } = {}) {
+    if (!segment || segment.isDraft || segment.statusKey === 'draft_selection') return false;
+    const approval = String(approvalId || '').trim();
+    if (approval) {
+        if (String(segment.attendanceId || '') === approval) return true;
+        if (Array.isArray(segment.attendanceIds) && segment.attendanceIds.some((id) => String(id) === approval)) {
+            return true;
+        }
+        if (String(segment.leaveRequestGroupId || '') === approval) return true;
+    }
+    if (!approval && !employeeId) return false;
+    if (!isValidDateKey(from) || !isValidDateKey(to)) return false;
+    const start = segment.start;
+    const end = segment.end || segment.start;
+    if (start !== from || end !== to) return false;
+    if (employeeId && String(segment.employeeMongoId || '') !== String(employeeId)) return false;
+    return true;
+}
+
 function LeaveEventBar({
     segment,
     isDraft = false,
+    isFocused = false,
     onResizeStart,
+    onPendingDragStart,
+    onSelect,
+    onDoubleSelect,
 }) {
-    const meta = leaveMetaForStatus(segment.statusKey, isDraft);
+    const isPending = Boolean(segment.isPending) && !isDraft;
+    const meta = leaveMetaForStatus(segment.statusKey, isDraft, isPending, isFocused);
     const name = firstNameFromDisplay(segment.employeeName);
     const showLabel = segment.spanStartsHere;
-    const canResizeStart = Boolean(isDraft && segment.spanStartsHere && onResizeStart);
-    const canResizeEnd = Boolean(isDraft && segment.spanEndsHere && onResizeStart);
+    const canDragPending = Boolean(isPending && onPendingDragStart);
+    const canResizeStart = Boolean(
+        (isDraft && segment.spanStartsHere && onResizeStart) ||
+            (canDragPending && segment.spanStartsHere),
+    );
+    const canResizeEnd = Boolean(
+        (isDraft && segment.spanEndsHere && onResizeStart) ||
+            (canDragPending && segment.spanEndsHere),
+    );
 
     const handleBarPointerDown = (event) => {
+        if (event.button != null && event.button !== 0) return;
+
+        if (canDragPending) {
+            event.preventDefault();
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            const ratio = (event.clientX - rect.left) / Math.max(rect.width, 1);
+            const edge =
+                ratio <= 0.22 && segment.spanStartsHere
+                    ? 'start'
+                    : ratio >= 0.78 && segment.spanEndsHere
+                      ? 'end'
+                      : 'move';
+            onPendingDragStart(edge, event, segment);
+            return;
+        }
+
         if (!isDraft || !onResizeStart) return;
         const rect = event.currentTarget.getBoundingClientRect();
         const offsetX = event.clientX - rect.left;
@@ -96,11 +175,16 @@ function LeaveEventBar({
     return (
         <div
             className={`group relative flex h-[22px] w-full items-center justify-between overflow-visible px-1.5 text-[11px] font-medium leading-none ${
-                isDraft ? 'cursor-ew-resize touch-none' : ''
+                isDraft || canDragPending
+                    ? 'cursor-grab touch-none active:cursor-grabbing'
+                    : onSelect || onDoubleSelect
+                      ? 'cursor-pointer'
+                      : ''
             }`}
             style={{
                 backgroundColor: meta.bg,
                 color: meta.text || meta.color,
+                boxShadow: isFocused ? '0 0 0 2px #1D4ED8' : undefined,
                 borderRadius: segment.spanStartsHere && segment.spanEndsHere
                     ? '4px'
                     : segment.spanStartsHere
@@ -112,9 +196,23 @@ function LeaveEventBar({
             title={
                 isDraft
                     ? 'Drag the left or right edge to change start and end dates'
-                    : `${segment.employeeName || name} / ${meta.label}`
+                    : canDragPending
+                      ? `${segment.employeeName || name} / ${meta.label}${isFocused ? ' (Selected)' : ' (Pending)'} — drag to move, edges to resize`
+                      : `${segment.employeeName || name} / ${meta.label}${isFocused ? ' (Selected)' : ''} — click to highlight, double-click for leave overview`
             }
-            onPointerDown={isDraft ? handleBarPointerDown : undefined}
+            onPointerDown={isDraft || canDragPending ? handleBarPointerDown : undefined}
+            onClick={(event) => {
+                if (isDraft || canDragPending || !onSelect) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onSelect(segment);
+            }}
+            onDoubleClick={(event) => {
+                if (isDraft || !onDoubleSelect) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onDoubleSelect(segment);
+            }}
         >
             {canResizeStart ? (
                 <span
@@ -157,8 +255,21 @@ function LeaveWeekRow({
     onSelectDate,
     onToggleExpandDay,
     onDraftResizeStart,
+    onPendingDragStart,
+    onLeaveBarClick,
+    onLeaveBarDoubleClick,
     isDraggingDraft = false,
+    focusFrom = '',
+    focusTo = '',
+    focusApprovalId = '',
+    focusEmployeeId = '',
 }) {
+    const focus = {
+        from: focusFrom,
+        to: focusTo,
+        approvalId: focusApprovalId,
+        employeeId: focusEmployeeId,
+    };
     const { segments: approvedSegments, allSegments: approvedAll, lanesUsed: approvedLanes } =
         approvedLayout;
     const { segments: draftSegments, lanesUsed: draftLanes } = draftLayout;
@@ -180,7 +291,6 @@ function LeaveWeekRow({
                 {weekDays.map((day, dayIndex) => {
                     const dateKey = formatDateKey(day);
                     const inMonth = isSameMonth(day, monthDate);
-                    const isSelected = selectedDateKey === dateKey;
                     const isExpanded = expandedDateKey === dateKey;
                     const dailyCount = countsByDate.get(dateKey) || 0;
                     const dayLeaves = leavesByDate.get(dateKey) || [];
@@ -201,9 +311,7 @@ function LeaveWeekRow({
                             className={`relative flex flex-col border-r border-[#E5E7EB] bg-white px-1 py-2 last:border-r-0 text-left transition-shadow ${
                                 isExpanded
                                     ? 'z-[4] bg-[#F8FAFC] ring-2 ring-inset ring-[#5B9BD5] shadow-md'
-                                    : isSelected
-                                      ? 'z-[1] ring-2 ring-inset ring-[#5B9BD5]'
-                                      : ''
+                                    : ''
                             }`}
                             style={{
                                 minHeight: isExpanded
@@ -217,7 +325,11 @@ function LeaveWeekRow({
                                 className="flex shrink-0 items-center justify-center"
                                 style={{ height: DATE_ROW_HEIGHT }}
                             >
-                                <DayLabel day={day} isSelected={isSelected || isExpanded} inMonth={inMonth} />
+                                <DayLabel
+                                    day={day}
+                                    isSelected={isExpanded}
+                                    inMonth={inMonth}
+                                />
                             </div>
 
                             {isExpanded ? (
@@ -226,16 +338,58 @@ function LeaveWeekRow({
                                         <span className="px-1 text-[10px] text-[#9CA3AF]">No leave on this day</span>
                                     ) : (
                                         dayLeaves.map((leave) => {
-                                            const meta = leaveMetaForStatus(leave.statusKey, leave.isDraft);
+                                            const leaveFocused = spanMatchesFocus(
+                                                {
+                                                    ...leave,
+                                                    start: leave.rangeStart || dateKey,
+                                                    end: leave.rangeEnd || dateKey,
+                                                },
+                                                focus,
+                                            );
+                                            const meta = leaveMetaForStatus(
+                                                leave.statusKey,
+                                                leave.isDraft,
+                                                Boolean(leave.isPending),
+                                                leaveFocused,
+                                            );
                                             return (
                                                 <div
                                                     key={`${leave.id}-${leave.statusKey}`}
+                                                    role={leave.isDraft ? undefined : 'button'}
                                                     className="flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium leading-tight"
                                                     style={{
                                                         backgroundColor: meta.bg,
                                                         color: meta.text || meta.color,
                                                     }}
                                                     title={`${leave.employeeName} / ${meta.label}`}
+                                                    onClick={(event) => {
+                                                        if (leave.isDraft) return;
+                                                        event.preventDefault();
+                                                        event.stopPropagation();
+                                                        onLeaveBarClick?.({
+                                                            employeeMongoId: leave.employeeMongoId,
+                                                            employeeId: leave.employeeId,
+                                                            employeeName: leave.employeeName,
+                                                            statusKey: leave.statusKey,
+                                                            start: dateKey,
+                                                            end: dateKey,
+                                                            isPending: leave.isPending,
+                                                        });
+                                                    }}
+                                                    onDoubleClick={(event) => {
+                                                        if (leave.isDraft) return;
+                                                        event.preventDefault();
+                                                        event.stopPropagation();
+                                                        onLeaveBarDoubleClick?.({
+                                                            employeeMongoId: leave.employeeMongoId,
+                                                            employeeId: leave.employeeId,
+                                                            employeeName: leave.employeeName,
+                                                            statusKey: leave.statusKey,
+                                                            start: dateKey,
+                                                            end: dateKey,
+                                                            isPending: leave.isPending,
+                                                        });
+                                                    }}
                                                 >
                                                     <span className="truncate">
                                                         • {firstNameFromDisplay(leave.employeeName)} / {meta.short}
@@ -273,26 +427,49 @@ function LeaveWeekRow({
             </div>
 
             {!isWeekExpanded ? (
-                <div
-                    className={`absolute inset-x-0 px-[2px] ${isDraggingDraft ? 'pointer-events-none' : ''}`}
-                    style={{ top: BAR_TOP, height: barAreaHeight }}
-                >
+            <div
+                className={`absolute inset-x-0 px-[2px] ${isDraggingDraft ? 'pointer-events-none' : ''}`}
+                style={{ top: BAR_TOP, height: barAreaHeight }}
+            >
                     {approvedSegments.map((segment) => {
                         const colWidth = 100 / 7;
                         const left = segment.startIdx * colWidth;
                         const width = (segment.endIdx - segment.startIdx + 1) * colWidth;
+                        const isFocused = Boolean(segment.isFocused) || spanMatchesFocus(segment, focus);
 
                         return (
                             <div
                                 key={`approved-${segment.id}-${segment.segStart}`}
-                                className="pointer-events-none absolute px-[3px]"
+                                className={`absolute px-[3px] ${
+                                    segment.isPending ? '' : 'cursor-pointer'
+                                }`}
                                 style={{
                                     left: `${left}%`,
                                     width: `${width}%`,
                                     top: segment.lane * LANE_HEIGHT,
+                                    zIndex: isFocused ? 6 : 2,
+                                }}
+                                onClick={(event) => {
+                                    if (segment.isPending) return;
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onLeaveBarClick?.(segment);
+                                }}
+                                onDoubleClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onLeaveBarDoubleClick?.(segment);
                                 }}
                             >
-                                <LeaveEventBar segment={segment} />
+                                <LeaveEventBar
+                                    segment={segment}
+                                    isFocused={isFocused}
+                                    onSelect={onLeaveBarClick}
+                                    onDoubleSelect={onLeaveBarDoubleClick}
+                                    onPendingDragStart={
+                                        segment.isPending ? onPendingDragStart : undefined
+                                    }
+                                />
                             </div>
                         );
                     })}
@@ -333,18 +510,27 @@ export default function LeaveCalendarView({
     to,
     employeeName,
     year,
+    yearMin,
+    yearMax,
     onYearChange,
+    groupEmployeeIds = null,
+    statusFilter = 'all',
     onConfirm,
     onDraftRangeChange,
+    onPendingRangeChange,
     refreshKey = 0,
     confirming = false,
     hideDraft = false,
+    onLeaveBarClick,
+    onLeaveBarDoubleClick,
+    approvalId = '',
 }) {
     const gridRef = useRef(null);
     const draftRangeRef = useRef({ from, to });
     const prevFromRef = useRef(from);
     const monthNavTimerRef = useRef(null);
     const [entries, setEntries] = useState([]);
+    const salaryVisibility = useLeaveSalaryVisibility();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [selectedDateKey, setSelectedDateKey] = useState(from || '');
@@ -352,11 +538,21 @@ export default function LeaveCalendarView({
     const [draftFrom, setDraftFrom] = useState(from || '');
     const [draftTo, setDraftTo] = useState(to || '');
     const [dragEdge, setDragEdge] = useState(null);
-    const selectedYear = Number.isInteger(Number(year)) ? Number(year) : new Date().getFullYear();
+    const pendingDragRef = useRef(null);
+    const [pendingDrag, setPendingDrag] = useState(null);
+    const isAllYear = isAllLeaveYear(year);
+    const currentYear = new Date().getFullYear();
+    const calendarMinYear = Number.isInteger(Number(yearMin)) ? Number(yearMin) : currentYear;
+    const calendarMaxYear = Number.isInteger(Number(yearMax)) ? Number(yearMax) : currentYear;
+    const selectedYear = isAllYear
+        ? currentYear
+        : Number.isInteger(Number(year))
+          ? Number(year)
+          : currentYear;
     const [monthDate, setMonthDate] = useState(() => {
         if (isValidDateKey(from)) return parseISO(from);
         const now = new Date();
-        if (selectedYear === now.getFullYear()) return now;
+        if (isAllYear || selectedYear === now.getFullYear()) return now;
         return new Date(selectedYear, 0, 1);
     });
 
@@ -401,6 +597,7 @@ export default function LeaveCalendarView({
 
         setDraftFrom(from || '');
         setDraftTo(to || '');
+        setExpandedDateKey('');
         if (isValidDateKey(from)) {
             setSelectedDateKey(from);
         }
@@ -409,14 +606,15 @@ export default function LeaveCalendarView({
             setMonthDate(parseISO(from));
         }
         prevFromRef.current = from;
-    }, [from, to, dragEdge]);
+    }, [from, to, approvalId, dragEdge]);
 
     useEffect(() => {
+        if (isAllYear) return;
         setMonthDate((current) => {
             if (current.getFullYear() === selectedYear) return current;
             return new Date(selectedYear, current.getMonth(), 1);
         });
-    }, [selectedYear]);
+    }, [isAllYear, selectedYear]);
 
     const dateFromClientPoint = useCallback(
         (clientX, clientY) => {
@@ -501,14 +699,23 @@ export default function LeaveCalendarView({
 
             setMonthDate((value) => {
                 const next = deltaMonths < 0 ? subMonths(value, 1) : addMonths(value, 1);
-                if (next.getFullYear() !== selectedYear) {
-                    onYearChange?.(next.getFullYear());
+                const nextYear = next.getFullYear();
+                if (nextYear < calendarMinYear || nextYear > calendarMaxYear) return value;
+                if (!isAllYear && nextYear !== selectedYear) {
+                    onYearChange?.(nextYear);
                 }
                 return next;
             });
             shiftDraftEdgeByDay(edge, deltaMonths < 0 ? -1 : 1);
         },
-        [onYearChange, selectedYear, shiftDraftEdgeByDay],
+        [
+            calendarMaxYear,
+            calendarMinYear,
+            isAllYear,
+            onYearChange,
+            selectedYear,
+            shiftDraftEdgeByDay,
+        ],
     );
 
     const handleDraftResizeStart = useCallback((edge, event) => {
@@ -517,6 +724,101 @@ export default function LeaveCalendarView({
         event.currentTarget?.setPointerCapture?.(event.pointerId);
         setDragEdge(edge);
     }, []);
+
+    const handlePendingDragStart = useCallback(
+        (edge, event, segment) => {
+            if (!segment?.isPending) return;
+            event.preventDefault();
+            event.stopPropagation();
+
+            const hoverKey = dateFromClientPoint(event.clientX, event.clientY) || segment.start;
+            const drag = {
+                edge,
+                spanId: segment.id,
+                attendanceId: String(segment.attendanceId || ''),
+                employeeMongoId: String(segment.employeeMongoId || ''),
+                employeeId: String(segment.employeeId || ''),
+                employeeName: segment.employeeName || '',
+                statusKey: segment.statusKey,
+                originFrom: segment.start,
+                originTo: segment.end,
+                from: segment.start,
+                to: segment.end,
+                grabOffset: Math.max(0, daysBetweenKeys(segment.start, hoverKey)),
+                minDate: processingStartForEmployee(
+                    salaryVisibility,
+                    segment.employeeMongoId,
+                    segment.employeeId,
+                ),
+                active: false,
+                startX: event.clientX,
+                startY: event.clientY,
+            };
+            pendingDragRef.current = drag;
+
+            const handleMove = (moveEvent) => {
+                const current = pendingDragRef.current;
+                if (!current) return;
+                const dx = Math.abs(moveEvent.clientX - current.startX);
+                const dy = Math.abs(moveEvent.clientY - current.startY);
+                if (!current.active && dx < 6 && dy < 6) return;
+                current.active = true;
+                const hover = dateFromClientPoint(moveEvent.clientX, moveEvent.clientY);
+                if (!hover) return;
+                const next = rangeFromPendingDrag(current, hover);
+                current.from = next.from;
+                current.to = next.to;
+                setPendingDrag({ ...current });
+                setSelectedDateKey(hover);
+            };
+
+            const handleUp = (upEvent) => {
+                window.removeEventListener('pointermove', handleMove);
+                window.removeEventListener('pointerup', handleUp);
+                window.removeEventListener('pointercancel', handleUp);
+                document.body.style.userSelect = '';
+                document.body.style.cursor = '';
+
+                const current = pendingDragRef.current;
+                pendingDragRef.current = null;
+                setPendingDrag(null);
+                if (!current) return;
+
+                if (!current.active) {
+                    onLeaveBarClick?.(segment);
+                    return;
+                }
+
+                const hover = dateFromClientPoint(upEvent.clientX, upEvent.clientY);
+                const next = hover
+                    ? rangeFromPendingDrag(current, hover)
+                    : { from: current.from, to: current.to };
+                if (
+                    !current.attendanceId ||
+                    !current.employeeMongoId ||
+                    (next.from === current.originFrom && next.to === current.originTo)
+                ) {
+                    return;
+                }
+
+                onPendingRangeChange?.({
+                    attendanceId: current.attendanceId,
+                    employeeMongoId: current.employeeMongoId,
+                    from: next.from,
+                    to: next.to,
+                    leaveType: leaveTypeFromStatusKey(current.statusKey),
+                });
+            };
+
+            window.addEventListener('pointermove', handleMove);
+            window.addEventListener('pointerup', handleUp);
+            window.addEventListener('pointercancel', handleUp);
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor =
+                edge === 'move' ? 'grabbing' : edge === 'start' ? 'w-resize' : 'e-resize';
+        },
+        [dateFromClientPoint, onLeaveBarClick, onPendingRangeChange, salaryVisibility],
+    );
 
     useEffect(() => {
         if (!dragEdge) return undefined;
@@ -591,11 +893,19 @@ export default function LeaveCalendarView({
     }, [dateFromClientPoint, dragEdge, from, maybeAutoNavigateMonth, onDraftRangeChange, to]);
 
     const approvedEntries = useMemo(() => {
-        if (hideDraft) return entries;
-        return entries.filter(
-            (entry) => String(entry.employeeMongoId || '') !== String(employeeId || ''),
+        let visible = filterLeaveEntriesBySalary(entries, salaryVisibility).filter(
+            (entry) => String(entry.statusKey || '') !== 'holiday',
         );
-    }, [entries, employeeId, hideDraft]);
+        if (groupEmployeeIds) {
+            visible = visible.filter((entry) =>
+                groupEmployeeIds.has(String(entry.employeeMongoId || '')),
+            );
+        }
+        if (statusFilter && statusFilter !== 'all') {
+            visible = visible.filter((entry) => String(entry.statusKey || '') === statusFilter);
+        }
+        return visible;
+    }, [entries, groupEmployeeIds, salaryVisibility, statusFilter]);
 
     const draftSpan = useMemo(
         () =>
@@ -610,6 +920,58 @@ export default function LeaveCalendarView({
         [draftFrom, draftTo, employeeId, employeeName, hideDraft],
     );
     const approvedSpans = useMemo(() => buildLeaveSpans(approvedEntries), [approvedEntries]);
+    const displayApprovedSpans = useMemo(() => {
+        const next =
+            pendingDrag?.from && pendingDrag?.to
+                ? approvedSpans.map((span) => {
+                      const sameAttendance =
+                          pendingDrag.attendanceId &&
+                          String(span.attendanceId || '') === String(pendingDrag.attendanceId);
+                      const sameId = String(span.id) === String(pendingDrag.spanId);
+                      if (!sameAttendance && !sameId) return span;
+                      return { ...span, start: pendingDrag.from, end: pendingDrag.to };
+                  })
+                : approvedSpans;
+
+        const focus = { from, to, approvalId, employeeId };
+        const tagged = next.map((span) => ({
+            ...span,
+            isFocused: Boolean(span.isFocused) || spanMatchesFocus(span, focus),
+        }));
+        if (tagged.some((span) => span.isFocused)) return tagged;
+        if (!String(approvalId || '').trim() || !isValidDateKey(from) || !isValidDateKey(to)) {
+            return tagged;
+        }
+
+        const sample = (approvedEntries || []).find((entry) => {
+            const entryId = String(entry.attendanceId || entry.id || '');
+            if (entryId === String(approvalId)) return true;
+            if (String(entry.leaveRequestGroupId || '') === String(approvalId)) return true;
+            return (
+                isValidDateKey(entry.date) &&
+                entry.date >= from &&
+                entry.date <= to &&
+                (!employeeId || String(entry.employeeMongoId || '') === String(employeeId))
+            );
+        });
+
+        return [
+            ...tagged,
+            {
+                id: `focused-${approvalId}`,
+                employeeMongoId: sample?.employeeMongoId || employeeId || '',
+                employeeId: sample?.employeeId || '',
+                employeeName: sample?.employeeName || employeeName || 'Selected Leave',
+                statusKey: sample?.statusKey || 'on_leave',
+                isPending: false,
+                isFocused: true,
+                attendanceId: String(approvalId),
+                attendanceIds: [String(approvalId)],
+                start: from,
+                end: to,
+            },
+        ];
+    }, [approvalId, approvedEntries, approvedSpans, employeeId, employeeName, from, pendingDrag, to]);
     const draftSpans = useMemo(() => (draftSpan ? [draftSpan] : []), [draftSpan]);
 
     const countsByDate = useMemo(
@@ -626,9 +988,17 @@ export default function LeaveCalendarView({
             if (!map.has(dateKey)) map.set(dateKey, []);
             map.get(dateKey).push({
                 id: entry.id || `${entry.employeeMongoId}-${dateKey}`,
+                employeeMongoId: entry.employeeMongoId,
+                employeeId: entry.employeeId,
                 employeeName: entry.employeeName || 'Employee',
                 statusKey: entry.statusKey,
+                attendanceId: String(entry.attendanceId || entry.id || ''),
+                attendanceIds: entry.attendanceId ? [String(entry.attendanceId)] : [String(entry.id || '')],
+                leaveRequestGroupId: String(entry.leaveRequestGroupId || ''),
+                rangeStart: entry.rangeStart || dateKey,
+                rangeEnd: entry.rangeEnd || dateKey,
                 isDraft: false,
+                isPending: Boolean(entry.isPending),
             });
         }
 
@@ -648,17 +1018,21 @@ export default function LeaveCalendarView({
     }, [approvedEntries, draftSpan]);
 
     const handleToggleExpandDay = useCallback((dateKey) => {
+        if (String(approvalId || '').trim()) {
+            setExpandedDateKey('');
+            return;
+        }
         setExpandedDateKey((current) => (current === dateKey ? '' : dateKey));
-    }, []);
+    }, [approvalId]);
 
     const weekLayouts = useMemo(
         () =>
             weeks.map((weekDays) => ({
                 weekDays,
-                approvedLayout: buildWeekBarLayout(weekDays, approvedSpans, MAX_VISIBLE_LANES),
+                approvedLayout: buildWeekBarLayout(weekDays, displayApprovedSpans, MAX_VISIBLE_LANES),
                 draftLayout: buildWeekBarLayout(weekDays, draftSpans, 1),
             })),
-        [approvedSpans, draftSpans, weeks],
+        [displayApprovedSpans, draftSpans, weeks],
     );
 
     return (
@@ -674,8 +1048,12 @@ export default function LeaveCalendarView({
                                     setExpandedDateKey('');
                                     setMonthDate((value) => {
                                         const next = subMonths(value, 1);
-                                        if (next.getFullYear() !== selectedYear) {
-                                            onYearChange?.(next.getFullYear());
+                                        const nextYear = next.getFullYear();
+                                        if (nextYear < calendarMinYear || nextYear > calendarMaxYear) {
+                                            return value;
+                                        }
+                                        if (!isAllYear && nextYear !== selectedYear) {
+                                            onYearChange?.(nextYear);
                                         }
                                         return next;
                                     });
@@ -692,8 +1070,12 @@ export default function LeaveCalendarView({
                                     setExpandedDateKey('');
                                     setMonthDate((value) => {
                                         const next = addMonths(value, 1);
-                                        if (next.getFullYear() !== selectedYear) {
-                                            onYearChange?.(next.getFullYear());
+                                        const nextYear = next.getFullYear();
+                                        if (nextYear < calendarMinYear || nextYear > calendarMaxYear) {
+                                            return value;
+                                        }
+                                        if (!isAllYear && nextYear !== selectedYear) {
+                                            onYearChange?.(nextYear);
                                         }
                                         return next;
                                     });
@@ -761,7 +1143,14 @@ export default function LeaveCalendarView({
                                         onSelectDate={setSelectedDateKey}
                                         onToggleExpandDay={handleToggleExpandDay}
                                         onDraftResizeStart={handleDraftResizeStart}
-                                        isDraggingDraft={Boolean(dragEdge)}
+                                        onPendingDragStart={handlePendingDragStart}
+                                        onLeaveBarClick={onLeaveBarClick}
+                                        onLeaveBarDoubleClick={onLeaveBarDoubleClick}
+                                        isDraggingDraft={Boolean(dragEdge || pendingDrag?.active)}
+                                        focusFrom={from}
+                                        focusTo={to}
+                                        focusApprovalId={approvalId}
+                                        focusEmployeeId={employeeId}
                                     />
                                 ))}
                             </div>
@@ -797,7 +1186,7 @@ export default function LeaveCalendarView({
                         >
                             {confirming
                                 ? 'Saving...'
-                                : isValidDateKey(draftFrom) && isValidDateKey(draftTo)
+                                : !hideDraft && isValidDateKey(draftFrom) && isValidDateKey(draftTo)
                                   ? 'Confirm'
                                   : 'Apply Leave'}
                         </button>

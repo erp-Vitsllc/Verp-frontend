@@ -10,57 +10,23 @@ import ErpErrorBanner from '@/components/ErpErrorBanner';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import SalaryPolicyFields from '../components/SalaryPolicyFields';
-import SalaryPolicyFilter, { MAIN_POLICY_KEY } from '../components/SalaryPolicyFilter';
 import SalaryHeaderActions from '../components/SalaryHeaderActions';
 import { EMPTY_POLICY_FORM, policyFormFromApi } from '../utils/salaryPolicyForm';
 
 export default function SalaryPolicyPage() {
     const { toast } = useToast();
     const [form, setForm] = useState(EMPTY_POLICY_FORM);
-    const [policyKey, setPolicyKey] = useState(MAIN_POLICY_KEY);
-    const [enrolledUsers, setEnrolledUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
-    const loadEnrolledUsers = useCallback(async () => {
-        try {
-            const res = await axiosInstance.get('/Employee/salary-enroll/options', { skipToast: true });
-            const employees = Array.isArray(res.data?.employees) ? res.data.employees : [];
-            const enrolledIds = new Set(
-                (Array.isArray(res.data?.enrolledIds) ? res.data.enrolledIds : []).map((id) =>
-                    String(id || '').trim(),
-                ),
-            );
-            const users = employees
-                .filter((emp) => enrolledIds.has(String(emp.employeeId || '').trim()))
-                .map((emp) => ({
-                    employeeId: String(emp.employeeId).trim(),
-                    firstName: emp.firstName || '',
-                    lastName: emp.lastName || '',
-                }))
-                .sort((a, b) =>
-                    `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`, undefined, {
-                        sensitivity: 'base',
-                    }),
-                );
-            setEnrolledUsers(users);
-        } catch {
-            setEnrolledUsers([]);
-        }
-    }, []);
-
-    const fetchPolicy = useCallback(async (key, { silent = false } = {}) => {
+    const fetchPolicy = useCallback(async ({ silent = false } = {}) => {
         if (!silent) {
             setLoading(true);
             setError('');
         }
         try {
-            const path =
-                key && key !== MAIN_POLICY_KEY
-                    ? `/Employee/salary-enroll/${encodeURIComponent(key)}/policy`
-                    : '/Employee/payroll-settings';
-            const res = await axiosInstance.get(path, { skipToast: true });
+            const res = await axiosInstance.get('/Employee/payroll-settings', { skipToast: true });
             setForm(policyFormFromApi(res.data));
             if (silent) setError('');
         } catch (err) {
@@ -72,30 +38,15 @@ export default function SalaryPolicyPage() {
     }, []);
 
     useEffect(() => {
-        loadEnrolledUsers();
-        fetchPolicy(MAIN_POLICY_KEY);
-    }, [loadEnrolledUsers, fetchPolicy]);
-
-    function handlePolicyChange(nextKey) {
-        const key = nextKey || MAIN_POLICY_KEY;
-        setPolicyKey(key);
-        fetchPolicy(key);
-    }
+        fetchPolicy();
+    }, [fetchPolicy]);
 
     async function handleSave() {
         setSaving(true);
         try {
-            if (policyKey === MAIN_POLICY_KEY) {
-                await axiosInstance.put('/Employee/payroll-settings', form);
-                toast({ title: 'Main salary policy saved' });
-            } else {
-                await axiosInstance.put(
-                    `/Employee/salary-enroll/${encodeURIComponent(policyKey)}/policy`,
-                    form,
-                );
-                toast({ title: 'Employee salary policy saved' });
-            }
-            await fetchPolicy(policyKey, { silent: true });
+            await axiosInstance.put('/Employee/payroll-settings', form);
+            toast({ title: 'Main salary policy saved' });
+            await fetchPolicy({ silent: true });
         } catch (err) {
             toast({
                 title: 'Could not save salary policy',
@@ -128,20 +79,8 @@ export default function SalaryPolicyPage() {
                             <SalaryHeaderActions enrollLabel="Salary Enrollment" />
                         </ErpPageHeader>
 
-                        <div className="mb-4 rounded-xl border border-gray-200 bg-white px-3 sm:px-4 py-3">
-                            <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4">
-                                <span className="text-sm font-medium text-slate-700 shrink-0">Policy</span>
-                                <SalaryPolicyFilter
-                                    users={enrolledUsers}
-                                    value={policyKey}
-                                    onChange={handlePolicyChange}
-                                    disabled={loading || saving}
-                                />
-                            </label>
-                        </div>
-
                         {error ? (
-                            <ErpErrorBanner className="mb-4" message={error} onRetry={() => fetchPolicy(policyKey)} />
+                            <ErpErrorBanner className="mb-4" message={error} onRetry={() => fetchPolicy()} />
                         ) : null}
 
                         {loading ? (

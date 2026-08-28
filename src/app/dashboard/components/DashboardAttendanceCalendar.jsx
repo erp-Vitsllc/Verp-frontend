@@ -18,6 +18,7 @@ import axiosInstance from '@/utils/axios';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { normalizeWorkLocationKey, workLocationLabel, weekForStaffType } from '@/utils/workLocations';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { notifyLeavePendingInboxChanged } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import AttendanceTeamTreeModal from './AttendanceTeamTreeModal';
 import AttendanceLeaveRequestModal from './AttendanceLeaveRequestModal';
 import AttendanceYellowRequestModal from './AttendanceYellowRequestModal';
@@ -628,7 +629,7 @@ export default function DashboardAttendanceCalendar({
                 },
                 { skipToast: true },
             );
-            notifyAttendancePendingInboxChanged();
+            notifyLeavePendingInboxChanged();
             setRequestModal(null);
             await loadMonth();
         } catch (err) {
@@ -691,7 +692,11 @@ export default function DashboardAttendanceCalendar({
                 },
                 { skipToast: true },
             );
-            notifyAttendancePendingInboxChanged();
+            if (kind === 'leave' || kind === 'annual_leave') {
+                notifyLeavePendingInboxChanged();
+            } else {
+                notifyAttendancePendingInboxChanged();
+            }
             setFutureModal(null);
             await loadMonth();
         } catch (err) {
@@ -719,6 +724,7 @@ export default function DashboardAttendanceCalendar({
                 { skipToast: true },
             );
             notifyAttendancePendingInboxChanged();
+            notifyLeavePendingInboxChanged();
             setDecideModal(null);
             await loadMonth();
         } catch (err) {

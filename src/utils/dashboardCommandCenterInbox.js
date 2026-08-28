@@ -95,7 +95,8 @@ export function resolveDashboardModuleCategory(item = {}) {
 
     if (isCardDeletedNotificationHiddenType(type)) return 'Other';
 
-    if (type === 'Employee Leave Request' || type === 'Attendance Leave Request') return 'Attendance';
+    if (type === 'Employee Leave Request') return 'Leave';
+    if (type === 'Attendance Leave Request') return 'Attendance';
     if (type === 'Salary Enrollment') return 'Salary';
 
     // Exact types first so Document Expiry never fuzzy-matches into Loan / other modules.
@@ -227,6 +228,7 @@ const PENDING_ACTIVITY_TYPE_ORDER = [
     'Advance',
     'Reward',
     'Attendance',
+    'Leave',
     'Employees',
     'Company',
     'Vehicle Asset',
@@ -242,6 +244,7 @@ const PENDING_ACTIVITY_TYPE_COLORS = {
     Advance: '#8b5cf6',
     Reward: '#f97316',
     Attendance: '#eab308',
+    Leave: '#38bdf8',
     Employees: '#6366f1',
     Company: '#0ea5e9',
     'Vehicle Asset': '#14b8a6',

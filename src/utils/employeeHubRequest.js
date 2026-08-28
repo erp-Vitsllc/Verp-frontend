@@ -50,6 +50,9 @@ export function isEmployeeHubRequestItem(item = {}) {
 
 export function buildEmployeeHubDashboardPath(item = {}) {
     const meta = parseHubRequestMeta(item?.extra3) || {};
+    if (meta.kind === 'leave' || String(item?.type || item?.requestType || '').trim() === 'Employee Leave Request') {
+        return '/HRM/Leave/annual-leave';
+    }
     const id = String(
         item?.requestObjectId ||
             item?.id ||

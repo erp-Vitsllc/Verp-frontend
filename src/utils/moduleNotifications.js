@@ -19,6 +19,7 @@ import { countVisiblePaymentPendingInbox } from '@/app/Accounts/Payments/utils/p
 import { countVisibleRewardPendingInbox } from '@/app/HRM/Reward/utils/rewardPendingInboxCount';
 import { countVisibleLoanPendingInbox } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
 import { countVisibleAttendancePendingInbox } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { countVisibleLeavePendingInbox } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import { countVisibleSalaryPendingInbox } from '@/app/HRM/Salary/utils/salaryPendingInboxCount';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import {
@@ -34,6 +35,7 @@ import {
     fetchRewardPendingInbox,
     fetchLoanPendingInbox,
     fetchAttendancePendingInbox,
+    fetchLeavePendingInbox,
     fetchSalaryPendingInbox,
 } from '@/utils/pendingInboxFetch';
 import {
@@ -54,6 +56,7 @@ export const MODULE_ORDER = [
     'Company',
     'Employees',
     'Attendance',
+    'Leave',
     'Salary',
     'Fine',
     'Loan and Advance',
@@ -116,12 +119,15 @@ function pendingInboxToItem(row, moduleCategory) {
                 row?.message ||
                 (moduleCategory === 'Salary'
                     ? 'Salary profile approval'
+                    : moduleCategory === 'Leave'
+                    ? 'Leave request'
                     : moduleCategory === 'Attendance'
                     ? String(row?.leaveRequestKind || '') === 'yellow'
                         ? `Clarification: mark as Present`
                         : `Leave change: ${row?.requestedStatusLabel || 'status update'}`
                     : ''),
             extra3: row?.extra3 || '',
+            employeeMongoId: row?.employeeMongoId || '',
             href: row?.href || '',
             subjectEmployeeId: row?.subjectEmployeeId || '',
             targetEmployeeId: row?.subjectEmployeeId || row?.targetEmployeeId || '',
@@ -332,6 +338,7 @@ export async function loadModuleNotificationFeeds(
             fetchRewardPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchLoanPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchAttendancePendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
+            fetchLeavePendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             fetchSalaryPendingInbox(axiosInstance, { skipToast: true, ...inboxOpts }),
             loadCompanyNotificationBundle(axiosInstance, {
                 hrLive: hrLiveGuess,
@@ -357,12 +364,13 @@ export async function loadModuleNotificationFeeds(
         const rewardItems = valueOr(settled, 4, []);
         const loanItems = valueOr(settled, 5, []);
         const attendanceItems = valueOr(settled, 6, []);
-        const salaryItems = valueOr(settled, 7, []);
-        const notificationBundle = valueOr(settled, 8, {
+        const leaveItems = valueOr(settled, 7, []);
+        const salaryItems = valueOr(settled, 8, []);
+        const notificationBundle = valueOr(settled, 9, {
             statsRes: { data: { items: [] } },
             companiesList: [],
         });
-        const empRes = skipEmployees ? { data: {} } : valueOr(settled, 9, { data: {} });
+        const empRes = skipEmployees ? { data: {} } : valueOr(settled, 10, { data: {} });
         const empPayload = empRes?.data?.employees ?? empRes?.data;
 
         const statsData = providedStats || notificationBundle?.statsRes?.data || { items: [] };
@@ -387,6 +395,7 @@ export async function loadModuleNotificationFeeds(
             rewardItems: Array.isArray(rewardItems) ? rewardItems : [],
             loanItems: Array.isArray(loanItems) ? loanItems : [],
             attendanceItems: Array.isArray(attendanceItems) ? attendanceItems : [],
+            leaveItems: Array.isArray(leaveItems) ? leaveItems : [],
             salaryItems: Array.isArray(salaryItems) ? salaryItems : [],
             ...hrFlags,
         };
@@ -422,6 +431,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         rewardItems = [],
         loanItems = [],
         attendanceItems = [],
+        leaveItems = [],
         salaryItems = [],
         liveExpiryHrView: liveFlag,
         mandatoryCardsHrLive: mandatoryFlag,
@@ -479,6 +489,9 @@ export function buildModuleNotificationBundle(feeds = {}) {
     const attendance = (Array.isArray(attendanceItems) ? attendanceItems : []).map((row) =>
         pendingInboxToItem(row, 'Attendance'),
     );
+    const leave = (Array.isArray(leaveItems) ? leaveItems : []).map((row) =>
+        pendingInboxToItem(row, 'Leave'),
+    );
     const salary = (Array.isArray(salaryItems) ? salaryItems : []).map((row) =>
         pendingInboxToItem(row, 'Salary'),
     );
@@ -513,6 +526,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         Company: company,
         Employees: employees,
         Attendance: attendance,
+        Leave: leave,
         Salary: salary,
         Fine: fine,
         'Loan and Advance': loan,
@@ -527,6 +541,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         company: company.length,
         employee: employees.length,
         attendance: countVisibleAttendancePendingInbox(attendanceItems),
+        leave: countVisibleLeavePendingInbox(leaveItems),
         salary: countVisibleSalaryPendingInbox(salaryItems),
         fine: countVisibleFinePendingInbox(fineItems),
         reward: countVisibleRewardPendingInbox(rewardItems),
@@ -543,6 +558,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         (counts.company || 0) +
         (counts.employee || 0) +
         (counts.attendance || 0) +
+        (counts.leave || 0) +
         (counts.salary || 0) +
         (counts.fine || 0) +
         (counts.reward || 0) +
@@ -555,6 +571,7 @@ export function buildModuleNotificationBundle(feeds = {}) {
         ...company,
         ...employees,
         ...attendance,
+        ...leave,
         ...salary,
         ...fine,
         ...loan,
@@ -616,6 +633,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Loan Request',
         'Advance',
         'Attendance Leave Request',
+        'Employee Leave Request',
         'Salary Enrollment',
         'Vehicle Service Request',
         'Vehicle Profile Activation',

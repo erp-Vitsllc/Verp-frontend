@@ -1,8 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, Minus, Paperclip, Plus, X } from 'lucide-react';
-import { PAYROLL_MONTH_DAYS, toPayrollMonthDay } from '../utils/payrollMonthDay';
+import { currentMonthDayOptions, cutoffDayForCurrentMonth } from '../utils/payrollMonthDay';
 import {
     ATTENDANCE_COMPLETION_CHECKS,
     EMPTY_POLICY_ATTACHMENT,
@@ -11,6 +11,7 @@ import {
     REMINDER_FOR_WHOM_OPTIONS,
     REMINDER_LABELS,
     emptyLateRule,
+    emptyExtraLateRule,
 } from '../utils/salaryPolicyForm';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { validateErpUploadFile } from '@/utils/uploadFileTypes';
@@ -21,8 +22,6 @@ const compactInputClass =
     'h-9 w-[4.75rem] rounded-lg border border-gray-200 bg-white px-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
 const compactSelectClass =
     'h-9 min-w-[7.25rem] rounded-lg border border-gray-200 bg-white px-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
-const forWhomSelectClass =
-    'h-9 min-w-[11rem] rounded-lg border border-gray-200 bg-white px-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15';
 
 const LATE_DEDUCT_OPTIONS = [
     { value: 'quarter', label: 'Quarter' },
@@ -151,64 +150,66 @@ function LateRuleFields({ row, onChange }) {
     );
 }
 
-function LateRulesBlock({ number, label, rows, onChange, onAdd }) {
-    function updateRow(index, field, value) {
-        onChange(rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
-    }
-    function removeRow(index) {
-        if (rows.length <= 1) return;
-        onChange(rows.filter((_, i) => i !== index));
-    }
-
+function LateRuleRow({
+    number,
+    label,
+    titleEditable,
+    row,
+    onFieldChange,
+    onTitleChange,
+    showAdd,
+    showRemove,
+    onAdd,
+    onRemove,
+}) {
     return (
-        <div className="border-b border-gray-100">
-            {rows.map((row, index) => (
-                <div key={index} className="flex flex-col lg:flex-row lg:items-center gap-2 py-2.5 px-8 sm:px-10">
-                    <div className="flex items-center gap-3 min-w-0 lg:min-w-[260px]">
-                        {index === 0 ? (
-                            <>
-                                <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">
-                                    {number}.
-                                </span>
-                                <span className="text-sm text-slate-700">{label}</span>
-                            </>
-                        ) : (
-                            <span className="lg:min-w-[260px]" />
-                        )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LateRuleFields row={row} onChange={(field, value) => updateRow(index, field, value)} />
-                        {index === 0 ? (
-                            <button
-                                type="button"
-                                onClick={onAdd}
-                                className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-200 text-teal-600 hover:bg-teal-50"
-                                aria-label={`Add ${label} rule`}
-                            >
-                                <Plus size={16} />
-                            </button>
-                        ) : (
-                            <button
-                                type="button"
-                                onClick={() => removeRow(index)}
-                                className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-200 text-slate-500 hover:bg-slate-50"
-                                aria-label={`Remove ${label} rule`}
-                            >
-                                <Minus size={16} />
-                            </button>
-                        )}
-                    </div>
-                </div>
-            ))}
+        <div className="flex flex-col lg:flex-row lg:items-center gap-2 py-2.5 px-8 sm:px-10 border-b border-gray-100">
+            <div className="flex items-center gap-3 min-w-0 lg:min-w-[260px]">
+                <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">{number}.</span>
+                {titleEditable ? (
+                    <input
+                        value={row.title || ''}
+                        onChange={(e) => onTitleChange(e.target.value)}
+                        placeholder="Title"
+                        className={inputClass}
+                    />
+                ) : (
+                    <span className="text-sm text-slate-700">{label}</span>
+                )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+                <LateRuleFields row={row} onChange={onFieldChange} />
+                {showAdd ? (
+                    <button
+                        type="button"
+                        onClick={onAdd}
+                        className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-200 text-teal-600 hover:bg-teal-50"
+                        aria-label="Add late rule"
+                    >
+                        <Plus size={16} />
+                    </button>
+                ) : null}
+                {showRemove ? (
+                    <button
+                        type="button"
+                        onClick={onRemove}
+                        className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-200 text-slate-500 hover:bg-slate-50"
+                        aria-label="Remove late rule"
+                    >
+                        <Minus size={16} />
+                    </button>
+                ) : null}
+            </div>
         </div>
     );
 }
 
-function DaySelect({ value, onChange }) {
+function DaySelect({ value, days, onChange }) {
+    const options = days.length ? days : ['1'];
+    const selected = options.includes(String(value || '')) ? String(value) : options[options.length - 1];
     return (
-        <select value={toPayrollMonthDay(value)} onChange={(e) => onChange(e.target.value)} className={inputClass}>
-            <option value="">Select day</option>
-            {PAYROLL_MONTH_DAYS.map((day) => (
+        <select value={selected} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+            {options.map((day) => (
                 <option key={day} value={day}>
                     {day}
                 </option>
@@ -231,6 +232,16 @@ export default function SalaryPolicyFields({ form, setForm }) {
     const [attachError, setAttachError] = useState('');
     const attachment = form.attachment || EMPTY_POLICY_ATTACHMENT;
     const hasAttachment = Boolean(attachment.name || attachment.publicId || attachment.url || attachment.data);
+    const cutoffDays = useMemo(() => currentMonthDayOptions(), []);
+    const defaultCutoffDay = cutoffDays[cutoffDays.length - 1] || '28';
+
+    useEffect(() => {
+        const next = cutoffDayForCurrentMonth(form.salaryCutoffDate);
+        if (String(form.salaryCutoffDate || '') === next) return;
+        setForm((prev) =>
+            String(prev.salaryCutoffDate || '') === next ? prev : { ...prev, salaryCutoffDate: next },
+        );
+    }, [form.salaryCutoffDate, setForm]);
 
     function toggleRule(key) {
         setForm((prev) => ({
@@ -283,23 +294,10 @@ export default function SalaryPolicyFields({ form, setForm }) {
         <div className="space-y-4">
             <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                 <SectionHead roman="I" title="General Information" />
-                <FieldRow label="Salary processing date" hint="Same day every month (1–28)">
-                    <DaySelect
-                        value={form.salaryProcessingDate}
-                        onChange={(day) => setForm((p) => ({ ...p, salaryProcessingDate: day }))}
-                    />
-                </FieldRow>
-                <FieldRow label="Salary process start month">
-                    <input
-                        type="month"
-                        value={form.salaryProcessStartMonth}
-                        onChange={(e) => setForm((p) => ({ ...p, salaryProcessStartMonth: e.target.value }))}
-                        className={inputClass}
-                    />
-                </FieldRow>
-                <FieldRow label="Attendance cutoff date" hint="Same day every month (1–28)">
+                <FieldRow label="Attendance cutoff date" hint={`1–${defaultCutoffDay} for the current month`}>
                     <DaySelect
                         value={form.salaryCutoffDate}
+                        days={cutoffDays}
                         onChange={(day) => setForm((p) => ({ ...p, salaryCutoffDate: day }))}
                     />
                 </FieldRow>
@@ -320,9 +318,7 @@ export default function SalaryPolicyFields({ form, setForm }) {
                     />
                 ))}
 
-                <LetterHead letter="B" title="Unauthorized attendance for annual leave" />
-
-                <LetterHead letter="C" title="HR Rules" />
+                <LetterHead letter="B" title="HR Rules" />
                 {HR_RULE_CHECKS.map((row, index) => (
                     <CheckRow
                         key={row.key}
@@ -375,84 +371,149 @@ export default function SalaryPolicyFields({ form, setForm }) {
                     />
                     <span className="text-xs text-slate-500">day</span>
                 </NumberedFieldRow>
-                <LateRulesBlock
+                <LateRuleRow
                     number={10}
                     label="Late in"
-                    rows={form.lateInRules}
-                    onChange={(rows) => setForm((p) => ({ ...p, lateInRules: rows }))}
-                    onAdd={() =>
+                    row={form.lateInRules[0] || emptyLateRule()}
+                    onFieldChange={(field, value) =>
                         setForm((p) => ({
                             ...p,
-                            lateInRules: [...p.lateInRules, emptyLateRule()],
-                            lateOutRules: [...p.lateOutRules, emptyLateRule()],
+                            lateInRules: [{ ...(p.lateInRules[0] || emptyLateRule()), [field]: value }],
                         }))
                     }
                 />
-                <LateRulesBlock
+                <LateRuleRow
                     number={11}
                     label="Late out"
-                    rows={form.lateOutRules}
-                    onChange={(rows) => setForm((p) => ({ ...p, lateOutRules: rows }))}
+                    row={form.lateOutRules[0] || emptyLateRule()}
+                    onFieldChange={(field, value) =>
+                        setForm((p) => ({
+                            ...p,
+                            lateOutRules: [{ ...(p.lateOutRules[0] || emptyLateRule()), [field]: value }],
+                        }))
+                    }
+                    showAdd={(form.extraLateRules || []).length === 0}
                     onAdd={() =>
                         setForm((p) => ({
                             ...p,
-                            lateInRules: [...p.lateInRules, emptyLateRule()],
-                            lateOutRules: [...p.lateOutRules, emptyLateRule()],
+                            extraLateRules: [...(p.extraLateRules || []), emptyExtraLateRule()],
                         }))
                     }
                 />
+                {(form.extraLateRules || []).map((row, index) => {
+                    const extras = form.extraLateRules || [];
+                    const isLast = index === extras.length - 1;
+                    return (
+                        <LateRuleRow
+                            key={`extra-late-${index}`}
+                            number={12 + index}
+                            titleEditable
+                            row={row}
+                            onTitleChange={(title) =>
+                                setForm((p) => ({
+                                    ...p,
+                                    extraLateRules: (p.extraLateRules || []).map((item, i) =>
+                                        i === index ? { ...item, title } : item,
+                                    ),
+                                }))
+                            }
+                            onFieldChange={(field, value) =>
+                                setForm((p) => ({
+                                    ...p,
+                                    extraLateRules: (p.extraLateRules || []).map((item, i) =>
+                                        i === index ? { ...item, [field]: value } : item,
+                                    ),
+                                }))
+                            }
+                            showAdd={isLast}
+                            showRemove
+                            onAdd={() =>
+                                setForm((p) => ({
+                                    ...p,
+                                    extraLateRules: [...(p.extraLateRules || []), emptyExtraLateRule()],
+                                }))
+                            }
+                            onRemove={() =>
+                                setForm((p) => ({
+                                    ...p,
+                                    extraLateRules: (p.extraLateRules || []).filter((_, i) => i !== index),
+                                }))
+                            }
+                        />
+                    );
+                })}
             </div>
 
             <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                 <SectionHead roman="III" title="Account Policy" />
-                {form.salaryProcessReminders.map((row, index) => (
-                    <NumberedFieldRow
-                        key={REMINDER_LABELS[index]}
-                        indent={false}
-                        number={index === 0 ? 1 : null}
-                        label={REMINDER_LABELS[index]}
-                    >
-                        <select
-                            value={String(row.daysBefore || '')}
-                            onChange={(e) =>
-                                setForm((p) => ({
-                                    ...p,
-                                    salaryProcessReminders: p.salaryProcessReminders.map((item, i) =>
-                                        i === index ? { ...item, daysBefore: e.target.value } : item,
-                                    ),
-                                }))
-                            }
-                            className={compactSelectClass}
+                {form.salaryProcessReminders.map((row, index) => {
+                    const selected = Array.isArray(row.forWhom) ? row.forWhom : [];
+                    return (
+                        <div
+                            key={REMINDER_LABELS[index]}
+                            className="flex flex-col gap-2 py-2.5 border-b border-gray-100 px-3 sm:px-4"
                         >
-                            <option value="">Days before</option>
-                            {REMINDER_DAY_OPTIONS.map((day) => (
-                                <option key={day} value={day}>
-                                    {day} days
-                                </option>
-                            ))}
-                        </select>
-                        <span className="text-xs text-slate-500">for whom</span>
-                        <select
-                            value={row.forWhom}
-                            onChange={(e) =>
-                                setForm((p) => ({
-                                    ...p,
-                                    salaryProcessReminders: p.salaryProcessReminders.map((item, i) =>
-                                        i === index ? { ...item, forWhom: e.target.value } : item,
-                                    ),
-                                }))
-                            }
-                            className={forWhomSelectClass}
-                        >
-                            <option value="">Select</option>
-                            {REMINDER_FOR_WHOM_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                </option>
-                            ))}
-                        </select>
-                    </NumberedFieldRow>
-                ))}
+                            <div className="flex flex-col lg:flex-row lg:items-center gap-2">
+                                <div className="flex items-center gap-3 min-w-0 lg:min-w-[260px]">
+                                    <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">
+                                        {index === 0 ? '1.' : ''}
+                                    </span>
+                                    <span className="text-sm text-slate-700">{REMINDER_LABELS[index]}</span>
+                                </div>
+                                <select
+                                    value={String(row.daysBefore || '')}
+                                    onChange={(e) =>
+                                        setForm((p) => ({
+                                            ...p,
+                                            salaryProcessReminders: p.salaryProcessReminders.map((item, i) =>
+                                                i === index ? { ...item, daysBefore: e.target.value } : item,
+                                            ),
+                                        }))
+                                    }
+                                    className={compactSelectClass}
+                                >
+                                    <option value="">Days before</option>
+                                    {REMINDER_DAY_OPTIONS.map((day) => (
+                                        <option key={day} value={day}>
+                                            {day} days
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pl-8 lg:pl-[272px]">
+                                <span className="text-xs text-slate-500 shrink-0">for whom</span>
+                                {REMINDER_FOR_WHOM_OPTIONS.map((opt) => (
+                                    <label
+                                        key={opt.value}
+                                        className="inline-flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={selected.includes(opt.value)}
+                                            onChange={() =>
+                                                setForm((p) => ({
+                                                    ...p,
+                                                    salaryProcessReminders: p.salaryProcessReminders.map((item, i) => {
+                                                        if (i !== index) return item;
+                                                        const current = Array.isArray(item.forWhom)
+                                                            ? item.forWhom
+                                                            : [];
+                                                        const next = current.includes(opt.value)
+                                                            ? current.filter((value) => value !== opt.value)
+                                                            : [...current, opt.value];
+                                                        return { ...item, forWhom: next };
+                                                    }),
+                                                }))
+                                            }
+                                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                        />
+                                        {opt.label}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })}
                 <div className="flex flex-col gap-2 py-2.5 border-b border-gray-100 px-3 sm:px-4">
                     <div className="flex items-center gap-3">
                         <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">2.</span>
@@ -493,12 +554,6 @@ export default function SalaryPolicyFields({ form, setForm }) {
                         </label>
                     </div>
                 </div>
-                <CheckRow
-                    number={3}
-                    label="Gratuity calculation required"
-                    checked={Boolean(form.processingRules.gratuityCalculationRequired)}
-                    onChange={() => toggleRule('gratuityCalculationRequired')}
-                />
             </div>
 
             <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">

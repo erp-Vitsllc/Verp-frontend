@@ -32,6 +32,7 @@ import { workLocationLabel } from '@/utils/workLocations';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
 import EmployeeOverviewAttendanceCard from './EmployeeOverviewAttendanceCard';
+import HistoricalSalarySetupView from '@/app/HRM/Salary/enroll/HistoricalSalarySetupView';
 
 const DATA_ROWS = [
     {
@@ -306,7 +307,7 @@ function Metric({ label, value, accent = false }) {
     );
 }
 
-function ProfileHero({ employee, year, presentDays, nextBirthday, monthlySalary }) {
+function ProfileHero({ employee, year, presentDays, nextBirthday }) {
     const nameParts = String(employee?.name || '').trim().split(/\s+/);
     const initials = getEmployeeInitials(nameParts[0], nameParts.slice(1).join(' '));
     const staffLabel = `${workLocationLabel(employee?.staffType)} staff`;
@@ -352,19 +353,12 @@ function ProfileHero({ employee, year, presentDays, nextBirthday, monthlySalary 
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 lg:grid-cols-5 min-w-0 xl:flex-1 xl:max-w-4xl xl:px-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 min-w-0 xl:flex-1 xl:max-w-3xl xl:px-4">
                     {[
                         { label: 'Designation', value: employee?.designation || '—' },
                         { label: 'Years of Service', value: employee?.yearsOfServiceLabel || '—' },
                         { label: 'Reports To', value: employee?.reportsTo || '—' },
                         { label: 'Birthday', value: employee?.birthdayLabel || '—' },
-                        {
-                            label: 'Salary details',
-                            value: n(monthlySalary) ? formatAed(monthlySalary) : 'View',
-                            href: employee?.employeeId
-                                ? `/HRM/Salary/enroll/${encodeURIComponent(employee.employeeId)}`
-                                : '',
-                        },
                     ].map((item, index) => (
                         <div
                             key={item.label}
@@ -375,17 +369,7 @@ function ProfileHero({ employee, year, presentDays, nextBirthday, monthlySalary 
                             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">
                                 {item.label}
                             </p>
-                            {item.href ? (
-                                <Link
-                                    href={item.href}
-                                    className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-semibold text-white hover:underline"
-                                >
-                                    <span className="truncate">{item.value}</span>
-                                    <ArrowRight size={12} className="shrink-0 text-white/70" />
-                                </Link>
-                            ) : (
-                                <p className="mt-1 text-sm font-semibold text-white truncate">{item.value}</p>
-                            )}
+                            <p className="mt-1 text-sm font-semibold text-white truncate">{item.value}</p>
                         </div>
                     ))}
                 </div>
@@ -506,6 +490,8 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const [profile, setProfile] = useState(null);
     const [expandedStatKey, setExpandedStatKey] = useState('');
     const [calendarScope, setCalendarScope] = useState('mine');
+    const [activeTab, setActiveTab] = useState('attendance');
+    const [salaryTabVisited, setSalaryTabVisited] = useState(false);
 
     const fetchProfile = useCallback(async () => {
         if (!employeeMongoId) return;
@@ -529,6 +515,8 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         setProfile(null);
         setExpandedStatKey('');
         setSearch('');
+        setActiveTab('attendance');
+        setSalaryTabVisited(false);
     }, [employeeMongoId]);
 
     useEffect(() => {
@@ -630,16 +618,48 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                 year={profile.year}
                 presentDays={presentDays}
                 nextBirthday={profile.nextBirthday}
-                monthlySalary={monthlySalary}
             />
 
             <div className="mb-3.5 flex flex-col gap-2.5 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                    <h2 className="text-base sm:text-lg font-bold text-[#1B2A4A]">My employee overview</h2>
-                    <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                        Requests, approvals and historical records in one place
-                    </p>
+                <div className="min-w-0">
+                    <div className="flex items-end gap-5 border-b border-slate-200">
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('attendance')}
+                            className={`-mb-px border-b-2 px-0.5 pb-2 text-sm font-semibold tracking-wide transition-colors ${
+                                activeTab === 'attendance'
+                                    ? 'border-[#1A9B8C] text-[#1B2A4A]'
+                                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                            }`}
+                        >
+                            Attendance and information
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setActiveTab('salary');
+                                setSalaryTabVisited(true);
+                            }}
+                            className={`-mb-px border-b-2 px-0.5 pb-2 text-sm font-semibold tracking-wide transition-colors ${
+                                activeTab === 'salary'
+                                    ? 'border-[#1A9B8C] text-[#1B2A4A]'
+                                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                            }`}
+                        >
+                            Salary information
+                        </button>
+                    </div>
+                    {activeTab === 'attendance' ? (
+                        <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5">
+                            Requests, approvals and historical records in one place
+                        </p>
+                    ) : (
+                        <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5">
+                            Historical salary setup and enrollment for this employee
+                        </p>
+                    )}
                 </div>
+                {activeTab === 'attendance' ? (
                 <div className="flex flex-wrap items-center gap-2">
                     <label className="relative">
                         <Search
@@ -673,8 +693,10 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                         New request
                     </button>
                 </div>
+                ) : null}
             </div>
 
+            <div className={activeTab === 'attendance' ? '' : 'hidden'}>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4 items-stretch">
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden h-full flex flex-col">
                     <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-3">
@@ -1076,6 +1098,20 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                     </div>
                 </div>
             </div>
+            </div>
+
+            {salaryTabVisited && employee?.employeeId ? (
+                <div className={activeTab === 'salary' ? '' : 'hidden'}>
+                    <HistoricalSalarySetupView
+                        employeeId={employee.employeeId}
+                        embedded
+                    />
+                </div>
+            ) : activeTab === 'salary' ? (
+                <div className="rounded-2xl border border-slate-100 bg-white px-5 py-12 text-center text-sm text-slate-500">
+                    Salary setup is unavailable for this employee.
+                </div>
+            ) : null}
 
             {expandedStatKey ? (
                 <EventsDetailPanel

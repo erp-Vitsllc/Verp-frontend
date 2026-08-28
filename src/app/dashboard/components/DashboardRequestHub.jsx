@@ -25,7 +25,7 @@ import { HUB_ASSET_TYPES, HUB_KINDS } from '@/utils/employeeHubRequest';
 import { ERP_ATTACHMENT_ACCEPT, ERP_ATTACHMENT_HINT, guardAttachmentFileChange, validateErpUploadFile } from '@/utils/uploadFileTypes';
 import { notifyFinePendingInboxChanged } from '@/app/HRM/Fine/utils/finePendingInboxCount';
 import { notifyLoanPendingInboxChanged } from '@/app/HRM/LoanAndAdvance/utils/loanPendingInboxCount';
-import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
+import { notifyLeavePendingInboxChanged } from '@/app/HRM/Leave/utils/leavePendingInboxCount';
 import { notifyAssetPendingInboxChanged } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { dashboardItem } from './dashboardMotion';
 import AttendanceFutureRequestModal from './AttendanceFutureRequestModal';
@@ -86,10 +86,9 @@ const ASSET_TYPE_META = {
 };
 
 function notifyKindInboxes(kind) {
-    notifyAttendancePendingInboxChanged();
     if (kind === 'fine') notifyFinePendingInboxChanged();
     if (kind === 'advance' || kind === 'loan') notifyLoanPendingInboxChanged();
-    if (kind === 'leave') notifyAttendancePendingInboxChanged();
+    if (kind === 'leave') notifyLeavePendingInboxChanged();
     if (kind === 'assets' || kind === 'vehicle' || kind === 'utility') {
         notifyAssetPendingInboxChanged();
     }
@@ -544,7 +543,7 @@ export default function DashboardRequestHub() {
                 },
                 { skipToast: true },
             );
-            notifyAttendancePendingInboxChanged();
+            notifyLeavePendingInboxChanged();
             window.dispatchEvent(new CustomEvent(ATTENDANCE_CHECK_CHANGED));
             window.dispatchEvent(new CustomEvent(MY_REQUESTS_CHANGED));
             toast({

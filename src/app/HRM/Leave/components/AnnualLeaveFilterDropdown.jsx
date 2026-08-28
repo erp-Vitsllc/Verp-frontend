@@ -3,7 +3,7 @@
 import { CalendarDays } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import AnnualLeaveFilterModal, { resolveLeaveMode } from './AnnualLeaveFilterModal';
+import AnnualLeaveFilterModal from './AnnualLeaveFilterModal';
 
 export default function AnnualLeaveFilterDropdown({ employees = [] }) {
     const router = useRouter();
@@ -30,12 +30,6 @@ export default function AnnualLeaveFilterDropdown({ employees = [] }) {
         [router],
     );
 
-    const sampleEmployee = employees[0];
-    const defaultLabel =
-        sampleEmployee && resolveLeaveMode(sampleEmployee) === 'authorized'
-            ? 'Authorize Leave'
-            : 'Annual Leave';
-
     return (
         <>
             <button
@@ -44,7 +38,7 @@ export default function AnnualLeaveFilterDropdown({ employees = [] }) {
                 className="bg-white hover:bg-slate-50 text-slate-700 px-3 sm:px-6 py-1.5 sm:py-2 rounded-lg font-medium flex items-center gap-1.5 sm:gap-2 transition-colors shadow-sm text-xs sm:text-sm whitespace-nowrap border border-gray-800/20"
             >
                 <CalendarDays size={18} />
-                {defaultLabel}
+                Apply Leave
             </button>
             <AnnualLeaveFilterModal
                 open={open}

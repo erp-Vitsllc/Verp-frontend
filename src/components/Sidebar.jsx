@@ -62,6 +62,9 @@ import {
     ATTENDANCE_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import {
+    LEAVE_PENDING_INBOX_CHANGED,
+} from '@/app/HRM/Leave/utils/leavePendingInboxCount';
+import {
     SALARY_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Salary/utils/salaryPendingInboxCount';
 
@@ -292,6 +295,7 @@ export default function Sidebar() {
         company: 0,
         employee: 0,
         attendance: 0,
+        leave: 0,
         salary: 0,
         fine: 0,
         reward: 0,
@@ -369,6 +373,7 @@ export default function Sidebar() {
                 company: counts.company || 0,
                 employee: counts.employee || 0,
                 attendance: counts.attendance || 0,
+                leave: counts.leave || 0,
                 salary: counts.salary || 0,
                 fine: counts.fine || 0,
                 reward: counts.reward || 0,
@@ -465,6 +470,9 @@ export default function Sidebar() {
         const handleAttendanceInboxChanged = () => {
             scheduleInboxRefresh();
         };
+        const handleLeaveInboxChanged = () => {
+            scheduleInboxRefresh();
+        };
         const handleSalaryInboxChanged = () => {
             scheduleInboxRefresh();
         };
@@ -484,6 +492,7 @@ export default function Sidebar() {
             document.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
             document.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
             document.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
+            document.addEventListener(LEAVE_PENDING_INBOX_CHANGED, handleLeaveInboxChanged);
             document.addEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
         }
         if (typeof window !== 'undefined') {
@@ -495,6 +504,7 @@ export default function Sidebar() {
             window.addEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
             window.addEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
             window.addEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
+            window.addEventListener(LEAVE_PENDING_INBOX_CHANGED, handleLeaveInboxChanged);
             window.addEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
         }
         return () => {
@@ -511,6 +521,7 @@ export default function Sidebar() {
                 window.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
                 window.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
                 window.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
+                window.removeEventListener(LEAVE_PENDING_INBOX_CHANGED, handleLeaveInboxChanged);
                 window.removeEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
             }
             if (typeof document !== 'undefined') {
@@ -521,6 +532,7 @@ export default function Sidebar() {
                 document.removeEventListener(REWARD_PENDING_INBOX_CHANGED, handleRewardInboxChanged);
                 document.removeEventListener(LOAN_PENDING_INBOX_CHANGED, handleLoanInboxChanged);
                 document.removeEventListener(ATTENDANCE_PENDING_INBOX_CHANGED, handleAttendanceInboxChanged);
+                document.removeEventListener(LEAVE_PENDING_INBOX_CHANGED, handleLeaveInboxChanged);
                 document.removeEventListener(SALARY_PENDING_INBOX_CHANGED, handleSalaryInboxChanged);
             }
         };
@@ -531,6 +543,7 @@ export default function Sidebar() {
             if (label === 'Company') return sidebarCounts.company;
             if (label === 'Employees') return sidebarCounts.employee;
             if (label === 'Attendance') return sidebarCounts.attendance || 0;
+            if (label === 'Leave') return sidebarCounts.leave || 0;
             if (label === 'Salary') return sidebarCounts.salary || 0;
             if (label === 'Payroll') return (sidebarCounts.attendance || 0) + (sidebarCounts.salary || 0);
             if (label === 'Fine') return sidebarCounts.fine;
@@ -559,6 +572,7 @@ export default function Sidebar() {
         (sidebarCounts.company || 0) +
         (sidebarCounts.employee || 0) +
         (sidebarCounts.attendance || 0) +
+        (sidebarCounts.leave || 0) +
         (sidebarCounts.salary || 0) +
         (sidebarCounts.fine || 0) +
         (sidebarCounts.reward || 0) +

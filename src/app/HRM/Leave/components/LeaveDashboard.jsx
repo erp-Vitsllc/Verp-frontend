@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { format, parseISO } from 'date-fns';
-import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
 import {
     Bar,
     BarChart,
     CartesianGrid,
+    Legend,
     ResponsiveContainer,
     Tooltip,
     XAxis,
@@ -14,24 +16,37 @@ import {
 } from 'recharts';
 import axiosInstance from '@/utils/axios';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
+import { notifyLeavePendingInboxChanged } from '../utils/leavePendingInboxCount';
+import {
+    ALL_LEAVE_YEAR,
+    filterLeaveEntriesBySalary,
+    isAllLeaveYear,
+    isLeaveRangeSalaryVisible,
+    processingStartForEmployee,
+    useLeaveSalaryVisibility,
+} from '../utils/leaveSalaryVisibility';
+
+export const ALL_LEAVE_STATUS = 'all';
 
 const AVAILABILITY_CARDS = [
-    { key: 'sickLeave', label: 'Sick Leave', color: '#F5C842', track: '#FFF3CC' },
-    { key: 'authorizedLeave', label: 'Authorize Leave', color: '#16B8A5', track: '#D7FAF4' },
-    { key: 'unauthorizedLeave', label: 'Unauthorized Leave', color: '#EC4899', track: '#FCE7F3' },
-    { key: 'compoffLeave', label: 'Comp Off Leave', color: '#8B5CF6', track: '#EDE9FE' },
-    { key: 'annualLeaveTaken', label: 'Annual Leave', color: '#38BDF8', track: '#E0F2FE' },
+    { key: 'sickLeave', statusKey: 'sick_leave', label: 'Sick Leave', color: '#F5C842', track: '#FFF3CC' },
+    { key: 'authorizedLeave', statusKey: 'authorized_leave', label: 'Authorize Leave', color: '#16B8A5', track: '#D7FAF4' },
+    { key: 'unauthorizedLeave', statusKey: 'unauthorized_leave', label: 'Unauthorized Leave', color: '#EC4899', track: '#FCE7F3' },
+    { key: 'compoffLeave', statusKey: 'compoff_leave', label: 'Comp Off Leave', color: '#8B5CF6', track: '#EDE9FE' },
+    { key: 'annualLeaveTaken', statusKey: 'on_leave', label: 'Annual Leave', color: '#38BDF8', track: '#E0F2FE' },
 ];
+
+const GROUP_BAR_COLORS = ['#2563EB', '#14B8A6', '#8B5CF6', '#F59E0B', '#EC4899', '#0EA5E9'];
 
 const RING_SCALE = 8;
 
 const ARC_RATIO = 0.75;
-const GAUGE_SIZE = 56;
-const GAUGE_STROKE = 5;
+const GAUGE_SIZE = 76;
+const GAUGE_STROKE = 6;
 
-function LeaveAvailabilityRing({ taken, color, track, label }) {
+function LeaveAvailabilityRing({ taken, color, track, label, selected = false, scale = RING_SCALE, onClick }) {
     const safeTaken = Math.max(0, Number(taken) || 0);
-    const pct = Math.min(1, safeTaken / Math.max(RING_SCALE, safeTaken, 1));
+    const pct = Math.min(1, safeTaken / Math.max(scale, safeTaken, 1));
     const radius = (GAUGE_SIZE - GAUGE_STROKE) / 2;
     const center = GAUGE_SIZE / 2;
     const circumference = 2 * Math.PI * radius;
@@ -40,13 +55,21 @@ function LeaveAvailabilityRing({ taken, color, track, label }) {
     const progressLength = arcLength * pct;
 
     return (
-        <div className="flex min-w-0 flex-1 basis-0 flex-col rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 shadow-sm">
+        <button
+            type="button"
+            onClick={onClick}
+            aria-pressed={selected}
+            className={`flex min-w-0 flex-1 basis-0 flex-col rounded-xl border bg-white px-4 py-3 text-left shadow-sm transition-shadow hover:shadow-md ${
+                selected ? 'border-2 shadow-md' : 'border-[#E5E7EB]'
+            }`}
+            style={selected ? { borderColor: color } : undefined}
+        >
             <div className="mb-1 text-[11px] font-medium text-[#9CA3AF]">Days taken</div>
             <div className="flex flex-1 items-center justify-between gap-2">
                 <div className="min-w-0 text-[13px] font-bold leading-tight text-[#111827] sm:text-[14px]">
                     {label}
                 </div>
-                <div className="relative h-14 w-14 shrink-0">
+                <div className="relative h-[76px] w-[76px] shrink-0">
                     <svg width={GAUGE_SIZE} height={GAUGE_SIZE} viewBox={`0 0 ${GAUGE_SIZE} ${GAUGE_SIZE}`}>
                         <circle
                             cx={center}
@@ -71,12 +94,12 @@ function LeaveAvailabilityRing({ taken, color, track, label }) {
                             transform={`rotate(135 ${center} ${center})`}
                         />
                     </svg>
-                    <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#111827]">
+                    <span className="absolute inset-0 flex items-center justify-center text-base font-bold text-[#111827]">
                         {safeTaken}
                     </span>
                 </div>
             </div>
-        </div>
+        </button>
     );
 }
 
@@ -95,6 +118,180 @@ function formatLeaveDateLabel(dateKey) {
     } catch {
         return dateKey;
     }
+}
+
+const APPROVAL_PREVIEW_LIMIT = 5;
+
+function approvalStatusBadgeClass(statusKey) {
+    const key = String(statusKey || '').toLowerCase();
+    if (key === 'approved') return 'bg-[#DCFCE7] text-[#15803D]';
+    if (key === 'rejected') return 'bg-[#FEE2E2] text-[#B91C1C]';
+    return 'bg-[#FEF3C7] text-[#B45309]';
+}
+
+function rowMatchesLeaveSpan(row, span) {
+    if (!row || !span) return false;
+    if (String(row.employeeMongoId || '') !== String(span.employeeMongoId || '')) return false;
+    const rowStart = String(row.startDateKey || '');
+    const rowEnd = String(row.endDateKey || rowStart);
+    const spanStart = String(span.start || span.date || '');
+    const spanEnd = String(span.end || span.start || span.date || '');
+    if (!rowStart || !spanStart) return false;
+    if (rowEnd < spanStart || rowStart > spanEnd) return false;
+    if (span.statusKey && row.requestedStatusKey && row.requestedStatusKey !== span.statusKey) {
+        return false;
+    }
+    return true;
+}
+
+function findApprovalRowForSpan(rows, span) {
+    const matches = (rows || []).filter((row) => rowMatchesLeaveSpan(row, span));
+    if (!matches.length) return null;
+    const exact = matches.find(
+        (row) => row.startDateKey === span.start && (row.endDateKey || row.startDateKey) === (span.end || span.start),
+    );
+    return exact || matches[0];
+}
+
+function rowMatchesApprovalId(row, approvalId) {
+    if (!approvalId || !row) return false;
+    if (String(row.id) === String(approvalId)) return true;
+    return Array.isArray(row.attendanceIds) && row.attendanceIds.some((id) => String(id) === String(approvalId));
+}
+
+function findApprovalRowById(rows, approvalId) {
+    if (!approvalId) return null;
+    return (rows || []).find((row) => rowMatchesApprovalId(row, approvalId)) || null;
+}
+
+function rowStatusKey(row) {
+    const key = String(row?.statusKey || '').toLowerCase();
+    if (key === 'approved' || key === 'rejected' || key === 'pending') return key;
+    const label = String(row?.status || '').toLowerCase();
+    if (label === 'approved') return 'approved';
+    if (label === 'rejected') return 'rejected';
+    return 'pending';
+}
+
+function LeaveApprovalTable({
+    rows,
+    decidingId,
+    isRowSelected,
+    isEmployeeHighlighted,
+    blinkRowId = '',
+    onRowSelect,
+    onDecide,
+    onAccept,
+    onEdit,
+    emptyLabel,
+}) {
+    if (!rows.length) {
+        return (
+            <tr>
+                <td colSpan={6} className="px-2 py-8 text-center text-[#6B7280]">
+                    {emptyLabel}
+                </td>
+            </tr>
+        );
+    }
+
+    return rows.map((row) => {
+        const selected = isRowSelected(row);
+        const employeeMatch = isEmployeeHighlighted(row);
+        const statusKey = rowStatusKey(row);
+        const canDecide = statusKey === 'pending' && row.canDecide !== false;
+        const canEdit = row.canEdit === true;
+        const blinking = String(blinkRowId || '') === String(row.id);
+
+        return (
+            <tr
+                key={row.id}
+                data-approval-id={row.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onRowSelect(row)}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onRowSelect(row);
+                    }
+                }}
+                className={`border-b border-[#F3F4F6] text-[#374151] cursor-pointer transition-colors hover:bg-[#F3F4F6] ${
+                    blinking
+                        ? 'leave-approval-row-blink'
+                        : selected
+                          ? 'bg-[#ECEFF3] ring-1 ring-inset ring-[#9CA3AF]'
+                          : employeeMatch
+                            ? 'bg-[#F9FAFB]'
+                            : ''
+                }`}
+            >
+                <td className="px-2 py-3 font-medium text-[#111827]">{row.name}</td>
+                <td className="px-2 py-3">{row.leaveType}</td>
+                <td className="px-2 py-3">{row.startDate}</td>
+                <td className="px-2 py-3">{row.endDate}</td>
+                <td className="px-2 py-3">
+                    <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${approvalStatusBadgeClass(statusKey)}`}
+                    >
+                        {row.status || 'Pending'}
+                    </span>
+                </td>
+                <td className="px-2 py-3">
+                    {canDecide || canEdit ? (
+                        <div className="flex items-center justify-center gap-2">
+                            {canDecide ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        disabled={decidingId === row.id}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            if (onAccept) onAccept(row);
+                                            else onDecide(row, 'approved');
+                                        }}
+                                        className="flex h-7 w-7 items-center justify-center rounded-md bg-[#22C55E] text-white disabled:opacity-50"
+                                        aria-label="Accept"
+                                    >
+                                        <Check size={14} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={decidingId === row.id}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            onDecide(row, 'rejected');
+                                        }}
+                                        className="flex h-7 w-7 items-center justify-center rounded-md bg-[#EF4444] text-white disabled:opacity-50"
+                                        aria-label="Reject"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </>
+                            ) : null}
+                            {canEdit ? (
+                                <button
+                                    type="button"
+                                    disabled={decidingId === row.id}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onEdit?.(row);
+                                    }}
+                                    className="flex h-7 w-7 items-center justify-center rounded-md border border-[#D0D5DD] bg-white text-[#344054] hover:bg-[#F9FAFB] disabled:opacity-50"
+                                    aria-label="Edit leave"
+                                    title="Edit leave"
+                                >
+                                    <Pencil size={13} />
+                                </button>
+                            ) : null}
+                        </div>
+                    ) : (
+                        <div className="text-center text-[#9CA3AF]">—</div>
+                    )}
+                </td>
+            </tr>
+        );
+    });
 }
 
 function buildAvailability(selectedEmployee) {
@@ -147,17 +344,38 @@ export default function LeaveDashboard({
     sourceFrom = '',
     sourceTo = '',
     year,
+    yearMin,
+    yearMax,
     onYearChange,
+    groupKey = '',
+    groupEmployeeIds = null,
+    statusFilter = ALL_LEAVE_STATUS,
+    onStatusFilterChange,
     onApplyLeave,
     onLeaveInformation,
     refreshKey = 0,
     onDataChanged,
     onApprovalRowSelect,
+    onAcceptRequest,
+    onEditRequest,
+    calendarLeaveFocus = null,
 }) {
     const selectedEmployee = useMemo(
         () => employees.find((emp) => String(emp._id) === String(employeeId)) || null,
         [employeeId, employees],
     );
+
+    const salaryVisibility = useLeaveSalaryVisibility();
+    const isAllYear = isAllLeaveYear(year);
+    const currentYear = new Date().getFullYear();
+    const selectedYear = isAllYear
+        ? currentYear
+        : Number.isInteger(Number(year))
+          ? Number(year)
+          : currentYear;
+    const trackMinYear = Number.isInteger(Number(yearMin)) ? Number(yearMin) : selectedYear;
+    const trackMaxYear = Number.isInteger(Number(yearMax)) ? Number(yearMax) : currentYear;
+    const yearLabel = isAllYear ? 'ALL' : String(selectedYear);
 
     const displayEmployeeName =
         employeeName || selectedEmployee?.employeeName || '';
@@ -175,18 +393,67 @@ export default function LeaveDashboard({
             String(sourceTo || '') !== String(selectedTo || '')
         );
 
-    const selectedYear = Number.isInteger(Number(year)) ? Number(year) : new Date().getFullYear();
-
-    const availabilityRange = useMemo(
-        () => ({
+    const availabilityRange = useMemo(() => {
+        if (isAllYear) {
+            const empStart = processingStartForEmployee(
+                salaryVisibility,
+                employeeId,
+                selectedEmployee?.employeeId,
+            );
+            const from =
+                empStart ||
+                salaryVisibility.earliestProcessingStartDate ||
+                `${currentYear}-01-01`;
+            return { from, to: `${currentYear}-12-31` };
+        }
+        return {
             from: `${selectedYear}-01-01`,
             to: `${selectedYear}-12-31`,
-        }),
-        [selectedYear],
-    );
+        };
+    }, [
+        currentYear,
+        employeeId,
+        isAllYear,
+        salaryVisibility,
+        selectedEmployee?.employeeId,
+        selectedYear,
+    ]);
 
     const [availability, setAvailability] = useState(EMPTY_AVAILABILITY);
     const [availabilityLoading, setAvailabilityLoading] = useState(false);
+
+    const scopedEmployees = useMemo(() => {
+        if (!groupEmployeeIds) return employees;
+        return employees.filter((emp) => groupEmployeeIds.has(String(emp._id)));
+    }, [employees, groupEmployeeIds]);
+
+    const teamAvailability = useMemo(() => {
+        const counts = { ...EMPTY_AVAILABILITY };
+        for (const emp of scopedEmployees) {
+            counts.sickLeave += Number(emp.sickLeave) || 0;
+            counts.authorizedLeave += Number(emp.authorizedLeave) || 0;
+            counts.unauthorizedLeave += Number(emp.unauthorizedLeave) || 0;
+            counts.compoffLeave += Number(emp.compoffLeave) || 0;
+            counts.annualLeaveTaken += Number(emp.annualLeaveTaken) || 0;
+        }
+        return counts;
+    }, [scopedEmployees]);
+
+    const displayAvailability = employeeId
+        ? availabilityLoading
+            ? buildAvailability(selectedEmployee)
+            : availability
+        : teamAvailability;
+
+    const ringScale = Math.max(
+        RING_SCALE,
+        displayAvailability.sickLeave,
+        displayAvailability.authorizedLeave,
+        displayAvailability.unauthorizedLeave,
+        displayAvailability.compoffLeave,
+        displayAvailability.annualLeaveTaken,
+        1,
+    );
 
     const fetchAvailability = useCallback(async () => {
         if (!employeeId) {
@@ -206,14 +473,17 @@ export default function LeaveDashboard({
                 },
                 skipToast: true,
             });
-            const entries = Array.isArray(response.data?.entries) ? response.data.entries : [];
+            const entries = filterLeaveEntriesBySalary(
+                Array.isArray(response.data?.entries) ? response.data.entries : [],
+                salaryVisibility,
+            );
             setAvailability(countAvailabilityFromEntries(entries, employeeId));
         } catch {
-            setAvailability(buildAvailability(selectedEmployee));
+            setAvailability(EMPTY_AVAILABILITY);
         } finally {
             setAvailabilityLoading(false);
         }
-    }, [availabilityRange.from, availabilityRange.to, employeeId, selectedEmployee]);
+    }, [availabilityRange.from, availabilityRange.to, employeeId, salaryVisibility]);
 
     useEffect(() => {
         fetchAvailability();
@@ -223,24 +493,22 @@ export default function LeaveDashboard({
     const [pendingLoading, setPendingLoading] = useState(true);
     const [pendingError, setPendingError] = useState('');
     const [decidingId, setDecidingId] = useState('');
+    const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+    const [blinkRowId, setBlinkRowId] = useState('');
+    const [pinnedApprovalRow, setPinnedApprovalRow] = useState(null);
 
-    const [trackYear, setTrackYear] = useState(selectedYear);
+    const [trackYear, setTrackYear] = useState(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
     const [trackMonths, setTrackMonths] = useState([]);
+    const [trackRangeLabel, setTrackRangeLabel] = useState('');
     const [trackLoading, setTrackLoading] = useState(true);
     const [trackError, setTrackError] = useState('');
-    const [trackMonthIndex, setTrackMonthIndex] = useState(() => {
-        const now = new Date();
-        return selectedYear === now.getFullYear() ? now.getMonth() : 0;
-    });
-
-    const availabilityScrollRef = useRef(null);
 
     const fetchPendingRequests = useCallback(async () => {
         setPendingLoading(true);
         setPendingError('');
         try {
             const response = await axiosInstance.get('/Leave/pending-requests', {
-                params: { year: selectedYear },
+                params: { year: isAllYear ? ALL_LEAVE_YEAR : selectedYear },
                 skipToast: true,
             });
             setPendingItems(Array.isArray(response.data?.items) ? response.data.items : []);
@@ -250,34 +518,60 @@ export default function LeaveDashboard({
         } finally {
             setPendingLoading(false);
         }
-    }, [selectedYear]);
+    }, [isAllYear, selectedYear]);
 
-    const fetchTeamTrack = useCallback(async (year) => {
+    const fetchTeamTrack = useCallback(async (yearArg) => {
+        const yearParam = isAllLeaveYear(yearArg) ? ALL_LEAVE_YEAR : yearArg;
         setTrackLoading(true);
         setTrackError('');
         try {
             const response = await axiosInstance.get('/Leave/team-track', {
-                params: { year },
+                params: {
+                    year: yearParam,
+                    leaveType: statusFilter && statusFilter !== ALL_LEAVE_STATUS ? statusFilter : 'all',
+                },
                 skipToast: true,
             });
-            setTrackYear(Number(response.data?.year) || year);
+            const responseYear = response.data?.year;
+            setTrackYear(isAllLeaveYear(responseYear) ? ALL_LEAVE_YEAR : Number(responseYear) || yearArg);
             setTrackMonths(Array.isArray(response.data?.months) ? response.data.months : []);
+            setTrackRangeLabel(String(response.data?.rangeLabel || ''));
         } catch (err) {
             setTrackMonths([]);
+            setTrackRangeLabel('');
             setTrackError(err?.response?.data?.message || err.message || 'Failed to load team leave track.');
         } finally {
             setTrackLoading(false);
         }
-    }, []);
+    }, [statusFilter]);
 
     useEffect(() => {
         fetchPendingRequests();
-        fetchTeamTrack(selectedYear);
-    }, [fetchPendingRequests, fetchTeamTrack, refreshKey, selectedYear]);
+    }, [fetchPendingRequests, refreshKey]);
 
     useEffect(() => {
-        setTrackYear(selectedYear);
-    }, [selectedYear]);
+        fetchTeamTrack(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
+    }, [fetchTeamTrack, isAllYear, refreshKey, selectedYear]);
+
+    useEffect(() => {
+        setTrackYear(isAllYear ? ALL_LEAVE_YEAR : selectedYear);
+    }, [isAllYear, selectedYear]);
+
+    const handleAccept = useCallback(
+        (row) => {
+            if (!row?.id) return;
+            onAcceptRequest?.(row);
+        },
+        [onAcceptRequest],
+    );
+
+    const handleEdit = useCallback(
+        (row) => {
+            if (!row?.id) return;
+            onEditRequest?.(row);
+        },
+        [onEditRequest],
+    );
 
     const handleDecide = useCallback(
         async (row, decision) => {
@@ -296,6 +590,7 @@ export default function LeaveDashboard({
                 );
                 await fetchPendingRequests();
                 await fetchTeamTrack(trackYear);
+                notifyLeavePendingInboxChanged();
                 onDataChanged?.();
             } catch (err) {
                 setPendingError(err?.response?.data?.message || err.message || 'Failed to update leave request.');
@@ -308,27 +603,60 @@ export default function LeaveDashboard({
 
     const yearPendingItems = useMemo(
         () =>
-            pendingItems.filter((row) =>
-                String(row.startDateKey || '').startsWith(`${selectedYear}-`),
-            ),
-        [pendingItems, selectedYear],
+            pendingItems.filter((row) => {
+                if (!isAllYear && !String(row.startDateKey || '').startsWith(`${selectedYear}-`)) {
+                    return false;
+                }
+                if (groupEmployeeIds && !groupEmployeeIds.has(String(row.employeeMongoId || ''))) {
+                    return false;
+                }
+                if (
+                    statusFilter &&
+                    statusFilter !== ALL_LEAVE_STATUS &&
+                    String(row.requestedStatusKey || '') !== statusFilter
+                ) {
+                    return false;
+                }
+                return isLeaveRangeSalaryVisible(row, salaryVisibility);
+            }),
+        [groupEmployeeIds, isAllYear, pendingItems, salaryVisibility, selectedYear, statusFilter],
     );
 
     const sortedPendingItems = useMemo(() => {
-        if (!employeeId) return yearPendingItems;
-
-        const selectedRows = yearPendingItems.filter(
-            (row) => String(row.employeeMongoId) === String(employeeId),
-        );
-        const otherRows = yearPendingItems.filter(
-            (row) => String(row.employeeMongoId) !== String(employeeId),
-        );
-        return [...selectedRows, ...otherRows];
+        const list = [...yearPendingItems];
+        list.sort((a, b) => {
+            const aPend = rowStatusKey(a) === 'pending' ? 0 : 1;
+            const bPend = rowStatusKey(b) === 'pending' ? 0 : 1;
+            if (aPend !== bPend) return aPend - bPend;
+            if (employeeId) {
+                const aSel = String(a.employeeMongoId) === String(employeeId) ? 0 : 1;
+                const bSel = String(b.employeeMongoId) === String(employeeId) ? 0 : 1;
+                if (aSel !== bSel) return aSel - bSel;
+            }
+            return String(b.startDateKey || '').localeCompare(String(a.startDateKey || ''));
+        });
+        return list;
     }, [employeeId, yearPendingItems]);
+
+    const previewApprovalItems = useMemo(() => {
+        const preview = sortedPendingItems.slice(0, APPROVAL_PREVIEW_LIMIT);
+        const selected =
+            findApprovalRowById(sortedPendingItems, selectedApprovalId) ||
+            (pinnedApprovalRow
+                ? findApprovalRowById(sortedPendingItems, pinnedApprovalRow.id) || pinnedApprovalRow
+                : null);
+        if (!selected || preview.some((row) => String(row.id) === String(selected.id))) {
+            return preview;
+        }
+        return [selected, ...preview.filter((row) => String(row.id) !== String(selected.id))].slice(
+            0,
+            APPROVAL_PREVIEW_LIMIT,
+        );
+    }, [pinnedApprovalRow, selectedApprovalId, sortedPendingItems]);
 
     const isRowSelected = useCallback(
         (row) => {
-            if (selectedApprovalId && String(row.id) === String(selectedApprovalId)) return true;
+            if (selectedApprovalId && rowMatchesApprovalId(row, selectedApprovalId)) return true;
             if (!employeeId || String(row.employeeMongoId) !== String(employeeId)) return false;
             if (selectedFrom && selectedTo) {
                 return row.startDateKey === selectedFrom && row.endDateKey === selectedTo;
@@ -343,12 +671,54 @@ export default function LeaveDashboard({
         [employeeId],
     );
 
+    const approvalRowsRef = useRef([]);
+    approvalRowsRef.current = (() => {
+        const pool = [];
+        const seen = new Set();
+        for (const row of [...sortedPendingItems, ...pendingItems]) {
+            if (!row?.id || seen.has(row.id)) continue;
+            seen.add(row.id);
+            pool.push(row);
+        }
+        return pool;
+    })();
+
     const handleRowSelect = useCallback(
         (row) => {
             onApprovalRowSelect?.(row);
         },
         [onApprovalRowSelect],
     );
+
+    useEffect(() => {
+        if (!calendarLeaveFocus?.nonce || calendarLeaveFocus.isDraft) return undefined;
+
+        const row = findApprovalRowForSpan(approvalRowsRef.current, calendarLeaveFocus);
+        if (!row) return undefined;
+
+        setPinnedApprovalRow(row);
+        setBlinkRowId(row.id);
+        onApprovalRowSelect?.(row);
+
+        const timer = window.setTimeout(() => setBlinkRowId(''), 1800);
+        return () => window.clearTimeout(timer);
+    }, [calendarLeaveFocus, onApprovalRowSelect]);
+
+    useEffect(() => {
+        if (!selectedApprovalId) return undefined;
+        const row = findApprovalRowById(approvalRowsRef.current, selectedApprovalId);
+        if (row) setPinnedApprovalRow(row);
+        setBlinkRowId(row?.id || selectedApprovalId);
+        const timer = window.setTimeout(() => setBlinkRowId(''), 1800);
+        return () => window.clearTimeout(timer);
+    }, [selectedApprovalId, pendingItems]);
+
+    useEffect(() => {
+        if (!blinkRowId) return undefined;
+        const node = document.querySelector(`[data-approval-id="${blinkRowId}"]`);
+        node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return undefined;
+    }, [approvalModalOpen, blinkRowId]);
 
     const handleReturnToSource = useCallback(() => {
         if (!sourceEmployeeId || !sourceFrom || !sourceTo) return;
@@ -362,81 +732,88 @@ export default function LeaveDashboard({
         });
     }, [onApprovalRowSelect, sourceDisplayName, sourceEmployeeId, sourceFrom, sourceTo]);
 
-    const scrollAvailability = useCallback((direction) => {
-        const container = availabilityScrollRef.current;
-        if (!container) return;
-        const cardWidth = container.firstElementChild?.offsetWidth || 180;
-        container.scrollBy({ left: direction * (cardWidth + 12), behavior: 'smooth' });
-    }, []);
+    useEffect(() => {
+        if (!approvalModalOpen) return undefined;
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') setApprovalModalOpen(false);
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [approvalModalOpen]);
 
-    const chartMonthLabel = useMemo(() => {
-        const monthDate = new Date(trackYear, trackMonthIndex, 1);
-        return format(monthDate, 'MMMM, yyyy');
-    }, [trackMonthIndex, trackYear]);
+    const chartGroups = useMemo(() => {
+        const labels = new Map();
+        for (const month of trackMonths) {
+            for (const group of month.groups || []) {
+                const key = String(group.key || group.label || '').trim();
+                if (!key || labels.has(key)) continue;
+                labels.set(key, group.label || key);
+            }
+        }
+        const list = [...labels.entries()].map(([key, label]) => ({ key, label }));
+        if (groupKey && groupKey !== 'all') {
+            const found = list.find((row) => row.key === groupKey);
+            return found ? [found] : [{ key: groupKey, label: groupKey }];
+        }
+        return list;
+    }, [groupKey, trackMonths]);
 
     const chartData = useMemo(
         () =>
             trackMonths.map((item) => {
-                const authorizedLeave = Number(item.authorizedLeave) || 0;
-                const unauthorizedLeave = Number(item.unauthorizedLeave) || 0;
-                const sickLeave = Number(item.sickLeave) || 0;
-                const compoffLeave = Number(item.compoffLeave) || 0;
-                const annualLeave = Number(item.annualLeave) || 0;
-                const total =
-                    Number(item.total) ||
-                    authorizedLeave + unauthorizedLeave + sickLeave + compoffLeave + annualLeave;
-
-                return {
-                    month: item.month,
-                    total,
-                    authorizedLeave,
-                    unauthorizedLeave,
-                    sickLeave,
-                    compoffLeave,
-                    annualLeave,
-                };
+                const row = { month: item.month };
+                if (chartGroups.length) {
+                    for (const group of chartGroups) {
+                        const found = (item.groups || []).find(
+                            (entry) => String(entry.key || entry.label || '') === group.key,
+                        );
+                        row[group.key] = Number(found?.total) || 0;
+                    }
+                } else {
+                    row.total = Number(item.total) || 0;
+                }
+                return row;
             }),
-        [trackMonths],
+        [chartGroups, trackMonths],
     );
 
-    const shiftTrackMonth = useCallback(
+    const shiftTrackYear = useCallback(
         (direction) => {
-            setTrackMonthIndex((current) => {
-                const next = current + direction;
-                if (next < 0) {
-                    const prevYear = trackYear - 1;
-                    setTrackYear(prevYear);
-                    onYearChange?.(prevYear);
-                    return 11;
-                }
-                if (next > 11) {
-                    const nextYear = trackYear + 1;
-                    setTrackYear(nextYear);
-                    onYearChange?.(nextYear);
-                    return 0;
-                }
-                return next;
-            });
+            if (isAllYear) return;
+            const nextYear = Number(trackYear) + direction;
+            if (nextYear < trackMinYear || nextYear > trackMaxYear) return;
+            setTrackYear(nextYear);
+            onYearChange?.(nextYear);
+            fetchTeamTrack(nextYear);
         },
-        [onYearChange, trackYear],
+        [fetchTeamTrack, isAllYear, onYearChange, trackMaxYear, trackMinYear, trackYear],
     );
 
     return (
         <div className="mb-5 space-y-5">
+            <style>{`
+                @keyframes leave-approval-blink {
+                    0%, 100% { background-color: #DBEAFE; }
+                    50% { background-color: #93C5FD; }
+                }
+                .leave-approval-row-blink {
+                    animation: leave-approval-blink 0.4s ease-in-out 4;
+                }
+            `}</style>
             <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <h3 className="text-[15px] font-semibold text-[#111827]">Leave Availability</h3>
                         {displayEmployeeName ? (
                             <p className="mt-1 text-xs text-[#6B7280]">
-                                {selectedYear} days taken for{' '}
+                                {yearLabel} days taken for{' '}
                                 <span className="font-semibold text-[#111827]">{displayEmployeeName}</span>
                                 {availabilityLoading ? ' · updating…' : ''}
                             </p>
                         ) : (
                             <p className="mt-1 text-xs text-[#6B7280]">
-                                Select an employee to view sick, authorize, unauthorized, comp off, and annual
-                                leave for {selectedYear}
+                                {yearLabel} days taken for the team. Calendar shows everyone on leave
+                                {statusFilter !== ALL_LEAVE_STATUS ? ' · filtered' : ''}
                             </p>
                         )}
                     </div>
@@ -458,39 +835,23 @@ export default function LeaveDashboard({
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => scrollAvailability(-1)}
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[#6B7280] hover:bg-[#F3F4F6]"
-                        aria-label="Scroll leave cards left"
-                    >
-                        <ChevronLeft size={18} />
-                    </button>
-
-                    <div
-                        ref={availabilityScrollRef}
-                        className="flex min-w-0 flex-1 gap-3 overflow-x-auto scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                    >
-                        {AVAILABILITY_CARDS.map((card) => (
-                            <LeaveAvailabilityRing
-                                key={card.key}
-                                label={card.label}
-                                taken={availability[card.key]}
-                                color={card.color}
-                                track={card.track}
-                            />
-                        ))}
-                    </div>
-
-                    <button
-                        type="button"
-                        onClick={() => scrollAvailability(1)}
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[#6B7280] hover:bg-[#F3F4F6]"
-                        aria-label="Scroll leave cards right"
-                    >
-                        <ChevronRight size={18} />
-                    </button>
+                <div className="flex min-w-0 gap-3">
+                    {AVAILABILITY_CARDS.map((card) => (
+                        <LeaveAvailabilityRing
+                            key={card.key}
+                            label={card.label}
+                            taken={displayAvailability[card.key]}
+                            color={card.color}
+                            track={card.track}
+                            selected={statusFilter === card.statusKey}
+                            scale={ringScale}
+                            onClick={() =>
+                                onStatusFilterChange?.(
+                                    statusFilter === card.statusKey ? ALL_LEAVE_STATUS : card.statusKey,
+                                )
+                            }
+                        />
+                    ))}
                 </div>
             </section>
 
@@ -503,6 +864,10 @@ export default function LeaveDashboard({
                                 <p className="mt-1 text-xs text-[#6B7280]">
                                     Selected employee:{' '}
                                     <span className="font-semibold text-[#111827]">{displayEmployeeName}</span>
+                                </p>
+                            ) : selectedFromLabel || selectedToLabel ? (
+                                <p className="mt-1 text-xs text-[#6B7280]">
+                                    Showing all employees on the selected dates
                                 </p>
                             ) : null}
                             {selectedFromLabel || selectedToLabel ? (
@@ -519,16 +884,27 @@ export default function LeaveDashboard({
                                 </p>
                             ) : null}
                         </div>
-                        {canReturnToSource ? (
-                            <button
-                                type="button"
-                                onClick={handleReturnToSource}
-                                className="shrink-0 rounded-md border border-[#D1D5DB] bg-white px-3 py-1.5 text-xs font-semibold text-[#374151] hover:bg-[#F9FAFB]"
-                            >
-                                Back to {sourceDisplayName}
-                                {sourceFromLabel && sourceToLabel ? ` (${sourceFromLabel} - ${sourceToLabel})` : ''}
-                            </button>
-                        ) : null}
+                        <div className="flex shrink-0 items-center gap-2">
+                            {sortedPendingItems.length > APPROVAL_PREVIEW_LIMIT ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setApprovalModalOpen(true)}
+                                    className="text-xs font-semibold text-[#2563EB] hover:underline"
+                                >
+                                    See more
+                                </button>
+                            ) : null}
+                            {canReturnToSource ? (
+                                <button
+                                    type="button"
+                                    onClick={handleReturnToSource}
+                                    className="rounded-md border border-[#D1D5DB] bg-white px-3 py-1.5 text-xs font-semibold text-[#374151] hover:bg-[#F9FAFB]"
+                                >
+                                    Back to {sourceDisplayName}
+                                    {sourceFromLabel && sourceToLabel ? ` (${sourceFromLabel} - ${sourceToLabel})` : ''}
+                                </button>
+                            ) : null}
+                        </div>
                     </div>
                     {pendingError ? (
                         <div className="mb-3">
@@ -554,101 +930,49 @@ export default function LeaveDashboard({
                                             Loading leave requests...
                                         </td>
                                     </tr>
-                                ) : sortedPendingItems.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={6} className="px-2 py-8 text-center text-[#6B7280]">
-                                            No pending leave requests for {selectedYear}.
-                                        </td>
-                                    </tr>
                                 ) : (
-                                    sortedPendingItems.map((row) => {
-                                        const selected = isRowSelected(row);
-                                        const employeeMatch = isEmployeeHighlighted(row);
-
-                                        return (
-                                            <tr
-                                                key={row.id}
-                                                role="button"
-                                                tabIndex={0}
-                                                onClick={() => handleRowSelect(row)}
-                                                onKeyDown={(event) => {
-                                                    if (event.key === 'Enter' || event.key === ' ') {
-                                                        event.preventDefault();
-                                                        handleRowSelect(row);
-                                                    }
-                                                }}
-                                                className={`border-b border-[#F3F4F6] text-[#374151] cursor-pointer transition-colors hover:bg-[#F3F4F6] ${
-                                                    selected
-                                                        ? 'bg-[#ECEFF3] ring-1 ring-inset ring-[#9CA3AF]'
-                                                        : employeeMatch
-                                                          ? 'bg-[#F9FAFB]'
-                                                          : ''
-                                                }`}
-                                            >
-                                                <td className="px-2 py-3 font-medium text-[#111827]">{row.name}</td>
-                                                <td className="px-2 py-3">{row.leaveType}</td>
-                                                <td className="px-2 py-3">{row.startDate}</td>
-                                                <td className="px-2 py-3">{row.endDate}</td>
-                                                <td className="px-2 py-3">
-                                                    <span className="rounded-full bg-[#FEF3C7] px-2.5 py-1 text-xs font-semibold text-[#B45309]">
-                                                        {row.status}
-                                                    </span>
-                                                </td>
-                                                <td className="px-2 py-3">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <button
-                                                            type="button"
-                                                            disabled={decidingId === row.id}
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                handleDecide(row, 'approved');
-                                                            }}
-                                                            className="flex h-7 w-7 items-center justify-center rounded-md bg-[#22C55E] text-white disabled:opacity-50"
-                                                            aria-label="Approve"
-                                                        >
-                                                            <Check size={14} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            disabled={decidingId === row.id}
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                handleDecide(row, 'rejected');
-                                                            }}
-                                                            className="flex h-7 w-7 items-center justify-center rounded-md bg-[#EF4444] text-white disabled:opacity-50"
-                                                            aria-label="Reject"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
+                                    <LeaveApprovalTable
+                                        rows={previewApprovalItems}
+                                        decidingId={decidingId}
+                                        isRowSelected={isRowSelected}
+                                        isEmployeeHighlighted={isEmployeeHighlighted}
+                                        onRowSelect={handleRowSelect}
+                                        onDecide={handleDecide}
+                                        onAccept={handleAccept}
+                                        onEdit={handleEdit}
+                                        blinkRowId={blinkRowId}
+                                        emptyLabel={`No leave requests${isAllYear ? '' : ` for ${selectedYear}`}.`}
+                                    />
                                 )}
                             </tbody>
                         </table>
                     </div>
                 </section>
 
-                <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
+                <section className="self-end rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm sm:p-5">
                     <div className="mb-3 flex items-center justify-between">
                         <h3 className="text-[15px] font-semibold text-[#111827]">Team Leave Track</h3>
                         <div className="flex items-center gap-2 text-xs text-[#6B7280]">
                             <button
                                 type="button"
-                                onClick={() => shiftTrackMonth(-1)}
-                                className="rounded p-0.5 hover:bg-[#F3F4F6]"
-                                aria-label="Previous month"
+                                onClick={() => shiftTrackYear(-1)}
+                                disabled={isAllYear || Number(trackYear) <= trackMinYear}
+                                className="rounded p-0.5 hover:bg-[#F3F4F6] disabled:cursor-default disabled:opacity-40"
+                                aria-label="Previous year"
                             >
                                 <ChevronLeft size={16} />
                             </button>
-                            <span>{chartMonthLabel}</span>
+                            <span>
+                                {isAllLeaveYear(trackYear)
+                                    ? trackRangeLabel || 'Last 12 months'
+                                    : trackYear}
+                            </span>
                             <button
                                 type="button"
-                                onClick={() => shiftTrackMonth(1)}
-                                className="rounded p-0.5 hover:bg-[#F3F4F6]"
-                                aria-label="Next month"
+                                onClick={() => shiftTrackYear(1)}
+                                disabled={isAllYear || Number(trackYear) >= trackMaxYear}
+                                className="rounded p-0.5 hover:bg-[#F3F4F6] disabled:cursor-default disabled:opacity-40"
+                                aria-label="Next year"
                             >
                                 <ChevronRight size={16} />
                             </button>
@@ -656,20 +980,21 @@ export default function LeaveDashboard({
                     </div>
                     {trackError ? (
                         <div className="mb-3">
-                            <ErpErrorBanner message={trackError} onRetry={() => fetchTeamTrack(trackYear)} />
+                            <ErpErrorBanner message={trackError} onRetry={() => fetchTeamTrack(isAllYear ? ALL_LEAVE_YEAR : trackYear)} />
                         </div>
                     ) : null}
-                    <div className="h-[220px] w-full">
+                    <div className="h-[220px] w-full min-h-[220px] min-w-0">
                         {trackLoading ? (
                             <div className="flex h-full items-center justify-center text-sm text-[#6B7280]">
                                 Loading team leave track...
                             </div>
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                                 <BarChart
                                     data={chartData}
                                     margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
-                                    barCategoryGap={28}
+                                    barCategoryGap="42%"
+                                    barGap={1}
                                 >
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                                     <XAxis
@@ -677,6 +1002,7 @@ export default function LeaveDashboard({
                                         tick={{ fontSize: 11, fill: '#9CA3AF' }}
                                         axisLine={false}
                                         tickLine={false}
+                                        interval={0}
                                     />
                                     <YAxis
                                         tick={{ fontSize: 11, fill: '#9CA3AF' }}
@@ -691,22 +1017,108 @@ export default function LeaveDashboard({
                                         }}
                                     />
                                     <Tooltip
-                                        formatter={(value) => [Number(value) || 0, 'Total leave taken']}
+                                        formatter={(value, name) => [Number(value) || 0, name]}
                                         contentStyle={{ borderRadius: 10, borderColor: '#E5E7EB' }}
                                     />
-                                    <Bar
-                                        dataKey="total"
-                                        name="Total leave taken"
-                                        fill="#2563EB"
-                                        radius={[4, 4, 0, 0]}
-                                        barSize={18}
-                                    />
+                                    {chartGroups.length ? (
+                                        <Legend
+                                            wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                                            iconType="circle"
+                                            iconSize={8}
+                                        />
+                                    ) : null}
+                                    {chartGroups.length
+                                        ? chartGroups.map((group, index) => (
+                                              <Bar
+                                                  key={group.key}
+                                                  dataKey={group.key}
+                                                  name={group.label}
+                                                  fill={GROUP_BAR_COLORS[index % GROUP_BAR_COLORS.length]}
+                                                  radius={[2, 2, 0, 0]}
+                                                  barSize={7}
+                                                  maxBarSize={7}
+                                                  minPointSize={6}
+                                              />
+                                          ))
+                                        : (
+                                              <Bar
+                                                  dataKey="total"
+                                                  name="Total leave taken"
+                                                  fill="#2563EB"
+                                                  radius={[2, 2, 0, 0]}
+                                                  barSize={7}
+                                                  maxBarSize={7}
+                                                  minPointSize={6}
+                                              />
+                                          )}
                                 </BarChart>
                             </ResponsiveContainer>
                         )}
                     </div>
                 </section>
             </div>
+            {approvalModalOpen && typeof document !== 'undefined'
+                ? createPortal(
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                        <button
+                            type="button"
+                            aria-label="Close leave requests"
+                            className="absolute inset-0 bg-black/30"
+                            onClick={() => setApprovalModalOpen(false)}
+                        />
+                        <div className="relative z-[101] flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl">
+                            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-5 py-4">
+                                <h3 className="text-[15px] font-semibold text-[#111827]">Leave Approval</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setApprovalModalOpen(false)}
+                                    className="rounded-md px-2 py-1 text-sm font-semibold text-[#6B7280] hover:bg-[#F3F4F6]"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-auto p-4">
+                                <table className="w-full min-w-[620px] text-left text-sm">
+                                    <thead>
+                                        <tr className="border-b border-[#E5E7EB] text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+                                            <th className="px-2 py-2">Name</th>
+                                            <th className="px-2 py-2">Leave Type</th>
+                                            <th className="px-2 py-2">Start Date</th>
+                                            <th className="px-2 py-2">End Date</th>
+                                            <th className="px-2 py-2">Status</th>
+                                            <th className="px-2 py-2 text-center">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <LeaveApprovalTable
+                                            rows={sortedPendingItems}
+                                            decidingId={decidingId}
+                                            isRowSelected={isRowSelected}
+                                            isEmployeeHighlighted={isEmployeeHighlighted}
+                                            onRowSelect={(row) => {
+                                                handleRowSelect(row);
+                                                setApprovalModalOpen(false);
+                                            }}
+                                            onDecide={handleDecide}
+                                            onAccept={(row) => {
+                                                setApprovalModalOpen(false);
+                                                handleAccept(row);
+                                            }}
+                                            onEdit={(row) => {
+                                                setApprovalModalOpen(false);
+                                                handleEdit(row);
+                                            }}
+                                            blinkRowId={blinkRowId}
+                                            emptyLabel={`No leave requests${isAllYear ? '' : ` for ${selectedYear}`}.`}
+                                        />
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body,
+                )
+                : null}
         </div>
     );
 }

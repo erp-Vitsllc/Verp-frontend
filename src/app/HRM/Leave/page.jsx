@@ -14,6 +14,10 @@ import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import axiosInstance from '@/utils/axios';
 import { leaveMetaForStatus } from './utils/leaveCalendarUtils';
+import {
+    filterLeaveEntriesBySalary,
+    useLeaveSalaryVisibility,
+} from './utils/leaveSalaryVisibility';
 import useWorkLocations from '@/hooks/useWorkLocations';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
 
@@ -270,13 +274,14 @@ export default function LeavePage() {
     const router = useRouter();
     const { tabs: staffTabs } = useWorkLocations();
     const [rows, setRows] = useState([]);
+    const salaryVisibility = useLeaveSalaryVisibility();
     const [detailLeaves, setDetailLeaves] = useState([]);
     const [loading, setLoading] = useState(true);
     const [detailLoading, setDetailLoading] = useState(false);
     const [error, setError] = useState('');
     const [sortKey, setSortKey] = useState('slNo');
     const [sortDirection, setSortDirection] = useState('asc');
-    const [staffTab, setStaffTab] = useState('office');
+    const [staffTab, setStaffTab] = useState('all');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [periodKey, setPeriodKey] = useState('current_month');
     const [customFromMonth, setCustomFromMonth] = useState(() => `${new Date().getFullYear()}-01`);
@@ -370,7 +375,7 @@ export default function LeavePage() {
                 'compoff_leave',
                 'on_leave',
             ]);
-            const filtered = entries
+            const filtered = filterLeaveEntriesBySalary(entries, salaryVisibility)
                 .filter((entry) => String(entry.employeeMongoId || '') === String(selectedEmployeeId))
                 .filter((entry) => !entry.isPending)
                 .filter((entry) => leaveStatusKeys.has(String(entry.statusKey || '')))
@@ -388,7 +393,7 @@ export default function LeavePage() {
         } finally {
             setDetailLoading(false);
         }
-    }, [periodRange.from, periodRange.to, selectedEmployeeId]);
+    }, [periodRange.from, periodRange.to, salaryVisibility, selectedEmployeeId]);
 
     useEffect(() => {
         fetchEmployeeLeaves();
@@ -447,23 +452,33 @@ export default function LeavePage() {
         setCustomModalOpen(false);
     }, [draftFromMonth, draftToMonth]);
 
+    const enrolledRows = useMemo(() => {
+        if (!salaryVisibility.ready) return rows;
+        return rows.filter(
+            (row) =>
+                salaryVisibility.byMongoId.has(String(row._id || '')) ||
+                salaryVisibility.byEmployeeId.has(String(row.employeeId || '').trim()),
+        );
+    }, [rows, salaryVisibility]);
+
     const employeeOptions = useMemo(
         () => [
             { value: '', label: 'All employees' },
-            ...rows.map((row) => ({
+            ...enrolledRows.map((row) => ({
                 value: row._id,
                 label: `${row.employeeName || 'Employee'}${row.employeeId ? ` (${row.employeeId})` : ''}`,
             })),
         ],
-        [rows],
+        [enrolledRows],
     );
 
     const selectedEmployeeOption =
         employeeOptions.find((option) => option.value === selectedEmployeeId) || employeeOptions[0];
 
     const filteredRows = useMemo(() => {
-        return rows.filter((row) => normalizeStaffType(row.staffType) === staffTab);
-    }, [rows, staffTab]);
+        if (staffTab === 'all') return enrolledRows;
+        return enrolledRows.filter((row) => normalizeStaffType(row.staffType) === staffTab);
+    }, [enrolledRows, staffTab]);
 
     const sortedRows = useMemo(() => {
         const list = [...filteredRows];
@@ -604,6 +619,17 @@ export default function LeavePage() {
                         <div className="mt-3 mb-3 space-y-2">
                             {!isEmployeeFiltered ? (
                                 <div className="flex items-center gap-2 overflow-x-auto rounded-xl border border-gray-100 bg-white p-1 w-full sm:w-fit">
+                                    <button
+                                        type="button"
+                                        onClick={() => setStaffTab('all')}
+                                        className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${
+                                            staffTab === 'all'
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'text-slate-500 hover:bg-slate-50 hover:text-blue-600'
+                                        }`}
+                                    >
+                                        All
+                                    </button>
                                     {staffTabs.map((tab) => (
                                         <button
                                             key={tab.key}
@@ -786,9 +812,11 @@ export default function LeavePage() {
                                                 >
                                                     {isEmployeeFiltered
                                                         ? 'No leave days found for this employee in the selected period.'
-                                                        : staffTab === 'site'
-                                                          ? 'No site staffs found.'
-                                                          : 'No office staff found.'}
+                                                        : staffTab === 'all'
+                                                          ? 'No employees found.'
+                                                          : staffTab === 'site'
+                                                            ? 'No site staffs found.'
+                                                            : 'No staff found.'}
                                                 </td>
                                             </tr>
                                         ) : isEmployeeFiltered ? (

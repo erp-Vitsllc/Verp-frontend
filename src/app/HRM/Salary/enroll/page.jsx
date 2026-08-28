@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Loader2, Pencil } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -15,7 +16,7 @@ import { normalizeWorkLocationKey } from '@/utils/workLocations';
 import SalaryHeaderActions from '../components/SalaryHeaderActions';
 import SalaryPolicyFields from '../components/SalaryPolicyFields';
 import { EMPTY_POLICY_FORM, policyFormFromApi } from '../utils/salaryPolicyForm';
-import NavButton from '@/components/NavButton';
+import NavButton, { getNavClickHandlers } from '@/components/NavButton';
 
 const INNER_TABS = [
     { key: 'employees', label: 'Employees' },
@@ -33,6 +34,7 @@ function formatSalaryStart(value) {
 
 export default function EnrollSalaryPage() {
     const { toast } = useToast();
+    const router = useRouter();
     const { tabs } = useWorkLocations();
     const [staffTab, setStaffTab] = useState('');
     const [innerTab, setInnerTab] = useState('employees');
@@ -271,8 +273,18 @@ export default function EnrollSalaryPage() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                rows.map((row) => (
-                                                    <tr key={row.employeeId} className="hover:bg-slate-50">
+                                                rows.map((row) => {
+                                                    const setupHref = `/HRM/Salary/enroll/${encodeURIComponent(row.employeeId)}`;
+                                                    return (
+                                                        <tr
+                                                            key={row.employeeId}
+                                                            className="hover:bg-slate-50 cursor-pointer"
+                                                            {...getNavClickHandlers({
+                                                                href: setupHref,
+                                                                router,
+                                                                listReturnHref: '/HRM/Salary/enroll',
+                                                            })}
+                                                        >
                                                         <td className="px-3 sm:px-4 py-2.5 font-medium text-slate-800">
                                                             <div className="min-w-0">
                                                                 <div className="truncate">{row.name || '—'}</div>
@@ -299,7 +311,7 @@ export default function EnrollSalaryPage() {
                                                         </td>
                                                         <td className="px-3 sm:px-4 py-2.5 text-right">
                                                             <NavButton
-                                                                href={`/HRM/Salary/enroll/${encodeURIComponent(row.employeeId)}`}
+                                                                href={setupHref}
                                                                 listReturnHref="/HRM/Salary/enroll"
                                                                 className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-gray-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-blue-600 no-underline"
                                                             >
@@ -307,8 +319,9 @@ export default function EnrollSalaryPage() {
                                                                 Edit
                                                             </NavButton>
                                                         </td>
-                                                    </tr>
-                                                ))
+                                                        </tr>
+                                                    );
+                                                })
                                             )}
                                         </tbody>
                                     </table>
