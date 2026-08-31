@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { ATTENDANCE_CHECK_CHANGED } from './DashboardCheckInOutCard';
 import { dashboardItem } from './dashboardMotion';
 import { DashboardCard, SectionHeader } from './ui';
-import DashboardSalaryEnrollLock from './DashboardSalaryEnrollLock';
+import DashboardSalaryEnrollLock, { salaryLockFromAttendancePayload } from './DashboardSalaryEnrollLock';
 
 const EMPTY_COUNTS = {
     on_leave: 0,
@@ -144,7 +144,9 @@ export default function DashboardMyLeaveCard() {
     const [customMonth, setCustomMonth] = useState(currentMonthKey);
     const [counts, setCounts] = useState(EMPTY_COUNTS);
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
+    const [leaveBalances, setLeaveBalances] = useState({});
     const [salaryLocked, setSalaryLocked] = useState(false);
+    const [salaryLockMessage, setSalaryLockMessage] = useState('');
 
     const query = queryForFilter(filterKey, customMonth);
 
@@ -158,14 +160,19 @@ export default function DashboardMyLeaveCard() {
                     skipToast: true,
                 });
                 if (cancelled || !res?.data) return;
-                if (res.data.salaryEnrolled === false) {
+                const lock = salaryLockFromAttendancePayload(res.data);
+                if (lock.locked) {
                     setSalaryLocked(true);
+                    setSalaryLockMessage(lock.message);
                     setCounts(EMPTY_COUNTS);
                     setSummary(EMPTY_SUMMARY);
+                    setLeaveBalances({});
                     return;
                 }
                 setSalaryLocked(false);
+                setSalaryLockMessage('');
                 setCounts({ ...EMPTY_COUNTS, ...(res.data.counts || {}) });
+                setLeaveBalances(res.data.leaveBalances || {});
                 setSummary({
                     presentDays: n(res.data.presentDays),
                     absentDays: n(res.data.absentDays),
@@ -180,8 +187,10 @@ export default function DashboardMyLeaveCard() {
             } catch {
                 if (!cancelled) {
                     setSalaryLocked(false);
+                    setSalaryLockMessage('');
                     setCounts(EMPTY_COUNTS);
                     setSummary(EMPTY_SUMMARY);
+                    setLeaveBalances({});
                 }
             }
         };
@@ -200,6 +209,7 @@ export default function DashboardMyLeaveCard() {
     const detailValue = (key) => {
         if (key === 'late_group') return lateGroup;
         if (key === 'annual_leave') return formatLeaveDate(summary.lastAnnualLeaveDate);
+        if (leaveBalances[key]?.taken != null) return n(leaveBalances[key].taken);
         return n(counts[key]);
     };
 
@@ -210,7 +220,23 @@ export default function DashboardMyLeaveCard() {
             if (!paid && !unpaid) return '';
             return `Paid ${paid} · Unpaid ${unpaid}`;
         }
-        if (key === 'annual_leave') return summary.lastAnnualLeaveDate ? 'Last taken' : 'Not taken';
+        if (key === 'sick_leave') {
+            const remaining = leaveBalances.sick_leave?.remaining;
+            return remaining == null ? '' : `${remaining} remaining this year`;
+        }
+        if (key === 'unauthorized_leave') {
+            const deduction = leaveBalances.unauthorized_leave?.deductionDays;
+            const multiplier = leaveBalances.unauthorized_leave?.multiplier;
+            if (multiplier != null && Number(multiplier) !== 1) {
+                return `Policy deduction ${deduction} days`;
+            }
+            return '';
+        }
+        if (key === 'annual_leave') {
+            const remaining = leaveBalances.on_leave?.remaining;
+            const last = summary.lastAnnualLeaveDate ? 'Last taken' : 'Not taken';
+            return remaining == null ? last : `${remaining} remaining this year`;
+        }
         return '';
     };
 
@@ -291,7 +317,7 @@ export default function DashboardMyLeaveCard() {
                     );
                 })}
             </div>
-            <DashboardSalaryEnrollLock locked={salaryLocked} />
+            <DashboardSalaryEnrollLock locked={salaryLocked} message={salaryLockMessage} />
         </DashboardCard>
     );
 }

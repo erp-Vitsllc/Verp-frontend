@@ -7,6 +7,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import ErpPageHeader from '@/components/ErpPageHeader';
+import NavButton from '@/components/NavButton';
 import LeaveCalendarView from '../components/LeaveCalendarView';
 import LeaveDashboard, { ALL_LEAVE_STATUS } from '../components/LeaveDashboard';
 import LeaveGroupFilterDropdown, { ALL_LEAVE_GROUP } from '../components/LeaveGroupFilterDropdown';
@@ -29,6 +30,7 @@ import useWorkLocations from '@/hooks/useWorkLocations';
 import { normalizeWorkLocationKey, workLocationLabel } from '@/utils/workLocations';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
+import { navigateFromList } from '@/utils/listReturnNavigation';
 
 function mapEmployeeRow(emp) {
     return {
@@ -56,6 +58,11 @@ function normalizeLeaveMode(value) {
     if (raw === 'authorize') return 'authorized';
     if (['annual', 'authorized', 'unauthorized', 'sick', 'compoff'].includes(raw)) return raw;
     return 'annual';
+}
+
+function applyLeaveMode(value) {
+    const mode = normalizeLeaveMode(value);
+    return mode === 'authorized' ? 'authorized' : 'annual';
 }
 
 function leaveModeFromStatusKey(statusKey) {
@@ -163,6 +170,18 @@ function AnnualLeavePageContent() {
         if (filterGroup === ALL_LEAVE_GROUP) return null;
         return new Set(groupEmployees.map((row) => String(row._id)));
     }, [filterGroup, groupEmployees]);
+
+    const selectedFilterEmployee = useMemo(
+        () => enrolledEmployees.find((row) => String(row._id) === String(employeeId)) || null,
+        [employeeId, enrolledEmployees],
+    );
+    const selectedEmployeeCode = String(selectedFilterEmployee?.employeeId || '').trim();
+    const leaveDashboardReturnHref = leaveDashboardHref({
+        employeeId,
+        employeeName,
+        from,
+        to,
+    });
 
     const clearDashboardEmployee = useCallback(() => {
         router.replace(leaveDashboardHref({ from, to }));
@@ -279,7 +298,9 @@ function AnnualLeavePageContent() {
                     from: startDate,
                     to: endDate,
                     leavePayType: 'paid',
-                    leaveType: normalizeLeaveMode(leaveMode),
+                    leaveType: attendanceId
+                        ? normalizeLeaveMode(leaveMode)
+                        : applyLeaveMode(leaveMode),
                     ...(attendanceId ? { attendanceId } : {}),
                     ...(approve ? { approve: true } : {}),
                     ...(reject ? { reject: true } : {}),
@@ -500,6 +521,25 @@ function AnnualLeavePageContent() {
         [router],
     );
 
+    const handleApprovalRowOpenPortal = useCallback(
+        (row) => {
+            const listed = enrolledEmployees.find(
+                (emp) => String(emp._id) === String(row?.employeeMongoId || ''),
+            );
+            const code =
+                String(row?.employeeId || '').trim() ||
+                String(listed?.employeeId || '').trim() ||
+                String(row?.employeeMongoId || '').trim();
+            if (!code) return;
+            navigateFromList(
+                router,
+                `/emp/${encodeURIComponent(code)}`,
+                leaveDashboardReturnHref,
+            );
+        },
+        [enrolledEmployees, leaveDashboardReturnHref, router],
+    );
+
     const leaveBarClickTimerRef = useRef(null);
 
     const handleCalendarLeaveClick = useCallback((span) => {
@@ -613,16 +653,17 @@ function AnnualLeavePageContent() {
     return (
         <PermissionGuard moduleId="hrm_leave" permissionType="view">
             <div
-                className="flex min-h-screen w-full max-w-full overflow-x-hidden"
+                className="flex h-screen min-h-0 w-full max-w-full overflow-hidden"
                 style={{ backgroundColor: '#F2F6F9' }}
             >
                 <Sidebar />
-                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
+                <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden">
                     <Navbar />
                     <div
-                        className="p-3 sm:p-5 lg:p-8 w-full max-w-full overflow-x-hidden"
+                        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 sm:px-5 lg:px-8"
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
+                        <section className="flex min-h-full flex-col py-3 sm:py-5 lg:py-8">
                         <ErpPageHeader title="Leave Dashboard">
                             <div className="flex flex-wrap items-center gap-3">
                             <button
@@ -667,6 +708,24 @@ function AnnualLeavePageContent() {
                                 onSelectEmployee={handleSelectGroupEmployee}
                                 onReturn={handleReturnToGroups}
                             />
+                            {selectedEmployeeCode ? (
+                                <>
+                                    <NavButton
+                                        href={`/emp/${encodeURIComponent(selectedEmployeeCode)}?tab=salary`}
+                                        listReturnHref={leaveDashboardReturnHref}
+                                        className="inline-flex items-center rounded-lg border border-[#DDE3EA] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm hover:bg-slate-50"
+                                    >
+                                        Salary History
+                                    </NavButton>
+                                    <NavButton
+                                        href={`/emp/${encodeURIComponent(selectedEmployeeCode)}`}
+                                        listReturnHref={leaveDashboardReturnHref}
+                                        className="inline-flex items-center rounded-lg border border-[#DDE3EA] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm hover:bg-slate-50"
+                                    >
+                                        Portal
+                                    </NavButton>
+                                </>
+                            ) : null}
                             </div>
                         </ErpPageHeader>
 
@@ -694,11 +753,14 @@ function AnnualLeavePageContent() {
                             refreshKey={dashboardRefreshKey}
                             onDataChanged={() => setDashboardRefreshKey((value) => value + 1)}
                             onApprovalRowSelect={handleApprovalRowSelect}
+                            onApprovalRowOpenPortal={handleApprovalRowOpenPortal}
                             onAcceptRequest={handleAcceptRequest}
                             onEditRequest={handleEditRequest}
                             calendarLeaveFocus={calendarLeaveFocus}
                         />
+                        </section>
 
+                        <section className="flex min-h-full flex-col pb-3 sm:pb-5 lg:pb-8">
                         <LeaveCalendarView
                             employeeId={employeeId}
                             from={from}
@@ -717,9 +779,11 @@ function AnnualLeavePageContent() {
                             refreshKey={dashboardRefreshKey}
                             confirming={confirming}
                             hideDraft
+                            fillViewport
                             onLeaveBarClick={handleCalendarLeaveClick}
                             onLeaveBarDoubleClick={handleCalendarLeaveDoubleClick}
                         />
+                        </section>
                     </div>
                 </div>
             </div>

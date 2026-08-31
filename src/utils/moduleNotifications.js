@@ -118,7 +118,9 @@ function pendingInboxToItem(row, moduleCategory) {
                 row?.extra2 ||
                 row?.message ||
                 (moduleCategory === 'Salary'
-                    ? 'Salary profile approval'
+                    ? String(row?.requestType || '').trim() === 'Salary DMF Approval'
+                        ? 'DMF approval'
+                        : 'Salary profile approval'
                     : moduleCategory === 'Leave'
                     ? 'Leave request'
                     : moduleCategory === 'Attendance'
@@ -635,6 +637,7 @@ export function mergeUserStatsWithModuleBundle(userStatsItems = [], bundle) {
         'Attendance Leave Request',
         'Employee Leave Request',
         'Salary Enrollment',
+        'Salary DMF Approval',
         'Vehicle Service Request',
         'Vehicle Profile Activation',
         'Vehicle Profile Edit',
@@ -759,7 +762,10 @@ export function prepareCommandCenterItemsForEmployee(userStatsItems = [], statsD
     const paymentPending = pending.filter((i) => String(i?.type || '').trim() === 'Payment Approval');
     const rewardPending = pending.filter((i) => String(i?.type || '').trim() === 'Reward');
     const loanPending = pending.filter((i) => isLoanNotification(i));
-    const salaryPending = pending.filter((i) => String(i?.type || '').trim() === 'Salary Enrollment');
+    const salaryPending = pending.filter((i) => {
+        const t = String(i?.type || '').trim();
+        return t === 'Salary Enrollment' || t === 'Salary DMF Approval';
+    });
     const toolsPending = pending.filter((i) => isToolsAssetInboxRow(i));
     const utilityPending = pending.filter((i) => isUtilityBillInboxRow(i));
     const vehiclePending = pending.filter((i) => isVehicleAssetInboxRow(i));

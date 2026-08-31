@@ -22,9 +22,39 @@ export const HR_RULE_CHECKS = [
     { key: 'loan', label: 'Pending Loan' },
     { key: 'reward', label: 'Pending Reward' },
     { key: 'sandwichLeave', label: 'Sandwich leave applicable on salary' },
+    { key: 'allowedSickLeavePerYear', label: 'Allowed sick leave per year' },
 ];
 
 export const REMINDER_DAY_OPTIONS = ['5', '10', '20', '30'];
+
+export function reminderDayCount(value) {
+    const n = Number(value);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+export function chainedReminderDayOptions(reminders, index) {
+    if (index <= 0) return REMINDER_DAY_OPTIONS;
+    const prev = reminderDayCount(reminders?.[index - 1]?.daysBefore);
+    if (index === 1) {
+        if (prev < 2) return [];
+        return Array.from({ length: prev - 1 }, (_, i) => String(i + 1));
+    }
+    if (prev < 1) return [];
+    return Array.from({ length: prev }, (_, i) => String(i + 1));
+}
+
+export function clampChainedReminderDays(rows) {
+    const next = (Array.isArray(rows) ? rows : []).map((row) => ({ ...row }));
+    const allowedSecond = new Set(chainedReminderDayOptions(next, 1));
+    if (next[1] && !allowedSecond.has(String(next[1].daysBefore || ''))) {
+        next[1] = { ...next[1], daysBefore: '' };
+    }
+    const allowedThird = new Set(chainedReminderDayOptions(next, 2));
+    if (next[2] && !allowedThird.has(String(next[2].daysBefore || ''))) {
+        next[2] = { ...next[2], daysBefore: '' };
+    }
+    return next;
+}
 export const REMINDER_FOR_WHOM_OPTIONS = [
     { value: 'wfAccounts', label: 'WF Accounts' },
     { value: 'wfHr', label: 'WF HR' },
@@ -85,6 +115,7 @@ export const EMPTY_POLICY_FORM = {
     workingDaysRequiredForAirTicket: '',
     authorizedLeaveDeductionDays: '',
     unauthorizedLeaveDeductionDays: '',
+    allowedSickLeaveDaysPerYear: '',
     lateInRules: [{ minutes: '', events: '', deduct: '' }],
     lateOutRules: [{ minutes: '', events: '', deduct: '' }],
     extraLateRules: [],
@@ -162,6 +193,7 @@ export function policyFormFromApi(data) {
         workingDaysRequiredForAirTicket: data?.workingDaysRequiredForAirTicket ?? '',
         authorizedLeaveDeductionDays: data?.authorizedLeaveDeductionDays ?? '',
         unauthorizedLeaveDeductionDays: data?.unauthorizedLeaveDeductionDays ?? '',
+        allowedSickLeaveDaysPerYear: data?.allowedSickLeaveDaysPerYear ?? '',
         lateInRules: toSingleLateRuleRow(data?.lateInRules),
         lateOutRules: toSingleLateRuleRow(data?.lateOutRules),
         extraLateRules: toExtraLateRuleRows(data?.extraLateRules),

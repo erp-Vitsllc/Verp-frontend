@@ -72,7 +72,7 @@ const nextConfig = {
       },
       {
         source: '/favicon.ico',
-        destination: '/favicon.svg',
+        destination: '/favicon.png',
       },
     ];
   },

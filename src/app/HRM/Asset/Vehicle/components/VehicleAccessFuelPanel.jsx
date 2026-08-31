@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import VehicleFuelModal from '@/app/HRM/Asset/Vehicle/components/VehicleFuelModal';
+import VehicleFuelEditButton from '@/app/HRM/Asset/Vehicle/components/VehicleFuelEditButton';
 import VehicleFuelPreviousToggle from '@/app/HRM/Asset/Vehicle/components/VehicleFuelPreviousToggle';
 import { MonthPicker } from '@/components/ui/date-picker';
 import VehicleServiceRequestSortHeader from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRequestSortHeader';
@@ -29,6 +30,7 @@ import {
 import { canAccessAddFuel } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 import {
     formatFuelEntryWhen,
+    latestFuelEntry,
     previousFuelEntries,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFuelPreviousEntries';
 import { isAdmin } from '@/utils/permissions';
@@ -116,6 +118,7 @@ export default function VehicleAccessFuelPanel({
     const [selectedFilter, setSelectedFilter] = useState('added');
     const [formOpen, setFormOpen] = useState(false);
     const [editingBill, setEditingBill] = useState(null);
+    const [editingEntry, setEditingEntry] = useState(null);
     const [sortKey, setSortKey] = useState('vehicleName');
     const [sortDirection, setSortDirection] = useState('asc');
     const [viewingDocument, setViewingDocument] = useState(null);
@@ -214,6 +217,7 @@ export default function VehicleAccessFuelPanel({
 
     const openAdd = () => {
         const defaultVehicleId = notAdded[0]?.vehicleId || vehicles[0]?._id || '';
+        setEditingEntry(null);
         setEditingBill({
             monthKey,
             ...(defaultVehicleId ? { vehicleId: defaultVehicleId } : {}),
@@ -222,6 +226,7 @@ export default function VehicleAccessFuelPanel({
     };
 
     const openEdit = (row) => {
+        setEditingEntry(null);
         if (row?.noFuel) {
             setEditingBill({
                 vehicleId: row.vehicleId,
@@ -235,9 +240,17 @@ export default function VehicleAccessFuelPanel({
         setFormOpen(true);
     };
 
+    const openEditEntry = (row, entry) => {
+        if (row?.noFuel || !entry) return;
+        setEditingBill(row);
+        setEditingEntry(entry);
+        setFormOpen(true);
+    };
+
     const closeForm = () => {
         setFormOpen(false);
         setEditingBill(null);
+        setEditingEntry(null);
     };
 
     const handleSaved = (saved) => {
@@ -434,6 +447,7 @@ export default function VehicleAccessFuelPanel({
                     onSaved={handleSaved}
                     vehicles={vehicles}
                     existingBill={editingBill}
+                    editingEntry={editingEntry}
                     knownBills={[...added, ...notAdded]}
                     canManage={allowManage}
                 />
@@ -481,7 +495,7 @@ export default function VehicleAccessFuelPanel({
                                                 onSort={handleSort}
                                             />
                                         ))}
-                                        <th className="px-4 py-3 whitespace-nowrap text-right w-28">Actions</th>
+                                        <th className="px-4 py-3 whitespace-nowrap text-right w-44">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -494,6 +508,7 @@ export default function VehicleAccessFuelPanel({
                                               ? 'amber'
                                               : null;
                                         const previous = previousFuelEntries(row.entries);
+                                        const currentEntry = latestFuelEntry(row.entries);
                                         const previousOpen = String(openPreviousId) === String(row._id);
                                         const rowElement = (
                                             <tr
@@ -558,6 +573,25 @@ export default function VehicleAccessFuelPanel({
                                                             </button>
                                                         ) : null}
                                                         {allowManage ? (
+                                                            row.noFuel ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation();
+                                                                        openEdit(row);
+                                                                    }}
+                                                                    className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
+                                                                >
+                                                                    Add
+                                                                </button>
+                                                            ) : (
+                                                                <VehicleFuelEditButton
+                                                                    title="Edit current fuel"
+                                                                    onClick={() => openEditEntry(row, currentEntry)}
+                                                                />
+                                                            )
+                                                        ) : null}
+                                                        {allowManage && !row.noFuel ? (
                                                             <button
                                                                 type="button"
                                                                 onClick={(event) => {
@@ -566,7 +600,7 @@ export default function VehicleAccessFuelPanel({
                                                                 }}
                                                                 className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
                                                             >
-                                                                {row.noFuel ? 'Add' : 'Update'}
+                                                                Update
                                                             </button>
                                                         ) : null}
                                                         {allowDelete && !row.noFuel ? (
@@ -616,10 +650,17 @@ export default function VehicleAccessFuelPanel({
                                                           </td>
                                                           <td className="px-4 py-2.5 text-slate-400">{row.vehicleOwner || '—'}</td>
                                                           <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">
-                                                              <span>{formatFuelEntryWhen(entry.createdAt) || row.monthLabel}</span>
-                                                              <span className="ml-2 inline-flex rounded-full bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
-                                                                  {isFirstFuel ? 'First fuel' : 'Previous'}
-                                                              </span>
+                                                              <div className="flex items-center gap-2">
+                                                                  <span>{formatFuelEntryWhen(entry.createdAt) || row.monthLabel}</span>
+                                                                  <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                                                                      {isFirstFuel ? 'First fuel' : 'Previous'}
+                                                                  </span>
+                                                                  {allowManage ? (
+                                                                      <VehicleFuelEditButton
+                                                                          onClick={() => openEditEntry(row, entry)}
+                                                                      />
+                                                                  ) : null}
+                                                              </div>
                                                           </td>
                                                           <td className="px-4 py-2.5 text-slate-400">—</td>
                                                           <td className="px-4 py-2.5 font-black tabular-nums whitespace-nowrap text-slate-700">

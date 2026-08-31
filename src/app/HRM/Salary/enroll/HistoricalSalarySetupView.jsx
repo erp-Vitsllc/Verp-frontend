@@ -8,15 +8,17 @@ import {
     Info,
     Loader2,
     Lock,
+    Pencil,
     Plus,
     RotateCcw,
+    Trash2,
     Wallet,
     X,
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
-import { DatePicker } from '@/components/ui/date-picker';
+import { DatePicker, MonthPicker } from '@/components/ui/date-picker';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO, isValid } from 'date-fns';
@@ -32,6 +34,7 @@ import {
     workflowIsLocked,
 } from '../utils/salaryHistoricalCalculations';
 import { notifySalaryPendingInboxChanged } from '../utils/salaryPendingInboxCount';
+import SalaryPolicyRequiredModal from '../components/SalaryPolicyRequiredModal';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const LEAVE_TYPES = [
@@ -73,11 +76,35 @@ function prettyDate(value) {
     return format(parsed, 'd MMM yyyy');
 }
 
+function toMonthKey(value) {
+    const raw = String(value || '').trim();
+    return /^\d{4}-\d{2}/.test(raw) ? raw.slice(0, 7) : '';
+}
+
+function toMonthStartDate(value) {
+    const month = toMonthKey(value);
+    return month ? `${month}-01` : '';
+}
+
+/** First month whose 1st is after the joining date (VERP start is always day 1). */
+function firstVerpMonthAfterJoining(joiningDate) {
+    if (!ISO.test(joiningDate)) return '';
+    const year = Number(joiningDate.slice(0, 4));
+    const month = Number(joiningDate.slice(5, 7));
+    if (month === 12) return `${year + 1}-01`;
+    return `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
 function formatSignedDays(value) {
     const n = Number(value);
-    if (!Number.isFinite(n) || n === 0) return '0';
-    if (n < 0) return `−${Math.abs(n)}`;
+    if (!Number.isFinite(n) || n <= 0) return '0';
     return String(n);
+}
+
+function formatDeductionDays(value) {
+    const n = Math.max(0, Number(value) || 0);
+    if (n === 0) return '0';
+    return `− ${n}`;
 }
 
 function toTitleName(value) {
@@ -211,6 +238,16 @@ function ModalShell({ open, title, onClose, children, width = 'max-w-md' }) {
     );
 }
 
+function leaveSourceKey(row) {
+    const raw = String(row?.source || 'manual').trim().toLowerCase();
+    if (raw === 'erp' || raw === 'system') return 'system';
+    return 'manual';
+}
+
+function isSystemLeave(row) {
+    return leaveSourceKey(row) === 'system';
+}
+
 function mergeServerLeave(local, incoming) {
     const imported = Array.isArray(incoming) ? incoming : [];
     const importedKeys = new Set(
@@ -223,7 +260,7 @@ function mergeServerLeave(local, incoming) {
         ),
     );
     const manual = (Array.isArray(local) ? local : []).filter((row) => {
-        if (String(row?.source || '').toLowerCase() === 'erp') return false;
+        if (isSystemLeave(row)) return false;
         const key = [
             String(row?.leaveType || '').toLowerCase(),
             row?.fromDate || row?.startDate || '',
@@ -231,13 +268,63 @@ function mergeServerLeave(local, incoming) {
         ].join('|');
         return !importedKeys.has(key);
     });
-    return [...imported, ...manual].filter((row) => String(row?.source || '').toLowerCase() !== 'erp');
+    return [...imported, ...manual].filter((row) => !isSystemLeave(row));
 }
 
 function historicalLeaveOnly(rows) {
-    return (Array.isArray(rows) ? rows : []).filter(
-        (row) => String(row?.source || '').toLowerCase() !== 'erp',
-    );
+    return (Array.isArray(rows) ? rows : []).filter((row) => !isSystemLeave(row));
+}
+
+function mergeAdjacentSystemLeave(rows, leaveMultipliers) {
+    const list = (Array.isArray(rows) ? rows : [])
+        .map((row) => {
+            const fromDate = row.fromDate || row.startDate || '';
+            const toDate = row.toDate || row.endDate || fromDate;
+            const eligible = Math.max(0, Number(row.eligibleWorkingDays ?? row.actualDays) || 0);
+            const multiplier = leaveMultiplier(row.leaveType, row.multiplier ?? row.rule, leaveMultipliers);
+            return {
+                ...row,
+                source: 'system',
+                fromDate,
+                toDate,
+                startDate: fromDate,
+                endDate: toDate,
+                eligibleWorkingDays: eligible,
+                actualDays: eligible,
+                multiplier,
+                rule: multiplier,
+                deductionDays: eligible * multiplier,
+                deduction: eligible * multiplier,
+            };
+        })
+        .sort((a, b) => {
+            const type = String(a.leaveType || '').localeCompare(String(b.leaveType || ''));
+            if (type !== 0) return type;
+            return String(a.fromDate || '').localeCompare(String(b.fromDate || ''));
+        });
+
+    const out = [];
+    for (const row of list) {
+        const last = out[out.length - 1];
+        const nextFrom = addDays(last?.toDate, 1);
+        if (
+            last &&
+            String(last.leaveType || '').toLowerCase() === String(row.leaveType || '').toLowerCase() &&
+            nextFrom &&
+            nextFrom === row.fromDate
+        ) {
+            last.toDate = row.toDate;
+            last.endDate = row.toDate;
+            last.eligibleWorkingDays += row.eligibleWorkingDays;
+            last.actualDays += row.actualDays;
+            last.calendarDays = inclusiveCalendarDays(last.fromDate, last.toDate);
+            last.deductionDays = last.eligibleWorkingDays * last.multiplier;
+            last.deduction = last.deductionDays;
+            continue;
+        }
+        out.push({ ...row, id: row.id || `system-${row.leaveType}-${row.fromDate}-${out.length}` });
+    }
+    return out;
 }
 
 function asLeaveRecord(row, fallbackType = '') {
@@ -259,7 +346,15 @@ function combineLeaveRows(leaveRecords, annualLeaveRecords) {
     const out = [];
     const push = (row, fallbackType) => {
         const normalized = asLeaveRecord(row, fallbackType);
-        const key = [normalized.leaveType, normalized.fromDate, normalized.toDate].join('|');
+        const key = normalized.id
+            ? `id:${normalized.id}`
+            : [
+                  normalized.leaveType,
+                  normalized.fromDate,
+                  normalized.toDate,
+                  normalized.eligibleWorkingDays || normalized.actualDays || '',
+                  normalized.remarks || '',
+              ].join('|');
         if (keys.has(key)) return;
         keys.add(key);
         out.push(normalized);
@@ -322,6 +417,57 @@ function splitLeavePayload(rows) {
     return { leaveRecords, annualLeaveRecords };
 }
 
+function snapshotLeaveRows(rows) {
+    return (Array.isArray(rows) ? rows : []).map((row) => ({
+        id: String(row.id || row._id || ''),
+        leaveType: String(row.leaveType || '').toLowerCase(),
+        fromDate: String(row.fromDate || row.startDate || ''),
+        toDate: String(row.toDate || row.endDate || ''),
+        actualDays: Number(row.actualDays ?? row.eligibleWorkingDays) || 0,
+        remarks: String(row.remarks || ''),
+    }));
+}
+
+function snapshotPaymentCycles(rows) {
+    return (Array.isArray(rows) ? rows : []).map((row) => ({
+        id: String(row.id || row._id || ''),
+        cycleNumber: Number(row.cycleNumber) || 0,
+        leaveSalaryPaymentDate: String(row.leaveSalaryPaymentDate || ''),
+        leaveSalaryAmount: Number(row.leaveSalaryAmount) || 0,
+        ticketPaymentDate: String(row.ticketPaymentDate || ''),
+        ticketAmount: Number(row.ticketAmount) || 0,
+        currency: String(row.currency || ''),
+        paymentReference: String(row.paymentReference || ''),
+        paymentStatus: String(row.paymentStatus || ''),
+        remarks: String(row.remarks || ''),
+        attachment: String(row.attachment?.name || row.attachment?.url || ''),
+    }));
+}
+
+function buildFormSnapshot({
+    joiningDate = '',
+    verpStartDate = '',
+    companyMolCode = '',
+    employeeMolId = '',
+    salarySlip = false,
+    leaveRecords = [],
+    paymentCycles = [],
+    leaveComplete = false,
+    benefitsComplete = false,
+} = {}) {
+    return JSON.stringify({
+        joiningDate: String(joiningDate || ''),
+        verpStartDate: String(verpStartDate || ''),
+        companyMolCode: String(companyMolCode || '').trim(),
+        employeeMolId: String(employeeMolId || '').trim(),
+        salarySlip: Boolean(salarySlip),
+        leaveRecords: snapshotLeaveRows(leaveRecords),
+        paymentCycles: snapshotPaymentCycles(paymentCycles),
+        leaveComplete: Boolean(leaveComplete),
+        benefitsComplete: Boolean(benefitsComplete),
+    });
+}
+
 async function fileToAttachment(file) {
     if (!file) return null;
     const data = await new Promise((resolve, reject) => {
@@ -349,27 +495,64 @@ function leaveDateDisabledDays(minKey, maxKey) {
     return undefined;
 }
 
+function newLeaveRecordId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return `leave-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function leaveCountFromRow(row) {
+    const n = Number(row?.eligibleWorkingDays ?? row?.actualDays ?? row?.calendarDays);
+    if (Number.isFinite(n) && n > 0) return String(n);
+    const from = row?.fromDate || row?.startDate || '';
+    const to = row?.toDate || row?.endDate || from;
+    const days = inclusiveCalendarDays(from, to);
+    return days > 0 ? String(days) : '';
+}
+
 function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, leaveMultipliers, initial }) {
     const editing = Boolean(initial);
     const [leaveType, setLeaveType] = useState(initial?.leaveType || 'sick');
     const [fromDate, setFromDate] = useState(initial?.fromDate || initial?.startDate || '');
     const [toDate, setToDate] = useState(initial?.toDate || initial?.endDate || '');
+    const [daysCount, setDaysCount] = useState(() => leaveCountFromRow(initial));
     const [remarks, setRemarks] = useState(initial?.remarks || '');
     const [file, setFile] = useState(null);
+    const skipDateAutoCount = useRef(true);
 
-    const actualDays = inclusiveCalendarDays(fromDate, toDate || fromDate);
+    const resolvedFrom = fromDate || toDate;
+    const resolvedTo = toDate || fromDate;
+    const autoDays = inclusiveCalendarDays(resolvedFrom, resolvedTo);
+
+    useEffect(() => {
+        if (skipDateAutoCount.current) {
+            skipDateAutoCount.current = false;
+            return;
+        }
+        if (autoDays > 0) setDaysCount(String(autoDays));
+    }, [autoDays]);
+
+    const countNum = Math.max(0, Number(daysCount) || 0);
+    const isAnnual = String(leaveType).toLowerCase() === 'annual';
     const multiplier = leaveMultiplier(leaveType, null, leaveMultipliers);
     const existingAttachmentName = initial?.attachment?.name || '';
-    const resolvedTo = toDate || fromDate;
-    const dateError = fromDate
-        ? periodStart && (fromDate < periodStart || resolvedTo < periodStart)
-            ? 'Leave dates cannot be before the contract joining date.'
-            : periodEnd && (fromDate > periodEnd || resolvedTo > periodEnd)
-                ? 'Leave dates cannot be on or after the VERP salary processing start date.'
-                : validateLeaveDates({ fromDate, toDate: resolvedTo }, periodStart, periodEnd)
+    const dateError = isAnnual
+        ? !fromDate || !toDate
+            ? 'Annual leave requires a start date and an end date.'
+            : periodStart && (fromDate < periodStart || toDate < periodStart)
+                ? 'Leave dates cannot be before the contract joining date.'
+                : periodEnd && (fromDate > periodEnd || toDate > periodEnd)
+                    ? 'Leave dates cannot be on or after the VERP salary processing start date.'
+                    : validateLeaveDates(
+                          { leaveType, fromDate, toDate, eligibleWorkingDays: countNum },
+                          periodStart,
+                          periodEnd,
+                      )
         : '';
     const startDisabledDays = leaveDateDisabledDays(periodStart, periodEnd);
     const endDisabledDays = leaveDateDisabledDays(fromDate || periodStart, periodEnd);
+    const canSave = countNum > 0 && !locked && !dateError && (!isAnnual || (fromDate && toDate));
 
     return (
         <ModalShell open={open} title={editing ? 'Edit leave record' : 'Add leave record'} onClose={onClose}>
@@ -391,35 +574,51 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
                         Deduction follows this employee&apos;s work location / group salary policy.
                     </p>
                 </label>
-                <div className="grid grid-cols-2 gap-3">
-                    <label className="block">
-                        <FieldLabel>Start date</FieldLabel>
-                        <DatePicker
-                            value={fromDate}
-                            onChange={(value) => {
-                                setFromDate(value);
-                                if (value && toDate && toDate < value) setToDate('');
-                            }}
-                            disabled={locked}
-                            disabledDays={startDisabledDays}
-                            className="h-11 w-full rounded-xl"
-                        />
-                    </label>
-                    <label className="block">
-                        <FieldLabel>End date</FieldLabel>
-                        <DatePicker
-                            value={toDate}
-                            onChange={setToDate}
-                            disabled={locked}
-                            disabledDays={endDisabledDays}
-                            className="h-11 w-full rounded-xl"
-                        />
-                    </label>
-                </div>
-                <p className="text-xs text-slate-500">
-                    Calendar days: {actualDays || 0}. Eligible working days are calculated from the employee
-                    schedule. Historical period: {prettyDate(periodStart)} — {prettyDate(periodEnd)}.
-                </p>
+                {isAnnual ? (
+                    <div className="grid grid-cols-2 gap-3">
+                        <label className="block">
+                            <FieldLabel required>Start date</FieldLabel>
+                            <DatePicker
+                                value={fromDate}
+                                onChange={(value) => {
+                                    setFromDate(value);
+                                    if (value && toDate && toDate < value) setToDate('');
+                                }}
+                                disabled={locked}
+                                disabledDays={startDisabledDays}
+                                className="h-11 w-full rounded-xl"
+                            />
+                        </label>
+                        <label className="block">
+                            <FieldLabel required>End date</FieldLabel>
+                            <DatePicker
+                                value={toDate}
+                                onChange={setToDate}
+                                disabled={locked}
+                                disabledDays={endDisabledDays}
+                                className="h-11 w-full rounded-xl"
+                            />
+                        </label>
+                    </div>
+                ) : null}
+                <label className="block">
+                    <FieldLabel required>Day count</FieldLabel>
+                    <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={daysCount}
+                        onChange={(e) => setDaysCount(e.target.value)}
+                        disabled={locked}
+                        placeholder="Days"
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-[#F8FAFC]"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                        {isAnnual
+                            ? `Start and end dates are required. The count fills in from those dates and you can still change it. Historical period: ${prettyDate(periodStart)} — ${prettyDate(periodEnd)}.`
+                            : 'Dates are not needed for this leave type. Enter the day count and save.'}
+                    </p>
+                </label>
                 {dateError ? <p className="text-xs font-medium text-red-600">{dateError}</p> : null}
                 <label className="block">
                     <FieldLabel>Remarks</FieldLabel>
@@ -443,23 +642,24 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
                 </button>
                 <button
                     type="button"
-                    disabled={!actualDays || locked || Boolean(dateError)}
+                    disabled={!canSave}
                     onClick={async () => {
-                        if (!actualDays || locked || dateError) return;
+                        if (!canSave) return;
                         const uploaded = await fileToAttachment(file);
                         onSave({
                             ...(initial || {}),
+                            id: initial?.id || newLeaveRecordId(),
                             leaveType,
-                            fromDate,
-                            toDate: toDate || fromDate,
-                            calendarDays: actualDays,
-                            actualDays,
-                            eligibleWorkingDays: actualDays,
+                            fromDate: isAnnual ? fromDate : '',
+                            toDate: isAnnual ? toDate : '',
+                            calendarDays: autoDays || countNum,
+                            actualDays: countNum,
+                            eligibleWorkingDays: countNum,
                             multiplier,
                             rule: multiplier,
-                            deductionDays: actualDays * multiplier,
-                            deduction: actualDays * multiplier,
-                            source: initial?.source || 'manual',
+                            deductionDays: countNum * multiplier,
+                            deduction: countNum * multiplier,
+                            source: 'manual',
                             status: 'approved',
                             remarks,
                             attachment: uploaded || initial?.attachment || null,
@@ -475,23 +675,29 @@ function AddLeaveModal({ open, onClose, onSave, periodStart, periodEnd, locked, 
     );
 }
 
-function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, initial }) {
+function amountInputValue(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return String(n);
+}
+
+function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, initial, defaultLeaveSalary, editing }) {
     const [cycleNumber, setCycleNumber] = useState(String(initial?.cycleNumber || nextNumber || 1));
-    const [eligibilityStartDate, setEligibilityStartDate] = useState(initial?.eligibilityStartDate || '');
-    const [eligibilityEndDate, setEligibilityEndDate] = useState(initial?.eligibilityEndDate || '');
     const [leaveSalaryPaymentDate, setLeaveSalaryPaymentDate] = useState(initial?.leaveSalaryPaymentDate || '');
-    const [leaveSalaryAmount, setLeaveSalaryAmount] = useState(initial?.leaveSalaryAmount || '');
+    const [leaveSalaryAmount, setLeaveSalaryAmount] = useState(
+        () => amountInputValue(initial?.leaveSalaryAmount ?? initial?.leaveSalary) || amountInputValue(defaultLeaveSalary),
+    );
     const [ticketPaymentDate, setTicketPaymentDate] = useState(initial?.ticketPaymentDate || '');
     const [ticketAmount, setTicketAmount] = useState(initial?.ticketAmount || '');
     const [currency, setCurrency] = useState(initial?.currency || 'AED');
     const [paymentReference, setPaymentReference] = useState(initial?.paymentReference || '');
     const [paymentStatus, setPaymentStatus] = useState(initial?.paymentStatus || 'paid');
-    const [verificationStatus, setVerificationStatus] = useState(initial?.verificationStatus || 'verified');
     const [remarks, setRemarks] = useState(initial?.remarks || '');
     const [file, setFile] = useState(null);
+    const existingAttachmentName = initial?.attachment?.name || '';
 
     return (
-        <ModalShell open={open} title="Add payment cycle" onClose={onClose} width="max-w-lg">
+        <ModalShell open={open} title={editing ? 'Edit payment cycle' : 'Add payment cycle'} onClose={onClose} width="max-w-lg">
             <div className="mt-4 grid grid-cols-2 gap-3">
                 <label className="block">
                     <FieldLabel>Cycle number</FieldLabel>
@@ -512,14 +718,6 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                     />
                 </label>
                 <label className="block">
-                    <FieldLabel>Eligibility start</FieldLabel>
-                    <DatePicker value={eligibilityStartDate} onChange={setEligibilityStartDate} className="h-11 w-full rounded-xl" />
-                </label>
-                <label className="block">
-                    <FieldLabel>Eligibility end</FieldLabel>
-                    <DatePicker value={eligibilityEndDate} onChange={setEligibilityEndDate} className="h-11 w-full rounded-xl" />
-                </label>
-                <label className="block">
                     <FieldLabel>Leave salary date</FieldLabel>
                     <DatePicker value={leaveSalaryPaymentDate} onChange={setLeaveSalaryPaymentDate} className="h-11 w-full rounded-xl" />
                 </label>
@@ -528,10 +726,16 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                     <input
                         type="number"
                         min="0"
+                        step="0.01"
                         value={leaveSalaryAmount}
                         onChange={(e) => setLeaveSalaryAmount(e.target.value)}
                         className="h-11 w-full rounded-xl border px-3 text-sm"
                     />
+                    {defaultLeaveSalary ? (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                            Auto-filled from this employee&apos;s leave salary. You can change it.
+                        </p>
+                    ) : null}
                 </label>
                 <label className="block">
                     <FieldLabel>Ticket payment date</FieldLabel>
@@ -560,18 +764,6 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                         <option value="rejected">Rejected</option>
                     </select>
                 </label>
-                <label className="block">
-                    <FieldLabel>Verification</FieldLabel>
-                    <select
-                        value={verificationStatus}
-                        onChange={(e) => setVerificationStatus(e.target.value)}
-                        className="h-11 w-full rounded-xl border px-3 text-sm"
-                    >
-                        <option value="pending">Pending</option>
-                        <option value="verified">Verified</option>
-                        <option value="rejected">Rejected</option>
-                    </select>
-                </label>
                 <label className="col-span-2 block">
                     <FieldLabel>Payment reference</FieldLabel>
                     <input
@@ -586,7 +778,18 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                     placeholder="Remarks"
                     className="col-span-2 min-h-[64px] rounded-xl border px-3 py-2 text-sm"
                 />
-                <input type="file" className="col-span-2 text-xs" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+                <label className="col-span-2 block text-sm text-slate-600">
+                    <FieldLabel>Attachment</FieldLabel>
+                    <input
+                        type="file"
+                        className="mt-1 block w-full text-xs"
+                        onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">Optional supporting document.</p>
+                    {!file && existingAttachmentName ? (
+                        <p className="mt-1 text-[11px] text-slate-400">Current file: {existingAttachmentName}</p>
+                    ) : null}
+                </label>
             </div>
             <div className="mt-5 flex justify-end gap-2">
                 <button type="button" onClick={onClose} className="h-10 rounded-xl border px-4 text-sm font-semibold">
@@ -597,9 +800,10 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                     disabled={locked}
                     onClick={async () => {
                         onSave({
+                            ...(initial || {}),
                             cycleNumber: Number(cycleNumber) || nextNumber || 1,
-                            eligibilityStartDate,
-                            eligibilityEndDate,
+                            eligibilityStartDate: initial?.eligibilityStartDate || '',
+                            eligibilityEndDate: initial?.eligibilityEndDate || '',
                             entitlementDays: cycleDays,
                             leaveSalaryPaymentDate,
                             leaveSalaryAmount: Number(leaveSalaryAmount) || 0,
@@ -608,16 +812,16 @@ function AddCycleModal({ open, onClose, onSave, cycleDays, nextNumber, locked, i
                             currency,
                             paymentReference,
                             paymentStatus,
-                            verificationStatus,
+                            verificationStatus: initial?.verificationStatus || 'verified',
                             remarks,
                             annualLeaveKey: initial?.annualLeaveKey || '',
-                            attachment: await fileToAttachment(file),
+                            attachment: (await fileToAttachment(file)) || initial?.attachment || null,
                         });
                         onClose();
                     }}
                     className="h-10 rounded-xl bg-[#2563EB] px-4 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                    Add cycle
+                    {editing ? 'Save' : 'Add cycle'}
                 </button>
             </div>
         </ModalShell>
@@ -676,6 +880,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [verpStartDate, setVerpStartDate] = useState('');
     const [companyMolCode, setCompanyMolCode] = useState('');
     const [employeeMolId, setEmployeeMolId] = useState('');
+    const [salarySlip, setSalarySlip] = useState(false);
     const [leaveRecords, setLeaveRecords] = useState([]);
     const [paymentCycles, setPaymentCycles] = useState([]);
     const [leaveComplete, setLeaveComplete] = useState(false);
@@ -684,6 +889,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [leaveDraftIndex, setLeaveDraftIndex] = useState(null);
     const [cycleModal, setCycleModal] = useState(false);
     const [cycleDraft, setCycleDraft] = useState(null);
+    const [cycleDraftIndex, setCycleDraftIndex] = useState(null);
+    const [cycleDeleteIndex, setCycleDeleteIndex] = useState(null);
     const [showBreakdown, setShowBreakdown] = useState(false);
     const [showCreate, setShowCreate] = useState(false);
     const [showApprove, setShowApprove] = useState(false);
@@ -692,22 +899,48 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const [reopenModal, setReopenModal] = useState(false);
     const [returnModal, setReturnModal] = useState(false);
     const [rejectModal, setRejectModal] = useState(false);
+    const [policyModal, setPolicyModal] = useState(false);
     const lastFetchedVerpRef = useRef('');
+    const pendingJoiningRef = useRef('');
+    const [savedSnapshot, setSavedSnapshot] = useState('');
 
     const applyPayload = useCallback((payload) => {
-        setData(payload);
-        setJoiningDate(payload?.contractJoiningDate || payload?.joiningDate || '');
-        setVerpStartDate(payload?.verpStartDate || '');
-        setCompanyMolCode(payload?.companyMolCode || '');
-        setEmployeeMolId(payload?.employeeMolId || '');
-        setLeaveRecords(
-            historicalLeaveOnly(combineLeaveRows(payload?.leaveRecords, payload?.annualLeaveRecords)),
+        const nextJoining = payload?.contractJoiningDate || payload?.joiningDate || '';
+        const nextVerp = payload?.verpStartDate || '';
+        const nextCompanyMol = payload?.companyMolCode || '';
+        const nextEmployeeMol = payload?.employeeMolId || '';
+        const nextSalarySlip = Boolean(payload?.salarySlip);
+        const nextLeave = historicalLeaveOnly(
+            combineLeaveRows(payload?.leaveRecords, payload?.annualLeaveRecords),
         );
-        setPaymentCycles(Array.isArray(payload?.paymentCycles) ? payload.paymentCycles : []);
-        setLeaveComplete(Boolean(payload?.leaveHistoryComplete));
-        setBenefitsComplete(Boolean(payload?.benefitsComplete));
-        lastFetchedVerpRef.current = payload?.verpStartDate || '';
+        const nextCycles = Array.isArray(payload?.paymentCycles) ? payload.paymentCycles : [];
+        const nextLeaveComplete = Boolean(payload?.leaveHistoryComplete);
+        const nextBenefitsComplete = Boolean(payload?.benefitsComplete);
+        setData(payload);
+        setJoiningDate(nextJoining);
+        setVerpStartDate(nextVerp);
+        setCompanyMolCode(nextCompanyMol);
+        setEmployeeMolId(nextEmployeeMol);
+        setSalarySlip(nextSalarySlip);
+        setLeaveRecords(nextLeave);
+        setPaymentCycles(nextCycles);
+        setLeaveComplete(nextLeaveComplete);
+        setBenefitsComplete(nextBenefitsComplete);
+        lastFetchedVerpRef.current = nextVerp;
         setJoiningDateReason('');
+        setSavedSnapshot(
+            buildFormSnapshot({
+                joiningDate: nextJoining,
+                verpStartDate: nextVerp,
+                companyMolCode: nextCompanyMol,
+                employeeMolId: nextEmployeeMol,
+                salarySlip: nextSalarySlip,
+                leaveRecords: nextLeave,
+                paymentCycles: nextCycles,
+                leaveComplete: nextLeaveComplete,
+                benefitsComplete: nextBenefitsComplete,
+            }),
+        );
     }, []);
 
     const fetchProfile = useCallback(async () => {
@@ -792,6 +1025,15 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     const liveLeaveRecords = Array.isArray(data?.liveAttendance?.leaveRecords)
         ? data.liveAttendance.leaveRecords
         : [];
+    const existingLeaveHistoryRows = useMemo(() => {
+        const manual = (leaveRecords || []).map((row, storedIndex) => ({
+            ...row,
+            source: 'manual',
+            storedIndex,
+        }));
+        const system = mergeAdjacentSystemLeave(liveLeaveRecords, leaveMultipliers);
+        return [...manual, ...system];
+    }, [leaveMultipliers, leaveRecords, liveLeaveRecords]);
     const historicalCalc = calculateHistoricalEligibility({
         workingDays: Number(data?.workingDays) || 0,
         calendarDays: Number(data?.calendarDays) || 0,
@@ -816,9 +1058,38 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     );
     const workflowStatus = data?.workflowStatus || 'draft';
     const permissions = data?.permissions || {};
+    const isSalaryHr = Boolean(permissions.isSalaryHr);
     const pendingHr = workflowStatus === 'pending_hr' || Boolean(data?.approvalSent);
     const enrolled = Boolean(data?.enrolled) || workflowStatus === 'locked';
-    const locked = pendingHr || !hrEdit || (!enrolled && !permissions.canEdit);
+    const locked = pendingHr || (enrolled ? !isSalaryHr : !hrEdit || !permissions.canEdit);
+    const currentSnapshot = useMemo(
+        () =>
+            buildFormSnapshot({
+                joiningDate,
+                verpStartDate,
+                companyMolCode,
+                employeeMolId,
+                salarySlip,
+                leaveRecords,
+                paymentCycles,
+                leaveComplete,
+                benefitsComplete,
+            }),
+        [
+            joiningDate,
+            verpStartDate,
+            companyMolCode,
+            employeeMolId,
+            salarySlip,
+            leaveRecords,
+            paymentCycles,
+            leaveComplete,
+            benefitsComplete,
+        ],
+    );
+    const hasUnsavedChanges = Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot;
+    const canUpdateCreated = enrolled && isSalaryHr && !pendingHr;
+    const updateDisabled = saving || !canUpdateCreated || !hasUnsavedChanges;
     const readiness = data?.readiness;
     const emp = data?.employee;
     const displayName = emp?.name ? toTitleName(emp.name) : employeeId;
@@ -854,6 +1125,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
         benefitsComplete &&
         (permissions.canCreate || permissions.canVerify),
     );
+    const mainPolicyReady = Boolean(permissions.mainPolicyConfigured);
+
+    function requireMainPolicy() {
+        if (mainPolicyReady) return true;
+        setPolicyModal(true);
+        return false;
+    }
     const readinessByKey = Object.fromEntries((readiness?.items || []).map((item) => [item.key, item.done]));
     const readinessGroups = [
         {
@@ -884,6 +1162,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             joiningDateReason,
             companyMolCode: String(companyMolCode || '').trim(),
             employeeMolId: String(employeeMolId || '').trim(),
+            salarySlip,
             leaveRecords: splitLeave.leaveRecords,
             annualLeaveRecords: splitLeave.annualLeaveRecords,
             paymentCycles,
@@ -898,6 +1177,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             joiningDateReason,
             companyMolCode,
             employeeMolId,
+            salarySlip,
             leaveRecords,
             paymentCycles,
             cycleDays,
@@ -940,6 +1220,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
     }
 
     async function confirmCreate() {
+        if (!requireMainPolicy()) return;
         if (!migrationComplete) {
             toast({
                 title: 'Complete Employment & VERP migration first',
@@ -951,14 +1232,19 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
             const verified = await runAction('/verify', 'post', '');
             if (!verified) return;
         }
-        const ok = await runAction('/create', 'post', 'Sent for HR approval');
+        const ok = await runAction(
+            '/create',
+            'post',
+            isSalaryHr ? 'Salary profile created' : 'Sent for HR approval',
+        );
         if (ok) {
             setShowCreate(false);
-            notifySalaryPendingInboxChanged();
+            if (!isSalaryHr) notifySalaryPendingInboxChanged();
         }
     }
 
     async function confirmApprove() {
+        if (!requireMainPolicy()) return;
         const ok = await runAction('/approve', 'post', 'Salary profile approved');
         if (ok) {
             setShowApprove(false);
@@ -1029,8 +1315,12 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                             {permissions.canApprove ? (
                                                 <button
                                                     type="button"
-                                                    onClick={() => setShowApprove(true)}
+                                                    onClick={() => {
+                                                        if (!requireMainPolicy()) return;
+                                                        setShowApprove(true);
+                                                    }}
                                                     disabled={saving}
+                                                    title={mainPolicyReady ? undefined : 'Update salary policy first'}
                                                     className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
                                                 >
                                                     <Check size={16} /> Approve
@@ -1046,7 +1336,14 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                     <button
                                         type="button"
                                         onClick={() => runAction('', 'put', 'Profile updated')}
-                                        disabled={saving || !hrEdit}
+                                        disabled={updateDisabled}
+                                        title={
+                                            !isSalaryHr
+                                                ? 'Only flowchart HR can update a created salary profile'
+                                                : hasUnsavedChanges
+                                                    ? 'Save changes to this salary profile'
+                                                    : 'Update is available after you change something on this page'
+                                        }
                                         className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#2563EB] px-4 text-sm font-semibold text-white disabled:opacity-60"
                                     >
                                         {saving ? 'Saving…' : 'Update'}
@@ -1063,9 +1360,21 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={() => setShowCreate(true)}
+                                            onClick={() => {
+                                                if (!requireMainPolicy()) return;
+                                                setShowCreate(true);
+                                            }}
                                             disabled={saving || !canClickCreate}
-                                            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#2563EB] px-4 text-sm font-semibold text-white disabled:opacity-60"
+                                            title={
+                                                !canClickCreate
+                                                    ? undefined
+                                                    : mainPolicyReady
+                                                        ? undefined
+                                                        : 'Update salary policy first'
+                                            }
+                                            className={`inline-flex h-10 items-center gap-2 rounded-xl bg-[#2563EB] px-4 text-sm font-semibold text-white disabled:opacity-60${
+                                                canClickCreate && !mainPolicyReady ? ' opacity-60' : ''
+                                            }`}
                                         >
                                             <Check size={16} /> Create salary profile
                                         </button>
@@ -1109,6 +1418,13 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${enrollTone}`}
                                                     >
                                                         {enrollStatus}
+                                                    </span>
+                                                    <span className="text-base sm:text-lg font-black tracking-wide text-red-600">
+                                                        {enrolled
+                                                            ? String(companyMolCode || '').trim()
+                                                                ? 'WPS'
+                                                                : 'Cash'
+                                                            : '----'}
                                                     </span>
                                                 </div>
                                                 <p className="truncate text-[12px] text-slate-400">
@@ -1175,15 +1491,27 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 <CompleteBadge complete={migrationComplete} />
                                             </div>
                                             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                                                <label className="block">
+                                                <div className="block">
                                                     <FieldLabel required>Contract joining date</FieldLabel>
                                                     <div className="relative">
-                                                        {permissions.canChangeJoiningDate || (enrolled && hrEdit && !pendingHr) ? (
+                                                        {permissions.canChangeJoiningDate || (enrolled && isSalaryHr && !pendingHr) ? (
                                                             <DatePicker
-                                                                value={joiningDate}
+                                                                value={pendingJoining || joiningDate}
                                                                 onChange={(value) => {
+                                                                    if (!value || value === joiningDate) {
+                                                                        pendingJoiningRef.current = '';
+                                                                        setPendingJoining('');
+                                                                        return;
+                                                                    }
+                                                                    pendingJoiningRef.current = value;
                                                                     setPendingJoining(value);
-                                                                    setJoiningModal(true);
+                                                                }}
+                                                                onOpenChange={(open) => {
+                                                                    if (open) return;
+                                                                    const next = pendingJoiningRef.current;
+                                                                    if (next && next !== joiningDate) {
+                                                                        window.setTimeout(() => setJoiningModal(true), 150);
+                                                                    }
                                                                 }}
                                                                 className="h-11 w-full rounded-lg"
                                                             />
@@ -1201,14 +1529,23 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             </>
                                                         )}
                                                     </div>
-                                                </label>
+                                                </div>
                                                 <label className="block">
                                                     <FieldLabel required>VERP salary processing start</FieldLabel>
-                                                    <DatePicker
-                                                        value={verpStartDate}
-                                                        onChange={setVerpStartDate}
+                                                    <MonthPicker
+                                                        value={toMonthKey(verpStartDate)}
+                                                        onChange={(monthKey) =>
+                                                            setVerpStartDate(toMonthStartDate(monthKey))
+                                                        }
                                                         disabled={locked}
+                                                        placeholder="Select month"
                                                         className="h-11 w-full rounded-lg"
+                                                        minMonth={firstVerpMonthAfterJoining(joiningDate) || undefined}
+                                                        fromYear={
+                                                            joiningDate && ISO.test(joiningDate)
+                                                                ? Number(joiningDate.slice(0, 4))
+                                                                : undefined
+                                                        }
                                                     />
                                                 </label>
                                                 <label className="block">
@@ -1224,7 +1561,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     />
                                                 </label>
                                             </div>
-                                            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
                                                 <label className="block">
                                                     <FieldLabel>Company MOL code</FieldLabel>
                                                     <input
@@ -1245,6 +1582,55 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                         className="h-11 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-[#F8FAFC]"
                                                     />
                                                 </label>
+                                                <div className="block">
+                                                    <FieldLabel>Salary slip</FieldLabel>
+                                                    <button
+                                                        type="button"
+                                                        role="checkbox"
+                                                        aria-checked={salarySlip}
+                                                        disabled={pendingHr}
+                                                        onClick={async () => {
+                                                            const next = !salarySlip;
+                                                            setSalarySlip(next);
+                                                            setSaving(true);
+                                                            try {
+                                                                const res = await axiosInstance({
+                                                                    url: `/Employee/salary-enroll/${encodeURIComponent(employeeId)}/historical`,
+                                                                    method: 'put',
+                                                                    data: { salarySlip: next },
+                                                                });
+                                                                applyPayload(res.data);
+                                                            } catch (err) {
+                                                                setSalarySlip(!next);
+                                                                toast({
+                                                                    title: err?.response?.data?.message || 'Could not update salary slip',
+                                                                    variant: 'destructive',
+                                                                });
+                                                            } finally {
+                                                                setSaving(false);
+                                                            }
+                                                        }}
+                                                        className={`h-11 w-full rounded-lg border px-3 text-sm outline-none flex items-center gap-2.5 text-left ${
+                                                            pendingHr
+                                                                ? 'border-[#E2E8F0] bg-[#F8FAFC] cursor-not-allowed'
+                                                                : 'border-[#E2E8F0] bg-white hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15'
+                                                        }`}
+                                                    >
+                                                        <span
+                                                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                                                salarySlip
+                                                                    ? 'border-blue-600 bg-blue-600 text-white'
+                                                                    : 'border-slate-300 bg-white text-transparent'
+                                                            }`}
+                                                            aria-hidden="true"
+                                                        >
+                                                            <Check size={11} strokeWidth={3} />
+                                                        </span>
+                                                        <span className={salarySlip ? 'font-medium text-[#0F172A]' : 'text-[#94A3B8]'}>
+                                                            {salarySlip ? 'Checked' : 'Unchecked'}
+                                                        </span>
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="mt-4 flex flex-col gap-2 rounded-[10px] bg-[#EFF6FF] px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
                                                 <div className="flex items-start gap-2">
@@ -1280,8 +1666,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             Existing Leave History
                                                         </h3>
                                                         <p className="mt-0.5 text-[12px] text-[#64748B]">
-                                                            Add historical leave taken before the VERP salary start
-                                                            date. Leave already marked in attendance is not shown here.
+                                                            Manual records are added here. System records are leave
+                                                            created automatically after salary enrollment.
                                                         </p>
                                                     </div>
                                                 </div>
@@ -1299,15 +1685,17 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 </div>
                                             </div>
                                             <LeaveTable
-                                                rows={leaveRecords}
+                                                rows={existingLeaveHistoryRows}
                                                 locked={locked || leaveComplete}
-                                                onEdit={(index) => {
+                                                onEdit={(row) => {
                                                     if (locked || leaveComplete) return;
-                                                    setLeaveDraftIndex(index);
+                                                    if (!Number.isInteger(row?.storedIndex)) return;
+                                                    setLeaveDraftIndex(row.storedIndex);
                                                     setLeaveModal(true);
                                                 }}
-                                                onRemove={async (index) => {
-                                                    const next = leaveRecords.filter((_, i) => i !== index);
+                                                onRemove={async (row) => {
+                                                    if (!Number.isInteger(row?.storedIndex)) return;
+                                                    const next = leaveRecords.filter((_, i) => i !== row.storedIndex);
                                                     setLeaveRecords(next);
                                                     const ok = await persistRecords(next, paymentCycles);
                                                     if (!ok) setLeaveRecords(leaveRecords);
@@ -1334,7 +1722,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 <p className="inline-flex items-center gap-2 text-[12px] text-[#64748B]">
                                                     Total leave deduction
                                                     <span className="rounded-md border border-[#E6EAF0] bg-[#F1F5F9] px-2 py-0.5 text-[12px] font-medium tabular-nums text-[#334155]">
-                                                        {historicalCalc.totalLeaveDeduction} days
+                                                        {Math.max(0, Number(historicalCalc.totalLeaveDeduction) || 0)} days
                                                     </span>
                                                 </p>
                                             </div>
@@ -1361,6 +1749,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                     <GhostButton
                                                         disabled={locked || benefitsComplete}
                                                         onClick={() => {
+                                                            setCycleDraftIndex(null);
                                                             setCycleDraft(null);
                                                             setCycleModal(true);
                                                         }}
@@ -1382,6 +1771,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                             type="button"
                                                             disabled={locked || benefitsComplete}
                                                             onClick={() => {
+                                                                setCycleDraftIndex(null);
                                                                 setCycleDraft(
                                                                     prefillCycleFromAnnual(
                                                                         leave,
@@ -1397,8 +1787,9 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                                 Annual leave
                                                             </p>
                                                             <p className="mt-1 text-[13px] font-semibold text-[#1D2A3E]">
-                                                                {prettyDate(leave.fromDate || leave.startDate)} —{' '}
-                                                                {prettyDate(leave.toDate || leave.endDate)}
+                                                                {leave.fromDate || leave.startDate || leave.toDate || leave.endDate
+                                                                    ? `${prettyDate(leave.fromDate || leave.startDate)} — ${prettyDate(leave.toDate || leave.endDate)}`
+                                                                    : 'No dates'}
                                                             </p>
                                                             <p className="mt-1 text-[12px] text-[#64748B]">
                                                                 {leave.eligibleWorkingDays || leave.actualDays || 0}{' '}
@@ -1415,25 +1806,31 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                                 key={cycle.id || index}
                                                                 className="relative rounded-[10px] border border-[#E6EAF0] bg-white p-4"
                                                             >
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={locked || benefitsComplete}
-                                                                    onClick={async () => {
-                                                                        const next = paymentCycles.filter(
-                                                                            (_, i) => i !== index,
-                                                                        );
-                                                                        setPaymentCycles(next);
-                                                                        const ok = await persistRecords(
-                                                                            leaveRecords,
-                                                                            next,
-                                                                        );
-                                                                        if (!ok) setPaymentCycles(paymentCycles);
-                                                                    }}
-                                                                    className="absolute right-2 top-2 rounded-md p-1 text-[#94A3B8] disabled:opacity-30"
-                                                                >
-                                                                    <X size={14} />
-                                                                </button>
-                                                                <div className="flex items-center gap-2 pr-6">
+                                                                <div className="absolute right-2 top-2 flex items-center gap-0.5">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={locked || benefitsComplete}
+                                                                        onClick={() => {
+                                                                            setCycleDraftIndex(index);
+                                                                            setCycleDraft(cycle);
+                                                                            setCycleModal(true);
+                                                                        }}
+                                                                        className="rounded-md p-1 text-[#64748B] hover:bg-slate-100 hover:text-[#2563EB] disabled:opacity-30"
+                                                                        aria-label="Edit payment cycle"
+                                                                    >
+                                                                        <Pencil size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={locked || benefitsComplete}
+                                                                        onClick={() => setCycleDeleteIndex(index)}
+                                                                        className="rounded-md p-1 text-[#94A3B8] hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+                                                                        aria-label="Delete payment cycle"
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                    </button>
+                                                                </div>
+                                                                <div className="flex items-center gap-2 pr-14">
                                                                     <p className="text-[14px] font-bold text-[#0F172A]">
                                                                         Cycle {cycle.cycleNumber || index + 1}
                                                                     </p>
@@ -1541,13 +1938,20 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 ) : null}
                                                 <EligibilityCalcRow
                                                     label="Historical leave deduction"
-                                                    value={`− ${historicalCalc.totalLeaveDeduction}`}
-                                                    danger
+                                                    value={formatDeductionDays(historicalCalc.totalLeaveDeduction)}
+                                                    danger={Number(historicalCalc.totalLeaveDeduction) > 0}
                                                 />
                                                 {data?.liveAttendance?.enabled ? (
                                                     <EligibilityCalcRow
                                                         label="Attendance leave (policy)"
-                                                        value={`− ${attendanceLeaveDeduction}`}
+                                                        value={formatDeductionDays(attendanceLeaveDeduction)}
+                                                        danger={Number(attendanceLeaveDeduction) > 0}
+                                                    />
+                                                ) : null}
+                                                {Number(calc.consumedEntitlementDays) > 0 ? (
+                                                    <EligibilityCalcRow
+                                                        label={`Paid benefit cycles (${calc.paidVerifiedCycles} × ${calc.cycleDays})`}
+                                                        value={formatDeductionDays(calc.consumedEntitlementDays)}
                                                         danger
                                                     />
                                                 ) : null}
@@ -1609,8 +2013,8 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                                                 />
                                                 <p className="text-[9px] font-normal leading-[18px] text-[#6F7C8F]">
                                                     {data?.liveAttendance?.enabled
-                                                        ? 'Eligible balance starts from historical working days minus historical leave, then adds each working day after enrollment and subtracts authorized, unauthorized, and sick leave using salary policy.'
-                                                        : 'Current eligible balance = historical working days − leave deductions. A minus value is the current deficit.'}
+                                                        ? `Eligible balance starts from historical working days minus historical leave, then adds each working day after enrollment, subtracts leave using salary policy, and subtracts ${calc.cycleDays} days for each paid benefit cycle.`
+                                                        : `Current eligible balance = historical working days − leave deductions − ${calc.cycleDays} days per paid benefit cycle.`}
                                                 </p>
                                             </div>
                                         </section>
@@ -1711,34 +2115,85 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                 }}
             />
             <AddCycleModal
-                key={cycleModal ? `cycle-open-${cycleDraft?.annualLeaveKey || paymentCycles.length}` : 'cycle-closed'}
+                key={cycleModal ? `cycle-open-${cycleDraftIndex ?? 'new'}-${cycleDraft?.annualLeaveKey || ''}` : 'cycle-closed'}
                 open={cycleModal}
                 locked={locked}
+                editing={Number.isInteger(cycleDraftIndex)}
                 cycleDays={cycleDays}
                 nextNumber={paymentCycles.length + 1}
                 initial={cycleDraft}
+                defaultLeaveSalary={data?.employeeLeaveSalary}
                 onClose={() => {
                     setCycleModal(false);
                     setCycleDraft(null);
+                    setCycleDraftIndex(null);
                 }}
                 onSave={async (row) => {
-                    const next = [...paymentCycles, row];
+                    const index = cycleDraftIndex;
+                    const next = Number.isInteger(index)
+                        ? paymentCycles.map((existing, i) => (i === index ? { ...existing, ...row } : existing))
+                        : [...paymentCycles, row];
                     setPaymentCycles(next);
                     setCycleDraft(null);
-                    const ok = await persistRecords(leaveRecords, next, 'Payment cycle saved');
+                    setCycleDraftIndex(null);
+                    const ok = await persistRecords(
+                        leaveRecords,
+                        next,
+                        Number.isInteger(index) ? 'Payment cycle updated' : 'Payment cycle saved',
+                    );
                     if (!ok) setPaymentCycles(paymentCycles);
                 }}
             />
+            <ModalShell
+                open={cycleDeleteIndex !== null}
+                title="Delete payment cycle?"
+                onClose={() => setCycleDeleteIndex(null)}
+            >
+                <p className="mt-3 text-sm text-slate-600">
+                    This will remove this leave salary and ticket payment from the historical record. This action
+                    cannot be undone.
+                </p>
+                <div className="mt-5 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setCycleDeleteIndex(null)}
+                        className="h-10 rounded-xl border px-4 text-sm font-semibold"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            const index = cycleDeleteIndex;
+                            setCycleDeleteIndex(null);
+                            if (!Number.isInteger(index)) return;
+                            const next = paymentCycles.filter((_, i) => i !== index);
+                            setPaymentCycles(next);
+                            const ok = await persistRecords(leaveRecords, next, 'Payment cycle deleted');
+                            if (!ok) setPaymentCycles(paymentCycles);
+                        }}
+                        className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white"
+                    >
+                        Delete
+                    </button>
+                </div>
+            </ModalShell>
             <ReasonModal
                 key={joiningModal ? 'joining-open' : 'joining-closed'}
                 open={joiningModal}
                 title="Reason for joining date change"
                 confirmLabel="Update date"
-                onClose={() => setJoiningModal(false)}
+                onClose={() => {
+                    setJoiningModal(false);
+                    pendingJoiningRef.current = '';
+                    setPendingJoining('');
+                }}
                 onConfirm={(reason) => {
                     setJoiningDate(pendingJoining);
                     setJoiningDateReason(reason);
                     setJoiningModal(false);
+                    pendingJoiningRef.current = '';
+                    setPendingJoining('');
                 }}
             />
             <ReasonModal
@@ -1775,10 +2230,16 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                     if (ok) notifySalaryPendingInboxChanged();
                 }}
             />
-            <ModalShell open={showCreate} title="Send salary profile for HR approval?" onClose={() => setShowCreate(false)}>
+            <SalaryPolicyRequiredModal open={policyModal} onClose={() => setPolicyModal(false)} />
+            <ModalShell
+                open={showCreate}
+                title={isSalaryHr ? 'Create salary profile?' : 'Send salary profile for HR approval?'}
+                onClose={() => setShowCreate(false)}
+            >
                 <p className="mt-3 text-sm text-slate-600">
-                    This sends the profile to flowchart HR for approval. The employee is not enrolled until HR
-                    approves.
+                    {isSalaryHr
+                        ? 'This enrolls the employee from the VERP salary start date and locks the historical record. No further HR approval is required.'
+                        : 'This sends the profile to flowchart HR for approval. The employee is not enrolled until HR approves.'}
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
                     <button type="button" onClick={() => setShowCreate(false)} className="h-10 rounded-xl border px-4 text-sm font-semibold">
@@ -1789,7 +2250,7 @@ export default function HistoricalSalarySetupView({ employeeId, embedded = false
                         onClick={confirmCreate}
                         className="h-10 rounded-xl bg-[#2563EB] px-4 text-sm font-semibold text-white"
                     >
-                        Send for approval
+                        {isSalaryHr ? 'Create & enroll' : 'Send for approval'}
                     </button>
                 </div>
             </ModalShell>
@@ -1882,7 +2343,7 @@ function LeaveTable({ rows, locked, onEdit, onRemove }) {
     }
     return (
         <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left">
+            <table className="w-full min-w-[720px] text-left">
                 <thead>
                     <tr className="border-b border-[#EEF2F6] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94A3B8]">
                         <th className="px-2 py-2.5 font-semibold">Leave type</th>
@@ -1890,6 +2351,7 @@ function LeaveTable({ rows, locked, onEdit, onRemove }) {
                         <th className="px-2 py-2.5 font-semibold">Actual days</th>
                         <th className="px-2 py-2.5 font-semibold">Rule</th>
                         <th className="px-2 py-2.5 font-semibold">Deduction</th>
+                        <th className="px-2 py-2.5 font-semibold">Source</th>
                         <th className="px-2 py-2.5 font-semibold" />
                     </tr>
                 </thead>
@@ -1898,14 +2360,15 @@ function LeaveTable({ rows, locked, onEdit, onRemove }) {
                         const meta = leaveMeta(row.leaveType);
                         const actual = row.actualDays || row.eligibleWorkingDays || 0;
                         const deduction = row.deductionDays || row.deduction || 0;
-                        const canEdit = !locked && row.source !== 'erp';
+                        const source = leaveSourceKey(row);
+                        const canEdit = !locked && source !== 'system';
                         return (
                             <tr
-                                key={row.id || `${row.fromDate}-${index}`}
+                                key={row.id || `${row.fromDate}-${source}-${index}`}
                                 className={`border-b border-[#F1F5F9] ${canEdit ? 'cursor-pointer hover:bg-slate-50' : ''
                                     }`}
                                 onClick={() => {
-                                    if (canEdit) onEdit(index);
+                                    if (canEdit) onEdit(row);
                                 }}
                             >
                                 <td className="px-2 py-3">
@@ -1918,7 +2381,9 @@ function LeaveTable({ rows, locked, onEdit, onRemove }) {
                                     </span>
                                 </td>
                                 <td className="px-2 py-3 text-[13px] text-[#334155]">
-                                    {prettyDate(row.fromDate)} — {prettyDate(row.toDate)}
+                                    {row.fromDate || row.toDate
+                                        ? `${prettyDate(row.fromDate)} — ${prettyDate(row.toDate)}`
+                                        : '—'}
                                 </td>
                                 <td className="px-2 py-3 text-[13px] tabular-nums text-[#334155]">
                                     {actual} days
@@ -1929,13 +2394,24 @@ function LeaveTable({ rows, locked, onEdit, onRemove }) {
                                 <td className="px-2 py-3 text-[13px] font-bold tabular-nums text-[#0F172A]">
                                     {deduction} days
                                 </td>
+                                <td className="px-2 py-3">
+                                    <span
+                                        className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                            source === 'system'
+                                                ? 'bg-[#EEF2FF] text-[#4338CA]'
+                                                : 'bg-[#F1F5F9] text-[#475569]'
+                                        }`}
+                                    >
+                                        {source === 'system' ? 'System' : 'Manual'}
+                                    </span>
+                                </td>
                                 <td className="px-2 py-3 text-right">
                                     <button
                                         type="button"
-                                        disabled={locked || row.source === 'erp'}
+                                        disabled={!canEdit}
                                         onClick={(event) => {
                                             event.stopPropagation();
-                                            onRemove(index);
+                                            onRemove(row);
                                         }}
                                         className="rounded-md p-1 text-[#94A3B8] hover:text-slate-600 disabled:opacity-30"
                                     >

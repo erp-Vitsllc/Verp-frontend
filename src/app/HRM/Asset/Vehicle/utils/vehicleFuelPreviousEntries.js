@@ -4,6 +4,29 @@ export function previousFuelEntries(entries = []) {
     return [...entries.slice(0, -1)].reverse();
 }
 
+export function latestFuelEntry(entries = []) {
+    if (!Array.isArray(entries) || entries.length === 0) return null;
+    return entries[entries.length - 1];
+}
+
+/** Current fill-up first, then older fills (first fuel last). */
+export function fuelEntryHistoryRows(entries = []) {
+    const latest = latestFuelEntry(entries);
+    const previous = previousFuelEntries(entries);
+    const rows = [];
+    if (latest) {
+        rows.push({ entry: latest, label: 'Current', isCurrent: true });
+    }
+    previous.forEach((entry, idx) => {
+        rows.push({
+            entry,
+            label: idx === previous.length - 1 ? 'First fuel' : 'Previous',
+            isCurrent: false,
+        });
+    });
+    return rows;
+}
+
 export function formatFuelEntryWhen(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '';

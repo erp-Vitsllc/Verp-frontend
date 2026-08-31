@@ -121,6 +121,8 @@ function formatLeaveDateLabel(dateKey) {
 }
 
 const APPROVAL_PREVIEW_LIMIT = 5;
+const APPROVAL_CATEGORY_PENDING = 'pending';
+const APPROVAL_CATEGORY_APPROVED = 'approved';
 
 function approvalStatusBadgeClass(statusKey) {
     const key = String(statusKey || '').toLowerCase();
@@ -180,6 +182,7 @@ function LeaveApprovalTable({
     isEmployeeHighlighted,
     blinkRowId = '',
     onRowSelect,
+    onRowDoubleClick,
     onDecide,
     onAccept,
     onEdit,
@@ -210,6 +213,11 @@ function LeaveApprovalTable({
                 role="button"
                 tabIndex={0}
                 onClick={() => onRowSelect(row)}
+                onDoubleClick={(event) => {
+                    event.preventDefault();
+                    onRowDoubleClick?.(row);
+                }}
+                title="Double-click to open employee portal"
                 onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
@@ -250,6 +258,7 @@ function LeaveApprovalTable({
                                             if (onAccept) onAccept(row);
                                             else onDecide(row, 'approved');
                                         }}
+                                        onDoubleClick={(event) => event.stopPropagation()}
                                         className="flex h-7 w-7 items-center justify-center rounded-md bg-[#22C55E] text-white disabled:opacity-50"
                                         aria-label="Accept"
                                     >
@@ -262,6 +271,7 @@ function LeaveApprovalTable({
                                             event.stopPropagation();
                                             onDecide(row, 'rejected');
                                         }}
+                                        onDoubleClick={(event) => event.stopPropagation()}
                                         className="flex h-7 w-7 items-center justify-center rounded-md bg-[#EF4444] text-white disabled:opacity-50"
                                         aria-label="Reject"
                                     >
@@ -277,6 +287,7 @@ function LeaveApprovalTable({
                                         event.stopPropagation();
                                         onEdit?.(row);
                                     }}
+                                    onDoubleClick={(event) => event.stopPropagation()}
                                     className="flex h-7 w-7 items-center justify-center rounded-md border border-[#D0D5DD] bg-white text-[#344054] hover:bg-[#F9FAFB] disabled:opacity-50"
                                     aria-label="Edit leave"
                                     title="Edit leave"
@@ -292,6 +303,38 @@ function LeaveApprovalTable({
             </tr>
         );
     });
+}
+
+function ApprovalCategoryFilters({ value, pendingCount, approvedCount, onChange }) {
+    const tabs = [
+        { key: APPROVAL_CATEGORY_PENDING, label: 'Pending', count: pendingCount },
+        { key: APPROVAL_CATEGORY_APPROVED, label: 'Approved', count: approvedCount },
+    ];
+
+    return (
+        <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-0.5">
+            {tabs.map((tab) => {
+                const active = value === tab.key;
+                return (
+                    <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => onChange?.(tab.key)}
+                        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            active
+                                ? 'bg-white text-[#111827] shadow-sm'
+                                : 'text-[#6B7280] hover:text-[#111827]'
+                        }`}
+                    >
+                        {tab.label}
+                        <span className={`tabular-nums ${active ? 'text-[#2563EB]' : 'text-[#9CA3AF]'}`}>
+                            {tab.count}
+                        </span>
+                    </button>
+                );
+            })}
+        </div>
+    );
 }
 
 function buildAvailability(selectedEmployee) {
@@ -356,6 +399,7 @@ export default function LeaveDashboard({
     refreshKey = 0,
     onDataChanged,
     onApprovalRowSelect,
+    onApprovalRowOpenPortal,
     onAcceptRequest,
     onEditRequest,
     calendarLeaveFocus = null,
@@ -493,6 +537,7 @@ export default function LeaveDashboard({
     const [pendingLoading, setPendingLoading] = useState(true);
     const [pendingError, setPendingError] = useState('');
     const [decidingId, setDecidingId] = useState('');
+    const [approvalCategory, setApprovalCategory] = useState(APPROVAL_CATEGORY_PENDING);
     const [approvalModalOpen, setApprovalModalOpen] = useState(false);
     const [blinkRowId, setBlinkRowId] = useState('');
     const [pinnedApprovalRow, setPinnedApprovalRow] = useState(null);
@@ -622,6 +667,15 @@ export default function LeaveDashboard({
         [groupEmployeeIds, isAllYear, pendingItems, salaryVisibility, selectedYear, statusFilter],
     );
 
+    const pendingCount = useMemo(
+        () => yearPendingItems.filter((row) => rowStatusKey(row) === APPROVAL_CATEGORY_PENDING).length,
+        [yearPendingItems],
+    );
+    const approvedCount = useMemo(
+        () => yearPendingItems.filter((row) => rowStatusKey(row) === APPROVAL_CATEGORY_APPROVED).length,
+        [yearPendingItems],
+    );
+
     const sortedPendingItems = useMemo(() => {
         const list = [...yearPendingItems];
         list.sort((a, b) => {
@@ -638,12 +692,25 @@ export default function LeaveDashboard({
         return list;
     }, [employeeId, yearPendingItems]);
 
+    const categoryApprovalItems = useMemo(() => {
+        const list = yearPendingItems.filter((row) => rowStatusKey(row) === approvalCategory);
+        list.sort((a, b) => {
+            if (employeeId) {
+                const aSel = String(a.employeeMongoId) === String(employeeId) ? 0 : 1;
+                const bSel = String(b.employeeMongoId) === String(employeeId) ? 0 : 1;
+                if (aSel !== bSel) return aSel - bSel;
+            }
+            return String(b.startDateKey || '').localeCompare(String(a.startDateKey || ''));
+        });
+        return list;
+    }, [approvalCategory, employeeId, yearPendingItems]);
+
     const previewApprovalItems = useMemo(() => {
-        const preview = sortedPendingItems.slice(0, APPROVAL_PREVIEW_LIMIT);
+        const preview = categoryApprovalItems.slice(0, APPROVAL_PREVIEW_LIMIT);
         const selected =
-            findApprovalRowById(sortedPendingItems, selectedApprovalId) ||
-            (pinnedApprovalRow
-                ? findApprovalRowById(sortedPendingItems, pinnedApprovalRow.id) || pinnedApprovalRow
+            findApprovalRowById(categoryApprovalItems, selectedApprovalId) ||
+            (pinnedApprovalRow && rowStatusKey(pinnedApprovalRow) === approvalCategory
+                ? findApprovalRowById(categoryApprovalItems, pinnedApprovalRow.id) || pinnedApprovalRow
                 : null);
         if (!selected || preview.some((row) => String(row.id) === String(selected.id))) {
             return preview;
@@ -652,7 +719,12 @@ export default function LeaveDashboard({
             0,
             APPROVAL_PREVIEW_LIMIT,
         );
-    }, [pinnedApprovalRow, selectedApprovalId, sortedPendingItems]);
+    }, [approvalCategory, categoryApprovalItems, pinnedApprovalRow, selectedApprovalId]);
+
+    const approvalEmptyLabel =
+        approvalCategory === APPROVAL_CATEGORY_PENDING
+            ? `No pending leave requests${isAllYear ? '' : ` for ${selectedYear}`}.`
+            : `No approved leave requests${isAllYear ? '' : ` for ${selectedYear}`}.`;
 
     const isRowSelected = useCallback(
         (row) => {
@@ -683,11 +755,39 @@ export default function LeaveDashboard({
         return pool;
     })();
 
+    const approvalRowClickTimerRef = useRef(null);
+
     const handleRowSelect = useCallback(
         (row) => {
-            onApprovalRowSelect?.(row);
+            if (approvalRowClickTimerRef.current) {
+                window.clearTimeout(approvalRowClickTimerRef.current);
+            }
+            approvalRowClickTimerRef.current = window.setTimeout(() => {
+                approvalRowClickTimerRef.current = null;
+                onApprovalRowSelect?.(row);
+            }, 250);
         },
         [onApprovalRowSelect],
+    );
+
+    const handleRowDoubleClick = useCallback(
+        (row) => {
+            if (approvalRowClickTimerRef.current) {
+                window.clearTimeout(approvalRowClickTimerRef.current);
+                approvalRowClickTimerRef.current = null;
+            }
+            onApprovalRowOpenPortal?.(row);
+        },
+        [onApprovalRowOpenPortal],
+    );
+
+    useEffect(
+        () => () => {
+            if (approvalRowClickTimerRef.current) {
+                window.clearTimeout(approvalRowClickTimerRef.current);
+            }
+        },
+        [],
     );
 
     useEffect(() => {
@@ -696,6 +796,10 @@ export default function LeaveDashboard({
         const row = findApprovalRowForSpan(approvalRowsRef.current, calendarLeaveFocus);
         if (!row) return undefined;
 
+        const nextCategory = rowStatusKey(row);
+        if (nextCategory === APPROVAL_CATEGORY_PENDING || nextCategory === APPROVAL_CATEGORY_APPROVED) {
+            setApprovalCategory(nextCategory);
+        }
         setPinnedApprovalRow(row);
         setBlinkRowId(row.id);
         onApprovalRowSelect?.(row);
@@ -707,7 +811,13 @@ export default function LeaveDashboard({
     useEffect(() => {
         if (!selectedApprovalId) return undefined;
         const row = findApprovalRowById(approvalRowsRef.current, selectedApprovalId);
-        if (row) setPinnedApprovalRow(row);
+        if (row) {
+            const nextCategory = rowStatusKey(row);
+            if (nextCategory === APPROVAL_CATEGORY_PENDING || nextCategory === APPROVAL_CATEGORY_APPROVED) {
+                setApprovalCategory(nextCategory);
+            }
+            setPinnedApprovalRow(row);
+        }
         setBlinkRowId(row?.id || selectedApprovalId);
         const timer = window.setTimeout(() => setBlinkRowId(''), 1800);
         return () => window.clearTimeout(timer);
@@ -790,7 +900,7 @@ export default function LeaveDashboard({
     );
 
     return (
-        <div className="mb-5 space-y-5">
+        <div className="space-y-5">
             <style>{`
                 @keyframes leave-approval-blink {
                     0%, 100% { background-color: #DBEAFE; }
@@ -884,8 +994,14 @@ export default function LeaveDashboard({
                                 </p>
                             ) : null}
                         </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                            {sortedPendingItems.length > APPROVAL_PREVIEW_LIMIT ? (
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                            <ApprovalCategoryFilters
+                                value={approvalCategory}
+                                pendingCount={pendingCount}
+                                approvedCount={approvedCount}
+                                onChange={setApprovalCategory}
+                            />
+                            {categoryApprovalItems.length > APPROVAL_PREVIEW_LIMIT ? (
                                 <button
                                     type="button"
                                     onClick={() => setApprovalModalOpen(true)}
@@ -937,11 +1053,12 @@ export default function LeaveDashboard({
                                         isRowSelected={isRowSelected}
                                         isEmployeeHighlighted={isEmployeeHighlighted}
                                         onRowSelect={handleRowSelect}
+                                        onRowDoubleClick={handleRowDoubleClick}
                                         onDecide={handleDecide}
                                         onAccept={handleAccept}
                                         onEdit={handleEdit}
                                         blinkRowId={blinkRowId}
-                                        emptyLabel={`No leave requests${isAllYear ? '' : ` for ${selectedYear}`}.`}
+                                        emptyLabel={approvalEmptyLabel}
                                     />
                                 )}
                             </tbody>
@@ -1067,15 +1184,23 @@ export default function LeaveDashboard({
                             onClick={() => setApprovalModalOpen(false)}
                         />
                         <div className="relative z-[101] flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl">
-                            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-5 py-4">
+                            <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] px-5 py-4">
                                 <h3 className="text-[15px] font-semibold text-[#111827]">Leave Approval</h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setApprovalModalOpen(false)}
-                                    className="rounded-md px-2 py-1 text-sm font-semibold text-[#6B7280] hover:bg-[#F3F4F6]"
-                                >
-                                    Close
-                                </button>
+                                <div className="flex items-center gap-3">
+                                    <ApprovalCategoryFilters
+                                        value={approvalCategory}
+                                        pendingCount={pendingCount}
+                                        approvedCount={approvedCount}
+                                        onChange={setApprovalCategory}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setApprovalModalOpen(false)}
+                                        className="rounded-md px-2 py-1 text-sm font-semibold text-[#6B7280] hover:bg-[#F3F4F6]"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
                             </div>
                             <div className="min-h-0 flex-1 overflow-auto p-4">
                                 <table className="w-full min-w-[620px] text-left text-sm">
@@ -1091,7 +1216,7 @@ export default function LeaveDashboard({
                                     </thead>
                                     <tbody>
                                         <LeaveApprovalTable
-                                            rows={sortedPendingItems}
+                                            rows={categoryApprovalItems}
                                             decidingId={decidingId}
                                             isRowSelected={isRowSelected}
                                             isEmployeeHighlighted={isEmployeeHighlighted}
@@ -1099,6 +1224,7 @@ export default function LeaveDashboard({
                                                 handleRowSelect(row);
                                                 setApprovalModalOpen(false);
                                             }}
+                                            onRowDoubleClick={handleRowDoubleClick}
                                             onDecide={handleDecide}
                                             onAccept={(row) => {
                                                 setApprovalModalOpen(false);
@@ -1109,7 +1235,7 @@ export default function LeaveDashboard({
                                                 handleEdit(row);
                                             }}
                                             blinkRowId={blinkRowId}
-                                            emptyLabel={`No leave requests${isAllYear ? '' : ` for ${selectedYear}`}.`}
+                                            emptyLabel={approvalEmptyLabel}
                                         />
                                     </tbody>
                                 </table>

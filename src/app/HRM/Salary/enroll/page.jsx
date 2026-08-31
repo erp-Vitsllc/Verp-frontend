@@ -14,14 +14,22 @@ import { useToast } from '@/hooks/use-toast';
 import useWorkLocations from '@/hooks/useWorkLocations';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
 import SalaryHeaderActions from '../components/SalaryHeaderActions';
+import SalaryPolicyRequiredModal from '../components/SalaryPolicyRequiredModal';
 import SalaryPolicyFields from '../components/SalaryPolicyFields';
 import { EMPTY_POLICY_FORM, policyFormFromApi } from '../utils/salaryPolicyForm';
 import NavButton, { getNavClickHandlers } from '@/components/NavButton';
+import SortableTh, { compareSortValues, toggleSortState } from '@/components/SortableTh';
+import { useMainSalaryPolicyConfigured } from '../utils/mainSalaryPolicy';
 
 const INNER_TABS = [
     { key: 'employees', label: 'Employees' },
     { key: 'policies', label: 'Policies' },
 ];
+
+function formatSalaryType(row) {
+    if (!row?.enrolled) return '----';
+    return String(row.salaryType || '').trim() === 'WPS' ? 'WPS' : 'Cash';
+}
 
 function formatSalaryStart(value) {
     const ym = String(value || '').trim();
@@ -46,6 +54,10 @@ export default function EnrollSalaryPage() {
     const [policyLoading, setPolicyLoading] = useState(false);
     const [policySaving, setPolicySaving] = useState(false);
     const [policyError, setPolicyError] = useState('');
+    const [policyModal, setPolicyModal] = useState(false);
+    const [sortKey, setSortKey] = useState('name');
+    const [sortDirection, setSortDirection] = useState('asc');
+    const { configured: mainPolicyConfigured } = useMainSalaryPolicyConfigured();
 
     const fetchDirectory = useCallback(async () => {
         setLoading(true);
@@ -53,6 +65,7 @@ export default function EnrollSalaryPage() {
         try {
             const res = await axiosInstance.get('/Employee/salary-enroll/options', { skipToast: true });
             setEmployees(Array.isArray(res.data?.employees) ? res.data.employees : []);
+            if (res.data?.mainPolicyConfigured === false) setPolicyModal(true);
         } catch (err) {
             setEmployees([]);
             setError(err?.response?.data?.message || 'Failed to load salary enrollment.');
@@ -99,12 +112,28 @@ export default function EnrollSalaryPage() {
     const activeLocation = tabs.find((tab) => tab.key === staffTab);
     const rows = useMemo(() => {
         const key = normalizeWorkLocationKey(staffTab);
-        return employees
-            .filter((emp) => normalizeWorkLocationKey(emp.staffType) === key)
-            .sort((a, b) =>
-                String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }),
-            );
-    }, [employees, staffTab]);
+        const list = employees.filter((emp) => normalizeWorkLocationKey(emp.staffType) === key);
+        const sortValue = (row) => {
+            switch (sortKey) {
+                case 'enrolled':
+                    return row.enrolled ? 'Enrolled' : 'Pending';
+                case 'salaryType':
+                    return row.enrolled ? formatSalaryType(row) : '';
+                case 'fromMonth':
+                    return row.enrolled ? String(row.fromMonth || '') : '';
+                case 'name':
+                default:
+                    return String(row.name || '');
+            }
+        };
+        return [...list].sort((a, b) => compareSortValues(sortValue(a), sortValue(b), sortDirection));
+    }, [employees, staffTab, sortKey, sortDirection]);
+
+    function handleSort(key) {
+        const next = toggleSortState(sortKey, sortDirection, key);
+        setSortKey(next.sortKey);
+        setSortDirection(next.sortDirection);
+    }
 
     async function saveGroupPolicy() {
         if (!staffTab) return;
@@ -242,15 +271,34 @@ export default function EnrollSalaryPage() {
                                     <table className="w-full min-w-[640px] table-auto text-xs sm:text-sm">
                                         <thead className="border-b border-gray-200 bg-gray-50">
                                             <tr>
-                                                <th className="px-3 sm:px-4 py-2.5 text-left text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-600">
-                                                    Name
-                                                </th>
-                                                <th className="px-3 sm:px-4 py-2.5 text-left text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-600">
-                                                    Enroll Status
-                                                </th>
-                                                <th className="px-3 sm:px-4 py-2.5 text-left text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-600">
-                                                    Salary Start Date
-                                                </th>
+                                                <SortableTh
+                                                    label="Name"
+                                                    sortKey="name"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <SortableTh
+                                                    label="Enroll Status"
+                                                    sortKey="enrolled"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <SortableTh
+                                                    label="Salary Type"
+                                                    sortKey="salaryType"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
+                                                <SortableTh
+                                                    label="Salary Start Date"
+                                                    sortKey="fromMonth"
+                                                    activeKey={sortKey}
+                                                    direction={sortDirection}
+                                                    onSort={handleSort}
+                                                />
                                                 <th className="px-3 sm:px-4 py-2.5 text-right text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-600 w-24">
                                                     Edit
                                                 </th>
@@ -259,7 +307,7 @@ export default function EnrollSalaryPage() {
                                         <tbody className="divide-y divide-gray-100">
                                             {loading ? (
                                                 <tr>
-                                                    <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
+                                                    <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
                                                         <Loader2
                                                             size={20}
                                                             className="inline animate-spin text-blue-600"
@@ -268,22 +316,27 @@ export default function EnrollSalaryPage() {
                                                 </tr>
                                             ) : rows.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
+                                                    <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
                                                         No employees in this work location.
                                                     </td>
                                                 </tr>
                                             ) : (
                                                 rows.map((row) => {
                                                     const setupHref = `/HRM/Salary/enroll/${encodeURIComponent(row.employeeId)}`;
+                                                    const canOpenSetup = mainPolicyConfigured || row.enrolled;
                                                     return (
                                                         <tr
                                                             key={row.employeeId}
-                                                            className="hover:bg-slate-50 cursor-pointer"
-                                                            {...getNavClickHandlers({
-                                                                href: setupHref,
-                                                                router,
-                                                                listReturnHref: '/HRM/Salary/enroll',
-                                                            })}
+                                                            className={`hover:bg-slate-50 cursor-pointer${canOpenSetup ? '' : ' opacity-70'}`}
+                                                            {...(canOpenSetup
+                                                                ? getNavClickHandlers({
+                                                                      href: setupHref,
+                                                                      router,
+                                                                      listReturnHref: '/HRM/Salary/enroll',
+                                                                  })
+                                                                : {
+                                                                      onClick: () => setPolicyModal(true),
+                                                                  })}
                                                         >
                                                         <td className="px-3 sm:px-4 py-2.5 font-medium text-slate-800">
                                                             <div className="min-w-0">
@@ -304,6 +357,21 @@ export default function EnrollSalaryPage() {
                                                                 {row.enrolled ? 'Enrolled' : 'Pending'}
                                                             </span>
                                                         </td>
+                                                        <td className="px-3 sm:px-4 py-2.5">
+                                                            {row.enrolled ? (
+                                                                <span
+                                                                    className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                                                        formatSalaryType(row) === 'WPS'
+                                                                            ? 'bg-sky-50 text-sky-700'
+                                                                            : 'bg-slate-100 text-slate-700'
+                                                                    }`}
+                                                                >
+                                                                    {formatSalaryType(row)}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400">----</span>
+                                                            )}
+                                                        </td>
                                                         <td className="px-3 sm:px-4 py-2.5 text-slate-700 whitespace-nowrap">
                                                             {row.enrolled
                                                                 ? formatSalaryStart(row.fromMonth)
@@ -314,6 +382,11 @@ export default function EnrollSalaryPage() {
                                                                 href={setupHref}
                                                                 listReturnHref="/HRM/Salary/enroll"
                                                                 className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-gray-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-blue-600 no-underline"
+                                                                onClick={(event) => {
+                                                                    if (canOpenSetup) return;
+                                                                    event.preventDefault();
+                                                                    setPolicyModal(true);
+                                                                }}
                                                             >
                                                                 <Pencil size={12} />
                                                                 Edit
@@ -331,6 +404,7 @@ export default function EnrollSalaryPage() {
                     </div>
                 </div>
             </div>
+            <SalaryPolicyRequiredModal open={policyModal} onClose={() => setPolicyModal(false)} />
         </PermissionGuard>
     );
 }

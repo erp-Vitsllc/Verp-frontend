@@ -49,6 +49,7 @@ const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees_view_driving_license: E_DOC_CARD,
     hrm_employees_view_medical_insurance: E_DOC_CARD,
     hrm_employees_view_salary: E_DOC_CARD,
+    hrm_employees_view_payroll_history: E_ONLY_VIEW,
     hrm_employees_view_salary_certificate: E_DOC_CARD,
     hrm_employees_view_bank: ['isDelete'],
     hrm_employees_view_work: [],
@@ -99,6 +100,7 @@ export function normalizeStoredEmployeeCardPermissions(permissions) {
 
     const cardModuleIds = [
         'hrm_employees_view_salary',
+        'hrm_employees_view_payroll_history',
         'hrm_employees_view_bank',
         'hrm_employees_view_salary_certificate',
     ];

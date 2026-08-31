@@ -450,6 +450,18 @@ export const buildDashboardNotificationPath = (item) => {
         if (employeeId) return `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
         return '/HRM/Salary';
     }
+    if (typeRaw === 'Salary DMF Approval' || type.includes('salary dmf')) {
+        const meta = parseMeta(item.extra3);
+        if (meta?.href) return meta.href;
+        if (meta?.monthKey) return `/HRM/Salary/${encodeURIComponent(meta.monthKey)}`;
+        const employeeId =
+            meta?.employeeId ||
+            item.subjectEmployeeId ||
+            item.targetEmployeeId ||
+            '';
+        if (employeeId) return `/HRM/Salary/enroll/${encodeURIComponent(employeeId)}`;
+        return '/HRM/Salary';
+    }
     if (type.includes('attendance leave') || type.includes('attendance')) {
         let meta = {};
         try {

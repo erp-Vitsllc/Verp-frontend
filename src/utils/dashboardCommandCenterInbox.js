@@ -97,7 +97,7 @@ export function resolveDashboardModuleCategory(item = {}) {
 
     if (type === 'Employee Leave Request') return 'Leave';
     if (type === 'Attendance Leave Request') return 'Attendance';
-    if (type === 'Salary Enrollment') return 'Salary';
+    if (type === 'Salary Enrollment' || type === 'Salary DMF Approval') return 'Salary';
 
     // Exact types first so Document Expiry never fuzzy-matches into Loan / other modules.
     if (FINE_MODULE_TYPES.has(type)) return 'Fine';

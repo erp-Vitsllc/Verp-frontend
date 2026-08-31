@@ -222,6 +222,7 @@ export default function NotificationInboxModal({
     isOpen,
     onClose,
     title = 'My Requests & Notifications',
+    subtitle = '',
     items = [],
     loading = false,
     refreshing = false,
@@ -333,12 +334,19 @@ export default function NotificationInboxModal({
                                 </span>
                             )}
                         </div>
-                        <h2 className="text-base font-bold text-slate-900 leading-tight truncate">
-                            {title}
-                            {refreshing ? (
-                                <Loader2 className="inline-block ml-2 h-3.5 w-3.5 animate-spin text-sky-500 align-middle" />
+                        <div className="min-w-0">
+                            <h2 className="text-base font-bold text-slate-900 leading-tight truncate">
+                                {title}
+                                {refreshing ? (
+                                    <Loader2 className="inline-block ml-2 h-3.5 w-3.5 animate-spin text-sky-500 align-middle" />
+                                ) : null}
+                            </h2>
+                            {subtitle ? (
+                                <p className="mt-0.5 text-xs font-medium text-amber-700 truncate">
+                                    {subtitle}
+                                </p>
                             ) : null}
-                        </h2>
+                        </div>
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">

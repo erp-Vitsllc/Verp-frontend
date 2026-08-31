@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Trash2, Loader2, Bell } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -13,13 +14,18 @@ import { isAdmin } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import NavButton from '@/components/NavButton';
 import SalaryEnrollmentOverviewCard from './components/SalaryEnrollmentOverviewCard';
+import SalaryRegisterFilterCard from './components/SalaryRegisterFilterCard';
 import SalaryHeaderActions from './components/SalaryHeaderActions';
 import PendingSalaryRequestsModal from './components/PendingSalaryRequestsModal';
-import { fetchSalaryPendingInbox } from '@/utils/pendingInboxFetch';
 import {
-    SALARY_PENDING_INBOX_CHANGED,
-    countVisibleSalaryPendingInbox,
+    pendingEnrollmentEmployees,
+    pendingEnrollmentMessage,
 } from './utils/salaryPendingInboxCount';
+import {
+    salaryRegisterFiltersFromSearchParams,
+    salaryRegisterHref,
+} from './utils/salaryRegisterHref';
+import { syncBrowserUrl } from '@/utils/listReturnNavigation';
 
 function formatAed(value) {
     const n = Number(value) || 0;
@@ -28,7 +34,7 @@ function formatAed(value) {
 
 const MONTH_ROW_GRID =
     'grid w-full min-w-[640px] items-center gap-x-2 sm:gap-x-3 ' +
-    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(4.5rem,0.7fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem]';
+    'grid-cols-[2.25rem_minmax(7.5rem,1.1fr)_minmax(6.5rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_3.25rem_4.25rem]';
 
 const COLUMNS = [
     { key: 'slNo', label: 'SL', className: 'text-left' },
@@ -41,73 +47,127 @@ const COLUMNS = [
     { key: 'deduction', label: 'Deduction', className: 'text-left text-[9px] font-semibold tracking-normal', compact: true },
 ];
 
+function employeeMatchesCompanyFilter(emp, company) {
+    if (!company) return true;
+    const want = String(company).trim().toLowerCase();
+    if (String(emp?.companyId || '').trim().toLowerCase() === want) return true;
+    return String(emp?.companyName || 'Unassigned').trim().toLowerCase() === want;
+}
+
+function sameEmployeeId(left, right) {
+    return (
+        String(left || '')
+            .trim()
+            .replace(/\s+/g, '')
+            .toUpperCase() ===
+        String(right || '')
+            .trim()
+            .replace(/\s+/g, '')
+            .toUpperCase()
+    );
+}
+
 export default function SalaryPage() {
     const { toast } = useToast();
+    const searchParams = useSearchParams();
+    const initialFilters = salaryRegisterFiltersFromSearchParams(searchParams);
     const [months, setMonths] = useState([]);
+    const [years, setYears] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [filtering, setFiltering] = useState(false);
     const [error, setError] = useState('');
     const [enrollmentOverview, setEnrollmentOverview] = useState(null);
     const [pendingDelete, setPendingDelete] = useState(null);
     const [deleting, setDeleting] = useState(false);
     const [addingMonth, setAddingMonth] = useState(false);
     const [hiddenMonthCount, setHiddenMonthCount] = useState(0);
-    const [pendingInboxCount, setPendingInboxCount] = useState(0);
+    const [viewerIsSalaryHr, setViewerIsSalaryHr] = useState(false);
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
+    const [yearFilter, setYearFilter] = useState(initialFilters.year);
+    const [companyFilter, setCompanyFilter] = useState(initialFilters.company);
+    const [employeeId, setEmployeeId] = useState(initialFilters.employeeId);
+    const loadedRef = useRef(false);
     const canDeleteMonth = isAdmin();
+    const pendingEnrollmentList = pendingEnrollmentEmployees(enrollmentOverview);
+    const pendingEnrollmentCount = pendingEnrollmentList.length;
+    const hasFilters = Boolean(yearFilter || companyFilter || employeeId);
+    const selectedEmployee = useMemo(
+        () =>
+            (enrollmentOverview?.employees || []).find((emp) =>
+                sameEmployeeId(emp?.employeeId, employeeId),
+            ),
+        [enrollmentOverview, employeeId],
+    );
 
-    const fetchRegister = useCallback(async () => {
-        setLoading(true);
+    const fetchRegister = useCallback(async (signal) => {
+        if (loadedRef.current) setFiltering(true);
+        else setLoading(true);
         setError('');
         try {
-            const response = await axiosInstance.get('/Employee/salary-register', { skipToast: true });
+            const params = {};
+            if (yearFilter) params.year = yearFilter;
+            if (companyFilter) params.company = companyFilter;
+            if (employeeId) params.employeeId = employeeId;
+            const response = await axiosInstance.get('/Employee/salary-register', {
+                params,
+                skipToast: true,
+                signal: typeof AbortSignal !== 'undefined' && signal instanceof AbortSignal ? signal : undefined,
+            });
             const list = Array.isArray(response.data?.months) ? response.data.months : [];
             setMonths(list);
+            setYears(Array.isArray(response.data?.years) ? response.data.years : []);
             setEnrollmentOverview(response.data?.enrollmentOverview || null);
             setHiddenMonthCount(Number(response.data?.hiddenMonthCount) || 0);
+            setViewerIsSalaryHr(Boolean(response.data?.viewerIsSalaryHr));
+            loadedRef.current = true;
         } catch (err) {
-            setMonths([]);
-            setEnrollmentOverview(null);
-            setHiddenMonthCount(0);
+            if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
+            if (!loadedRef.current) {
+                setMonths([]);
+                setYears([]);
+                setEnrollmentOverview(null);
+                setHiddenMonthCount(0);
+                setViewerIsSalaryHr(false);
+            }
             setError(err?.response?.data?.message || err.message || 'Failed to load salary.');
         } finally {
             setLoading(false);
+            setFiltering(false);
         }
-    }, []);
+    }, [yearFilter, companyFilter, employeeId]);
 
     useEffect(() => {
-        fetchRegister();
+        const controller = new AbortController();
+        fetchRegister(controller.signal);
+        return () => controller.abort();
     }, [fetchRegister]);
 
-    const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
-        try {
-            const items = await fetchSalaryPendingInbox(axiosInstance, {
-                skipToast: true,
-                force,
-            });
-            setPendingInboxCount(countVisibleSalaryPendingInbox(items));
-        } catch {
-            setPendingInboxCount(0);
-        }
-    }, []);
-
     useEffect(() => {
-        fetchPendingInboxCount();
-        const refresh = () => fetchPendingInboxCount({ force: true });
-        if (typeof window !== 'undefined') {
-            window.addEventListener(SALARY_PENDING_INBOX_CHANGED, refresh);
-        }
-        if (typeof document !== 'undefined') {
-            document.addEventListener(SALARY_PENDING_INBOX_CHANGED, refresh);
-        }
-        return () => {
-            if (typeof window !== 'undefined') {
-                window.removeEventListener(SALARY_PENDING_INBOX_CHANGED, refresh);
-            }
-            if (typeof document !== 'undefined') {
-                document.removeEventListener(SALARY_PENDING_INBOX_CHANGED, refresh);
-            }
-        };
-    }, [fetchPendingInboxCount]);
+        syncBrowserUrl(
+            salaryRegisterHref({
+                employeeId,
+                year: yearFilter,
+                company: companyFilter,
+            }),
+        );
+    }, [employeeId, yearFilter, companyFilter]);
+
+    function handleCompanyChange(nextCompany) {
+        setCompanyFilter(nextCompany);
+        setEmployeeId((current) => {
+            if (!current) return '';
+            const emp = (enrollmentOverview?.employees || []).find((row) =>
+                sameEmployeeId(row?.employeeId, current),
+            );
+            return employeeMatchesCompanyFilter(emp, nextCompany) ? current : '';
+        });
+    }
+
+    function clearFilters() {
+        setYearFilter('');
+        setCompanyFilter('');
+        setEmployeeId('');
+    }
 
     async function confirmDeleteMonth() {
         if (!pendingDelete?.monthKey) return;
@@ -163,31 +223,58 @@ export default function SalaryPage() {
                         style={{ backgroundColor: '#F2F6F9' }}
                     >
                         <ErpPageHeader title="Salary">
-                            <button
-                                type="button"
-                                onClick={() => setPendingInboxModalOpen(true)}
-                                className="relative p-1.5 sm:p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
-                                title="Salary notifications"
-                            >
-                                <Bell size={20} />
-                                {pendingInboxCount > 0 ? (
-                                    <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
-                                        {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
-                                    </span>
-                                ) : null}
-                            </button>
+                            {viewerIsSalaryHr ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingInboxModalOpen(true)}
+                                    className="relative p-1.5 sm:p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
+                                    title={pendingEnrollmentMessage(pendingEnrollmentCount)}
+                                >
+                                    <Bell size={20} />
+                                    {pendingEnrollmentCount > 0 ? (
+                                        <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
+                                            {pendingEnrollmentCount > 99 ? '99+' : pendingEnrollmentCount}
+                                        </span>
+                                    ) : null}
+                                </button>
+                            ) : null}
                             <SalaryHeaderActions enrollLabel="Salary Enrollment" />
                         </ErpPageHeader>
 
                         <div className={HEADER_PAIR_GRID}>
-                            <SalaryEnrollmentOverviewCard overview={enrollmentOverview} />
+                            <SalaryEnrollmentOverviewCard
+                                overview={enrollmentOverview}
+                                activeCompany={companyFilter}
+                                onSelectCompany={(name) =>
+                                    handleCompanyChange(
+                                        String(name || '').trim().toLowerCase() ===
+                                            String(companyFilter || '').trim().toLowerCase()
+                                            ? ''
+                                            : name,
+                                    )
+                                }
+                            />
                             <div
                                 className={`bg-white rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}
                             />
                         </div>
 
+                        <SalaryRegisterFilterCard
+                            years={years}
+                            companies={enrollmentOverview?.companies}
+                            employees={enrollmentOverview?.employees}
+                            year={yearFilter}
+                            company={companyFilter}
+                            employeeId={employeeId}
+                            onYearChange={setYearFilter}
+                            onCompanyChange={handleCompanyChange}
+                            onEmployeeChange={setEmployeeId}
+                            onClear={clearFilters}
+                            filtering={filtering}
+                        />
+
                         {error ? (
-                            <ErpErrorBanner className="mb-4" message={error} onRetry={fetchRegister} />
+                            <ErpErrorBanner className="mb-4" message={error} onRetry={() => fetchRegister()} />
                         ) : null}
 
                         <div className="w-full max-w-full overflow-x-auto">
@@ -202,7 +289,9 @@ export default function SalaryPage() {
                                                     : `text-[10px] sm:text-xs font-semibold uppercase tracking-wider ${col.className}`
                                             }
                                         >
-                                            {col.label}
+                                            {col.key === 'enrollUser' && employeeId
+                                                ? 'Employee'
+                                                : col.label}
                                         </span>
                                     ))}
                                 </div>
@@ -213,7 +302,18 @@ export default function SalaryPage() {
                                     </div>
                                 ) : months.length === 0 ? (
                                     <div className="rounded-xl border border-gray-100 bg-white px-4 py-8 text-center text-xs text-gray-500 sm:text-sm">
-                                        {hiddenMonthCount > 0 ? (
+                                        {hasFilters ? (
+                                            <>
+                                                <p>No salary months match these filters.</p>
+                                                <button
+                                                    type="button"
+                                                    onClick={clearFilters}
+                                                    className="mt-3 h-9 px-4 rounded-lg border border-gray-200 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                                >
+                                                    Clear filters
+                                                </button>
+                                            </>
+                                        ) : hiddenMonthCount > 0 ? (
                                             <>
                                                 <p>Salary months were removed from this list.</p>
                                                 {canDeleteMonth ? (
@@ -233,7 +333,9 @@ export default function SalaryPage() {
                                     </div>
                                 ) : (
                                     <div
-                                        className="flex flex-col gap-1.5 bg-white p-1 rounded-xl border border-gray-100"
+                                        className={`flex flex-col gap-1.5 bg-white p-1 rounded-xl border border-gray-100 ${
+                                            filtering ? 'opacity-60' : ''
+                                        }`}
                                         aria-label="Salary months"
                                     >
                                         {months.map((row) => (
@@ -247,7 +349,11 @@ export default function SalaryPage() {
                                                 >
                                                     <span className="tabular-nums font-semibold">{row.slNo}</span>
                                                     <span className="truncate">{row.month}</span>
-                                                    <span className="tabular-nums">{row.enrollUser}</span>
+                                                    <span className={employeeId ? 'truncate' : 'tabular-nums'}>
+                                                        {selectedEmployee
+                                                            ? selectedEmployee.name || selectedEmployee.employeeId
+                                                            : employeeId || row.enrollUser}
+                                                    </span>
                                                     <span className="tabular-nums font-semibold">
                                                         {formatAed(row.monthlySalary)}
                                                     </span>
@@ -322,7 +428,7 @@ export default function SalaryPage() {
             <PendingSalaryRequestsModal
                 isOpen={pendingInboxModalOpen}
                 onClose={() => setPendingInboxModalOpen(false)}
-                onPendingInboxCount={setPendingInboxCount}
+                pendingEnrollmentEmployees={pendingEnrollmentList}
             />
         </PermissionGuard>
     );

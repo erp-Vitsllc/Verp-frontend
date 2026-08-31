@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
     AlertTriangle,
     ArrowLeftRight,
@@ -19,7 +19,6 @@ import {
     Minus,
     Paperclip,
     Plane,
-    Plus,
     Search,
     Sparkle,
     Star,
@@ -33,6 +32,8 @@ import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { getEmployeeInitials } from '@/utils/employeeProfileImage';
 import EmployeeOverviewAttendanceCard from './EmployeeOverviewAttendanceCard';
 import HistoricalSalarySetupView from '@/app/HRM/Salary/enroll/HistoricalSalarySetupView';
+import { navigateFromList } from '@/utils/listReturnNavigation';
+import { salaryRegisterHref } from '@/app/HRM/Salary/utils/salaryRegisterHref';
 
 const DATA_ROWS = [
     {
@@ -48,7 +49,6 @@ const DATA_ROWS = [
         kind: 'applied',
         Icon: Check,
         iconWrap: 'bg-[#D8F5DE] text-[#1F7A3A]',
-        showAvailable: false,
     },
     {
         key: 'unauthorized_leave',
@@ -63,7 +63,6 @@ const DATA_ROWS = [
         kind: 'applied',
         Icon: Stethoscope,
         iconWrap: 'bg-[#E8D9F8] text-[#6B3FA0]',
-        showAvailable: true,
     },
     {
         key: 'compoff_leave',
@@ -71,15 +70,13 @@ const DATA_ROWS = [
         kind: 'applied',
         Icon: CalendarDays,
         iconWrap: 'bg-[#EDE9FE] text-[#6D28D9]',
-        showAvailable: false,
     },
     {
         key: 'late_arrived',
         label: 'Late arrival',
-        kind: 'applied',
+        kind: 'used',
         Icon: Clock,
         iconWrap: 'bg-[#FDE7D0] text-[#C05621]',
-        showAvailable: false,
     },
     {
         key: 'early_go',
@@ -87,15 +84,13 @@ const DATA_ROWS = [
         kind: 'applied',
         Icon: ArrowUpRight,
         iconWrap: 'bg-[#FDE7D0] text-[#C05621]',
-        showAvailable: false,
     },
     {
         key: 'mispunch',
         label: 'Miss punch',
-        kind: 'applied',
+        kind: 'used',
         Icon: Clock,
         iconWrap: 'bg-[#DCEBFF] text-[#2563EB]',
-        showAvailable: false,
     },
     {
         key: 'on_office',
@@ -110,9 +105,25 @@ const DATA_ROWS = [
         kind: 'applied',
         Icon: Home,
         iconWrap: 'bg-[#D4EEF8] text-[#1A6B8A]',
-        showAvailable: false,
     },
 ];
+
+const DATA_ROW_LABEL = Object.fromEntries(DATA_ROWS.map((row) => [row.key, row.label]));
+const DEDUCTION_EVENT_KEYS = ['authorized_leave', 'unauthorized_leave', 'late_arrived', 'early_go'];
+const DEFAULT_TAKEN_COLUMNS = [
+    { key: 'date', label: 'Date' },
+    { key: 'detail', label: 'Detail' },
+    { key: 'amount', label: 'Amount', align: 'right' },
+];
+const DEDUCTION_COLUMNS = [
+    { key: 'type', label: 'Type' },
+    { key: 'amount', label: 'Amount', align: 'right' },
+    { key: 'date', label: 'Date' },
+];
+
+function n(value) {
+    return Number(value) || 0;
+}
 
 function currentDubaiYear() {
     return Number(
@@ -123,8 +134,85 @@ function currentDubaiYear() {
     );
 }
 
-function n(value) {
-    return Number(value) || 0;
+function shiftDateKey(dateKey, days) {
+    const raw = String(dateKey || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '';
+    const [year, month, day] = raw.split('-').map(Number);
+    const next = new Date(Date.UTC(year, month - 1, day + Number(days || 0)));
+    return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+}
+
+function inclusiveDays(from, to) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) return 0;
+    const a = new Date(`${from}T00:00:00Z`);
+    const b = new Date(`${to}T00:00:00Z`);
+    return Math.round((b.getTime() - a.getTime()) / 86400000) + 1;
+}
+
+function formatLeaveDate(dateKey) {
+    const key = String(dateKey || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return '—';
+    const [year, month, day] = key.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+    });
+}
+
+function mergeAnnualLeaveDates(dates) {
+    const sorted = [...new Set((dates || []).filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key)))].sort();
+    const ranges = [];
+    for (const date of sorted) {
+        const last = ranges[ranges.length - 1];
+        if (last && shiftDateKey(last.to, 1) === date) {
+            last.to = date;
+            last.days += 1;
+            continue;
+        }
+        ranges.push({
+            id: `att-${date}`,
+            from: date,
+            to: date,
+            days: 1,
+            year: date.slice(0, 4),
+        });
+    }
+    return ranges;
+}
+
+function annualLeavePeriodFromRecord(row, index) {
+    const from = String(row?.fromDate || row?.startDate || '').trim().slice(0, 10);
+    const to = String(row?.toDate || row?.endDate || from).trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return null;
+    const end = /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : from;
+    const days =
+        n(row?.calendarDays) ||
+        n(row?.actualDays) ||
+        n(row?.eligibleWorkingDays) ||
+        inclusiveDays(from, end);
+    return {
+        id: String(row?.id || row?._id || `hist-${from}-${end}-${index}`),
+        from,
+        to: end,
+        days,
+        year: from.slice(0, 4),
+    };
+}
+
+function combineAnnualLeavePeriods(attendanceRanges, historicalRows) {
+    const byKey = new Map();
+    for (const row of attendanceRanges || []) {
+        byKey.set(`${row.from}|${row.to}`, row);
+    }
+    (historicalRows || []).forEach((row, index) => {
+        const period = annualLeavePeriodFromRecord(row, index);
+        if (!period) return;
+        const key = `${period.from}|${period.to}`;
+        if (!byKey.has(key)) byKey.set(key, period);
+    });
+    return [...byKey.values()].sort((a, b) => String(b.from).localeCompare(String(a.from)));
 }
 
 function formatAed(value) {
@@ -137,6 +225,141 @@ function formatSignedAed(value) {
     if (amount > 0) return `+ ${formatAed(amount)}`;
     if (amount < 0) return `− ${formatAed(amount)}`;
     return formatAed(0);
+}
+
+function detailBits(...parts) {
+    return parts.map((part) => String(part || '').trim()).filter(Boolean).join(' · ');
+}
+
+const FINANCIAL_MODAL_META = {
+    salary: { title: 'Salary', hint: 'Salary periods · click a row for salary history' },
+    increment: { title: 'Latest increment', hint: 'Salary increases · click a row for salary history' },
+    advance: { title: 'Advance', hint: 'Taken advances · click a row to open the record' },
+    loan: { title: 'Loan', hint: 'Taken loans · click a row to open the record' },
+    rewards: { title: 'Rewards earned', hint: 'Taken rewards · click a row to open the record' },
+    fines: { title: 'Fines', hint: 'Taken fines · click a row to open the record' },
+    utility: { title: 'Utility excess', hint: 'Taken utility bills · click a row to open the bill' },
+    deductions: {
+        title: 'Deductions',
+        hint: 'Authorized, unauthorized and attendance deductions · click a row for salary history',
+        columns: DEDUCTION_COLUMNS,
+    },
+};
+
+function deductionTypeLabel(event) {
+    const key = String(event?.statusKey || '').trim();
+    if (key === 'authorized_leave') {
+        const pay = String(event?.leavePayType || '').toLowerCase();
+        if (pay === 'paid') return 'Authorized leave (paid)';
+        if (pay === 'unpaid') return 'Authorized leave (unpaid)';
+        return 'Authorized leave';
+    }
+    return DATA_ROW_LABEL[key] || event?.statusLabel || key || 'Deduction';
+}
+
+function deductionAmountDays(event, leaveBalances) {
+    const key = String(event?.statusKey || '').trim();
+    if (key === 'authorized_leave' && String(event?.leavePayType || '').toLowerCase() === 'paid') {
+        return 0;
+    }
+    const multiplier = n(leaveBalances?.[key]?.multiplier);
+    return multiplier > 0 ? multiplier : 1;
+}
+
+function formatDeductionAmount(days, monthlySalary) {
+    const dayLabel = `${days} day${days === 1 ? '' : 's'}`;
+    const monthly = n(monthlySalary);
+    if (monthly <= 0) return dayLabel;
+    return `${dayLabel} · ${formatAed((monthly / 30) * days)}`;
+}
+
+function financialTakenRows(key, ctx) {
+    const salaryHref = ctx.salaryHref;
+    if (key === 'salary') {
+        const rows = (ctx.salaryHistory || []).map((row) => ({
+            id: row.id,
+            date: row.dateLabel || row.month || '—',
+            detail: detailBits(row.month, row.toLabel ? `To ${row.toLabel}` : '', `Basic ${formatAed(row.basic)}`),
+            amount: formatAed(row.total),
+            href: salaryHref,
+        }));
+        if (rows.length) return rows;
+        if (n(ctx.monthlySalary)) {
+            return [
+                {
+                    id: 'current-salary',
+                    date: 'Current',
+                    detail: detailBits(
+                        `Basic ${formatAed(ctx.salary?.basic)}`,
+                        `Other ${formatAed(ctx.salaryOther)}`,
+                    ),
+                    amount: formatAed(ctx.monthlySalary),
+                    href: salaryHref,
+                },
+            ];
+        }
+        return [];
+    }
+    if (key === 'increment') {
+        return (ctx.increments || []).map((row) => ({
+            id: row.id,
+            date: row.dateLabel || '—',
+            detail: `From ${formatAed(row.fromTotal)} to ${formatAed(row.toTotal)}`,
+            amount: formatSignedAed(row.amount),
+            href: salaryHref,
+        }));
+    }
+    if (key === 'advance' || key === 'loan') {
+        const items = key === 'advance' ? ctx.advances : ctx.loans;
+        const path = '/HRM/LoanAndAdvance';
+        return (items || []).map((row) => ({
+            id: row.id,
+            date: row.dateLabel || '—',
+            detail: detailBits(row.code, row.reason, row.status),
+            amount: formatAed(row.outstanding || row.total),
+            href: `${path}/${encodeURIComponent(row.id)}`,
+        }));
+    }
+    if (key === 'rewards') {
+        return (ctx.rewards || []).map((row) => ({
+            id: row.id,
+            date: row.dateLabel || '—',
+            detail: detailBits(row.code, row.type, row.status),
+            amount: formatAed(row.amount),
+            href: `/HRM/Reward/${encodeURIComponent(row.id)}`,
+        }));
+    }
+    if (key === 'fines') {
+        return (ctx.fines || []).map((row) => ({
+            id: row.id,
+            date: row.dateLabel || '—',
+            detail: detailBits(row.code, row.type, row.status),
+            amount: formatAed(row.outstanding || row.total),
+            href: `/HRM/Fine/${encodeURIComponent(row.id)}`,
+        }));
+    }
+    if (key === 'utility') {
+        return (ctx.utilityItems || []).map((row) => ({
+            id: row.id,
+            date: row.billMonthLabel || row.billMonth || '—',
+            detail: detailBits(row.utilityType, row.status),
+            amount: formatAed(row.amount),
+            href: `/HRM/Asset/UtilityBills/details/${encodeURIComponent(row.id)}`,
+        }));
+    }
+    if (key === 'deductions') {
+        return (ctx.deductionEvents || []).map((event) => {
+            const days = deductionAmountDays(event, ctx.leaveBalances);
+            return {
+                id: event.id,
+                type: deductionTypeLabel(event),
+                date: formatLeaveDate(event.date),
+                amount: formatDeductionAmount(days, ctx.monthlySalary),
+                href: salaryHref,
+            };
+        });
+    }
+    return [];
 }
 
 function OverviewListRow({ icon: Icon, iconWrap, title, subtitle, value, valueClass, badge, onClick }) {
@@ -170,7 +393,7 @@ function OverviewListRow({ icon: Icon, iconWrap, title, subtitle, value, valueCl
 }
 
 function AnnualLeaveEligibilityCard({ annualLeave }) {
-    const eligibleDays = n(annualLeave?.eligibleDays) || 30;
+    const eligibleDays = n(annualLeave?.eligibleDays);
     const leaveSalaryDays = n(annualLeave?.leaveSalaryDays);
     const remainingDays = n(annualLeave?.remainingDays);
     const airTicket = annualLeave?.airTicketEligible ? 'Eligible' : 'Pending';
@@ -460,16 +683,188 @@ function EventsDetailPanel({ title, events, onClose }) {
     );
 }
 
+function AnnualLeavePeriodsModal({ open, periods, loading, onClose, onSelect }) {
+    if (!open) return null;
+    return (
+        <div
+            className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            onClick={onClose}
+            role="presentation"
+        >
+            <div
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border border-gray-200"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                    <div>
+                        <h3 className="text-base font-bold text-gray-900">Annual leave</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                            {loading ? 'Loading records…' : `${periods.length} record(s) · click a row for salary history`}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                        aria-label="Close"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="overflow-y-auto max-h-[calc(80vh-4.5rem)]">
+                    {loading ? (
+                        <p className="text-sm text-gray-500 py-10 text-center">Loading annual leave…</p>
+                    ) : periods.length === 0 ? (
+                        <p className="text-sm text-gray-500 py-10 text-center">No annual leave records.</p>
+                    ) : (
+                        <table className="w-full text-left">
+                            <thead className="sticky top-0 bg-slate-50 border-b border-gray-100">
+                                <tr className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                    <th className="px-5 py-2.5 font-semibold">Date from</th>
+                                    <th className="px-3 py-2.5 font-semibold">To</th>
+                                    <th className="px-3 py-2.5 font-semibold">Days</th>
+                                    <th className="px-3 py-2.5 font-semibold">Year</th>
+                                    <th className="px-5 py-2.5 w-8" />
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {periods.map((row) => (
+                                    <tr key={row.id}>
+                                        <td colSpan={5} className="p-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => onSelect(row)}
+                                                className="w-full grid grid-cols-[1fr_1fr_4.5rem_4.5rem_2rem] items-center px-5 py-3 text-left hover:bg-slate-50/90"
+                                            >
+                                                <span className="text-sm font-semibold text-[#1B2A4A]">
+                                                    {formatLeaveDate(row.from)}
+                                                </span>
+                                                <span className="text-sm font-semibold text-[#1B2A4A]">
+                                                    {formatLeaveDate(row.to)}
+                                                </span>
+                                                <span className="text-sm font-bold tabular-nums text-[#1B2A4A]">
+                                                    {row.days}
+                                                </span>
+                                                <span className="text-sm font-semibold tabular-nums text-slate-600">
+                                                    {row.year}
+                                                </span>
+                                                <ChevronRight size={16} className="text-slate-300 justify-self-end" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function TakenItemsModal({ open, title, hint, rows, columns, onClose, onSelect }) {
+    if (!open) return null;
+    const cols = columns?.length ? columns : DEFAULT_TAKEN_COLUMNS;
+    return (
+        <div
+            className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            onClick={onClose}
+            role="presentation"
+        >
+            <div
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border border-gray-200"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                    <div>
+                        <h3 className="text-base font-bold text-gray-900">{title}</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                            {hint || `${rows.length} record(s)`}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                        aria-label="Close"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="overflow-y-auto max-h-[calc(80vh-4.5rem)]">
+                    {rows.length === 0 ? (
+                        <p className="text-sm text-gray-500 py-10 text-center">No records.</p>
+                    ) : (
+                        <table className="w-full text-left">
+                            <thead className="sticky top-0 bg-slate-50 border-b border-gray-100">
+                                <tr className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                    {cols.map((col) => (
+                                        <th
+                                            key={col.key}
+                                            className={`px-3 py-2.5 font-semibold first:pl-5 ${
+                                                col.align === 'right' ? 'text-right' : ''
+                                            }`}
+                                        >
+                                            {col.label}
+                                        </th>
+                                    ))}
+                                    <th className="px-5 py-2.5 w-8" />
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {rows.map((row) => (
+                                    <tr key={row.id}>
+                                        <td colSpan={cols.length + 1} className="p-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => onSelect(row)}
+                                                className="w-full flex items-center px-5 py-3 text-left hover:bg-slate-50/90 gap-3"
+                                            >
+                                                {cols.map((col) => (
+                                                    <span
+                                                        key={col.key}
+                                                        className={`text-sm min-w-0 ${
+                                                            col.key === 'type' || col.key === 'detail'
+                                                                ? 'flex-1 font-semibold text-[#1B2A4A] truncate'
+                                                                : col.align === 'right'
+                                                                  ? 'w-40 shrink-0 font-bold tabular-nums text-[#1B2A4A] text-right'
+                                                                  : 'w-28 shrink-0 font-semibold text-[#1B2A4A]'
+                                                        }`}
+                                                    >
+                                                        {row[col.key] || '—'}
+                                                    </span>
+                                                ))}
+                                                <ChevronRight size={16} className="text-slate-300 shrink-0" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function downloadSummaryCsv(profile) {
     const counts = profile?.summary?.counts || {};
     const applied = profile?.summary?.appliedCounts || {};
+    const balances = profile?.leaveBalances || {};
     const rows = [
-        ['Leave type', 'Approved / taken', 'Applied'],
-        ...DATA_ROWS.map((row) => [
-            row.label,
-            String(n(row.key === 'on_office' ? profile?.summary?.presentDays : counts[row.key])),
-            String(n(applied[row.key])),
-        ]),
+        ['Leave type', 'Pending', 'Used', 'Remaining', 'Salary deduction'],
+        ...DATA_ROWS.map((row) => {
+            const balance = balances[row.key] || {};
+            const taken = row.key === 'on_office' ? n(profile?.summary?.presentDays) : n(balance.taken ?? counts[row.key]);
+            return [
+                row.label,
+                String(n(applied[row.key])),
+                String(taken),
+                balance.remaining == null ? '' : String(n(balance.remaining)),
+                balance.deductionDays == null ? '' : String(balance.deductionDays),
+            ];
+        }),
     ];
     const csv = rows.map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -483,12 +878,17 @@ function downloadSummaryCsv(profile) {
 
 export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const router = useRouter();
+    const pathname = usePathname();
     const [year, setYear] = useState(currentDubaiYear);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [profile, setProfile] = useState(null);
     const [expandedStatKey, setExpandedStatKey] = useState('');
+    const [annualLeaveOpen, setAnnualLeaveOpen] = useState(false);
+    const [financialModalKey, setFinancialModalKey] = useState('');
+    const [historicalAnnualLeave, setHistoricalAnnualLeave] = useState([]);
+    const [historicalAnnualLoading, setHistoricalAnnualLoading] = useState(false);
     const [calendarScope, setCalendarScope] = useState('mine');
     const [activeTab, setActiveTab] = useState('attendance');
     const [salaryTabVisited, setSalaryTabVisited] = useState(false);
@@ -514,6 +914,9 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     useEffect(() => {
         setProfile(null);
         setExpandedStatKey('');
+        setAnnualLeaveOpen(false);
+        setFinancialModalKey('');
+        setHistoricalAnnualLeave([]);
         setSearch('');
         setActiveTab('attendance');
         setSalaryTabVisited(false);
@@ -537,6 +940,69 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const expandedEvents = expandedStatKey ? eventsByKey[expandedStatKey] || [] : [];
     const expandedLabel = DATA_ROWS.find((row) => row.key === expandedStatKey)?.label || '';
 
+    const attendanceAnnualPeriods = useMemo(
+        () => mergeAnnualLeaveDates((eventsByKey.on_leave || []).map((event) => event.date)),
+        [eventsByKey.on_leave],
+    );
+
+    const annualLeavePeriods = useMemo(
+        () => combineAnnualLeavePeriods(attendanceAnnualPeriods, historicalAnnualLeave),
+        [attendanceAnnualPeriods, historicalAnnualLeave],
+    );
+
+    useEffect(() => {
+        if (!annualLeaveOpen) return undefined;
+        const employeeId = String(profile?.employee?.employeeId || '').trim();
+        if (!employeeId) {
+            setHistoricalAnnualLeave([]);
+            return undefined;
+        }
+        let cancelled = false;
+        setHistoricalAnnualLoading(true);
+        axiosInstance
+            .get(`/Employee/salary-enroll/${encodeURIComponent(employeeId)}/historical`, {
+                skipToast: true,
+            })
+            .then((res) => {
+                if (cancelled) return;
+                setHistoricalAnnualLeave(
+                    Array.isArray(res.data?.annualLeaveRecords) ? res.data.annualLeaveRecords : [],
+                );
+            })
+            .catch(() => {
+                if (!cancelled) setHistoricalAnnualLeave([]);
+            })
+            .finally(() => {
+                if (!cancelled) setHistoricalAnnualLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [annualLeaveOpen, profile?.employee?.employeeId]);
+
+    function openSalaryHistory() {
+        const code = String(profile?.employee?.employeeId || '').trim();
+        if (!code) return;
+        setAnnualLeaveOpen(false);
+        setFinancialModalKey('');
+        const returnHref =
+            typeof window !== 'undefined'
+                ? `${pathname || ''}${window.location.search || ''}`
+                : pathname;
+        navigateFromList(router, `/emp/${encodeURIComponent(code)}?tab=salary`, returnHref);
+    }
+
+    function openFinancialItem(row) {
+        const href = String(row?.href || '').trim();
+        setFinancialModalKey('');
+        if (!href) return;
+        const returnHref =
+            typeof window !== 'undefined'
+                ? `${pathname || ''}${window.location.search || ''}`
+                : pathname;
+        navigateFromList(router, href, returnHref);
+    }
+
     const navigateHrm = (path) => {
         router.push(path);
     };
@@ -554,6 +1020,8 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
     const employee = profile?.employee;
     const counts = profile?.summary?.counts || {};
     const appliedCounts = profile?.summary?.appliedCounts || {};
+    const leaveBalances = profile?.leaveBalances || {};
+    const leavePolicy = profile?.leavePolicy || {};
     const financial = profile?.financial || {};
     const salary = financial.salary || {};
     const annualLeave = profile?.annualLeave || {};
@@ -591,9 +1059,42 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
         ? profile.requests.taskAging
         : TASK_AGING_FALLBACK;
     const agingMax = Math.max(1, ...taskAging.map((bar) => n(bar.count)));
-    const deductionBits = [];
-    if (n(counts.late_arrived)) deductionBits.push('Late arrival');
-    if (n(counts.unauthorized_leave)) deductionBits.push('Unauthorized leave');
+    const deductionBits = DEDUCTION_EVENT_KEYS.map((key) => {
+        if (!n(counts[key]) && !(eventsByKey[key] || []).length) return '';
+        return DATA_ROW_LABEL[key];
+    }).filter(Boolean);
+
+    const employeeCode = String(employee?.employeeId || '').trim();
+    const salaryHref = employeeCode ? `/emp/${encodeURIComponent(employeeCode)}?tab=salary` : '';
+    const payrollRegisterHref = salaryRegisterHref({ employeeId: employeeCode });
+
+    function portalReturnHref() {
+        return typeof window !== 'undefined'
+            ? `${pathname || ''}${window.location.search || ''}`
+            : pathname;
+    }
+
+    function openFilteredSalaryRegister() {
+        navigateFromList(router, payrollRegisterHref, portalReturnHref());
+    }
+    const financialModalMeta = FINANCIAL_MODAL_META[financialModalKey] || null;
+    const financialModalRows = financialTakenRows(financialModalKey, {
+        salaryHref,
+        salary,
+        salaryOther,
+        monthlySalary,
+        leaveBalances,
+        salaryHistory: financial.salaryHistory || [],
+        increments: financial.increments || [],
+        advances,
+        loans,
+        rewards,
+        fines,
+        utilityItems: financial.utilityItems || [],
+        deductionEvents: DEDUCTION_EVENT_KEYS.flatMap((key) => eventsByKey[key] || []).sort((a, b) =>
+            String(b.date || '').localeCompare(String(a.date || '')),
+        ),
+    });
 
     const visibleRows = useMemo(() => {
         const query = search.trim().toLowerCase();
@@ -684,14 +1185,6 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                             </option>
                         ))}
                     </select>
-                    <button
-                        type="button"
-                        onClick={() => navigateHrm('/HRM/Leave/apply')}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1A9B8C] px-3.5 text-xs font-semibold text-white hover:bg-[#178c7e]"
-                    >
-                        <Plus size={14} />
-                        New request
-                    </button>
                 </div>
                 ) : null}
             </div>
@@ -704,6 +1197,14 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                             <h2 className="text-[15px] font-bold text-[#1B2A4A]">Employee data</h2>
                             <p className="text-[11px] text-slate-400 mt-0.5">
                                 Year {profile.year} attendance & leave summary
+                                {leavePolicy.sickEnabled
+                                    ? ` · Sick leave ${leavePolicy.sickAllowedDays ?? 0} days/year${
+                                          n(leaveBalances.sick_leave?.remaining) === 0
+                                              ? ' · extra sick counts as authorized leave'
+                                              : ''
+                                      }`
+                                    : ''}
+                                {leavePolicy.sandwichLeave ? ' · Sandwich leave on' : ''}
                             </p>
                         </div>
                         <button
@@ -724,21 +1225,33 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                         ) : (
                             visibleRows.map((row) => {
                                 const Icon = row.Icon;
-                                const taken = row.key === 'on_office' ? presentDays : n(counts[row.key]);
+                                const balance = leaveBalances[row.key] || {};
+                                const taken =
+                                    row.key === 'on_office'
+                                        ? presentDays
+                                        : n(balance.taken ?? counts[row.key]);
                                 const applied = n(appliedCounts[row.key]);
-                                const remaining =
-                                    row.key === 'on_leave'
-                                        ? n(annualLeave.remainingDays ?? Math.max(0, 30 - taken))
-                                        : row.key === 'sick_leave'
-                                          ? n(annualLeave.sickRemaining)
-                                          : 0;
+                                const showDeduction =
+                                    balance.multiplier != null &&
+                                    Number(balance.multiplier) !== 1 &&
+                                    (row.key === 'authorized_leave' || row.key === 'unauthorized_leave');
+                                const opensDetail = true;
+                                const RowTag = 'button';
 
                                 return (
-                                    <button
+                                    <RowTag
                                         key={row.key}
                                         type="button"
-                                        onClick={() => setExpandedStatKey(row.key)}
-                                        className="w-full flex items-center justify-between gap-3 px-4 py-1.5 text-left hover:bg-slate-50/80 transition-colors"
+                                        onClick={() =>
+                                            row.key === 'on_leave'
+                                                ? setAnnualLeaveOpen(true)
+                                                : setExpandedStatKey(row.key)
+                                        }
+                                        className={`w-full flex items-center justify-between gap-3 px-4 py-1.5 text-left ${
+                                            opensDetail
+                                                ? 'hover:bg-slate-50/80 transition-colors'
+                                                : ''
+                                        }`}
                                     >
                                         <div className="flex items-center gap-2.5 min-w-0">
                                             <span
@@ -751,35 +1264,27 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
-                                            {row.kind === 'annual' ? (
-                                                <>
-                                                    <Metric label="Taken" value={taken} />
-                                                    <Metric
-                                                        label="Remaining"
-                                                        value={`${remaining} days`}
-                                                        accent
-                                                    />
-                                                </>
-                                            ) : row.kind === 'total' ? (
+                                            {row.kind === 'total' ? (
                                                 <Metric label="Total" value={taken} />
-                                            ) : row.kind === 'approved' ? (
-                                                <Metric label="Approved" value={taken} />
+                                            ) : row.kind === 'used' ? (
+                                                <Metric label="Used" value={taken} />
                                             ) : (
                                                 <>
-                                                    <Metric label="Approved" value={taken} />
-                                                    <Metric label="Applied" value={applied} />
-                                                    {row.showAvailable ? (
+                                                    <Metric label="Pending" value={applied} />
+                                                    <Metric label="Used" value={taken} />
+                                                    {showDeduction ? (
                                                         <Metric
-                                                            label="Available"
-                                                            value={remaining}
-                                                            accent
+                                                            label="Deduction"
+                                                            value={balance.deductionDays}
                                                         />
                                                     ) : null}
                                                 </>
                                             )}
-                                            <ArrowRight size={13} className="text-slate-400 shrink-0" />
+                                            {opensDetail ? (
+                                                <ArrowRight size={13} className="text-slate-400 shrink-0" />
+                                            ) : null}
                                         </div>
-                                    </button>
+                                    </RowTag>
                                 );
                             })
                         )}
@@ -806,7 +1311,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                         </div>
                         <button
                             type="button"
-                            onClick={() => navigateHrm('/HRM/Salary')}
+                            onClick={openFilteredSalaryRegister}
                             className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-500 hover:bg-slate-50 shrink-0"
                         >
                             Payroll file
@@ -820,7 +1325,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                             title="Salary"
                             subtitle={`Basic ${formatAed(salary.basic)} · Other ${formatAed(salaryOther)}`}
                             value={formatAed(monthlySalary)}
-                            onClick={() => navigateHrm('/HRM/Salary')}
+                            onClick={openFilteredSalaryRegister}
                         />
                         <OverviewListRow
                             icon={TrendingUp}
@@ -833,7 +1338,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                             }
                             value={increment?.amount ? formatSignedAed(increment.amount) : formatAed(0)}
                             valueClass={increment?.amount ? 'text-[#16A34A]' : undefined}
-                            onClick={() => navigateHrm(`/emp/${employeeMongoId}`)}
+                            onClick={() => setFinancialModalKey('increment')}
                         />
                         <OverviewListRow
                             icon={ArrowLeftRight}
@@ -845,7 +1350,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                     : 'No active advance'
                             }
                             value={formatAed(advanceOutstanding)}
-                            onClick={() => navigateHrm('/HRM/LoanAndAdvance')}
+                            onClick={() => setFinancialModalKey('advance')}
                         />
                         <OverviewListRow
                             icon={Landmark}
@@ -857,7 +1362,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                     : 'No active loan'
                             }
                             value={formatAed(loanOutstanding)}
-                            onClick={() => navigateHrm('/HRM/LoanAndAdvance')}
+                            onClick={() => setFinancialModalKey('loan')}
                         />
                         <OverviewListRow
                             icon={Star}
@@ -869,7 +1374,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                     : 'No rewards recorded'
                             }
                             value={formatAed(rewardTotal)}
-                            onClick={() => navigateHrm('/HRM/Reward')}
+                            onClick={() => setFinancialModalKey('rewards')}
                         />
                         <OverviewListRow
                             icon={AlertTriangle}
@@ -881,7 +1386,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                     : 'No pending recovery'
                             }
                             value={formatAed(fineOutstanding)}
-                            onClick={() => navigateHrm('/HRM/Fine')}
+                            onClick={() => setFinancialModalKey('fines')}
                         />
                         <OverviewListRow
                             icon={Minus}
@@ -893,7 +1398,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                                     : 'No utility excess'
                             }
                             value={formatAed(utilityOutstanding)}
-                            onClick={() => navigateHrm('/HRM/Asset/UtilityBills')}
+                            onClick={() => setFinancialModalKey('utility')}
                         />
                         <OverviewListRow
                             icon={Minus}
@@ -901,7 +1406,7 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                             title="Deductions"
                             subtitle={deductionBits.length ? deductionBits.join(' - ') : 'No attendance deductions'}
                             value={formatAed(0)}
-                            onClick={() => navigateHrm('/HRM/Salary')}
+                            onClick={() => setFinancialModalKey('deductions')}
                         />
                     </div>
                     <div className="p-3">
@@ -1113,13 +1618,33 @@ export default function EmployeeAttendanceProfileView({ employeeMongoId }) {
                 </div>
             ) : null}
 
-            {expandedStatKey ? (
+            {expandedStatKey && expandedStatKey !== 'on_leave' ? (
                 <EventsDetailPanel
                     title={expandedLabel}
                     events={expandedEvents}
                     onClose={() => setExpandedStatKey('')}
                 />
             ) : null}
+            <AnnualLeavePeriodsModal
+                open={annualLeaveOpen}
+                periods={annualLeavePeriods}
+                loading={historicalAnnualLoading && annualLeavePeriods.length === 0}
+                onClose={() => setAnnualLeaveOpen(false)}
+                onSelect={openSalaryHistory}
+            />
+            <TakenItemsModal
+                open={Boolean(financialModalMeta)}
+                title={financialModalMeta?.title || ''}
+                hint={
+                    financialModalMeta
+                        ? `${financialModalRows.length} record(s) · ${financialModalMeta.hint}`
+                        : ''
+                }
+                rows={financialModalRows}
+                columns={financialModalMeta?.columns}
+                onClose={() => setFinancialModalKey('')}
+                onSelect={openFinancialItem}
+            />
         </>
     );
 }

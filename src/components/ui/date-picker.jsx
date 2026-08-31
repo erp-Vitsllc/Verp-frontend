@@ -105,11 +105,20 @@ export function DatePicker({
     disabled,
     disabledDays,
     quickAction,
+    onOpenChange,
 }) {
     const [open, setOpen] = React.useState(false)
     const [date, setDate] = React.useState(undefined)
     const [inputStr, setInputStr] = React.useState("")
     const [month, setMonth] = React.useState(() => new Date())
+
+    const setPickerOpen = React.useCallback(
+        (nextOpen) => {
+            setOpen(nextOpen)
+            onOpenChange?.(nextOpen)
+        },
+        [onOpenChange],
+    )
 
     const applyDate = React.useCallback(
         (nextDate, { notifyParent = true } = {}) => {
@@ -120,20 +129,23 @@ export function DatePicker({
             setMonth(nextDate)
             setInputStr(format(nextDate, "dd/MM/yyyy"))
             if (notifyParent) {
-                onChange(format(nextDate, "yyyy-MM-dd"))
+                const next = format(nextDate, "yyyy-MM-dd")
+                if (next !== String(value || "").trim()) {
+                    onChange(next)
+                }
             }
             return true
         },
-        [disabledDays, onChange],
+        [disabledDays, onChange, value],
     )
 
     const handleQuickAction = React.useCallback(() => {
         const nextDate = parseValueToDate(quickAction?.date)
         if (!nextDate || quickAction?.disabled) return
         if (applyDate(nextDate)) {
-            setOpen(false)
+            setPickerOpen(false)
         }
-    }, [applyDate, quickAction?.date, quickAction?.disabled])
+    }, [applyDate, quickAction?.date, quickAction?.disabled, setPickerOpen])
 
     React.useEffect(() => {
         if (value) {
@@ -220,7 +232,7 @@ export function DatePicker({
         !isDateDisabled(parseValueToDate(quickAction?.date), disabledDays)
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={setPickerOpen}>
             <PopoverTrigger asChild>
                 <Button
                     variant="outline"
@@ -251,7 +263,7 @@ export function DatePicker({
                     selected={date}
                     onSelect={(selectedDate) => {
                         handleSelect(selectedDate)
-                        if (selectedDate) setOpen(false)
+                        if (selectedDate) setPickerOpen(false)
                     }}
                     month={month}
                     onMonthChange={handleMonthChange}
@@ -279,7 +291,7 @@ export function DatePicker({
 }
 
 /** Month-only picker; `value` / `onChange` use `yyyy-MM` (e.g. 2026-07). */
-export function MonthPicker({ value, onChange, placeholder = "Select month", className, disabled, disabledDays, fromYear, toYear }) {
+export function MonthPicker({ value, onChange, placeholder = "Select month", className, disabled, fromYear, toYear, minMonth, maxMonth }) {
     return (
         <MonthYearPicker
             value={value}
@@ -290,6 +302,8 @@ export function MonthPicker({ value, onChange, placeholder = "Select month", cla
             valueFormat="yyyy-MM"
             fromYear={fromYear ?? new Date().getFullYear() - 2}
             toYear={toYear ?? new Date().getFullYear() + 10}
+            minMonth={minMonth}
+            maxMonth={maxMonth}
         />
     )
 }

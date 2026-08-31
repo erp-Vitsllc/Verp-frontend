@@ -7,7 +7,7 @@ import axiosInstance from '@/utils/axios';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
 import { notifyAttendancePendingInboxChanged } from '@/app/HRM/Attendance/utils/attendancePendingInboxCount';
 import { dashboardHover, dashboardItem } from './dashboardMotion';
-import DashboardSalaryEnrollLock from './DashboardSalaryEnrollLock';
+import DashboardSalaryEnrollLock, { salaryLockFromAttendancePayload } from './DashboardSalaryEnrollLock';
 
 export const ATTENDANCE_CHECK_CHANGED = 'verp:attendance-check-changed';
 
@@ -118,6 +118,7 @@ export default function DashboardCheckInOutCard() {
     const [officeHours, setOfficeHours] = useState({ isOffDay: false, range: '' });
     const [siteHours, setSiteHours] = useState({ isOffDay: false, range: '' });
     const [salaryLocked, setSalaryLocked] = useState(false);
+    const [salaryLockMessage, setSalaryLockMessage] = useState('');
     const tickRef = useRef(null);
 
     const checkedIn = Boolean(timeIn);
@@ -134,14 +135,17 @@ export default function DashboardCheckInOutCard() {
                 params: { month },
                 skipToast: true,
             });
-            if (res.data?.salaryEnrolled === false) {
+            const lock = salaryLockFromAttendancePayload(res.data);
+            if (lock.locked) {
                 setSalaryLocked(true);
+                setSalaryLockMessage(lock.message);
                 setTimeIn('');
                 setTimeOut('');
                 setError('');
                 return;
             }
             setSalaryLocked(false);
+            setSalaryLockMessage('');
             const record = res.data?.todayRecord || null;
             const nextStaff = normalizeWorkLocationKey(res.data?.employee?.staffType);
             setTimeIn(record?.timeIn || '');
@@ -151,8 +155,10 @@ export default function DashboardCheckInOutCard() {
             setSiteHours(resolveTodayHours(res.data?.workingTime?.site, today));
             setError('');
         } catch (err) {
-            if (err?.response?.data?.salaryEnrolled === false) {
+            if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
+                const lock = salaryLockFromAttendancePayload(err.response.data);
                 setSalaryLocked(true);
+                setSalaryLockMessage(lock.message);
                 setTimeIn('');
                 setTimeOut('');
                 setError('');
@@ -249,8 +255,10 @@ export default function DashboardCheckInOutCard() {
             // Notify calendar only — avoid hard reload wiping timer state
             notifyAttendanceChanged();
         } catch (err) {
-            if (err?.response?.data?.salaryEnrolled === false) {
+            if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
+                const lock = salaryLockFromAttendancePayload(err.response.data);
                 setSalaryLocked(true);
+                setSalaryLockMessage(lock.message);
                 return;
             }
             const msg = err?.response?.data?.message || 'Check-in failed.';
@@ -279,8 +287,10 @@ export default function DashboardCheckInOutCard() {
             setTimeOut(nextOut);
             notifyAttendanceChanged();
         } catch (err) {
-            if (err?.response?.data?.salaryEnrolled === false) {
+            if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
+                const lock = salaryLockFromAttendancePayload(err.response.data);
                 setSalaryLocked(true);
+                setSalaryLockMessage(lock.message);
                 return;
             }
             const msg = err?.response?.data?.message || 'Check-out failed.';
@@ -432,7 +442,7 @@ export default function DashboardCheckInOutCard() {
                     <span className="truncate !text-white">{checkOutButtonLabel}</span>
                 </button>
             </div>
-            <DashboardSalaryEnrollLock locked={salaryLocked} />
+            <DashboardSalaryEnrollLock locked={salaryLocked} message={salaryLockMessage} />
         </motion.div>
     );
 }

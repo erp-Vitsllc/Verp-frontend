@@ -32,11 +32,8 @@ function disabledDaysBefore(dateKey) {
 }
 
 const LEAVE_TYPE_OPTIONS = [
-    { value: 'annual', label: 'Annual' },
-    { value: 'authorized', label: 'Authorized' },
-    { value: 'unauthorized', label: 'Unauthorized' },
-    { value: 'sick', label: 'Sick' },
-    { value: 'compoff', label: 'Comp Off' },
+    { value: 'annual', label: 'Annual Leave' },
+    { value: 'authorized', label: 'Authorized Leave' },
 ];
 
 const LEAVE_TYPE_VALUES = new Set(LEAVE_TYPE_OPTIONS.map((opt) => opt.value));

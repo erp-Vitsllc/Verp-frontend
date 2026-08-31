@@ -13,6 +13,10 @@ import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { holidayAppliesToStaff } from '@/utils/holidayScope';
 import { normalizeWorkLocationKey } from '@/utils/workLocations';
+import {
+    SALARY_ENROLL_LOCK_MESSAGE,
+    salaryLockFromAttendancePayload,
+} from '@/app/dashboard/components/DashboardSalaryEnrollLock';
 
 const WEEKDAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -148,6 +152,8 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
     const [holidayRows, setHolidayRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [salaryLocked, setSalaryLocked] = useState(false);
+    const [salaryLockMessage, setSalaryLockMessage] = useState('');
 
     useEffect(() => {
         if (selectedYear === currentYear) {
@@ -193,9 +199,21 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
                         : ['saturday', 'sunday'],
                 ),
             );
+            const lock = salaryLockFromAttendancePayload(response.data);
+            setSalaryLocked(lock.locked);
+            setSalaryLockMessage(lock.message);
         } catch (err) {
             setRecordsByDate({});
-            setError(err?.response?.data?.message || 'Could not load attendance.');
+            if (err?.response?.data?.salaryEnrolled === false || err?.response?.data?.attendanceLocked) {
+                const lock = salaryLockFromAttendancePayload(err.response.data);
+                setSalaryLocked(true);
+                setSalaryLockMessage(lock.message);
+                setError('');
+            } else {
+                setSalaryLocked(false);
+                setSalaryLockMessage('');
+                setError(err?.response?.data?.message || 'Could not load attendance.');
+            }
         } finally {
             setLoading(false);
         }
@@ -252,20 +270,38 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
     };
 
     return (
-        <div className="bg-white rounded-2xl border border-[#E6EAF0] shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden h-full flex flex-col">
+        <div
+            className={`rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden h-full flex flex-col relative ${
+                salaryLocked
+                    ? 'bg-slate-100 border-slate-200'
+                    : 'bg-white border-[#E6EAF0]'
+            }`}
+        >
             <div className="px-4 pt-3.5 pb-2.5 flex items-start justify-between gap-3">
                 <div>
-                    <h2 className="text-[15px] font-bold text-[#1B2A4A] tracking-tight">
+                    <h2
+                        className={`text-[15px] font-bold tracking-tight ${
+                            salaryLocked ? 'text-slate-400' : 'text-[#1B2A4A]'
+                        }`}
+                    >
                         My attendance
                     </h2>
                     <p className="text-[11px] text-[#8B95A7] mt-0.5">
-                        Requests and approvals update each calendar date
+                        {salaryLocked
+                            ? 'Attendance unlocks after salary enrollment'
+                            : 'Requests and approvals update each calendar date'}
                     </p>
                 </div>
-                <div className="inline-flex h-8 items-center rounded-lg border border-[#D9DEE7] bg-white shrink-0">
+                <div
+                    className={`inline-flex h-8 items-center rounded-lg border shrink-0 ${
+                        salaryLocked
+                            ? 'border-slate-200 bg-slate-50 pointer-events-none opacity-50'
+                            : 'border-[#D9DEE7] bg-white'
+                    }`}
+                >
                     <button
                         type="button"
-                        disabled={!canGoPrev}
+                        disabled={salaryLocked || !canGoPrev}
                         onClick={() => shiftMonth(-1)}
                         className="h-8 w-7 inline-flex items-center justify-center text-[#64748B] hover:bg-slate-50 disabled:opacity-40 rounded-l-lg"
                         aria-label="Previous month"
@@ -275,11 +311,12 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
                     <div className="relative min-w-[124px] border-x border-[#D9DEE7]">
                         <select
                             value={monthKey}
+                            disabled={salaryLocked}
                             onChange={(event) => {
                                 const [nextYear, nextMonth] = event.target.value.split('-').map(Number);
                                 setMonthAnchor(new Date(nextYear, nextMonth - 1, 1));
                             }}
-                            className="h-8 w-full appearance-none bg-transparent pl-2 pr-6 text-[12px] font-semibold text-[#1B2A4A] outline-none cursor-pointer"
+                            className="h-8 w-full appearance-none bg-transparent pl-2 pr-6 text-[12px] font-semibold text-[#1B2A4A] outline-none cursor-pointer disabled:cursor-not-allowed"
                         >
                             {options.map((option) => (
                                 <option key={option.value} value={option.value}>
@@ -294,7 +331,7 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
                     </div>
                     <button
                         type="button"
-                        disabled={!canGoNext}
+                        disabled={salaryLocked || !canGoNext}
                         onClick={() => shiftMonth(1)}
                         className="h-8 w-7 inline-flex items-center justify-center text-[#64748B] hover:bg-slate-50 disabled:opacity-40 rounded-r-lg"
                         aria-label="Next month"
@@ -304,6 +341,11 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
                 </div>
             </div>
 
+            <div
+                className={`flex-1 flex flex-col min-h-0 ${
+                    salaryLocked ? 'grayscale opacity-40 pointer-events-none select-none' : ''
+                }`}
+            >
             <div className="grid grid-cols-4 gap-2 px-4 pb-2.5">
                 {[
                     { label: 'Present', value: monthStats.present },
@@ -364,8 +406,10 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
                                     !isHoliday &&
                                     (record?.statusKey === 'weekly_off' || offWeekdays.has(weekdayKey));
                                 const isFuture = dateKey > todayKey;
-                                const tone = dayTone(record, { isFuture, isHoliday, isWeeklyOff });
-                                const pending = record?.leaveRequestStatus === 'pending';
+                                const tone = salaryLocked
+                                    ? { ...TONE.empty, chipText: '', label: '' }
+                                    : dayTone(record, { isFuture, isHoliday, isWeeklyOff });
+                                const pending = !salaryLocked && record?.leaveRequestStatus === 'pending';
                                 const title = [
                                     format(day, 'd MMM yyyy'),
                                     tone.label,
@@ -409,6 +453,23 @@ export default function EmployeeOverviewAttendanceCard({ employeeMongoId, year }
                     </span>
                 ))}
             </div>
+            </div>
+
+            {salaryLocked ? (
+                <div
+                    className="absolute inset-0 z-10 flex items-center justify-center bg-slate-200/80 px-5 text-center"
+                    role="status"
+                >
+                    <div className="max-w-[18rem]">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                            Enroll Status
+                        </p>
+                        <p className="mt-1.5 text-sm font-semibold text-slate-600 leading-snug">
+                            {salaryLockMessage || SALARY_ENROLL_LOCK_MESSAGE}
+                        </p>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }

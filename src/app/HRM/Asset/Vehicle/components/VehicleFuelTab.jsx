@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Eye, Fuel, PlusCircle, XCircle } from 'lucide-react';
+import VehicleFuelEditButton from './VehicleFuelEditButton';
 import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
@@ -10,6 +11,8 @@ import VehicleFuelPreviousToggle from './VehicleFuelPreviousToggle';
 import { canAccessAddFuel } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 import {
     formatFuelEntryWhen,
+    fuelEntryHistoryRows,
+    latestFuelEntry,
     previousFuelEntries,
 } from '@/app/HRM/Asset/Vehicle/utils/vehicleFuelPreviousEntries';
 import { isAdmin } from '@/utils/permissions';
@@ -40,6 +43,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
     const [loading, setLoading] = useState(true);
     const [modalOpen, setModalOpen] = useState(false);
     const [editingBill, setEditingBill] = useState(null);
+    const [editingEntry, setEditingEntry] = useState(null);
     const [closingBill, setClosingBill] = useState(null);
     const [closing, setClosing] = useState(false);
     const [deletingBill, setDeletingBill] = useState(null);
@@ -96,11 +100,20 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
 
     const openAdd = () => {
         setEditingBill(null);
+        setEditingEntry(null);
         setModalOpen(true);
     };
 
     const openEdit = (bill) => {
         setEditingBill(bill);
+        setEditingEntry(null);
+        setModalOpen(true);
+    };
+
+    const openEditEntry = (bill, entry) => {
+        if (!bill || !entry) return;
+        setEditingBill(bill);
+        setEditingEntry(entry);
         setModalOpen(true);
     };
 
@@ -270,6 +283,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                         body: limitTone === 'red' ? 'text-red-700' : limitTone === 'amber' ? 'text-amber-800' : 'text-slate-700',
                                     };
                                     const previous = previousFuelEntries(row.entries);
+                                    const currentEntry = latestFuelEntry(row.entries);
                                     const previousOpen = String(openPreviousId) === String(row._id);
                                     return (
                                         <Fragment key={row._id}>
@@ -323,12 +337,18 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                                 <Eye size={16} />
                                                             </button>
                                                         )}
+                                                        {allowHrActions && currentEntry ? (
+                                                            <VehicleFuelEditButton
+                                                                title="Edit current fuel"
+                                                                onClick={() => openEditEntry(row, currentEntry)}
+                                                            />
+                                                        ) : null}
                                                         {allowHrActions && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => openEdit(row)}
                                                                 className="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50"
-                                                                title="Update"
+                                                                title="Add another fuel entry"
                                                             >
                                                                 Update
                                                             </button>
@@ -371,7 +391,7 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                         <div className="ml-8 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                                                             <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
                                                                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                                                    Previous fuels · {row.monthLabel}
+                                                                    Fuel entries · {row.monthLabel}
                                                                 </p>
                                                             </div>
                                                             <table className="w-full text-left">
@@ -381,15 +401,15 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                                         <th className="px-4 py-2">Added on</th>
                                                                         <th className="px-4 py-2 text-right">Amount</th>
                                                                         <th className="px-4 py-2">Entry</th>
-                                                                        <th className="px-4 py-2 text-right w-16"></th>
+                                                                        <th className="px-4 py-2 text-right w-32">Actions</th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody>
-                                                                    {previous.map((entry, entryIdx) => {
-                                                                        const isFirstFuel = entryIdx === previous.length - 1;
+                                                                    {fuelEntryHistoryRows(row.entries).map((item, entryIdx) => {
+                                                                        const entry = item.entry;
                                                                         return (
                                                                             <tr
-                                                                                key={`${row._id}-prev-${entry._id || entryIdx}`}
+                                                                                key={`${row._id}-hist-${entry._id || entryIdx}`}
                                                                                 className="border-t border-slate-100"
                                                                             >
                                                                                 <td className="px-4 py-2.5 text-sm text-slate-400 tabular-nums">
@@ -402,9 +422,22 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                                                                                     {formatAmount(entry.amount)}
                                                                                 </td>
                                                                                 <td className="px-4 py-2.5">
-                                                                                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-600">
-                                                                                        {isFirstFuel ? 'First fuel' : 'Previous'}
-                                                                                    </span>
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <span
+                                                                                            className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                                                                                                item.isCurrent
+                                                                                                    ? 'bg-emerald-50 text-emerald-700'
+                                                                                                    : 'bg-slate-100 text-slate-600'
+                                                                                            }`}
+                                                                                        >
+                                                                                            {item.label}
+                                                                                        </span>
+                                                                                        {allowHrActions ? (
+                                                                                            <VehicleFuelEditButton
+                                                                                                onClick={() => openEditEntry(row, entry)}
+                                                                                            />
+                                                                                        ) : null}
+                                                                                    </div>
                                                                                 </td>
                                                                                 <td className="px-4 py-2.5 text-right">
                                                                                     {entry.hasAttachment ? (
@@ -441,11 +474,13 @@ export default function VehicleFuelTab({ asset, isFlowchartHr = false }) {
                 onClose={() => {
                     setModalOpen(false);
                     setEditingBill(null);
+                    setEditingEntry(null);
                 }}
                 onSaved={handleSaved}
                 asset={asset}
                 vehicles={vehicleOptions}
                 existingBill={editingBill}
+                editingEntry={editingEntry}
                 knownBills={rows}
                 canManage={allowHrActions}
                 lockVehicle

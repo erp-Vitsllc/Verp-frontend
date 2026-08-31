@@ -263,6 +263,7 @@ function LeaveWeekRow({
     focusTo = '',
     focusApprovalId = '',
     focusEmployeeId = '',
+    stretchWeeks = false,
 }) {
     const focus = {
         from: focusFrom,
@@ -286,8 +287,8 @@ function LeaveWeekRow({
     const barAreaHeight = isWeekExpanded ? expandedListHeight : compactBarHeight;
 
     return (
-        <div className="relative border-b border-[#E5E7EB]">
-            <div className="grid grid-cols-7">
+        <div className={`relative border-b border-[#E5E7EB] ${stretchWeeks ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+            <div className={`grid grid-cols-7 ${stretchWeeks ? 'h-full min-h-0 flex-1' : ''}`}>
                 {weekDays.map((day, dayIndex) => {
                     const dateKey = formatDateKey(day);
                     const inMonth = isSameMonth(day, monthDate);
@@ -309,16 +310,20 @@ function LeaveWeekRow({
                                 onToggleExpandDay?.(dateKey);
                             }}
                             className={`relative flex flex-col border-r border-[#E5E7EB] bg-white px-1 py-2 last:border-r-0 text-left transition-shadow ${
+                                stretchWeeks ? 'h-full' : ''
+                            } ${
                                 isExpanded
                                     ? 'z-[4] bg-[#F8FAFC] ring-2 ring-inset ring-[#5B9BD5] shadow-md'
                                     : ''
                             }`}
                             style={{
-                                minHeight: isExpanded
-                                    ? Math.max(CELL_MIN_HEIGHT, DATE_ROW_HEIGHT + expandedListHeight + 40)
-                                    : isWeekExpanded
-                                      ? Math.max(CELL_MIN_HEIGHT, DATE_ROW_HEIGHT + barAreaHeight + 40)
-                                      : CELL_MIN_HEIGHT,
+                                minHeight: stretchWeeks
+                                    ? undefined
+                                    : isExpanded
+                                      ? Math.max(CELL_MIN_HEIGHT, DATE_ROW_HEIGHT + expandedListHeight + 40)
+                                      : isWeekExpanded
+                                        ? Math.max(CELL_MIN_HEIGHT, DATE_ROW_HEIGHT + barAreaHeight + 40)
+                                        : CELL_MIN_HEIGHT,
                             }}
                         >
                             <div
@@ -524,6 +529,7 @@ export default function LeaveCalendarView({
     onLeaveBarClick,
     onLeaveBarDoubleClick,
     approvalId = '',
+    fillViewport = false,
 }) {
     const gridRef = useRef(null);
     const draftRangeRef = useRef({ from, to });
@@ -1036,8 +1042,12 @@ export default function LeaveCalendarView({
     );
 
     return (
-        <div className="overflow-hidden rounded-lg border border-[#E5E7EB] bg-white shadow-sm">
-                <div className="flex flex-col gap-4 border-b border-[#E5E7EB] px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div
+            className={`overflow-hidden rounded-lg border border-[#E5E7EB] bg-white shadow-sm ${
+                fillViewport ? 'flex min-h-0 flex-1 flex-col' : ''
+            }`}
+        >
+                <div className="flex shrink-0 flex-col gap-4 border-b border-[#E5E7EB] px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
                     <h2 className="text-[15px] font-semibold text-[#111827]">Leave Calendar</h2>
 
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
@@ -1110,9 +1120,9 @@ export default function LeaveCalendarView({
                     </div>
                 ) : null}
 
-                <div className="overflow-x-auto">
-                    <div className="min-w-[820px]">
-                        <div className="grid grid-cols-7 border-b border-[#E5E7EB] bg-[#FAFAFA]">
+                <div className={fillViewport ? 'flex min-h-0 flex-1 flex-col overflow-x-auto' : 'overflow-x-auto'}>
+                    <div className={fillViewport ? 'flex min-h-0 min-w-[820px] flex-1 flex-col' : 'min-w-[820px]'}>
+                        <div className="grid shrink-0 grid-cols-7 border-b border-[#E5E7EB] bg-[#FAFAFA]">
                             {WEEKDAYS.map((day) => (
                                 <div
                                     key={day}
@@ -1124,11 +1134,16 @@ export default function LeaveCalendarView({
                         </div>
 
                         {loading ? (
-                            <div className="px-4 py-12 text-center text-sm text-[#6B7280]">
+                            <div className="flex flex-1 items-center justify-center px-4 py-12 text-center text-sm text-[#6B7280]">
                                 Loading leave calendar...
                             </div>
                         ) : (
-                            <div ref={gridRef} className={dragEdge ? 'cursor-ew-resize' : ''}>
+                            <div
+                                ref={gridRef}
+                                className={`${dragEdge ? 'cursor-ew-resize' : ''} ${
+                                    fillViewport ? 'flex min-h-0 flex-1 flex-col' : ''
+                                }`}
+                            >
                                 {weekLayouts.map(({ weekDays, approvedLayout, draftLayout }) => (
                                     <LeaveWeekRow
                                         key={formatDateKey(weekDays[0])}
@@ -1151,6 +1166,7 @@ export default function LeaveCalendarView({
                                         focusTo={to}
                                         focusApprovalId={approvalId}
                                         focusEmployeeId={employeeId}
+                                        stretchWeeks={fillViewport}
                                     />
                                 ))}
                             </div>
@@ -1158,7 +1174,7 @@ export default function LeaveCalendarView({
                     </div>
                 </div>
 
-                <div className="border-t border-[#E5E7EB] px-5 py-4">
+                <div className="shrink-0 border-t border-[#E5E7EB] px-5 py-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-[#6B7280]">
                             {isValidDateKey(draftFrom) && isValidDateKey(draftTo)

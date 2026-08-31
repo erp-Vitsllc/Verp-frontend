@@ -2,14 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, Minus, Paperclip, Plus, X } from 'lucide-react';
-import { currentMonthDayOptions, cutoffDayForCurrentMonth } from '../utils/payrollMonthDay';
+import {
+    currentMonthDayOptions,
+    cutoffDayForCurrentMonth,
+    PAYROLL_MONTH_DAYS,
+} from '../utils/payrollMonthDay';
 import {
     ATTENDANCE_COMPLETION_CHECKS,
     EMPTY_POLICY_ATTACHMENT,
     HR_RULE_CHECKS,
-    REMINDER_DAY_OPTIONS,
     REMINDER_FOR_WHOM_OPTIONS,
     REMINDER_LABELS,
+    chainedReminderDayOptions,
+    clampChainedReminderDays,
     emptyLateRule,
     emptyExtraLateRule,
 } from '../utils/salaryPolicyForm';
@@ -39,24 +44,27 @@ function SectionHead({ roman, title }) {
     );
 }
 
-function CheckRow({ checked, label, onChange, indent, number }) {
+function CheckRow({ checked, label, onChange, indent, number, children }) {
     return (
-        <label
-            className={`flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-slate-50 cursor-pointer ${
+        <div
+            className={`flex flex-wrap items-center gap-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-slate-50 ${
                 indent ? 'px-8 sm:px-10' : 'px-3 sm:px-4'
             }`}
         >
             {number != null ? (
                 <span className="w-5 shrink-0 text-sm font-semibold text-slate-600 tabular-nums">{number}.</span>
             ) : null}
-            <input
-                type="checkbox"
-                checked={checked}
-                onChange={onChange}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-sm text-slate-700">{label}</span>
-        </label>
+            <label className="flex min-w-0 cursor-pointer items-center gap-3">
+                <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={onChange}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-700">{label}</span>
+            </label>
+            {children}
+        </div>
     );
 }
 
@@ -319,18 +327,62 @@ export default function SalaryPolicyFields({ form, setForm }) {
                 ))}
 
                 <LetterHead letter="B" title="HR Rules" />
-                {HR_RULE_CHECKS.map((row, index) => (
-                    <CheckRow
-                        key={row.key}
-                        indent
-                        number={index + 1}
-                        label={row.label}
-                        checked={Boolean(form.processingRules[row.key])}
-                        onChange={() => toggleRule(row.key)}
-                    />
-                ))}
+                {HR_RULE_CHECKS.map((row, index) => {
+                    const checked = Boolean(form.processingRules[row.key]);
+                    return (
+                        <CheckRow
+                            key={row.key}
+                            indent
+                            number={index + 1}
+                            label={row.label}
+                            checked={checked}
+                            onChange={() => toggleRule(row.key)}
+                        >
+                            {row.key === 'allowedSickLeavePerYear' ? (
+                                <span className="ml-auto inline-flex items-center gap-2">
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        disabled={!checked}
+                                        value={form.allowedSickLeaveDaysPerYear}
+                                        onChange={(e) =>
+                                            setForm((p) => ({
+                                                ...p,
+                                                allowedSickLeaveDaysPerYear: e.target.value,
+                                            }))
+                                        }
+                                        className={`${compactInputClass} disabled:bg-slate-50 disabled:text-slate-400`}
+                                        placeholder="0"
+                                    />
+                                    <span className="text-xs text-slate-500">days / year</span>
+                                </span>
+                            ) : null}
+                        </CheckRow>
+                    );
+                })}
                 <NumberedFieldRow
-                    number={8}
+                    number={9}
+                    label="Processing date"
+                    hint="Salary processing day of each month (1–28)"
+                >
+                    <select
+                        value={String(form.salaryProcessingDate || '')}
+                        onChange={(e) =>
+                            setForm((p) => ({ ...p, salaryProcessingDate: e.target.value }))
+                        }
+                        className={compactSelectClass}
+                    >
+                        <option value="">Select</option>
+                        {PAYROLL_MONTH_DAYS.map((day) => (
+                            <option key={day} value={day}>
+                                {day}
+                            </option>
+                        ))}
+                    </select>
+                </NumberedFieldRow>
+                <NumberedFieldRow
+                    number={10}
                     label="Authorized leave deduction"
                     hint="Days deducted for one authorized leave"
                 >
@@ -351,7 +403,7 @@ export default function SalaryPolicyFields({ form, setForm }) {
                     <span className="text-xs text-slate-500">day</span>
                 </NumberedFieldRow>
                 <NumberedFieldRow
-                    number={9}
+                    number={11}
                     label="Unauth leave deduction"
                     hint="Days deducted for one unauthorized leave"
                 >
@@ -372,7 +424,7 @@ export default function SalaryPolicyFields({ form, setForm }) {
                     <span className="text-xs text-slate-500">day</span>
                 </NumberedFieldRow>
                 <LateRuleRow
-                    number={10}
+                    number={12}
                     label="Late in"
                     row={form.lateInRules[0] || emptyLateRule()}
                     onFieldChange={(field, value) =>
@@ -383,7 +435,7 @@ export default function SalaryPolicyFields({ form, setForm }) {
                     }
                 />
                 <LateRuleRow
-                    number={11}
+                    number={13}
                     label="Late out"
                     row={form.lateOutRules[0] || emptyLateRule()}
                     onFieldChange={(field, value) =>
@@ -406,7 +458,7 @@ export default function SalaryPolicyFields({ form, setForm }) {
                     return (
                         <LateRuleRow
                             key={`extra-late-${index}`}
-                            number={12 + index}
+                            number={14 + index}
                             titleEditable
                             row={row}
                             onTitleChange={(title) =>
@@ -448,6 +500,8 @@ export default function SalaryPolicyFields({ form, setForm }) {
                 <SectionHead roman="III" title="Account Policy" />
                 {form.salaryProcessReminders.map((row, index) => {
                     const selected = Array.isArray(row.forWhom) ? row.forWhom : [];
+                    const dayOptions = chainedReminderDayOptions(form.salaryProcessReminders, index);
+                    const reminderEnabled = index === 0 || dayOptions.length > 0;
                     return (
                         <div
                             key={REMINDER_LABELS[index]}
@@ -462,18 +516,23 @@ export default function SalaryPolicyFields({ form, setForm }) {
                                 </div>
                                 <select
                                     value={String(row.daysBefore || '')}
+                                    disabled={!reminderEnabled}
                                     onChange={(e) =>
                                         setForm((p) => ({
                                             ...p,
-                                            salaryProcessReminders: p.salaryProcessReminders.map((item, i) =>
-                                                i === index ? { ...item, daysBefore: e.target.value } : item,
+                                            salaryProcessReminders: clampChainedReminderDays(
+                                                p.salaryProcessReminders.map((item, i) =>
+                                                    i === index ? { ...item, daysBefore: e.target.value } : item,
+                                                ),
                                             ),
                                         }))
                                     }
-                                    className={compactSelectClass}
+                                    className={`${compactSelectClass} disabled:bg-slate-50 disabled:text-slate-400`}
                                 >
-                                    <option value="">Days before</option>
-                                    {REMINDER_DAY_OPTIONS.map((day) => (
+                                    <option value="">
+                                        {reminderEnabled ? 'Days before' : 'Select previous reminder first'}
+                                    </option>
+                                    {dayOptions.map((day) => (
                                         <option key={day} value={day}>
                                             {day} days
                                         </option>
@@ -485,10 +544,13 @@ export default function SalaryPolicyFields({ form, setForm }) {
                                 {REMINDER_FOR_WHOM_OPTIONS.map((opt) => (
                                     <label
                                         key={opt.value}
-                                        className="inline-flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer"
+                                        className={`inline-flex items-center gap-1.5 text-sm text-slate-700 ${
+                                            reminderEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
+                                        }`}
                                     >
                                         <input
                                             type="checkbox"
+                                            disabled={!reminderEnabled}
                                             checked={selected.includes(opt.value)}
                                             onChange={() =>
                                                 setForm((p) => ({
@@ -505,7 +567,7 @@ export default function SalaryPolicyFields({ form, setForm }) {
                                                     }),
                                                 }))
                                             }
-                                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
                                         />
                                         {opt.label}
                                     </label>

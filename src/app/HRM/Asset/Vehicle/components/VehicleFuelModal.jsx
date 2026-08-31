@@ -93,6 +93,7 @@ export default function VehicleFuelModal({
     asset,
     vehicles = [],
     existingBill = null,
+    editingEntry = null,
     knownBills = [],
     canManage = false,
     lockVehicle = false,
@@ -114,7 +115,9 @@ export default function VehicleFuelModal({
 
     const activeBill = existingBill || matchedBill;
     const isUpdate = Boolean(billIdOf(activeBill));
+    const isEditEntry = Boolean(editingEntry?._id);
     const monthClosed = activeBill?.status === 'closed';
+    const canSave = canManage && !saving && (!monthClosed || isEditEntry);
     const canEditMonthlyLimit = isAdmin();
     const vehicleLocked = Boolean(lockVehicle || asset?._id || asset?.id);
     const selectedVehicle = useMemo(
@@ -151,9 +154,19 @@ export default function VehicleFuelModal({
             : vehicleIdOf(existingBill) || lockedVehicleId || firstVehicleId(vehicles);
         setVehicleId(defaultVehicleId);
         setMonthKey(existingBill?.monthKey || currentMonthKey());
-        setAmount(existingBill?.amountUsed != null ? String(existingBill.amountUsed) : '');
+        setAmount(
+            editingEntry?.amount != null
+                ? String(editingEntry.amount)
+                : existingBill?.amountUsed != null
+                  ? String(existingBill.amountUsed)
+                  : '',
+        );
         setMonthlyLimit(billPositiveLimit(existingBill) || '');
-        setFileName(existingBill?.entries?.find((e) => e.hasAttachment)?.attachmentName || '');
+        setFileName(
+            editingEntry
+                ? editingEntry.attachmentName || ''
+                : existingBill?.entries?.find((e) => e.hasAttachment)?.attachmentName || '',
+        );
         setAttachment(null);
         setMatchedBill(existingBill?._id ? existingBill : null);
         setGpsStats(
@@ -167,7 +180,7 @@ export default function VehicleFuelModal({
         );
         setErrors({});
         setConfirmClose(false);
-    }, [isOpen, existingBill, vehicleLocked, lockedVehicleId]);
+    }, [isOpen, existingBill, editingEntry, vehicleLocked, lockedVehicleId]);
 
     useEffect(() => {
         if (!isOpen || vehicleLocked || vehicleId || vehicleIdOf(existingBill)) return;
@@ -212,7 +225,7 @@ export default function VehicleFuelModal({
                       }
                     : null);
                 setGpsStats(gps);
-                if (existingBill?._id) return;
+                if (existingBill?._id || editingEntry?._id) return;
                 setMatchedBill(bill);
                 if (bill) {
                     setAmount(bill.amountUsed != null ? String(bill.amountUsed) : '');
@@ -231,7 +244,7 @@ export default function VehicleFuelModal({
                         idleTimeMinutes: Number(local.idleTimeMinutes) || 0,
                         idleTimeLabel: local.idleTimeLabel || '0 min',
                     });
-                    if (!existingBill?._id) {
+                    if (!existingBill?._id && !editingEntry?._id) {
                         setMatchedBill(local);
                         setAmount(local.amountUsed != null ? String(local.amountUsed) : '');
                         setMonthlyLimit(billPositiveLimit(local) || vehicleDefault);
@@ -247,7 +260,7 @@ export default function VehicleFuelModal({
         return () => {
             cancelled = true;
         };
-    }, [isOpen, existingBill, vehicleId, monthKey, knownBills, asset, selectedVehicle]);
+    }, [isOpen, existingBill, editingEntry, vehicleId, monthKey, knownBills, asset, selectedVehicle]);
 
     if (!isOpen) return null;
 
@@ -295,7 +308,7 @@ export default function VehicleFuelModal({
     };
 
     const handleSave = async () => {
-        if (!canManage || monthClosed || !validate()) return;
+        if (!canSave || !validate()) return;
         setSaving(true);
         try {
             const payload = {
@@ -312,12 +325,17 @@ export default function VehicleFuelModal({
                     : {}),
                 ...(attachment ? { attachment } : {}),
             };
-            const res = isUpdate
-                ? await axiosInstance.put(`/VehicleFuel/${billIdOf(activeBill)}`, payload)
-                : await axiosInstance.post('/VehicleFuel', payload);
+            const billId = billIdOf(activeBill);
+            const res = isEditEntry
+                ? await axiosInstance.put(`/VehicleFuel/${billId}/entries/${editingEntry._id}`, payload)
+                : isUpdate
+                  ? await axiosInstance.put(`/VehicleFuel/${billId}`, payload)
+                  : await axiosInstance.post('/VehicleFuel', payload);
             toast({
-                title: isUpdate ? 'Updated' : 'Created',
-                description: res.data?.message || (isUpdate ? 'Fuel bill updated.' : 'Fuel bill created.'),
+                title: isEditEntry ? 'Saved' : isUpdate ? 'Updated' : 'Created',
+                description:
+                    res.data?.message ||
+                    (isEditEntry ? 'Fuel entry updated.' : isUpdate ? 'Fuel bill updated.' : 'Fuel bill created.'),
             });
             onSaved?.(res.data?.data || null);
             onClose?.();
@@ -377,14 +395,16 @@ export default function VehicleFuelModal({
                         </div>
                         <div>
                             <h2 className="text-lg font-black text-slate-900 uppercase tracking-widest">
-                                {isUpdate ? 'Update Fuel' : 'Add Fuel'}
+                                {isEditEntry ? 'Edit Fuel' : isUpdate ? 'Update Fuel' : 'Add Fuel'}
                             </h2>
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                {isUpdate
-                                    ? canEditMonthlyLimit
+                                {isEditEntry
+                                    ? 'Change this fuel entry without adding a new one'
+                                    : isUpdate
+                                      ? canEditMonthlyLimit
                                         ? 'Existing month — Super User can edit monthly limit'
                                         : 'Existing month — monthly limit locked'
-                                    : 'Create this month’s petrol bill'}
+                                      : 'Create this month’s petrol bill'}
                             </p>
                         </div>
                     </div>
@@ -507,8 +527,9 @@ export default function VehicleFuelModal({
                             step="0.01"
                             value={amount}
                             onChange={(e) => setAmount(e.target.value)}
+                            disabled={monthClosed && !isEditEntry}
                             placeholder="0.00"
-                            className={`w-full h-11 px-4 rounded-xl border bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/20 ${errors.amount ? 'border-red-400' : 'border-slate-200'}`}
+                            className={`w-full h-11 px-4 rounded-xl border bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:text-slate-400 disabled:cursor-not-allowed ${errors.amount ? 'border-red-400' : 'border-slate-200'}`}
                         />
                         {errors.amount && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.amount}</p>}
                     </div>
@@ -552,11 +573,11 @@ export default function VehicleFuelModal({
                     )}
                     <button
                         type="button"
-                        disabled={!canManage || saving || monthClosed}
+                        disabled={!canSave}
                         onClick={handleSave}
                         className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                     >
-                        {saving ? 'Saving…' : isUpdate ? 'Update' : 'Create'}
+                        {saving ? 'Saving…' : isEditEntry ? 'Save' : isUpdate ? 'Update' : 'Create'}
                     </button>
                 </div>
             </div>

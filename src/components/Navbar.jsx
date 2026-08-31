@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Fuel } from 'lucide-react';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -14,12 +17,18 @@ import {
 import { useIdleSession } from '@/contexts/IdleSessionProvider';
 import { formatIdleCountdown, performLogout } from '@/utils/authSession';
 import ErpBackButton from '@/components/ErpBackButton';
+import {
+    canAccessAddFuel,
+    canAccessVehicleListPage,
+} from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 
 export default function Navbar() {
+    const pathname = usePathname();
     const [userName, setUserName] = useState('Admin');
     const [showLogoutDialog, setShowLogoutDialog] = useState(false);
     const { remainingMs, isIdleTrackingActive } = useIdleSession();
     const [isMounted, setIsMounted] = useState(false);
+    const [showFuelLink, setShowFuelLink] = useState(false);
     const [greeting, setGreeting] = useState('Good Day');
     const [displayRemainingMs, setDisplayRemainingMs] = useState(remainingMs);
 
@@ -35,6 +44,7 @@ export default function Navbar() {
 
     useEffect(() => {
         setIsMounted(true);
+        setShowFuelLink(canAccessVehicleListPage() || canAccessAddFuel());
         if (typeof window !== 'undefined') {
             const userData = localStorage.getItem('employeeUser');
             if (userData) {
@@ -58,6 +68,7 @@ export default function Navbar() {
     };
 
     const countdownLabel = formatIdleCountdown(displayRemainingMs);
+    const fuelActive = String(pathname || '').startsWith('/HRM/Asset/Vehicle/fuel');
     const countdownTone =
         displayRemainingMs <= 5 * 60 * 1000
             ? 'text-red-600 bg-red-50 border-red-200'
@@ -86,17 +97,32 @@ export default function Navbar() {
                                 <span className="font-mono text-xs sm:text-sm">{countdownLabel}</span>
                             </div>
                         )}
-                        <button
-                            onClick={() => setShowLogoutDialog(true)}
-                            className="mt-2 sm:mt-3 px-3 py-1.5 sm:px-4 sm:py-2 bg-red-500 hover:bg-red-600 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors inline-flex items-center gap-2 ml-auto"
-                        >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                                <polyline points="16 17 21 12 16 7"></polyline>
-                                <line x1="21" y1="12" x2="9" y2="12"></line>
-                            </svg>
-                            Logout
-                        </button>
+                        <div className="mt-2 sm:mt-3 flex items-center justify-end gap-2">
+                            {isMounted && showFuelLink ? (
+                                <Link
+                                    href="/HRM/Asset/Vehicle/fuel"
+                                    className={`px-3 py-1.5 sm:px-4 sm:py-2 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors inline-flex items-center gap-2 ${
+                                        fuelActive
+                                            ? 'bg-teal-800'
+                                            : 'bg-teal-600 hover:bg-teal-700'
+                                    }`}
+                                >
+                                    <Fuel size={16} />
+                                    Fuel
+                                </Link>
+                            ) : null}
+                            <button
+                                onClick={() => setShowLogoutDialog(true)}
+                                className="px-3 py-1.5 sm:px-4 sm:py-2 bg-red-500 hover:bg-red-600 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors inline-flex items-center gap-2"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                                    <polyline points="16 17 21 12 16 7"></polyline>
+                                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                                </svg>
+                                Logout
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

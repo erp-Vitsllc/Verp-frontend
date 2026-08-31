@@ -92,6 +92,7 @@ import {
 } from '@/utils/paymentStatusDisplay';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import EmployeeSalaryVehicleUtilityPanel from './EmployeeSalaryVehicleUtilityPanel';
+import EmployeePayrollHistoryPanel from './EmployeePayrollHistoryPanel';
 import AssetHeaderChoiceModal from '@/app/HRM/Asset/components/AssetHeaderChoiceModal';
 import TransferAssetModal from '@/app/HRM/Asset/components/TransferAssetModal';
 import ReturnAssetModal from '@/app/HRM/Asset/components/ReturnAssetModal';
@@ -198,6 +199,7 @@ function renderLoanAdvanceScheduleChips(loan, allPayments = []) {
 /** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
 const SALARY_ACTION_TO_MODULE = {
     'Salary History': 'hrm_employees_view_salary',
+    'Payroll History': 'hrm_employees_view_payroll_history',
     Fine: 'hrm_fine',
     Rewards: 'hrm_reward',
     NCR: 'hrm_ncr',
@@ -211,6 +213,7 @@ const SALARY_ACTION_TO_MODULE = {
 
 const SALARY_ACTION_ORDER = [
     'Salary History',
+    'Payroll History',
     'Fine',
     'Rewards',
     'NCR',
@@ -304,11 +307,18 @@ export default function SalaryTab({
     const selectSalaryAction = onSalaryActionSelect || setSelectedSalaryAction;
 
     const canSeeSalaryActionButton = useCallback((action) => {
-        if (isAdmin()) return true;
+        if (typeof isAdmin === 'function' ? isAdmin() : isAdmin) return true;
+        if (action === 'Payroll History') {
+            return (
+                crudAccess('hrm_employees_view_payroll_history').view ||
+                crudAccess('hrm_employees_view_salary').view ||
+                crudAccess('hrm_salary').view
+            );
+        }
         const moduleId = SALARY_ACTION_TO_MODULE[action];
         if (!moduleId) return false;
         return crudAccess(moduleId).view;
-    }, []);
+    }, [isAdmin]);
 
     useEffect(() => {
         if (canSeeSalaryActionButton(selectedSalaryAction)) return;
@@ -2633,7 +2643,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Tools Asset', 'Vehicle', 'Utility Bills', 'CTC'].map((action) => {
+                {SALARY_ACTION_ORDER.map((action) => {
                     if (!canSeeSalaryActionButton(action)) {
                         return null;
                     }
@@ -3217,7 +3227,9 @@ export default function SalaryTab({
                     </div>
                 )}
 
-                {(selectedSalaryAction === 'Vehicle' || selectedSalaryAction === 'Utility Bills') ? (
+                {selectedSalaryAction === 'Payroll History' ? (
+                    <EmployeePayrollHistoryPanel employee={employee} />
+                ) : (selectedSalaryAction === 'Vehicle' || selectedSalaryAction === 'Utility Bills') ? (
                     <EmployeeSalaryVehicleUtilityPanel
                         mode={selectedSalaryAction}
                         employee={employee}

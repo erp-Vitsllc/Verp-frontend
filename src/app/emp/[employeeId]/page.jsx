@@ -304,6 +304,7 @@ function hasProfileActivationHoldPending(employee) {
 const EMP_PROFILE_MAIN_TABS = ['basic', 'personal', 'work-details', 'salary', 'documents', 'training'];
 const EMP_PROFILE_SALARY_ACTIONS = [
     'Salary History',
+    'Payroll History',
     'Fine',
     'Rewards',
     'NCR',
@@ -502,7 +503,11 @@ function EmployeeProfilePageContent() {
             }
             if (tabAlias === 'salary') {
                 const normalizedAction =
-                    salaryActionRaw.toLowerCase() === 'assets' ? 'Tools Asset' : salaryActionRaw;
+                    salaryActionRaw.toLowerCase() === 'assets'
+                        ? 'Tools Asset'
+                        : salaryActionRaw.toLowerCase().replace(/[-_]/g, ' ') === 'payroll history'
+                          ? 'Payroll History'
+                          : salaryActionRaw;
                 const match = normalizedAction
                     ? EMP_PROFILE_SALARY_ACTIONS.find((a) => a.toLowerCase() === normalizedAction.toLowerCase())
                     : null;

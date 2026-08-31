@@ -358,6 +358,8 @@ export function buildUnderstandableNotificationTitle(item = {}) {
             return 'Utility Activate / Deactivate Request';
         case 'Salary Enrollment':
             return String(item.extra1 || '').trim() || 'Salary profile approval';
+        case 'Salary DMF Approval':
+            return String(item.extra1 || '').trim() || 'Salary DMF approval';
         case 'Vehicle Service Request': {
             const e1 = sanitizeNotificationText(item.extra1 || '');
             const title = e1 || 'Vehicle Service Request';

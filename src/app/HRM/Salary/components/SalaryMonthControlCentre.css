@@ -207,6 +207,18 @@
     background: #eef4ff;
 }
 
+.spcc-pay-add.is-locked,
+.spcc-pay-add.is-locked:hover {
+    cursor: default;
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    color: #94a3b8;
+}
+
+.spcc-pay-add.is-locked .spcc-pay-add__title {
+    color: #64748b;
+}
+
 .spcc-pay-add__kicker {
     font-size: 10px;
     font-weight: 700;
@@ -549,6 +561,14 @@
     overflow-x: auto;
     border-bottom: 1px solid var(--spcc-line);
     padding-bottom: 0;
+}
+
+.spcc-batch__tab input {
+    margin: 0;
+    width: 13px;
+    height: 13px;
+    accent-color: #1e3a8a;
+    cursor: pointer;
 }
 
 .spcc-batch__tab {
@@ -1659,8 +1679,20 @@
     min-width: 0;
 }
 
+.spcc-pay-row:not(.spcc-pay-row--head) {
+    cursor: pointer;
+}
+
 .spcc-pay-row:not(.spcc-pay-row--head):hover {
     background: #f8fafc;
+}
+
+.spcc-pay-row.is-selected {
+    background: #eef6ff;
+}
+
+.spcc-pay-row.is-selected:hover {
+    background: #e8f1fc;
 }
 
 .spcc-pay-row--head {
@@ -1675,8 +1707,45 @@
     line-height: 1.2;
 }
 
-.spcc-pay-row--head > span {
-    overflow: hidden;
+.spcc-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.spcc-sort__stack {
+    display: inline-flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    color: #cbd5e1;
+    line-height: 0;
+}
+
+.spcc-sort__stack svg {
+    display: block;
+    margin: -2px 0;
+}
+
+.spcc-sort.is-on,
+.spcc-sort__stack svg.is-on {
+    color: #1e3a8a;
+}
+
+.spcc-pay-row--head .spcc-sort {
+    white-space: normal;
+    line-height: 1.2;
 }
 
 .spcc-pay-name {
@@ -1944,15 +2013,19 @@
 
 .spcc-card--ready .spcc-ready-list {
     gap: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    padding-right: 2px;
 }
 
 .spcc-card--ready .spcc-ready-row {
     display: grid;
-    grid-template-columns: 18px minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 6px;
-    padding: 4px 2px;
+    padding: 7px 4px;
     border-radius: 6px;
+    border-bottom: 1px solid #f1f5f9;
 }
 
 .spcc-card--ready .spcc-ready-icon {

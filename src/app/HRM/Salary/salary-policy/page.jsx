@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import SalaryPolicyFields from '../components/SalaryPolicyFields';
 import SalaryHeaderActions from '../components/SalaryHeaderActions';
 import { EMPTY_POLICY_FORM, policyFormFromApi } from '../utils/salaryPolicyForm';
+import { notifyMainSalaryPolicyChanged } from '../utils/mainSalaryPolicy';
 
 export default function SalaryPolicyPage() {
     const { toast } = useToast();
@@ -46,6 +47,7 @@ export default function SalaryPolicyPage() {
         try {
             await axiosInstance.put('/Employee/payroll-settings', form);
             toast({ title: 'Main salary policy saved' });
+            notifyMainSalaryPolicyChanged();
             await fetchPolicy({ silent: true });
         } catch (err) {
             toast({
