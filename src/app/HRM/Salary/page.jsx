@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Trash2, Loader2, Bell } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
@@ -67,7 +67,7 @@ function sameEmployeeId(left, right) {
     );
 }
 
-export default function SalaryPage() {
+function SalaryPageContent() {
     const { toast } = useToast();
     const searchParams = useSearchParams();
     const initialFilters = salaryRegisterFiltersFromSearchParams(searchParams);
@@ -431,5 +431,13 @@ export default function SalaryPage() {
                 pendingEnrollmentEmployees={pendingEnrollmentList}
             />
         </PermissionGuard>
+    );
+}
+
+export default function SalaryPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <SalaryPageContent />
+        </Suspense>
     );
 }
